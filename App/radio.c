@@ -552,7 +552,7 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
         currentPower--;
     }
 
-    PY25Q16_ReadBuffer(0x1ED0 + (Band * 16) + (Op * 3), Txp, 3);
+    PY25Q16_ReadBuffer(0x100D0 + (Band * 16) + (Op * 3), Txp, 3);
 
 #ifdef ENABLE_FEAT_F4HWN
     // make low and mid even lower
