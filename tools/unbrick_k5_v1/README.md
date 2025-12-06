@@ -1,5 +1,7 @@
 # Unbricking the UV-K5 V1
 
+<img width="2016" height="1512" alt="pcbite" src="https://github.com/user-attachments/assets/b3086bf2-c14c-47da-b68b-a6867268ae78" />
+
 Restoring a UV-K5 V1 accidentally flashed with the F4HWN 4.3 Fusion 🔥 Edition firmware, using OpenOCD and a ST-LINK programmer.
 
 ## Introduction
