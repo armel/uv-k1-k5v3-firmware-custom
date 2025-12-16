@@ -332,6 +332,12 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = ARRAY_SIZE(gSubMenu_PTT_ID) - 1;
             break;
 
+        case MENU_SELECTIVE:
+            *pMin = 0;
+            *pMax = 5;   // 6 choix : 0–5
+            break;
+
+            
         case MENU_BAT_TXT:
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_BAT_TXT) - 1;
@@ -532,6 +538,11 @@ void MENU_AcceptSetting(void)
             gTxVfo->TX_OFFSET_FREQUENCY_DIRECTION = gSubMenuSelection;
             gRequestSaveChannel                   = 1;
             return;
+        
+        case MENU_SELECTIVE:
+            gEeprom.selective_mode = gSubMenuSelection;
+            SETTINGS_SaveSettings();
+            break;
 
         case MENU_OFFSET:
             gTxVfo->TX_OFFSET_FREQUENCY = gSubMenuSelection;
@@ -1096,7 +1107,9 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gEeprom.MrChannel[gEeprom.TX_VFO];
             break;
 
-        case MENU_SAVE:
+        
+        
+            case MENU_SAVE:
             gSubMenuSelection = gEeprom.BATTERY_SAVE;
             break;
 
@@ -1219,6 +1232,10 @@ void MENU_ShowCurrentSetting(void)
 
         case MENU_D_ST:
             gSubMenuSelection = gEeprom.DTMF_SIDE_TONE;
+            break;
+        
+        case MENU_SELECTIVE:
+            gSubMenuSelection = gEeprom.selective_mode;
             break;
 
 #ifdef ENABLE_DTMF_CALLING
