@@ -1109,7 +1109,7 @@ void MENU_ShowCurrentSetting(void)
 
         
         
-            case MENU_SAVE:
+        case MENU_SAVE:
             gSubMenuSelection = gEeprom.BATTERY_SAVE;
             break;
 
