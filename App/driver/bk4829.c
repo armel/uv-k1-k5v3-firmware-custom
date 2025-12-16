@@ -177,7 +177,7 @@ void BK4819_Init(void)
 
     BK4819_WriteRegister(0x73, 0x4691);
     BK4819_WriteRegister(0x77, 0x88EF);
-    BK4819_WriteRegister(BK4819_REG_19, 0x104E);
+    BK4819_WriteRegister(BK4819_REG_19, 0x1041);
     BK4819_WriteRegister(BK4819_REG_28, 0x0B40);
     BK4819_WriteRegister(BK4819_REG_29, 0xAA00);
     BK4819_WriteRegister(0x2A, 0x6600);
