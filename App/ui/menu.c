@@ -129,6 +129,8 @@ const t_menu_item MenuList[] =
         {"AM Fix",      MENU_AM_FIX        },
     #endif
 #endif
+
+    {"SelCal",     MENU_SELECTIVE   },
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SysInf",      MENU_VOL           }, // was "VOL"
@@ -199,6 +201,17 @@ const char gSubMenu_TXP[][6] =
     "MID",
     "HIGH"
 };
+
+const char * const gSubMenu_SELCAL[] =
+{
+    "OFF",
+    "ZVEI-1",
+    "ZVEI-2",
+    "CCIR",
+    "REGA TEST",
+    "REGA ALARM"
+};
+
 
 const char gSubMenu_SFT_D[][4] =
 {
@@ -672,6 +685,11 @@ void UI_DisplayMenu(void)
                 sprintf(String, "%u.%uHz", CTCSS_Options[gSubMenuSelection - 1] / 10, CTCSS_Options[gSubMenuSelection - 1] % 10);
             break;
         }
+
+        case MENU_SELECTIVE:
+            strcpy(String, gSubMenu_SELCAL[gSubMenuSelection]);
+            break;
+
 
         case MENU_SFT_D:
             strcpy(String, gSubMenu_SFT_D[gSubMenuSelection]);

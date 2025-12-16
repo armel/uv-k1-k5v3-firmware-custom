@@ -35,6 +35,8 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/menu.h"
+#include "selective_call.h"
+
 
 VFO_Info_t    *gTxVfo;
 VFO_Info_t    *gRxVfo;

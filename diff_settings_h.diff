@@ -1,0 +1,12 @@
+diff --git a/App/settings.h b/App/settings.h
+index 35639b5..595d31a 100644
+--- a/App/settings.h
++++ b/App/settings.h
+@@ -302,6 +302,7 @@ typedef struct {
+     uint8_t               S0_LEVEL;
+     uint8_t               S9_LEVEL;
+ #endif
++    uint8_t               selective_mode; 
+ } EEPROM_Config_t;
+ 
+ extern EEPROM_Config_t gEeprom;

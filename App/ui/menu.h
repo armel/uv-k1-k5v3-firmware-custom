@@ -96,6 +96,7 @@ enum
     MENU_D_LIST,
 #endif
     MENU_D_LIVE_DEC,
+    MENU_SELECTIVE,
     MENU_PONMSG,
     MENU_ROGER,
     MENU_VOL,
