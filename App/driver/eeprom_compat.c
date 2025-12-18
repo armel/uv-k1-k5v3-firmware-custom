@@ -42,9 +42,7 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
     _MK_MAPPING(0x000000, 0x0000, 0x0c80),  //
     _MK_MAPPING(0x001000, 0x0c80, 0x0d60),  //
     _MK_MAPPING(0x002000, 0x0d60, 0x0e30),  //
-    _MK_MAPPING(HOLE_ADDR, 0x0e30, 0x0e40), //
-    _MK_MAPPING(0x003000, 0x0e40, 0x0e68),  //
-    _MK_MAPPING(HOLE_ADDR, 0x0e68, 0x0e70), //
+    _MK_MAPPING(HOLE_ADDR, 0x0e30, 0x0e70), //
     _MK_MAPPING(0x004000, 0x0e70, 0x0e80),  //
     _MK_MAPPING(0x005000, 0x0e80, 0x0e88),  //
     _MK_MAPPING(0x006000, 0x0e88, 0x0e90),  //
@@ -62,6 +60,7 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
     _MK_MAPPING(0x010000, 0x1e00, 0x1f90),  //
     _MK_MAPPING(HOLE_ADDR, 0x1f90, 0x1ff0), //
     _MK_MAPPING(0x00c000, 0x1ff0, 0x2000),  //
+    _MK_MAPPING(0x003000, 0x2000, 0x2080),  //
 };
 
 static void AddrTranslate(uint16_t EEPROM_Addr, uint16_t Size, uint32_t *PY25Q16_Addr_out, uint16_t *Size_out, bool *End_out);

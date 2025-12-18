@@ -21,6 +21,16 @@
 
 #include "driver/keyboard.h"
 
+// Extended AirCopy: after 0x0000..0x1E00, also send 0x2000..0x2080 (2 blocks)
+#define AIRCOPY_MAIN_END        0x1E00u
+#define AIRCOPY_EXTRA_START     0x2000u
+#define AIRCOPY_EXTRA_END       0x2080u
+#define AIRCOPY_BLOCK_SIZE      0x0040u // 64 bytes
+#define AIRCOPY_MAIN_BLOCKS     (AIRCOPY_MAIN_END / AIRCOPY_BLOCK_SIZE) // 0x78
+#define AIRCOPY_EXTRA_BLOCKS    ((AIRCOPY_EXTRA_END - AIRCOPY_EXTRA_START) / AIRCOPY_BLOCK_SIZE) // 2
+#define AIRCOPY_TOTAL_BLOCKS    (AIRCOPY_MAIN_BLOCKS + AIRCOPY_EXTRA_BLOCKS)
+#define AIRCOPY_BAR_WIDTH       120 // Visible width of the progress gauge for UI
+
 enum AIRCOPY_State_t
 {
     AIRCOPY_READY = 0,

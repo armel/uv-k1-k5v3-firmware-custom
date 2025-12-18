@@ -70,7 +70,7 @@ void UI_DisplayAircopy(void)
 
     memset(String, 0, sizeof(String));
 
-    percent = (gAirCopyBlockNumber * 10000) / 120;
+    percent = (gAirCopyBlockNumber * 10000) / AIRCOPY_TOTAL_BLOCKS;
 
     if (gAirCopyIsSendMode == 0) {
         sprintf(String, "RCV:%02u.%02u%% E:%d", percent / 100, percent % 100, gErrorsDuringAirCopy);
@@ -86,7 +86,7 @@ void UI_DisplayAircopy(void)
         gFrameBuffer[4][1] = 0x3c;
         gFrameBuffer[4][2] = 0x42;
 
-        for(uint8_t i = 1; i <= 122; i++)
+        for(uint8_t i = 1; i <= AIRCOPY_BAR_WIDTH + 2; i++)
         {
             gFrameBuffer[4][2 + i] = 0x81;
         }
@@ -95,20 +95,53 @@ void UI_DisplayAircopy(void)
         gFrameBuffer[4][126] = 0x3c;
     }
 
-    if(gAirCopyBlockNumber + gErrorsDuringAirCopy != 0)
+    uint16_t doneBlocks = gAirCopyBlockNumber + gErrorsDuringAirCopy;
+
+    if (doneBlocks > 0)
     {
-        // Check CRC
-        if(gErrorsDuringAirCopy != lErrorsDuringAirCopy)
+        // Track CRC errors per real block index
+        if (gErrorsDuringAirCopy != lErrorsDuringAirCopy)
         {
-            set_bit(crc, gAirCopyBlockNumber + gErrorsDuringAirCopy);
+            // Mark the last processed block as faulty
+            set_bit(crc, doneBlocks - 1);
             lErrorsDuringAirCopy = gErrorsDuringAirCopy;
         }
 
-        for(uint8_t i = 0; i < (gAirCopyBlockNumber + gErrorsDuringAirCopy); i++)
+        // Project real blocks onto a fixed-width progress bar
+        for (uint8_t col = 0; col < AIRCOPY_BAR_WIDTH; col++)
         {
-            if(get_bit(crc, i) == 0)
+            // Determine the range of blocks represented by this column
+            uint16_t block_start = (col * AIRCOPY_TOTAL_BLOCKS) / AIRCOPY_BAR_WIDTH;
+            uint16_t block_end   = ((col + 1) * AIRCOPY_TOTAL_BLOCKS) / AIRCOPY_BAR_WIDTH;
+
+            bool has_data  = false;
+            bool has_error = false;
+
+            // Scan the block range mapped to this column
+            for (uint16_t b = block_start; b < block_end; b++)
             {
-                gFrameBuffer[4][i + 4] = 0xbd;
+                if (b < doneBlocks)
+                    has_data = true;
+
+                if (get_bit(crc, b))
+                    has_error = true;
+            }
+
+            // Render the column
+            if (has_error)
+            {
+                // Error blocks are rendered as empty gaps
+                gFrameBuffer[4][col + 4] = 0x81;   // error
+            }
+            else if (has_data)
+            {
+                // Successfully transferred blocks
+                gFrameBuffer[4][col + 4] = 0xbd;   // full block
+            }
+            else
+            {
+                // Not yet transferred
+                gFrameBuffer[4][col + 4] = 0x81;   // empty
             }
         }
     }

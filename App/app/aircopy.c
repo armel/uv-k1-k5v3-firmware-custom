@@ -45,6 +45,16 @@ uint8_t gAirCopyIsSendMode;
 
 uint16_t g_FSK_Buffer[36];
 
+static uint16_t AIRCOPY_BlockToOffset(const uint16_t block)
+{
+    if (block < AIRCOPY_MAIN_BLOCKS) {
+        return (uint16_t)(block * AIRCOPY_BLOCK_SIZE);
+    }
+
+    const uint16_t extraBlock = (uint16_t)(block - AIRCOPY_MAIN_BLOCKS);
+    return (uint16_t)(AIRCOPY_EXTRA_START + (extraBlock * AIRCOPY_BLOCK_SIZE));
+}
+
 static void AIRCOPY_clear()
 {
     for (uint8_t i = 0; i < 15; i++)
@@ -68,7 +78,7 @@ bool AIRCOPY_SendMessage(void)
         return 1;
     }
 
-    g_FSK_Buffer[1] = (gAirCopyBlockNumber & 0x3FF) << 6;
+    g_FSK_Buffer[1] = AIRCOPY_BlockToOffset(gAirCopyBlockNumber);
 
     EEPROM_ReadBuffer(g_FSK_Buffer[1], &g_FSK_Buffer[2], 64);
 
@@ -78,7 +88,7 @@ bool AIRCOPY_SendMessage(void)
         g_FSK_Buffer[i + 1] ^= Obfuscation[i % 8];
     }
 
-    if (++gAirCopyBlockNumber >= 0x78) {
+    if (++gAirCopyBlockNumber >= AIRCOPY_TOTAL_BLOCKS) {
         gAircopyState = AIRCOPY_COMPLETE;
         #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
             getScreenShot(false);
@@ -127,7 +137,10 @@ void AIRCOPY_StorePacket(void)
 
     uint16_t Offset = g_FSK_Buffer[1];
 
-    if (Offset >= 0x1E00) {
+    const bool in_main  = (Offset < AIRCOPY_MAIN_END);
+    const bool in_extra = (Offset >= AIRCOPY_EXTRA_START && Offset < AIRCOPY_EXTRA_END);
+
+    if (!in_main && !in_extra) {
         gErrorsDuringAirCopy++;
         return;
     }
@@ -139,7 +152,7 @@ void AIRCOPY_StorePacket(void)
         Offset += 8;
     }
 
-    if (Offset == 0x1E00) {
+    if (Offset == AIRCOPY_EXTRA_END) {
         gAircopyState = AIRCOPY_COMPLETE;
         #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
             getScreenShot(false);

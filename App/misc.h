@@ -36,7 +36,7 @@
     #define SWAP(a, b) ({ __typeof__ (a) _c = (a);  a = b; b = _c; })
 #endif
 
-#define FM_CHANNELS_MAX 40
+#define FM_CHANNELS_MAX 64
 
 #define IS_MR_CHANNEL(x)       ((x) <= MR_CHANNEL_LAST)
 #define IS_FREQ_CHANNEL(x)     ((x) >= FREQ_CHANNEL_FIRST && (x) <= FREQ_CHANNEL_LAST)
