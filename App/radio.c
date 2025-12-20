@@ -1273,6 +1273,18 @@ void RADIO_SendEndOfTransmission(void)
 {
     if (gCurrentVfo != NULL && gCurrentVfo->Modulation == MODULATION_CW) {
         // CW: pure carrier keyed by PTT; no roger/DTMF/tail tones.
+
+        // Stop any local sidetone/tone generator.
+        BK4819_WriteRegister(BK4819_REG_70, 0x0000);
+        BK4819_WriteRegister(BK4819_REG_71, 0x0000);
+        BK4819_SetAF(BK4819_AF_MUTE);
+
+        // Restore REG_40 default (it is normally set during BK init).
+        BK4819_WriteRegister((BK4819_REGISTER_t)0x40U, 0x3516);
+
+        AUDIO_AudioPathOff();
+        gEnableSpeaker = false;
+
         RADIO_SetupRegisters(false);
         return;
     }

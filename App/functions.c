@@ -203,6 +203,13 @@ void FUNCTION_Transmit()
 
     if (isCw) {
         BK4819_SetAF(BK4819_AF_MUTE);
+
+        // Set FM deviation(REG_40) to zero to prevent sidetone from modulating the TX carrier.
+        BK4819_WriteRegister((BK4819_REGISTER_t)0x40U, 0x0000);
+
+        AUDIO_AudioPathOn();
+        gEnableSpeaker = true;
+        BK4819_TransmitTone(true, 650);
     }
 
     // turn the RED LED on
