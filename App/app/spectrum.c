@@ -1201,19 +1201,19 @@ static void DrawNums()
         sprintf(String, "%u.%05u \x7F%u.%02uk", currentFreq / 100000,
                 currentFreq % 100000, settings.frequencyChangeStep / 100,
                 settings.frequencyChangeStep % 100);
-        GUI_DisplaySmallest(String, 36, 56, false, true);
+        GUI_DisplaySmallest(String, 36, 49, false, true);
     }
     else
     {
         sprintf(String, "%u.%05u", GetFStart() / 100000, GetFStart() % 100000);
-        GUI_DisplaySmallest(String, 0, 56, false, true);
+        GUI_DisplaySmallest(String, 0, 49, false, true);
 
         sprintf(String, "\x7F%u.%02uk", settings.frequencyChangeStep / 100,
                 settings.frequencyChangeStep % 100);
-        GUI_DisplaySmallest(String, 48, 56, false, true);
+        GUI_DisplaySmallest(String, 48, 49, false, true);
 
         sprintf(String, "%u.%05u", GetFEnd() / 100000, GetFEnd() % 100000);
-        GUI_DisplaySmallest(String, 93, 56, false, true);
+        GUI_DisplaySmallest(String, 93, 49, false, true);
     }
 }
 
@@ -1262,12 +1262,12 @@ static void DrawTicks()
 
 static void DrawArrow(uint8_t x)
 {
-    for (signed i = -2; i <= 2; ++i)
+    for (signed i = -1; i <= 1; ++i)
     {
         signed v = x + i;
         if (!(v & 128))
         {
-            gFrameBuffer[6][v] |= (0b01111000 << my_abs(i)) & 0b01111000;
+            gFrameBuffer[6][v] |= (0b00111000 << my_abs(i)) & 0b00111000;
         }
     }
 }
