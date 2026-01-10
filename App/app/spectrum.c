@@ -948,10 +948,18 @@ static uint8_t Rssi2WaterfallLevel(uint16_t rssi)
         return 0;
     }
 
-    int dbm = clamp(Rssi2DBm(rssi), settings.dbMin, settings.dbMax);
-    int level = (dbm - settings.dbMin) * 4 / range;
+    int dbm = Rssi2DBm(rssi);
+    dbm = clamp(dbm, settings.dbMin, settings.dbMax);
 
-    return clamp(level, 0, 3);
+    int norm = (dbm - settings.dbMin) * 100 / range;
+
+    if (norm >= 60)
+        return 3;
+    if (norm >= 40)
+        return 2;
+    if (norm >= 20)
+        return 1;
+    return 0;
 }
 
 static bool WaterfallPixelOn(uint8_t level, uint8_t x, uint8_t phase)
