@@ -98,6 +98,8 @@ char freqInputString[11];
 
 uint8_t menuState = 0;
 uint16_t listenT = 0;
+static uint8_t waterfallBuffer[WaterfallHeight][128];
+static uint8_t waterfallPhase = 0;
 
 RegisterSpec registerSpecs[] = {
     {},
@@ -571,6 +573,8 @@ static void RelaunchScan()
 #endif
     preventKeypress = true;
     scanInfo.rssiMin = RSSI_MAX_VALUE;
+    memset(waterfallBuffer, 0, sizeof(waterfallBuffer));
+    waterfallPhase = 0;
 }
 
 static void UpdateScanInfo()
@@ -929,6 +933,75 @@ uint8_t Rssi2PX(uint16_t rssi, uint8_t pxMin, uint8_t pxMax)
 uint8_t Rssi2Y(uint16_t rssi)
 {
     return DrawingEndY - Rssi2PX(rssi, 0, DrawingEndY);
+}
+
+static uint8_t Rssi2WaterfallLevel(uint16_t rssi)
+{
+    if (rssi == RSSI_MAX_VALUE)
+    {
+        return 0;
+    }
+
+    int range = settings.dbMax - settings.dbMin;
+    if (range <= 0)
+    {
+        return 0;
+    }
+
+    int dbm = clamp(Rssi2DBm(rssi), settings.dbMin, settings.dbMax);
+    int level = (dbm - settings.dbMin) * 4 / range;
+
+    return clamp(level, 0, 3);
+}
+
+static bool WaterfallPixelOn(uint8_t level, uint8_t x, uint8_t phase)
+{
+    switch (level)
+    {
+    case 3:
+        return true;
+    case 2:
+        return ((x + phase) & 1u) == 0;
+    case 1:
+        return ((x + phase) & 3u) == 0;
+    default:
+        return false;
+    }
+}
+
+static void UpdateWaterfall()
+{
+    uint16_t steps = GetStepsCount();
+
+    for (int row = WaterfallHeight - 1; row > 0; --row)
+    {
+        memcpy(waterfallBuffer[row], waterfallBuffer[row - 1], sizeof(waterfallBuffer[row]));
+    }
+
+    for (uint8_t x = 0; x < 128; ++x)
+    {
+        uint16_t idx = steps > 128 ? x : (uint16_t)x * steps / 128;
+        uint16_t rssi = rssiHistory[idx];
+        uint8_t level = Rssi2WaterfallLevel(rssi);
+        waterfallBuffer[0][x] = WaterfallPixelOn(level, x, waterfallPhase);
+    }
+
+    waterfallPhase++;
+}
+
+static void DrawWaterfall()
+{
+    for (uint8_t row = 0; row < WaterfallHeight; ++row)
+    {
+        uint8_t y = WaterfallTopY + row;
+        for (uint8_t x = 0; x < 128; ++x)
+        {
+            if (waterfallBuffer[row][x])
+            {
+                PutPixel(x, y, true);
+            }
+        }
+    }
 }
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -1434,6 +1507,7 @@ static void RenderSpectrum()
     DrawTicks();
     DrawArrow(128u * peak.i / GetStepsCount());
     DrawSpectrum();
+    DrawWaterfall();
     DrawRssiTriggerLevel();
     DrawF(peak.f);
     DrawNums();
@@ -1621,6 +1695,7 @@ static void UpdateScan()
         memset(&rssiHistory[scanInfo.measurementsCount], 0,
                sizeof(rssiHistory) - scanInfo.measurementsCount * sizeof(rssiHistory[0]));
 
+    UpdateWaterfall();
     redrawScreen = true;
     preventKeypress = false;
 
