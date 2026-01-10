@@ -969,21 +969,58 @@ static bool WaterfallPixelOn(uint8_t level, uint8_t x, uint8_t phase)
     }
 }
 
+static uint8_t GetSpectrumBarX(uint8_t i, uint8_t bars, uint16_t steps)
+{
+#ifdef ENABLE_SCAN_RANGES
+    if (gScanRangeStart && bars > 1)
+    {
+        // Total width units = (bars - 1) full bars + 2 half bars = bars
+        // First bar: half width, middle bars: full width, last bar: half width
+        // Scale: 128 pixels / (bars - 1) = pixels per full bar
+        uint16_t fullWidth = 128 * 2 / (bars - 1);  // x2 for precision
+
+        if (i == 0)
+        {
+            return fullWidth / 4;  // half of half (because fullWidth is x2)
+        }
+
+        uint8_t x = fullWidth / 4 + (uint16_t)i * fullWidth / 2;
+        if (i == bars - 1)
+            x = 128;  // Last bar ends at screen edge
+        return x;
+    }
+#endif
+    uint8_t shift_graph = 64 / steps + 1;
+    return i * 128 / bars + shift_graph;
+}
+
 static void UpdateWaterfall()
 {
     uint16_t steps = GetStepsCount();
+    uint8_t bars = (steps > 128) ? 128 : steps;
 
     for (int row = WaterfallHeight - 1; row > 0; --row)
     {
         memcpy(waterfallBuffer[row], waterfallBuffer[row - 1], sizeof(waterfallBuffer[row]));
     }
 
-    for (uint8_t x = 0; x < 128; ++x)
+    memset(waterfallBuffer[0], 0, sizeof(waterfallBuffer[0]));
+
+    uint8_t ox = 0;
+    for (uint8_t i = 0; i < bars; ++i)
     {
-        uint16_t idx = steps > 128 ? x : (uint16_t)x * steps / 128;
-        uint16_t rssi = rssiHistory[idx];
-        uint8_t level = Rssi2WaterfallLevel(rssi);
-        waterfallBuffer[0][x] = WaterfallPixelOn(level, x, waterfallPhase);
+        uint16_t rssi = rssiHistory[(bars > 128) ? i >> settings.stepsCount : i];
+        uint8_t x = GetSpectrumBarX(i, bars, steps);
+
+        if (rssi != RSSI_MAX_VALUE)
+        {
+            uint8_t level = Rssi2WaterfallLevel(rssi);
+            for (uint8_t xx = ox; xx < x && xx < 128; ++xx)
+            {
+                waterfallBuffer[0][xx] = WaterfallPixelOn(level, xx, waterfallPhase);
+            }
+        }
+        ox = x;
     }
 
     waterfallPhase++;
@@ -1016,32 +1053,7 @@ static void DrawWaterfall()
         {
             uint16_t rssi = rssiHistory[(bars>128) ? i >> settings.stepsCount : i];
             
-#ifdef ENABLE_SCAN_RANGES
-            uint8_t x;
-            if (gScanRangeStart && bars > 1)
-            {
-                // Total width units = (bars - 1) full bars + 2 half bars = bars
-                // First bar: half width, middle bars: full width, last bar: half width
-                // Scale: 128 pixels / (bars - 1) = pixels per full bar
-                uint16_t fullWidth = 128 * 2 / (bars - 1);  // x2 for precision
-                
-                if (i == 0)
-                {
-                    x = fullWidth / 4;  // half of half (because fullWidth is x2)
-                }
-                else
-                {
-                    // Position = half + (i-1) full bars + current bar
-                    x = fullWidth / 4 + (uint16_t)i * fullWidth / 2;
-                    if (i == bars - 1) x = 128;  // Last bar ends at screen edge
-                }
-            }
-            else
-#endif
-            {
-                uint8_t shift_graph = 64 / steps + 1;
-                x = i * 128 / bars + shift_graph;
-            }
+            uint8_t x = GetSpectrumBarX(i, bars, steps);
 
             if (rssi != RSSI_MAX_VALUE)
             {
