@@ -9,11 +9,15 @@ This repository is a fork of the [F4HWN custom firmware](https://github.com/arme
 A big thanks to DualTachyon, who paved the way by releasing the very first open-source [firmware](https://github.com/DualTachyon/uv-k5-firmware) for the UV-K5 V1. None of this would have been possible without that initial work !
 
 
+
+
 # this fork bring the Calypso Edition to life based on F4HNW v4.3.2
 changes according to my personal favorisation:
 
 * improving AM reception by disabling AM_FIX and AM AGC adjustement plus adapting audio filter for AM acording to stock fw
 * enabling scrambler feature again (Armel forgive me)
+
+
 
 
 # A note for developers who intend to fork this project
