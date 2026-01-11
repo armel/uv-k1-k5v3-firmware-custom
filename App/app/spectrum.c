@@ -1611,7 +1611,7 @@ static void UpdateScan()
 {
     Scan();
 
-    if (scanInfo.i < scanInfo.measurementsCount)
+    if (scanInfo.i + 1 < scanInfo.measurementsCount)
     {
         NextScanStep();
         return;
