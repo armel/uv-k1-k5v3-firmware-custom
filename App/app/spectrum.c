@@ -185,7 +185,8 @@ void LockAGC()
 {
     //RADIO_SetupAGC(settings.modulationType == MODULATION_AM, lockAGC);
     RADIO_SetupAGC(false, lockAGC);
-    lockAGC = true;
+    //lockAGC = true;
+    lockAGC = false;
 }
 
 static void SetRegMenuValue(uint8_t st, bool add)
