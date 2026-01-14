@@ -27,7 +27,6 @@
 #include "driver/system.h"
 #include "driver/systick.h"
 
-#include "selective_call.h"
 
 
 
@@ -1854,38 +1853,5 @@ void BK4819_PlayDTMFEx(bool bLocalLoopback, char Code)
 
     BK4819_PlayDTMF(Code);
 
-    BK4819_ExitTxMute();
-}
-void BK4819_SendZVEI2Sequence(const uint16_t *tones, uint8_t len)
-{
-    // CONFIGURATION : gains & paramètres Tone1
-    BK4819_EnterTxMute();
-    BK4819_SetAF(BK4819_AF_MUTE);
-
-    // Gain correct pour les 5 tons (équivalent Motorola / Rega)
-    BK4819_WriteRegister(BK4819_REG_70,
-        BK4819_REG_70_ENABLE_TONE1 |
-        (66u << BK4819_REG_70_SHIFT_TONE1_TUNING_GAIN));
-
-    BK4819_EnableTXLink();
-    SYSTEM_DelayMs(50);
-
-    for (uint8_t i = 0; i < len; i++)
-    {
-        uint16_t freq = tones[i];
-
-        // jouer un ton ZVEI2
-        BK4819_WriteRegister(BK4819_REG_71, scale_freq(freq));
-        BK4819_ExitTxMute();
-        SYSTEM_DelayMs(70);  // durée ton ZVEI standard
-
-        // pause entre les tons
-        BK4819_EnterTxMute();
-        SYSTEM_DelayMs(10);
-    }
-
-    // Arrêt transmission
-    BK4819_WriteRegister(BK4819_REG_70, 0);
-    BK4819_WriteRegister(BK4819_REG_30, 0xC1FE);
     BK4819_ExitTxMute();
 }

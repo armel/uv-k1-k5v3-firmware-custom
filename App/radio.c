@@ -35,7 +35,7 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/menu.h"
-#include "selective_call.h"
+#include "app/selective_call.h"
 
 
 VFO_Info_t    *gTxVfo;
