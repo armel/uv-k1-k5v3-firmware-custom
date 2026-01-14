@@ -32,6 +32,7 @@
 #include "../misc.h"
 #include "../settings.h"
 
+
 #ifdef ENABLE_FEAT_F4HWN
     #include "../version.h"
 #endif
@@ -131,6 +132,7 @@ const t_menu_item MenuList[] =
 #endif
 
     {"SelCal",     MENU_SELECTIVE   },
+    {"SelSeq",     MENU_SELCAL_CODE },
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SysInf",      MENU_VOL           }, // was "VOL"
@@ -502,7 +504,7 @@ uint8_t UI_MENU_GetMenuIdx(uint8_t id)
 }
 
 int32_t gSubMenuSelection;
-
+uint8_t gSelcalCursor = 0;   // 0..4 : digit position for edition pour le selseq
 // edit box
 char    edit_original[17]; // a copy of the text before editing so that we can easily test for changes/difference
 char    edit[17];
@@ -689,8 +691,33 @@ void UI_DisplayMenu(void)
         case MENU_SELECTIVE:
             strcpy(String, gSubMenu_SELCAL[gSubMenuSelection]);
             break;
+            
+        case MENU_SELCAL_CODE:
+        {
+            // Affichera les 5 digits de la séquence du SelCall
+            sprintf(String, "%u %u %u %u %u",
+                gEeprom.selective_tx_seq[0],
+                gEeprom.selective_tx_seq[1],
+                gEeprom.selective_tx_seq[2],
+                gEeprom.selective_tx_seq[3],
+                gEeprom.selective_tx_seq[4]
+            );
 
+            // Ligne “texte” de la séquence
+            UI_PrintString(String, menu_item_x1, menu_item_x2, 2, 8);
 
+            // Position du curseur ^ sous le digit sélectionné
+            // "0 0 0 0 0" -> chaque digit + espace  = 2 colonnes
+            uint8_t cursor_col = gSelcalCursor * 2;   // 0, 2, 4, 6, 8
+            uint8_t cursor_x   = menu_item_x1 + (cursor_col * 8);
+
+            UI_PrintString("^", cursor_x, menu_item_x2, 4, 8);
+
+            already_printed = true;
+            break;
+        }
+
+        
         case MENU_SFT_D:
             strcpy(String, gSubMenu_SFT_D[gSubMenuSelection]);
             break;

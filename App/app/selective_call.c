@@ -7,6 +7,7 @@
 #include "driver/system.h"
 #include "ui/ui.h"
 #include "audio.h"
+#include "settings.h"
 
 // ------------------------------------------------------
 // Tables des fréquences ZVEI-1, ZVEI-2, CCIR
@@ -153,7 +154,7 @@ void SelectiveCall_ProcessTone(uint8_t tone)
 }
 
 // ------------------------------------------------------
-// Vérifie correspondance RX avec séquence attendue
+// Vérifie la  correspondance RX avec séquence attendue
 // ------------------------------------------------------
 bool SelectiveCall_Match(void)
 {
@@ -166,4 +167,26 @@ bool SelectiveCall_Match(void)
     }
 
     return true;
+}
+// ------------------------------------------------------
+// Helper : envoi SelCall basé sur la config globale EEPROM
+// ------------------------------------------------------
+void SelectiveCall_SendFromEeprom(void)
+{
+    // Si le SelCall est désactivé, on ne fait rien
+    if (gEeprom.selective_mode == 0)   // SELECTIVE_OFF
+        return;
+
+    selective_conf_t conf;
+    memset(&conf, 0, sizeof(conf));
+
+    conf.mode = (selective_mode_t)gEeprom.selective_mode;
+
+    // Pour l’instant : on utilise la même séquence en TX et RX
+    for (uint8_t i = 0; i < SELECTIVE_MAX_TONES; i++) {
+        conf.tx_seq[i] = gEeprom.selective_tx_seq[i];
+        conf.rx_seq[i] = gEeprom.selective_tx_seq[i];
+    }
+
+    SelectiveCall_Send(&conf);
 }

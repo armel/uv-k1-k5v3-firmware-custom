@@ -36,5 +36,7 @@ void SelectiveCall_Send(const selective_conf_t *conf);
 void SelectiveCall_ResetRx(void);
 void SelectiveCall_ProcessTone(uint8_t tone);
 bool SelectiveCall_Match(void);
+void SelectiveCall_SendFromEeprom(void);
+
 
 #endif

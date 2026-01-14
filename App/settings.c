@@ -188,6 +188,23 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     gEeprom.TX_VFO                         = (Data[3] <  2) ? Data[3] : 0;
     gEeprom.BATTERY_TYPE                   = (Data[4] < BATTERY_TYPE_UNKNOWN) ? Data[4] : BATTERY_TYPE_1600_MAH;
 
+    // 0EB0..0EB7 - SelCall global
+    PY25Q16_ReadBuffer(0x007000 + 0x20, Data, 8);
+
+    // mode (0 = OFF, 1..5 = modes définis dans selective_mode_t)
+    if (Data[0] <= 5) {            // 0..5 = OFF, ZVEI1, ZVEI2, CCIR, REGA_TEST, REGA_ALARM
+        gEeprom.selective_mode = Data[0];
+    } else {
+        gEeprom.selective_mode = 0;   // SELECTIVE_OFF par défaut si EEPROM pourrie
+    }
+
+    // séquence TX (5 digits 0..9)
+    for (int i = 0; i < SELECTIVE_MAX_TONES; i++) {
+        uint8_t d = Data[1 + i];
+        gEeprom.selective_tx_seq[i] = (d <= 9) ? d : 0;
+    }
+
+
     // 0ED0..0ED7
     PY25Q16_ReadBuffer(0x00A0A8 + 0x40, Data, 8);
     gEeprom.DTMF_SIDE_TONE               = (Data[0] <   2) ? Data[0] : true;
@@ -569,7 +586,16 @@ void SETTINGS_FactoryReset(bool bIsAll)
         SETTINGS_SaveChannel(FREQ_CHANNEL_FIRST + BAND3_137MHz, 0, &gEeprom.VfoInfo[0], 2);
         SETTINGS_SaveChannel(FREQ_CHANNEL_FIRST + BAND6_400MHz, 1, &gEeprom.VfoInfo[1], 2);
     #endif
+    // ---- Ajout SelCall (RAM) ----
+    gEeprom.selective_mode = 0;      // SELECTIVE_OFF
+
+    for (int i = 0; i < SELECTIVE_MAX_TONES; i++) {
+        gEeprom.selective_tx_seq[i] = 0;   // "00000"
+    }   
+    
 }
+
+
 
 #ifdef ENABLE_FMRADIO
 void SETTINGS_SaveFM(void)
@@ -745,6 +771,15 @@ void SETTINGS_SaveSettings(void)
     State[2] = gEeprom.REPEATER_TAIL_TONE_ELIMINATION;
     State[3] = gEeprom.TX_VFO;
     State[4] = gEeprom.BATTERY_TYPE;
+
+    // 0x0EB0 - 0x0EB7 : SelCall global
+    State = SecBuf + 0x20;
+    State[0] = gEeprom.selective_mode;
+
+    for (int i = 0; i < SELECTIVE_MAX_TONES; i++) {
+        State[1 + i] = gEeprom.selective_tx_seq[i];
+    }
+   
 
     // 0x0ED0
     State = SecBuf + 0x40;

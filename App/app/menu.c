@@ -472,6 +472,11 @@ void MENU_AcceptSetting(void)
 
     switch (UI_MENU_GetCurrentMenuId())
     {
+        
+        case MENU_SELCAL_CODE: //Les digits sont déjà dans gEeprom.selective_tx_seq[], 
+            SETTINGS_SaveSettings();
+            break;
+
         default:
             return;
 
@@ -1707,8 +1712,17 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
             edit_index          = -1;
         }
 
+        if (UI_MENU_GetCurrentMenuId() == MENU_SELCAL_CODE)
+        {
+            // Quand on entre dans SelSeq, on commence au le premier digit/
+            gSelcalCursor = 0;
+        }
+
         return;
     }
+
+    
+
 
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME)
     {
@@ -1834,6 +1848,19 @@ static void MENU_Key_STAR(const bool bKeyPressed, const bool bKeyHeld)
         return;
     }
 
+    if (UI_MENU_GetCurrentMenuId() == MENU_SELCAL_CODE && gIsInSubMenu)
+    {
+        // Avance le curseur sur le digit suivant (0..4 -> boucle)
+        if (gSelcalCursor < 4)
+            gSelcalCursor++;
+        else
+            gSelcalCursor = 0;
+
+        gRequestDisplayScreen = DISPLAY_MENU;
+        return;
+    }
+
+
     RADIO_SelectVfos();
 
     #ifdef ENABLE_NOAA
@@ -1884,6 +1911,29 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
         }
         return;
     }
+
+    if (UI_MENU_GetCurrentMenuId() == MENU_SELCAL_CODE && gIsInSubMenu)
+    {
+        // UP/DOWN changent la valeur du digit courant (0..9)
+        if (bKeyPressed && Direction != 0)
+        {
+            uint8_t v = gEeprom.selective_tx_seq[gSelcalCursor];
+
+            if (Direction < 0) {
+                // UP -> +1 modulo 10
+                v = (uint8_t)((v + 1) % 10);
+            } else { // Direction > 0
+                // DOWN -> -1 modulo 10
+                v = (v == 0) ? 9 : (uint8_t)(v - 1);
+            }
+
+            gEeprom.selective_tx_seq[gSelcalCursor] = v;
+            gRequestDisplayScreen = DISPLAY_MENU;
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        }
+        return;
+    }
+
 
     if (!bKeyHeld)
     {

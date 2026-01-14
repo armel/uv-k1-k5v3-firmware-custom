@@ -1169,6 +1169,18 @@ void RADIO_PrepareTX(void)
 
     // TX is allowed
 
+    // ------------------------------------------
+    // Selective Call (ZVEI / CCIR / REGA)
+    // ------------------------------------------
+    if (gEeprom.selective_mode > 0)
+    {
+        // Utilise le mode + la séquence configurée dans l’EEPROM
+        SelectiveCall_SendFromEeprom();
+
+        // petit délai pour laisser terminer le dernier ton
+        SYSTEM_DelayMs(50);
+    }
+
 #ifdef ENABLE_DTMF_CALLING
     if (gDTMF_ReplyState == DTMF_REPLY_ANI)
     {
