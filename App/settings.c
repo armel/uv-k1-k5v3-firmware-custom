@@ -189,7 +189,7 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     gEeprom.BATTERY_TYPE                   = (Data[4] < BATTERY_TYPE_UNKNOWN) ? Data[4] : BATTERY_TYPE_1600_MAH;
 
     // 0EB0..0EB7 - SelCall global
-    PY25Q16_ReadBuffer(0x007000 + 0x20, Data, 8);
+    PY25Q16_ReadBuffer(0x00A0A8 + 0x20, Data, 8); // Mon erreur ici j'avais mis 7000
 
     // mode (0 = OFF, 1..5 = modes définis dans selective_mode_t)
     if (Data[0] <= 5) {            // 0..5 = OFF, ZVEI1, ZVEI2, CCIR, REGA_TEST, REGA_ALARM

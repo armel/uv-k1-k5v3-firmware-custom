@@ -707,16 +707,16 @@ void UI_DisplayMenu(void)
             UI_PrintString(String, menu_item_x1, menu_item_x2, 2, 8);
 
             // Position du curseur ^ sous le digit sélectionné
-            // "0 0 0 0 0" -> chaque digit + espace  = 2 colonnes
+            // "0 0 0 0 0" -> chaque digit + espace = 2 colonnes = 16 px
             uint8_t cursor_col = gSelcalCursor * 2;   // 0, 2, 4, 6, 8
-            uint8_t cursor_x   = menu_item_x1 + (cursor_col * 8);
+            uint8_t cursor_x   = menu_item_x1 + 3 + (cursor_col * 8); // +3 pour le leger décalge a gauche
 
-            UI_PrintString("^", cursor_x, menu_item_x2, 4, 8);
+            // IMPORTANT : x2 = 0, comme dans MENU_MEM_NAME
+            UI_PrintString("^", cursor_x, 0, 4, 8);
 
             already_printed = true;
             break;
         }
-
         
         case MENU_SFT_D:
             strcpy(String, gSubMenu_SFT_D[gSubMenuSelection]);
