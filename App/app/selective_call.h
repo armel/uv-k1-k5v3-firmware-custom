@@ -7,6 +7,7 @@
 #define SELECTIVE_MAX_TONES 5
 #define SELECTIVE_TONE_DURATION_MS 70
 #define SELECTIVE_TONE_PAUSE_MS    30
+#define SELECTIVE_PRE_DELAY_MS     100 
 
 // Séquences REGA (ZVEI2 officiel Secours Montagne / SDIS 74)
 #define REGA_SOS_SEQ  {2,1,4,1,4}   // 21414

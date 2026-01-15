@@ -119,6 +119,9 @@ void SelectiveCall_Send(const selective_conf_t *conf)
     // stocker config active pour RX
     memcpy(&current_cfg, &local, sizeof(selective_conf_t));
 
+    // Laisser le temps au TX de se stabiliser 
+    SYSTEM_DelayMs(SELECTIVE_PRE_DELAY_MS);
+
     for (uint8_t i = 0; i < SELECTIVE_MAX_TONES; i++)
     {
         uint8_t code = local.tx_seq[i];
