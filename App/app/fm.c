@@ -552,18 +552,16 @@ void FM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             Key_MENU(state);
             break;
         case KEY_UP:
-            #ifdef ENABLE_NAVIG_LEFT_RIGHT
+            if(gEeprom.SET_NAV == 0)
                 Key_UP_DOWN(state, -1);
-            #else
+            else
                 Key_UP_DOWN(state, 1);
-            #endif
             break;
         case KEY_DOWN:
-            #ifdef ENABLE_NAVIG_LEFT_RIGHT
+            if(gEeprom.SET_NAV == 0)
                 Key_UP_DOWN(state, 1);
-            #else
+            else
                 Key_UP_DOWN(state, -1);
-            #endif
             break;
         case KEY_EXIT:
             Key_EXIT(state);

@@ -181,6 +181,7 @@ const t_menu_item MenuList[] =
 #endif
     {"BatCal",      MENU_BATCAL        }, // battery voltage calibration
     {"BatTyp",      MENU_BATTYP        }, // battery type 1600/2200mAh
+    {"SetNav",      MENU_SET_NAV       }, // set navigation (LEFT / RIGHT or UP / DOWN)
     {"Reset",       MENU_RESET         }, // might be better to move this to the hidden menu items ?
 
     {"",                              0xff               }  // end of list - DO NOT delete or move this this
@@ -345,6 +346,12 @@ const char gSubMenu_BATTYP[][12] =
     "3500mAh K5",
     "1400mAh K1",
     "2500mAh K1"
+};
+
+const char gSubMenu_SET_NAV[][17] =
+{
+    "LEFT\nRIGHT\nUV-K1",
+    "UP\nDOWN\nUV-K5(8)",
 };
 
 #ifndef ENABLE_FEAT_F4HWN
@@ -1068,6 +1075,10 @@ void UI_DisplayMenu(void)
 
         case MENU_BATTYP:
             strcpy(String, gSubMenu_BATTYP[gSubMenuSelection]);
+            break;
+
+        case MENU_SET_NAV:
+            strcpy(String, gSubMenu_SET_NAV[gSubMenuSelection]);
             break;
 
         case MENU_F1SHRT:

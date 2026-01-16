@@ -1207,22 +1207,26 @@ static void OnKeyDown(uint8_t key)
         break;
     case KEY_UP:
 #ifdef ENABLE_SCAN_RANGES
-        if (!gScanRangeStart)
+        if (!gScanRangeStart) {
 #endif
-#ifdef ENABLE_NAVIG_LEFT_RIGHT
+        if(gEeprom.SET_NAV == 0)
             UpdateCurrentFreq(false);
-#else
+        else
             UpdateCurrentFreq(true);
+#ifdef ENABLE_SCAN_RANGES
+        }
 #endif
         break;
     case KEY_DOWN:
 #ifdef ENABLE_SCAN_RANGES
-        if (!gScanRangeStart)
+        if (!gScanRangeStart) {
 #endif
-#ifdef ENABLE_NAVIG_LEFT_RIGHT
+        if(gEeprom.SET_NAV == 0)
             UpdateCurrentFreq(true);
-#else
+        else
             UpdateCurrentFreq(false);
+#ifdef ENABLE_SCAN_RANGES
+        }
 #endif
         break;
     case KEY_SIDE1:
@@ -1339,37 +1343,20 @@ void OnKeyDownStill(KEY_Code_t key)
         UpdateDBMax(false);
         break;
     case KEY_UP:
-        if (menuState)
+        if (menuState) {
+            bool nav = (gEeprom.SET_NAV != 0);
 
-#ifdef ENABLE_NAVIG_LEFT_RIGHT
-        {
-            SetRegMenuValue(menuState, false);
-            break;
+            SetRegMenuValue(menuState, nav);
+            UpdateCurrentFreqStill(nav);
         }
-        UpdateCurrentFreqStill(false);
-#else
-        {
-            SetRegMenuValue(menuState, true);
-            break;
-        }
-        UpdateCurrentFreqStill(true);
-#endif
         break;
     case KEY_DOWN:
-        if (menuState)
-#ifdef ENABLE_NAVIG_LEFT_RIGHT
-        {
-            SetRegMenuValue(menuState, true);
-            break;
+        if (menuState) {
+            bool nav = (gEeprom.SET_NAV != 0);
+
+            SetRegMenuValue(menuState, !nav);
+            UpdateCurrentFreqStill(!nav);
         }
-        UpdateCurrentFreqStill(true);
-#else
-        {
-            SetRegMenuValue(menuState, false);
-            break;
-        }
-        UpdateCurrentFreqStill(false);
-#endif
         break;
     case KEY_STAR:
         UpdateRssiTriggerLevel(true);

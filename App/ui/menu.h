@@ -149,6 +149,7 @@ enum
     #ifdef ENABLE_NOAA
         MENU_NOAA_S,
     #endif
+    MENU_SET_NAV,
 #endif
     MENU_BATCAL,  // battery voltage calibration
     MENU_F1SHRT,

@@ -194,6 +194,7 @@ typedef struct {
     bool                  KEY_LOCK;
 #ifdef ENABLE_FEAT_F4HWN
     bool                  KEY_LOCK_PTT;
+    bool                  SET_NAV;
 #endif
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     bool                  MENU_LOCK;

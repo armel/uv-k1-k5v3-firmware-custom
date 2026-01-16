@@ -27,6 +27,7 @@
 #include "ui/helper.h"
 #include "ui/inputbox.h"
 #include "ui/ui.h"
+#include "settings.h"
 #include <stddef.h>
 
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
@@ -464,18 +465,16 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         AIRCOPY_Key_EXIT(bKeyPressed, bKeyHeld);
         break;
     case KEY_UP:
-        #ifdef ENABLE_NAVIG_LEFT_RIGHT
+        if(gEeprom.SET_NAV == 0)
             AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-        #else
+        else
             AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-        #endif
         break;
     case KEY_DOWN:
-        #ifdef ENABLE_NAVIG_LEFT_RIGHT
+        if(gEeprom.SET_NAV == 0)
             AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-        #else
+        else
             AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-        #endif
         break;
     default:
         break;

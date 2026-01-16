@@ -374,6 +374,11 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = 4;
             break;
 
+        case MENU_SET_NAV:
+            //*pMin = 0;
+            *pMax = 1;
+            break;
+
         case MENU_F1SHRT:
         case MENU_F1LONG:
         case MENU_F2SHRT:
@@ -893,6 +898,10 @@ void MENU_AcceptSetting(void)
             gEeprom.BATTERY_TYPE = gSubMenuSelection;
             break;
 
+        case MENU_SET_NAV:
+            gEeprom.SET_NAV = gSubMenuSelection;
+            break;
+
         case MENU_F1SHRT:
         case MENU_F1LONG:
         case MENU_F2SHRT:
@@ -1330,6 +1339,10 @@ void MENU_ShowCurrentSetting(void)
 
         case MENU_BATTYP:
             gSubMenuSelection = gEeprom.BATTERY_TYPE;
+            break;
+
+        case MENU_SET_NAV:
+            gSubMenuSelection = gEeprom.SET_NAV;
             break;
 
         case MENU_F1SHRT:
@@ -2002,24 +2015,26 @@ void MENU_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             MENU_Key_MENU(bKeyPressed, bKeyHeld);
             break;
         case KEY_UP:
-            #ifdef ENABLE_NAVIG_LEFT_RIGHT
+            if(gEeprom.SET_NAV == 0) {
                 if(gIsInSubMenu)
                     MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
                 else
                     MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            #else
+            }
+            else {
                 MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            #endif
+            }
             break;
         case KEY_DOWN:
-            #ifdef ENABLE_NAVIG_LEFT_RIGHT
+            if(gEeprom.SET_NAV == 0) {
                 if(gIsInSubMenu)
                     MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
                 else
                     MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-            #else
+            }
+            else {
                 MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-            #endif
+            }
             break;
         case KEY_EXIT:
             MENU_Key_EXIT(bKeyPressed, bKeyHeld);
