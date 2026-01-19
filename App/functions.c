@@ -38,6 +38,9 @@
 #include "settings.h"
 #include "ui/status.h"
 #include "ui/ui.h"
+#include "app/selective_call.h"
+extern volatile bool gSelectiveCall_Pending;
+
 
 FUNCTION_Type_t gCurrentFunction;
 
@@ -196,6 +199,17 @@ void FUNCTION_Transmit()
 
     // turn the RED LED on
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+    
+    // ------------------------------------------
+    // Selective Call (ZVEI / CCIR / REGA) - pending
+    // ------------------------------------------
+    if (gSelectiveCall_Pending)
+    {
+        gSelectiveCall_Pending = false;
+        SelectiveCall_SendFromEeprom();
+        SYSTEM_DelayMs(50);
+    }
+
 
     DTMF_Reply();
 

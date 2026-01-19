@@ -43,6 +43,8 @@ VFO_Info_t    *gRxVfo;
 VFO_Info_t    *gCurrentVfo;
 DCS_CodeType_t gCurrentCodeType;
 VfoState_t     VfoState[2];
+volatile bool gSelectiveCall_Pending = false;
+
 
 const char gModulationStr[MODULATION_UKNOWN][4] = {
     [MODULATION_FM]="FM",
@@ -1169,17 +1171,6 @@ void RADIO_PrepareTX(void)
 
     // TX is allowed
 
-    // ------------------------------------------
-    // Selective Call (ZVEI / CCIR / REGA)
-    // ------------------------------------------
-    if (gEeprom.selective_mode > 0)
-    {
-        // Utilise le mode + la séquence configurée dans l’EEPROM
-        SelectiveCall_SendFromEeprom();
-
-        // petit délai pour laisser terminer le dernier ton
-        SYSTEM_DelayMs(50);
-    }
 
 #ifdef ENABLE_DTMF_CALLING
     if (gDTMF_ReplyState == DTMF_REPLY_ANI)
@@ -1195,7 +1186,15 @@ void RADIO_PrepareTX(void)
     }
 #endif
 
+    // ------------------------------------------
+    // Selective Call (ZVEI / CCIR / REGA)
+    // ------------------------------------------
+    gSelectiveCall_Pending = (gEeprom.selective_mode > 0);
+
+
     FUNCTION_Select(FUNCTION_TRANSMIT);
+
+
 
     gTxTimerCountdown_500ms = 0;            // no timeout
 

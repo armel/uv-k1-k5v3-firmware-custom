@@ -119,24 +119,47 @@ void SelectiveCall_Send(const selective_conf_t *conf)
     // stocker config active pour RX
     memcpy(&current_cfg, &local, sizeof(selective_conf_t));
 
-    // Laisser le temps au TX de se stabiliser 
+    // Option : sidetone comme DTMF (on  entend aussi les tons sur la radio)
+    if (gEeprom.DTMF_SIDE_TONE)
+    {
+        AUDIO_AudioPathOn();
+       // gEnableSpeaker = true;
+    }
+
+    // Met le BK4819 en mode TX tonalités (comme pour  DTMF)
+    BK4819_EnterDTMF_TX(gEeprom.DTMF_SIDE_TONE);
+
+    // Laisser le temps au chemin TX/tone de se stabiliser (a voir: 100, 150, 200 ms)
     SYSTEM_DelayMs(SELECTIVE_PRE_DELAY_MS);
 
     for (uint8_t i = 0; i < SELECTIVE_MAX_TONES; i++)
     {
-        uint8_t code = local.tx_seq[i];
+        uint8_t  code = local.tx_seq[i];
         uint16_t freq = get_frequency(local.mode, code);
 
         BK4819_PlaySingleTone(
             freq,
             SELECTIVE_TONE_DURATION_MS,
-            100,     // volume (comme REGA original)
-            true     // modulation FM
+            100,     // amplitude (à ajuster si besoin)
+            true     
         );
 
         SYSTEM_DelayMs(SELECTIVE_TONE_PAUSE_MS);
     }
+
+    // Quitter le mode tonalités TX et revenir à la phonie
+    BK4819_ExitDTMF_TX(false);
+
+    // Couper sidetone
+    AUDIO_AudioPathOff();
+   // gEnableSpeaker = false;
 }
+
+
+
+
+
+
 
 // ------------------------------------------------------
 // Réinitialise le buffer de réception
