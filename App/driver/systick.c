@@ -13,62 +13,41 @@
  *     See the License for the specific language governing permissions and
  *     limitations under the License.
  */
-
 #include "py32f0xx.h"
 #include "systick.h"
 #include "misc.h"
-
 // 0x20000324
 static uint32_t gTickMultiplier;
-
 void SYSTICK_Init(void)
 {
     SysTick_Config(480000);
     gTickMultiplier = 48;
-
     NVIC_SetPriority(SysTick_IRQn, 0);
 }
-
 void SYSTICK_DelayUs(uint32_t Delay)
 {
-    // CRITICAL FIX: Minimal optimization of original
-    //
-    // Original code problem:
-    // - Waited for SysTick->VAL to change (inefficient)
-    // - Complex Delta calculation
-    // - Did math every iteration (slow)
-    //
-    // This fix:
-    // - Same overall logic as original
-    // - But simpler and faster
-    // - Guaranteed 100% compatible
-    // - ~30-50% faster than original
-    //
-    // Change: Don't wait for tick to change, just count elapsed ticks
-    
     const uint32_t ticks = Delay * gTickMultiplier;
     uint32_t elapsed_ticks = 0;
+    uint32_t Start = SysTick->LOAD;
     uint32_t Previous = SysTick->VAL;
     
-    // CRITICAL FIX #1: Remove unnecessary complex math
-    // Original: calculated Delta = (Current < Previous) ? -Current : Start - Current
-    // This: just subtract directly (SysTick counts DOWN)
-    
+    // FIX: Simplified loop - removed inner "wait for change" loop
     while (elapsed_ticks < ticks)
     {
         uint32_t Current = SysTick->VAL;
         
-        // Simple subtraction: when Current < Previous, ticks have elapsed
+        // FIX: Corrected wraparound detection (was: "Current < Previous - 10")
         if (Current < Previous)
         {
-            // SysTick counted down: difference = ticks elapsed
-            elapsed_ticks += (Previous - Current);
+            // Normal countdown case
+            uint32_t Delta = Previous - Current;
+            elapsed_ticks += Delta;
         }
-        else if (Current < Previous - 10)  // Avoid small jitter
+        else if (Current > Previous)
         {
-            // Allow small variations due to timing jitter
-            // But detect actual changes reliably
-            elapsed_ticks += (Previous - Current);
+            // Wraparound case: SysTick went 0 → LOAD → Current
+            uint32_t Delta = Previous + (Start - Current);
+            elapsed_ticks += Delta;
         }
         
         Previous = Current;
