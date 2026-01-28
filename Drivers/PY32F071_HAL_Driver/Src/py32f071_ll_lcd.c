@@ -55,7 +55,7 @@
 /** @addtogroup LCD_LL_Private_Macros LCD Private Macros
   * @{
   */
-#define IS_LL_LCD_CONTRAST(__CONTRAST__) (((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_0) || \
+#define IS_LCD_CONTRAST(__CONTRAST__) (((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_0) || \
                                        ((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_1) || \
                                        ((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_2) || \
                                        ((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_3) || \
@@ -72,27 +72,27 @@
                                        ((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_14) || \
                                        ((__CONTRAST__) == LL_LCD_CONTRASTLEVEL_15))
 
-#define IS_LL_LCD_BIAS_SRC(__SOURCE__)   (((__SOURCE__) == LL_LCD_BIAS_SRC_IN_RES_HIGH_POWER) || \
+#define IS_LCD_BIAS_SRC(__SOURCE__)   (((__SOURCE__) == LL_LCD_BIAS_SRC_IN_RES_HIGH_POWER) || \
                                        ((__SOURCE__) == LL_LCD_BIAS_SRC_IN_RES_LOW_POWER) || \
                                        ((__SOURCE__) == LL_LCD_BIAS_SRC_IN_RES_MID_POWER) || \
                                        ((__SOURCE__) == LL_LCD_BIAS_SRC_EXT_RES))
 
-#define IS_LL_LCD_DUTY(__DUTY__)         (((__DUTY__) == LL_LCD_DUTY_STATIC)  || \
+#define IS_LCD_DUTY(__DUTY__)         (((__DUTY__) == LL_LCD_DUTY_STATIC)  || \
                                        ((__DUTY__) == LL_LCD_DUTY_1_2)     || \
                                        ((__DUTY__) == LL_LCD_DUTY_1_3)     || \
                                        ((__DUTY__) == LL_LCD_DUTY_1_4)     || \
                                        ((__DUTY__) == LL_LCD_DUTY_1_6)     || \
                                        ((__DUTY__) == LL_LCD_DUTY_1_8))
 
-#define IS_LL_LCD_BIAS(__BIAS__)         (((__BIAS__) == LL_LCD_BIAS_1_3) || \
+#define IS_LCD_BIAS(__BIAS__)         (((__BIAS__) == LL_LCD_BIAS_1_3) || \
                                        ((__BIAS__) == LL_LCD_BIAS_1_2))
 
-#define IS_LL_LCD_SCAN_FRE(__FRE__)      (((__FRE__) == LL_LCD_SCAN_FRE_64HZ) || \
+#define IS_LCD_SCAN_FRE(__FRE__)      (((__FRE__) == LL_LCD_SCAN_FRE_64HZ) || \
                                        ((__FRE__) == LL_LCD_SCAN_FRE_128HZ) || \
                                        ((__FRE__) == LL_LCD_SCAN_FRE_256HZ) || \
                                        ((__FRE__) == LL_LCD_SCAN_FRE_512HZ))
 
-#define IS_LL_LCD_MODE(__MODE__)         (((__MODE__) == LL_LCD_MODE_0) || \
+#define IS_LCD_MODE(__MODE__)         (((__MODE__) == LL_LCD_MODE_0) || \
                                        ((__MODE__) == LL_LCD_MODE_1))
 /**
   * @}
@@ -150,12 +150,12 @@ ErrorStatus LL_LCD_Init(LCD_TypeDef *LCDx, LL_LCD_InitTypeDef *LCD_InitStruct)
 {
   /* Check function parameters */
   assert_param(IS_LCD_ALL_INSTANCE(LCDx));
-  assert_param(IS_LL_LCD_CONTRAST(LCD_InitStruct->Contrast));
-  assert_param(IS_LL_LCD_BIAS_SRC(LCD_InitStruct->BiasSrc));
-  assert_param(IS_LL_LCD_DUTY(LCD_InitStruct->Duty));
-  assert_param(IS_LL_LCD_BIAS(LCD_InitStruct->Bias));
-  assert_param(IS_LL_LCD_SCAN_FRE(LCD_InitStruct->ScanFre));
-  assert_param(IS_LL_LCD_MODE(LCD_InitStruct->Mode));
+  assert_param(IS_LCD_CONTRAST(LCD_InitStruct->Contrast));
+  assert_param(IS_LCD_BIAS_SRC(LCD_InitStruct->BiasSrc));
+  assert_param(IS_LCD_DUTY(LCD_InitStruct->Duty));
+  assert_param(IS_LCD_BIAS(LCD_InitStruct->Bias));
+  assert_param(IS_LCD_SCAN_FRE(LCD_InitStruct->ScanFre));
+  assert_param(IS_LCD_MODE(LCD_InitStruct->Mode));
   
   /* Disable the peripheral */
   LL_LCD_Disable(LCD);

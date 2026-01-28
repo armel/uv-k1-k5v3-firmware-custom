@@ -234,6 +234,7 @@ typedef  void (*pI2S_CallbackTypeDef)(I2S_HandleTypeDef *hi2s); /*!< pointer to 
 /** @defgroup I2S_Audio_Frequency I2S Audio Frequency
   * @{
   */
+#define I2S_AUDIOFREQ_192K               (192000U)
 #define I2S_AUDIOFREQ_96K                (96000U)
 #define I2S_AUDIOFREQ_48K                (48000U)
 #define I2S_AUDIOFREQ_44K                (44100U)
@@ -520,7 +521,7 @@ uint32_t HAL_I2S_GetError(I2S_HandleTypeDef *hi2s);
                                         ((__OUTPUT__) == I2S_MCLKOUTPUT_DISABLE))
 
 #define IS_I2S_AUDIO_FREQ(__FREQ__) ((((__FREQ__) >= I2S_AUDIOFREQ_8K)    && \
-                                      ((__FREQ__) <= I2S_AUDIOFREQ_96K)) || \
+                                      ((__FREQ__) <= I2S_AUDIOFREQ_192K)) || \
                                      ((__FREQ__) == I2S_AUDIOFREQ_DEFAULT))
 
 /** @brief  Checks if I2S Serial clock steady state parameter is in allowed range.

@@ -881,58 +881,6 @@ __STATIC_INLINE uint32_t LL_DAC_IsEnabled(DAC_TypeDef *DACx, uint32_t DAC_Channe
 }
 
 /**
-  * @brief  Enable DAC ouput Connect ADC/Comp.
-  * @rmtoll CR       DAC1CEN            LL_DAC_EnableOutputConnectInternal\n
-  *         CR       DAC2CEN            LL_DAC_EnableOutputConnectInternal
-  * @note   After enable from off state, DAC channel requires a delay
-  *         for output voltage to reach accuracy +/- 1 LSB.
-  *         Refer to device datasheet, parameter "tWAKEUP".
-  * @param  DACx DAC instance
-  * @param  DAC_Channel This parameter can be one of the following values:
-  *         @arg @ref LL_DAC_CHANNEL_1
-  *         @arg @ref LL_DAC_CHANNEL_2
-  * @retval None
-  */
-__STATIC_INLINE void LL_DAC_EnableOutputConnectInternal(DAC_TypeDef *DACx, uint32_t DAC_Channel)
-{
-  SET_BIT(DACx->CR,DAC_CR_DAC1CEN<< (DAC_Channel & DAC_CR_CHX_BITOFFSET_MASK));
-}
-
-/**
-  * @brief  Disable DAC ouput Connect ADC/Comp.
-  * @rmtoll CR       DAC1CEN            LL_DAC_DisableOutputConnectInternal\n
-  *         CR       DAC2CEN            LL_DAC_DisableOutputConnectInternal
-  * @param  DACx DAC instance
-  * @param  DAC_Channel This parameter can be one of the following values:
-  *         @arg @ref LL_DAC_CHANNEL_1
-  *         @arg @ref LL_DAC_CHANNEL_2
-  * @retval None
-  */
-__STATIC_INLINE void LL_DAC_DisableOutputConnectInternal(DAC_TypeDef *DACx, uint32_t DAC_Channel)
-{
-  CLEAR_BIT(DACx->CR,DAC_CR_DAC1CEN << (DAC_Channel & DAC_CR_CHX_BITOFFSET_MASK));
-}
-
-/**
-  * @brief  Get DAC ouput Connect ADC/Comp enable state of the selected channel.
-  *         (0: DAC channel is disabled, 1: DAC channel is enabled)
-  * @rmtoll CR       DAC1CEN            LL_DAC_IsEnabledOutputConnectInternal\n
-  *         CR       DAC2CEN            LL_DAC_IsEnabledOutputConnectInternal
-  * @param  DACx DAC instance
-  * @param  DAC_Channel This parameter can be one of the following values:
-  *         @arg @ref LL_DAC_CHANNEL_1
-  *         @arg @ref LL_DAC_CHANNEL_2
-  * @retval State of bit (1 or 0).
-  */
-__STATIC_INLINE uint32_t LL_DAC_IsEnabledOutputConnectInternal(DAC_TypeDef *DACx, uint32_t DAC_Channel)
-{
-  return ((READ_BIT(DACx->CR,
-                    DAC_CR_DAC1CEN << (DAC_Channel & DAC_CR_CHX_BITOFFSET_MASK))
-           == (DAC_CR_DAC1CEN << (DAC_Channel & DAC_CR_CHX_BITOFFSET_MASK))) ? 1UL : 0UL);
-}
-
-
-/**
   * @brief  Enable DAC trigger of the selected channel.
   * @note   - If DAC trigger is disabled, DAC conversion is performed
   *           automatically once the data holding register is updated,

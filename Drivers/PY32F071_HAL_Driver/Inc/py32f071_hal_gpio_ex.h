@@ -62,7 +62,7 @@ extern "C" {
   * @brief   AF 0 selection
   */
 #define GPIO_AF0_SWJ             ((uint8_t)0x00)  /*!< SWJ (SWD) Alternate Function mapping */
-#define GPIO_AF0_EVENTOUT        ((uint8_t)0x00)  /*!< EVENTOUT Alternate Function mapping  */
+#define GPIO_AF0_EVENOUT         ((uint8_t)0x00)  /*!< EVENOUT Alternate Function mapping   */
 #define GPIO_AF0_TIM3            ((uint8_t)0x00)  /*!< TIM3 Alternate Function mapping      */
 #define GPIO_AF0_TIM15           ((uint8_t)0x00)  /*!< TIM15 Alternate Function mapping     */
 #define GPIO_AF0_TIM14           ((uint8_t)0x00)  /*!< TIM14 Alternate Function mapping     */
@@ -88,7 +88,7 @@ extern "C" {
 #define GPIO_AF1_I2C1            ((uint8_t)0x01)  /*!< I2C1 Alternate Function mapping      */
 #define GPIO_AF1_I2C2            ((uint8_t)0x01)  /*!< I2C2 Alternate Function mapping      */
 #define GPIO_AF1_SPI2            ((uint8_t)0x01)  /*!< SPI2 Alternate Function mapping      */
-#define GPIO_AF1_I2S2            ((uint8_t)0x01)  /*!< I2S2 Alternate Function mapping      */
+#define GPIO_AF1_I2S             ((uint8_t)0x01)  /*!< I2S Alternate Function mapping       */
 #define GPIO_AF1_EVENTOUT        ((uint8_t)0x01)  /*!< EVENTOUT Alternate Function mapping  */
 
 /**
@@ -153,7 +153,6 @@ extern "C" {
 /**
   * @brief   AF 9 selection
   */
-#define GPIO_AF9_SPI1            ((uint8_t)0x09)  /*!< SPI1 Alternate Function mapping      */
 #define GPIO_AF9_SPI2            ((uint8_t)0x09)  /*!< SPI2 Alternate Function mapping      */
 #define GPIO_AF9_I2S2            ((uint8_t)0x09)  /*!< I2S2 Alternate Function mapping      */
 #define GPIO_AF9_I2S1            ((uint8_t)0x09)  /*!< I2S1 Alternate Function mapping      */
@@ -189,7 +188,7 @@ extern "C" {
   */
 #define GPIO_AF13_I2C1           ((uint8_t)0x0D)  /*!< I2C1 Alternate Function mapping      */
 #define GPIO_AF13_I2C2           ((uint8_t)0x0D)  /*!< I2C2 Alternate Function mapping      */
-#define GPIO_AF13_USART1         ((uint8_t)0x0D)  /*!< USART1 Alternate Function mapping    */
+#define GPIO_AF13_USRAT1         ((uint8_t)0x0D)  /*!< USRAT1 Alternate Function mapping    */
 #define GPIO_AF13_TIM1           ((uint8_t)0x0D)  /*!< TIM1 Alternate Function mapping      */
 
 /**

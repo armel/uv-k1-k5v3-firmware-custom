@@ -57,14 +57,14 @@
   * @{
   */
 
-#define IS_LL_CTC_AUTO_TRIM(VALUE)          (((VALUE) == LL_CTC_AUTO_TRIM_DISABLE) || \
+#define IS_CTC_AUTO_TRIM(VALUE)          (((VALUE) == LL_CTC_AUTO_TRIM_DISABLE) || \
                                           ((VALUE) == LL_CTC_AUTO_TRIM_ENABLE))
 
-#define IS_LL_CTC_REF_CLOCK(VALUE)          (((VALUE) == LL_CTC_REF_CLOCK_SOURCE_GPIO) || \
+#define IS_CTC_REF_CLOCK(VALUE)          (((VALUE) == LL_CTC_REF_CLOCK_SOURCE_GPIO) || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_SOURCE_LSE) || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_SOURCE_USBD_SOF))
 
-#define IS_LL_CTC_REF_CLOCK_DIV(VALUE)      (((VALUE) == LL_CTC_REF_CLOCK_DIV1)  || \
+#define IS_CTC_REF_CLOCK_DIV(VALUE)      (((VALUE) == LL_CTC_REF_CLOCK_DIV1)  || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_DIV2)  || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_DIV4)  || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_DIV8)  || \
@@ -73,12 +73,12 @@
                                           ((VALUE) == LL_CTC_REF_CLOCK_DIV64) || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_DIV128))
 
-#define IS_LL_CTC_REF_CLOCK_POLARITY(VALUE) (((VALUE) == LL_CTC_REF_CLOCK_POLARITY_RISING) || \
+#define IS_CTC_REF_CLOCK_POLARITY(VALUE) (((VALUE) == LL_CTC_REF_CLOCK_POLARITY_RISING) || \
                                           ((VALUE) == LL_CTC_REF_CLOCK_POLARITY_FALLING))
 
-#define IS_LL_CTC_RELOAD_VALUE(VALUE)       ((VALUE) <= 0xFFFF)
+#define IS_CTC_RELOAD_VALUE(VALUE)       ((VALUE) <= 0xFFFF)
 
-#define IS_LL_CTC_LIMIT_VALUE(VALUE)        ((VALUE) <= 0xFF)
+#define IS_CTC_LIMIT_VALUE(VALUE)        ((VALUE) <= 0xFF)
 
 /**
   * @}
@@ -137,12 +137,12 @@ ErrorStatus LL_CTC_Init(CTC_TypeDef *CTCx, LL_CTC_InitTypeDef *CTC_InitStruct)
   assert_param(IS_CTC_ALL_INSTANCE(CTCx));
 
   /* Check the CTC parameters from CTC_InitStruct*/
-  assert_param(IS_LL_CTC_AUTO_TRIM(CTC_InitStruct->AutoTrim));
-  assert_param(IS_LL_CTC_REF_CLOCK(CTC_InitStruct->RefCLKSource));
-  assert_param(IS_LL_CTC_REF_CLOCK_DIV(CTC_InitStruct->RefCLKDivider));
-  assert_param(IS_LL_CTC_REF_CLOCK_POLARITY(CTC_InitStruct->RefCLKPolarity));
-  assert_param(IS_LL_CTC_RELOAD_VALUE(CTC_InitStruct->ReloadValue));
-  assert_param(IS_LL_CTC_LIMIT_VALUE(CTC_InitStruct->LimitValue));
+  assert_param(IS_CTC_AUTO_TRIM(CTC_InitStruct->AutoTrim));
+  assert_param(IS_CTC_REF_CLOCK(CTC_InitStruct->RefCLKSource));
+  assert_param(IS_CTC_REF_CLOCK_DIV(CTC_InitStruct->RefCLKDivider));
+  assert_param(IS_CTC_REF_CLOCK_POLARITY(CTC_InitStruct->RefCLKPolarity));
+  assert_param(IS_CTC_RELOAD_VALUE(CTC_InitStruct->ReloadValue));
+  assert_param(IS_CTC_LIMIT_VALUE(CTC_InitStruct->LimitValue));
   
   /* CTCx CTL0 and CTL1 Configuration */
   MODIFY_REG(CTCx->CTL0, CTC_CTL0_AUTOTRIM, CTC_InitStruct->AutoTrim);

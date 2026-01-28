@@ -81,12 +81,11 @@ typedef struct
   uint32_t  WRPSector;        /*!< WRPSector: This bitfield specifies the sector (s) which are write protected.
                                    This parameter can be a combination of @ref FLASH_Option_Bytes_Write_Protection */
 
-/*  uint32_t  SDKStartAddr; */   /*!< SDK Start address (used for FLASH_SDKR). It represents first address of start block
+  uint32_t  SDKStartAddr;     /*!< SDK Start address (used for FLASH_SDKR). It represents first address of start block
                                    to protect. Make sure this parameter is multiple of SDK granularity: 4096 Bytes.*/
 
-/*  uint32_t  SDKEndAddr;   */     /*!< SDK End address (used for FLASH_SDKR). It represents first address of end block
+  uint32_t  SDKEndAddr;       /*!< SDK End address (used for FLASH_SDKR). It represents first address of end block
                                    to protect. Make sure this parameter is multiple of SDK granularity: 4096 Bytes.*/
-
 
   uint32_t  RDPLevel;         /*!< RDPLevel: Set the read protection level.
                                    This parameter can be a value of @ref FLASH_OB_Read_Protection */
@@ -274,7 +273,7 @@ typedef struct
   * @{
   */
 #define OB_BOR_DISABLE                  0x00000000U        /*!< BOR Reset set to default */
-#define OB_BOR_ENABLE                   FLASH_BORCR_BOR_EN  /*!< Use option byte to define BOR thresholds */
+#define OB_BOR_ENABLE                   FLASH_SDKR_BOR_EN  /*!< Use option byte to define BOR thresholds */
 /**
   * @}
   */
@@ -282,15 +281,15 @@ typedef struct
 /** @defgroup FLASH_OB_USER_BOR_LEVEL FLASH Option Bytes BOR Level
   * @{
   */
-#define OB_BOR_OFF              ((uint32_t)(OB_BOR_DISABLE                                                                       )) /*!< BOR OFF   */
-#define OB_BOR_LEVEL_1p7_1p8    ((uint32_t)(OB_BOR_ENABLE                                                                        )) /*!< BOR Reset threshold levels for 1.7V - 1.8V VDD power supply    */
-#define OB_BOR_LEVEL_1p9_2p0    ((uint32_t)(OB_BOR_ENABLE                                                 | FLASH_BORCR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 1.9V - 2.0V VDD power supply    */
-#define OB_BOR_LEVEL_2p1_2p2    ((uint32_t)(OB_BOR_ENABLE                         | FLASH_BORCR_BOR_LEV_1                        )) /*!< BOR Reset threshold levels for 2.1V - 2.2V VDD power supply    */
-#define OB_BOR_LEVEL_2p3_2p4    ((uint32_t)(OB_BOR_ENABLE                         | FLASH_BORCR_BOR_LEV_1 | FLASH_BORCR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 2.3V - 2.4V VDD power supply    */
-#define OB_BOR_LEVEL_2p5_2p6    ((uint32_t)(OB_BOR_ENABLE | FLASH_BORCR_BOR_LEV_2                                                )) /*!< BOR Reset threshold levels for 2.5V - 2.6V VDD power supply    */
-#define OB_BOR_LEVEL_2p7_2p8    ((uint32_t)(OB_BOR_ENABLE | FLASH_BORCR_BOR_LEV_2                         | FLASH_BORCR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 2.7V - 2.8V VDD power supply    */
-#define OB_BOR_LEVEL_2p9_3p0    ((uint32_t)(OB_BOR_ENABLE | FLASH_BORCR_BOR_LEV_2 | FLASH_BORCR_BOR_LEV_1                        )) /*!< BOR Reset threshold levels for 2.9V - 3.0V VDD power supply    */
-#define OB_BOR_LEVEL_3p1_3p2    ((uint32_t)(OB_BOR_ENABLE | FLASH_BORCR_BOR_LEV_2 | FLASH_BORCR_BOR_LEV_1 | FLASH_BORCR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 3.1V - 3.2V VDD power supply    */
+#define OB_BOR_OFF              ((uint32_t)(OB_BOR_DISABLE                                                                    )) /*!< BOR OFF   */
+#define OB_BOR_LEVEL_1p7_1p8    ((uint32_t)(OB_BOR_ENABLE                                                                     )) /*!< BOR Reset threshold levels for 1.7V - 1.8V VDD power supply    */
+#define OB_BOR_LEVEL_1p9_2p0    ((uint32_t)(OB_BOR_ENABLE                                               | FLASH_SDKR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 1.9V - 2.0V VDD power supply    */
+#define OB_BOR_LEVEL_2p1_2p2    ((uint32_t)(OB_BOR_ENABLE                        | FLASH_SDKR_BOR_LEV_1                       )) /*!< BOR Reset threshold levels for 2.1V - 2.2V VDD power supply    */
+#define OB_BOR_LEVEL_2p3_2p4    ((uint32_t)(OB_BOR_ENABLE                        | FLASH_SDKR_BOR_LEV_1 | FLASH_SDKR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 2.3V - 2.4V VDD power supply    */
+#define OB_BOR_LEVEL_2p5_2p6    ((uint32_t)(OB_BOR_ENABLE | FLASH_SDKR_BOR_LEV_2                                              )) /*!< BOR Reset threshold levels for 2.5V - 2.6V VDD power supply    */
+#define OB_BOR_LEVEL_2p7_2p8    ((uint32_t)(OB_BOR_ENABLE | FLASH_SDKR_BOR_LEV_2                        | FLASH_SDKR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 2.7V - 2.8V VDD power supply    */
+#define OB_BOR_LEVEL_2p9_3p0    ((uint32_t)(OB_BOR_ENABLE | FLASH_SDKR_BOR_LEV_2 | FLASH_SDKR_BOR_LEV_1                       )) /*!< BOR Reset threshold levels for 2.9V - 3.0V VDD power supply    */
+#define OB_BOR_LEVEL_3p1_3p2    ((uint32_t)(OB_BOR_ENABLE | FLASH_SDKR_BOR_LEV_2 | FLASH_SDKR_BOR_LEV_1 | FLASH_SDKR_BOR_LEV_0)) /*!< BOR Reset threshold levels for 3.1V - 3.2V VDD power supply    */
   
 /**
   * @}
@@ -300,22 +299,15 @@ typedef struct
   * @{
   */
 #define OPTIONBYTE_WRP            ((uint32_t)0x01U)  /*!<WRP option byte configuration*/
-/* #define OPTIONBYTE_SDK            ((uint32_t)0x02U) */  /*!<SDK option byte configuration*/
+#define OPTIONBYTE_SDK            ((uint32_t)0x02U)  /*!<SDK option byte configuration*/
 #define OPTIONBYTE_RDP            ((uint32_t)0x04U)  /*!<RDP option byte configuration*/
 #define OPTIONBYTE_USER           ((uint32_t)0x08U)  /*!<USER option byte configuration*/
 #define OPTIONBYTE_BOR            ((uint32_t)0x10U)  /*!<BOR option byte configuration*/
-#define OPTIONBYTE_ALL            (OPTIONBYTE_WRP  | \
-                                   OPTIONBYTE_RDP  | \
-                                   OPTIONBYTE_USER  | \
-                                   OPTIONBYTE_BOR)
-
-/*
 #define OPTIONBYTE_ALL            (OPTIONBYTE_WRP  | \
                                    OPTIONBYTE_SDK  | \
                                    OPTIONBYTE_RDP  | \
                                    OPTIONBYTE_USER  | \
                                    OPTIONBYTE_BOR)
-*/
 
 /**
   * @}
@@ -614,9 +606,9 @@ HAL_StatusTypeDef  FLASH_WaitForLastOperation(uint32_t Timeout);
 
 #define IS_FLASH_PROGRAM_ADDRESS(__ADDRESS__)          (IS_FLASH_PROGRAM_MAIN_MEM_ADDRESS(__ADDRESS__))
 
-#define IS_FLASH_NB_PAGES(__ADDRESS__, __VALUE__)      (((__ADDRESS__) >= (FLASH_BASE)) && ((__ADDRESS__ + (__VALUE__*FLASH_PAGE_SIZE) - 1) <= (FLASH_BASE + FLASH_SIZE - 1UL)))
+#define IS_FLASH_NB_PAGES(__ADDRESS__, __VALUE__)      (((__ADDRESS__) >= (FLASH_BASE)) && ((__ADDRESS__ + (__VALUE__*FLASH_PAGE_SIZE)) <= (FLASH_BASE + FLASH_SIZE - 1UL)))
 
-#define IS_FLASH_NB_SECTORS(__ADDRESS__, __VALUE__)    (((__ADDRESS__) >= (FLASH_BASE)) && ((__ADDRESS__ + (__VALUE__*FLASH_SECTOR_SIZE) - 1) <= (FLASH_BASE + FLASH_SIZE - 1UL)))
+#define IS_FLASH_NB_SECTORS(__ADDRESS__, __VALUE__)    (((__ADDRESS__) >= (FLASH_BASE)) && ((__ADDRESS__ + (__VALUE__*FLASH_SECTOR_SIZE)) <= (FLASH_BASE + FLASH_SIZE - 1UL)))
 
 #define IS_FLASH_FAST_PROGRAM_ADDRESS(__ADDRESS__)     (((__ADDRESS__) >= (FLASH_BASE)) && ((__ADDRESS__) <= (FLASH_BASE + FLASH_SIZE - 256UL)))
 

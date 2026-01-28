@@ -997,50 +997,6 @@ HAL_StatusTypeDef HAL_DAC_ConfigChannel(DAC_HandleTypeDef *hdac, DAC_ChannelConf
 }
 
 /**
-  * @brief  Configures the selected DAC channel Output To ADC/COMP.
-  * @param  hdac pointer to a DAC_HandleTypeDef structure that contains
-  *         the configuration information for the specified DAC.
-  * @param  Channel The selected DAC channel.
-  *          This parameter can be one of the following values:
-  *            @arg DAC_CHANNEL_1: DAC Channel1 selected
-  *            @arg DAC_CHANNEL_2: DAC Channel2 selected
-  * @param  Status 
-  *          This parameter can be one of the following values:
-  *            @arg ENABLE: Output to ADC/COMP
-  *            @arg DISABLE: Not output to ADC/COMP
-  * @retval HAL status
-  */
-HAL_StatusTypeDef HAL_DAC_ConfigOutputToInternal(DAC_HandleTypeDef *hdac, uint32_t Channel,uint32_t Status)
-{
-
-  if(Channel == DAC_CHANNEL_1)
-  {
-    if(Status == ENABLE)
-    {
-      SET_BIT(DAC1->CR,DAC_CR_DAC1CEN);
-    }
-    else
-    {
-      CLEAR_BIT(DAC1->CR,DAC_CR_DAC1CEN);
-    }
-  }
-  else
-  {
-    if(Status == ENABLE)
-    {
-      SET_BIT(DAC1->CR,DAC_CR_DAC2CEN);
-    }
-    else
-    {
-      CLEAR_BIT(DAC1->CR,DAC_CR_DAC2CEN);
-    }
-  }
-  /* Return function status */
-  return HAL_OK;
-}
-
-
-/**
   * @}
   */
 

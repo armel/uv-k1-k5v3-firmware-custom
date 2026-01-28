@@ -149,7 +149,7 @@ HAL_StatusTypeDef HAL_DIV_DeInit(DIV_HandleTypeDef *hdiv)
   * @param  hdiv DIV handle
   * @retval None
   */
-__weak void HAL_DIV_MspInit(DIV_HandleTypeDef *hdiv)
+void HAL_DIV_MspInit(DIV_HandleTypeDef *hdiv)
 {
   /* Prevent unused argument(s) compilation warning */
   UNUSED(hdiv);
@@ -164,7 +164,7 @@ __weak void HAL_DIV_MspInit(DIV_HandleTypeDef *hdiv)
   * @param  hdiv DIV handle
   * @retval None
   */
-__weak void HAL_DIV_MspDeInit(DIV_HandleTypeDef *hdiv)
+void HAL_DIV_MspDeInit(DIV_HandleTypeDef *hdiv)
 {
   /* Prevent unused argument(s) compilation warning */
   UNUSED(hdiv);

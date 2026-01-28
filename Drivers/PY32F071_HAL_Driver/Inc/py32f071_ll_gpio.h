@@ -320,7 +320,6 @@ typedef struct
 /**
   * @brief   AF 9 selection
   */
-#define LL_GPIO_AF9_SPI1          LL_GPIO_AF_9   /*!< SPI1 Alternate Function mapping*/
 #define LL_GPIO_AF9_SPI2          LL_GPIO_AF_9   /*!< SPI2 Alternate Function mapping*/
 #define LL_GPIO_AF9_I2S2          LL_GPIO_AF_9   /*!< I2S2 Alternate Function mapping*/
 #define LL_GPIO_AF9_I2S1          LL_GPIO_AF_9   /*!< I2S1 Alternate Function mapping*/

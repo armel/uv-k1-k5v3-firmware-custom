@@ -161,19 +161,90 @@ extern "C" {
   * @}
   */
 
+/** @defgroup FLASH_LL_EC_SDK SDK Address
+  * @{
+  */
+#define LL_FLASH_SDKSTARTADDRESS_0X08000000   (0x00000000)
+#define LL_FLASH_SDKSTARTADDRESS_0X08000800   (                                                                                                FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08001000   (                                                                        FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X08001800   (                                                                        FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08002000   (                                                FLASH_SDKR_SDK_STRT_2                                                )
+#define LL_FLASH_SDKSTARTADDRESS_0X08002800   (                                                FLASH_SDKR_SDK_STRT_2                         | FLASH_SDKR_SDK_STRT_0) 
+#define LL_FLASH_SDKSTARTADDRESS_0X08003000   (                                                FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X08003800   (                                                FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08004000   (                        FLASH_SDKR_SDK_STRT_3                                                                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X08004800   (                        FLASH_SDKR_SDK_STRT_3                                                 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08005000   (                        FLASH_SDKR_SDK_STRT_3                         | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X08005800   (                        FLASH_SDKR_SDK_STRT_3                         | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08006000   (                        FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2 |                                              )
+#define LL_FLASH_SDKSTARTADDRESS_0X08006800   (                        FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2 |                       | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08007000   (                        FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X08007800   (                        FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08008000   (FLASH_SDKR_SDK_STRT_4                                                                                                )
+#define LL_FLASH_SDKSTARTADDRESS_0X08008800   (FLASH_SDKR_SDK_STRT_4                                                                         | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X08009000   (FLASH_SDKR_SDK_STRT_4                                                 | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X08009800   (FLASH_SDKR_SDK_STRT_4                                                 | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X0800A000   (FLASH_SDKR_SDK_STRT_4                         | FLASH_SDKR_SDK_STRT_2                                                )
+#define LL_FLASH_SDKSTARTADDRESS_0X0800A800   (FLASH_SDKR_SDK_STRT_4                         | FLASH_SDKR_SDK_STRT_2                         | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X0800B000   (FLASH_SDKR_SDK_STRT_4                         | FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X0800B800   (FLASH_SDKR_SDK_STRT_4                         | FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X0800C000   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3                                                                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X0800C800   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3                                                   FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X0800D000   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3                         | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X0800D800   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3                         | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X0800E000   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2                                                )
+#define LL_FLASH_SDKSTARTADDRESS_0X0800E800   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2                         | FLASH_SDKR_SDK_STRT_0)
+#define LL_FLASH_SDKSTARTADDRESS_0X0800F000   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1                        )
+#define LL_FLASH_SDKSTARTADDRESS_0X0800F800   (FLASH_SDKR_SDK_STRT_4 | FLASH_SDKR_SDK_STRT_3 | FLASH_SDKR_SDK_STRT_2 | FLASH_SDKR_SDK_STRT_1 | FLASH_SDKR_SDK_STRT_0)
 
+#define LL_FLASH_SDKENDADDRESS_0X080007FF     (0x00000000)
+#define LL_FLASH_SDKENDADDRESS_0X08000FFF     (                                                                                            FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080017FF     (                                                                     FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X08001FFF     (                                                                     FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080027FF     (                                              FLASH_SDKR_SDK_END_2                                              )
+#define LL_FLASH_SDKENDADDRESS_0X08002FFF     (                                              FLASH_SDKR_SDK_END_2                        | FLASH_SDKR_SDK_END_0) 
+#define LL_FLASH_SDKENDADDRESS_0X080037FF     (                                              FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X08003FFF     (                                              FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080047FF     (                       FLASH_SDKR_SDK_END_3                                                                     )
+#define LL_FLASH_SDKENDADDRESS_0X08004FFF     (                       FLASH_SDKR_SDK_END_3                                               | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080057FF     (                       FLASH_SDKR_SDK_END_3                        | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X08005FFF     (                       FLASH_SDKR_SDK_END_3                        | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080067FF     (                       FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2 |                                            )
+#define LL_FLASH_SDKENDADDRESS_0X08006FFF     (                       FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2 |                      | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080077FF     (                       FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X08007FFF     (                       FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080087FF     (FLASH_SDKR_SDK_END_4                                                                                            )
+#define LL_FLASH_SDKENDADDRESS_0X08008FFF     (FLASH_SDKR_SDK_END_4                                                                      | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X080097FF     (FLASH_SDKR_SDK_END_4                                               | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X08009FFF     (FLASH_SDKR_SDK_END_4                                               | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X0800A7FF     (FLASH_SDKR_SDK_END_4                        | FLASH_SDKR_SDK_END_2                                              )
+#define LL_FLASH_SDKENDADDRESS_0X0800AFFF     (FLASH_SDKR_SDK_END_4                        | FLASH_SDKR_SDK_END_2                        | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X0800B7FF     (FLASH_SDKR_SDK_END_4                        | FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X0800BFFF     (FLASH_SDKR_SDK_END_4                        | FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X0800C7FF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3                                                                     )
+#define LL_FLASH_SDKENDADDRESS_0X0800CFFF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3                                                 FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X0800D7FF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3                        | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X0800DFFF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3                        | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X0800E7FF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2                                              )
+#define LL_FLASH_SDKENDADDRESS_0X0800EFFF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2                        | FLASH_SDKR_SDK_END_0)
+#define LL_FLASH_SDKENDADDRESS_0X0800F7FF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1                       )
+#define LL_FLASH_SDKENDADDRESS_0X0800FFFF     (FLASH_SDKR_SDK_END_4 | FLASH_SDKR_SDK_END_3 | FLASH_SDKR_SDK_END_2 | FLASH_SDKR_SDK_END_1 | FLASH_SDKR_SDK_END_0)
+
+/**
+  * @}
+  */
 
 /** @defgroup FLASH_LL_EC_BOR_LEVEL BOR Level
   * @{
   */
-#define LL_FLASH_BOR_LEV0      (0x00000000)                                                            /*!< BOR Reset threshold levels for 1.7V - 1.8V VDD power supply    */
-#define LL_FLASH_BOR_LEV1      (                                                FLASH_BORCR_BOR_LEV_0) /*!< BOR Reset threshold levels for 1.9V - 2.0V VDD power supply    */
-#define LL_FLASH_BOR_LEV2      (                        FLASH_BORCR_BOR_LEV_1                        ) /*!< BOR Reset threshold levels for 2.1V - 2.2V VDD power supply    */
-#define LL_FLASH_BOR_LEV3      (                        FLASH_BORCR_BOR_LEV_1 | FLASH_BORCR_BOR_LEV_0) /*!< BOR Reset threshold levels for 2.3V - 2.4V VDD power supply    */
-#define LL_FLASH_BOR_LEV4      (FLASH_BORCR_BOR_LEV_2                                                ) /*!< BOR Reset threshold levels for 2.5V - 2.6V VDD power supply    */
-#define LL_FLASH_BOR_LEV5      (FLASH_BORCR_BOR_LEV_2                         | FLASH_BORCR_BOR_LEV_0) /*!< BOR Reset threshold levels for 2.7V - 2.8V VDD power supply    */
-#define LL_FLASH_BOR_LEV6      (FLASH_BORCR_BOR_LEV_2 | FLASH_BORCR_BOR_LEV_1                        ) /*!< BOR Reset threshold levels for 2.9V - 3.0V VDD power supply    */
-#define LL_FLASH_BOR_LEV7      (FLASH_BORCR_BOR_LEV_2 | FLASH_BORCR_BOR_LEV_1 | FLASH_BORCR_BOR_LEV_0) /*!< BOR Reset threshold levels for 3.1V - 3.2V VDD power supply   */
+#define LL_FLASH_BOR_LEV0      (0x00000000)                                                         /*!< BOR Reset threshold levels for 1.7V - 1.8V VDD power supply    */
+#define LL_FLASH_BOR_LEV1      (                                              FLASH_SDKR_BOR_LEV_0) /*!< BOR Reset threshold levels for 1.9V - 2.0V VDD power supply    */
+#define LL_FLASH_BOR_LEV2      (                       FLASH_SDKR_BOR_LEV_1                       ) /*!< BOR Reset threshold levels for 2.1V - 2.2V VDD power supply    */
+#define LL_FLASH_BOR_LEV3      (                       FLASH_SDKR_BOR_LEV_1 | FLASH_SDKR_BOR_LEV_0) /*!< BOR Reset threshold levels for 2.3V - 2.4V VDD power supply    */
+#define LL_FLASH_BOR_LEV4      (FLASH_SDKR_BOR_LEV_2                                              ) /*!< BOR Reset threshold levels for 2.5V - 2.6V VDD power supply    */
+#define LL_FLASH_BOR_LEV5      (FLASH_SDKR_BOR_LEV_2                        | FLASH_SDKR_BOR_LEV_0) /*!< BOR Reset threshold levels for 2.7V - 2.8V VDD power supply    */
+#define LL_FLASH_BOR_LEV6      (FLASH_SDKR_BOR_LEV_2 | FLASH_SDKR_BOR_LEV_1                       ) /*!< BOR Reset threshold levels for 2.9V - 3.0V VDD power supply    */
+#define LL_FLASH_BOR_LEV7      (FLASH_SDKR_BOR_LEV_2 | FLASH_SDKR_BOR_LEV_1 | FLASH_SDKR_BOR_LEV_0) /*!< BOR Reset threshold levels for 3.1V - 3.2V VDD power supply   */
 /**
   * @}
   */
@@ -182,7 +253,7 @@ extern "C" {
   * @{
   */
 #define LL_FLASH_BOR_DISABLE   (0x00000000U)                    /*!< BOR Reset Disable    */
-#define LL_FLASH_BOR_ENABLE    (FLASH_BORCR_BOR_EN)              /*!< BOR Reset Enable     */
+#define LL_FLASH_BOR_ENABLE    (FLASH_SDKR_BOR_EN)              /*!< BOR Reset Enable     */
 /**
   * @}
   */
@@ -898,21 +969,90 @@ __STATIC_INLINE uint32_t LL_FLASH_GetWWDGSWMode(FLASH_TypeDef *FLASHx)
   */
 __STATIC_INLINE uint32_t LL_FLASH_GetIWDGSWMode(FLASH_TypeDef *FLASHx)
 {
-  return (READ_BIT(FLASHx->OPTR, FLASH_OPTR_IWDG_SW) == (FLASH_OPTR_IWDG_SW));
+  return (READ_BIT(FLASHx->OPTR, FLASH_OPTR_IWDG_SW) != (FLASH_OPTR_IWDG_SW));
 }
 
 /**
   * @}
   */
 
-/** @defgroup FLASH_LL_EF_BOR_Management BOR Management
+/** @defgroup FLASH_LL_EF_SDK_Management SDK Management
   * @{
   */
+
 /**
-  * @brief  Set BOR
-  * @rmtoll SDKR        BOR_LEVEL       LL_FLASH_SetBOR
-  * @rmtoll SDKR        BOR_EN          LL_FLASH_SetBOR
+  * @brief  Set SDK Address
+  * @rmtoll SDKR        SDK_STRT        LL_FLASH_SetSDKAddress
+  * @rmtoll SDKR        SDK_END         LL_FLASH_SetSDKAddress
+  * @rmtoll SDKR        BOR_LEVEL       LL_FLASH_SetSDKAddress
+  * @rmtoll SDKR        BOR_EN          LL_FLASH_SetSDKAddress
   * @param  FLASHx FLASH Instance
+  * @param  SDKStartAddress This parameter can be one of the following values:
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08000000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08000800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08001000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08001800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08002000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08002800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08003000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08003800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08004000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08004800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08005000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08005800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08006000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08006800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08007000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08007800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08008000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08008800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08009000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08009800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800A000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800A800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800B000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800B800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800C000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800C800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800D000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800D800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800E000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800E800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800F000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800F800
+  * @param  SDKEndAddress This parameter can be one of the following values:
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080007FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08000FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080017FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08001FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080027FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08002FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080037FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08003FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080047FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08004FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080057FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08005FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080067FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08006FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080077FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08007FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080087FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08008FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080097FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08009FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800A7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800AFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800B7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800BFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800C7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800CFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800D7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800DFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800E7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800EFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800F7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800FFFF
   * @param  BOREnable This parameter can be one of the following values:
   *         @arg @ref LL_FLASH_BOR_ENABLE
   *         @arg @ref LL_FLASH_BOR_DISABLE
@@ -927,9 +1067,99 @@ __STATIC_INLINE uint32_t LL_FLASH_GetIWDGSWMode(FLASH_TypeDef *FLASHx)
   *         @arg @ref LL_FLASH_BOR_LEV7
   * @retval None.
   */
-__STATIC_INLINE void LL_FLASH_SetBOR(FLASH_TypeDef *FLASHx,uint32_t BOREnable,uint32_t BORLevel)
+__STATIC_INLINE void LL_FLASH_SetSDKAddress(FLASH_TypeDef *FLASHx,uint32_t SDKStartAddress,uint32_t SDKEndAddress, \
+                                                                  uint32_t BOREnable,      uint32_t BORLevel)
 {
-  MODIFY_REG(FLASHx->BORCR, (FLASH_BORCR_BOR_LEV | FLASH_BORCR_BOR_EN) ,(BOREnable | BORLevel));
+  MODIFY_REG(FLASHx->SDKR, (FLASH_SDKR_SDK_STRT | FLASH_SDKR_SDK_END | FLASH_SDKR_BOR_LEV | FLASH_SDKR_BOR_EN) , \
+                           (SDKStartAddress | SDKEndAddress | BOREnable | BORLevel));
+}
+
+/**
+  * @brief  Get SDK Start Address
+  * @rmtoll SDKR        SDK_STRT        LL_FLASH_GetSDKStartAddress
+  * @param  FLASHx FLASH Instance
+  * @retval Returned value can be a one of the following values:
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08000000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08000800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08001000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08001800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08002000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08002800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08003000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08003800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08004000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08004800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08005000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08005800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08006000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08006800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08007000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08007800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08008000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08008800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08009000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X08009800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800A000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800A800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800B000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800B800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800C000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800C800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800D000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800D800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800E000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800E800
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800F000
+  *         @arg @ref LL_FLASH_SDKSTARTADDRESS_0X0800F800
+  * @retval None
+  */
+__STATIC_INLINE uint32_t LL_FLASH_GetSDKStartAddress(FLASH_TypeDef *FLASHx)
+{
+  return READ_BIT(FLASHx->SDKR, FLASH_SDKR_SDK_STRT);
+}
+
+/**
+  * @brief  Get SDK End Address
+  * @rmtoll SDKR        SDK_END         LL_FLASH_GetSDKEndAddress
+  * @param  FLASHx FLASH Instance
+  * @retval Returned value can be a one of the following values:
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080007FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08000FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080017FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08001FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080027FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08002FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080037FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08003FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080047FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08004FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080057FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08005FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080067FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08006FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080077FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08007FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080087FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08008FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X080097FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X08009FFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800A7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800AFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800B7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800BFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800C7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800CFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800D7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800DFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800E7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800EFFF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800F7FF
+  *         @arg @ref LL_FLASH_SDKENDADDRESS_0X0800FFFF
+  * @retval None
+  */
+__STATIC_INLINE uint32_t LL_FLASH_GetSDKEndAddress(FLASH_TypeDef *FLASHx)
+{
+  return (READ_BIT(FLASHx->SDKR, FLASH_SDKR_SDK_END));
 }
 
 /**
@@ -940,7 +1170,7 @@ __STATIC_INLINE void LL_FLASH_SetBOR(FLASH_TypeDef *FLASHx,uint32_t BOREnable,ui
   */
 __STATIC_INLINE uint32_t LL_FLASH_IsEnabledBOR(FLASH_TypeDef *FLASHx)
 {
-  return (READ_BIT(FLASHx->BORCR, FLASH_BORCR_BOR_EN) == (FLASH_BORCR_BOR_EN));
+  return (READ_BIT(FLASHx->SDKR, FLASH_SDKR_BOR_EN) == (FLASH_SDKR_BOR_EN));
 }
 
 /**
@@ -959,7 +1189,7 @@ __STATIC_INLINE uint32_t LL_FLASH_IsEnabledBOR(FLASH_TypeDef *FLASHx)
   */
 __STATIC_INLINE uint32_t LL_FLASH_GetBORLevel(FLASH_TypeDef *FLASHx)
 {
-  return READ_BIT(FLASHx->BORCR, FLASH_BORCR_BOR_LEV);
+  return READ_BIT(FLASHx->SDKR, FLASH_SDKR_BOR_LEV);
 }
 
 /**

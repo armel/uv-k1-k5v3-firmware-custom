@@ -316,7 +316,7 @@ void LL_SPI_StructInit(LL_SPI_InitTypeDef *SPI_InitStruct)
                                           || ((__VALUE__) == LL_I2S_MCLK_OUTPUT_DISABLE))
 
 #define IS_LL_I2S_AUDIO_FREQ(__VALUE__) ((((__VALUE__) >= LL_I2S_AUDIOFREQ_8K)       \
-                                          && ((__VALUE__) <= LL_I2S_AUDIOFREQ_96K)) \
+                                          && ((__VALUE__) <= LL_I2S_AUDIOFREQ_192K)) \
                                          || ((__VALUE__) == LL_I2S_AUDIOFREQ_DEFAULT))
 
 #define IS_LL_I2S_PRESCALER_LINEAR(__VALUE__)  ((__VALUE__) >= 0x2U)

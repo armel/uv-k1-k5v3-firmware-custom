@@ -833,7 +833,7 @@ static HAL_StatusTypeDef FLASH_OB_BOR_LevelConfig(uint16_t Level)
   assert_param(IS_OB_BOR_LEVEL(Level));
 
   /* Set the BOR Level */
-  MODIFY_REG(FLASH->BORCR, FLASH_BORCR_BOR_EN  | FLASH_BORCR_BOR_LEV, Level);
+  MODIFY_REG(FLASH->SDKR, FLASH_SDKR_BOR_EN  | FLASH_SDKR_BOR_LEV, Level);
   
   return HAL_OK; 
 }
@@ -914,13 +914,12 @@ HAL_StatusTypeDef HAL_FLASH_OBProgram(FLASH_OBProgramInitTypeDef *pOBInit)
     FLASH->WRPR = (uint16_t)(~(pOBInit->WRPSector));
   }
   
-//  /* SDK register */
-//  if ((pOBInit->OptionType & OPTIONBYTE_SDK) != 0)
-//  {
-//    /* SDK protection configuration */
-//    FLASH->SDKR = (pOBInit->SDKStartAddr) | (pOBInit->SDKEndAddr<<8);
-//  }
-
+  /* SDK register */
+  if ((pOBInit->OptionType & OPTIONBYTE_SDK) != 0)
+  {
+    /* SDK protection configuration */
+    FLASH->SDKR = (pOBInit->SDKStartAddr) | (pOBInit->SDKEndAddr<<8);
+  }
   /* BOR Level  configuration */
   if((pOBInit->OptionType & OPTIONBYTE_BOR) == OPTIONBYTE_BOR)
   {
@@ -983,8 +982,8 @@ void HAL_FLASH_OBGetConfig(FLASH_OBProgramInitTypeDef *pOBInit)
   pOBInit->WRPSector = (uint16_t)(~FLASH->WRPR);
 
   /* Get SDK sector */
-/*  pOBInit->SDKStartAddr = (FLASH->SDKR)&0x1F;         */
-/*  pOBInit->SDKEndAddr = ((FLASH->SDKR)&0x1F00)>>8;    */
+  pOBInit->SDKStartAddr = (FLASH->SDKR)&0x1F;
+  pOBInit->SDKEndAddr = ((FLASH->SDKR)&0x1F00)>>8;
 
   /*Get RDP Level*/
   if (((FLASH->OPTR)&0xFF) == OB_RDP_LEVEL_0)
@@ -995,7 +994,7 @@ void HAL_FLASH_OBGetConfig(FLASH_OBProgramInitTypeDef *pOBInit)
     pOBInit->RDPLevel   = OB_RDP_LEVEL_1;
   }
   /* Get BOR */
-  pOBInit->BORLevel=(FLASH->BORCR)&(FLASH_BORCR_BOR_EN | FLASH_BORCR_BOR_LEV);
+  pOBInit->BORLevel=(FLASH->SDKR)&(FLASH_SDKR_BOR_EN | FLASH_SDKR_BOR_LEV);
 
   /*Get USER*/
   pOBInit->USERType = OB_USER_ALL;

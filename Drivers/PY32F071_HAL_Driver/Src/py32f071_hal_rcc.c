@@ -307,7 +307,7 @@ HAL_StatusTypeDef HAL_RCC_OscConfig(RCC_OscInitTypeDef  *RCC_OscInitStruct)
 #if defined(RCC_PLL_SUPPORT)
   uint32_t temp_pllckcfg;
   uint32_t temp_pllMulIndex;
-  const uint32_t pllMinFreq[]= {16000000,22120000};
+  const uint32_t pllMinFreq[]= {12000000,16000000};
   const uint32_t pllMaxFreq[]= {24000000,24000000};
 #endif
   /* Check Null pointer */
@@ -347,32 +347,14 @@ HAL_StatusTypeDef HAL_RCC_OscConfig(RCC_OscInitTypeDef  *RCC_OscInitStruct)
       {
         assert_param(IS_RCC_HSE_FREQ(RCC_OscInitStruct->HSEFreq));
 
-
         if (RCC_OscInitStruct->HSEFreq != 0)
         {
-          if(READ_BIT(RCC->ECSCR,RCC_ECSCR_HSE_DRV) != RCC_OscInitStruct->HSEFreq)
-          {
-            __HAL_RCC_HSE_CONFIG(RCC_HSE_OFF);
-
-            /* Get Start Tick*/
-            tickstart = HAL_GetTick();
-
-            /* Wait till HSE is disabled */
-            while (READ_BIT(RCC->CR, RCC_CR_HSERDY) != 0U)
-            {
-              if ((HAL_GetTick() - tickstart) > HSE_TIMEOUT_VALUE)
-              {
-                return HAL_TIMEOUT;
-              }
-            }
 #if defined(RCC_ECSCR_HSE_FREQ)
-            MODIFY_REG(RCC->ECSCR, RCC_ECSCR_HSE_FREQ_Msk, RCC_OscInitStruct->HSEFreq);
+          MODIFY_REG(RCC->ECSCR, RCC_ECSCR_HSE_FREQ_Msk, RCC_OscInitStruct->HSEFreq);
 #elif defined(RCC_ECSCR_HSE_DRV)
-            MODIFY_REG(RCC->ECSCR, RCC_ECSCR_HSE_DRV_Msk, RCC_OscInitStruct->HSEFreq);
-#endif /* RCC_ECSCR_HSE_FREQ */        
-          }
-        } 
-        else
+          MODIFY_REG(RCC->ECSCR, RCC_ECSCR_HSE_DRV_Msk, RCC_OscInitStruct->HSEFreq);
+#endif /* RCC_ECSCR_HSE_FREQ */
+        } else
         {
           return HAL_ERROR;
         }
@@ -613,36 +595,17 @@ HAL_StatusTypeDef HAL_RCC_OscConfig(RCC_OscInitTypeDef  *RCC_OscInitStruct)
           }
         }
       }
-
-      if(READ_BIT(RCC->ECSCR,RCC_ECSCR_LSE_DRIVER) != RCC_OscInitStruct->LSEDriver)
+      /* Set driver factor of the LSE*/
+      if (RCC_OscInitStruct->LSEState != RCC_LSE_OFF)
       {
-        /* Set driver factor of the LSE*/
-        if (RCC_OscInitStruct->LSEState != RCC_LSE_OFF)
+        if (((RCC_OscInitStruct->LSEDriver) & RCC_ECSCR_LSE_DRIVER) == 0U)
         {
-          /* Set the new LSE configuration -----------------------------------------*/
-          __HAL_RCC_LSE_CONFIG(RCC_LSE_OFF);
-          /* Get Start Tick*/
-          tickstart = HAL_GetTick();
-          /* Wait till LSE is disabled */
-          while (READ_BIT(RCC->BDCR, RCC_BDCR_LSERDY) != 0U)
-          {
-            if ((HAL_GetTick() - tickstart) > RCC_LSE_TIMEOUT_VALUE)
-            {
-              return HAL_TIMEOUT;
-            }
-          }
-          
-          if (((RCC_OscInitStruct->LSEDriver) & RCC_ECSCR_LSE_DRIVER) == 0U)
-          {
-            MODIFY_REG(RCC->ECSCR, RCC_ECSCR_LSE_DRIVER_Msk, RCC_ECSCR_LSE_DRIVER_1);
-          } 
-          else
-          {
-            MODIFY_REG(RCC->ECSCR, RCC_ECSCR_LSE_DRIVER_Msk, RCC_OscInitStruct->LSEDriver);
-          }
+          MODIFY_REG(RCC->ECSCR, RCC_ECSCR_LSE_DRIVER_Msk, RCC_ECSCR_LSE_DRIVER_1);
+        } else
+        {
+          MODIFY_REG(RCC->ECSCR, RCC_ECSCR_LSE_DRIVER_Msk, RCC_OscInitStruct->LSEDriver);
         }
       }
-
       /* Set the new LSE configuration -----------------------------------------*/
       __HAL_RCC_LSE_CONFIG(RCC_OscInitStruct->LSEState);
 

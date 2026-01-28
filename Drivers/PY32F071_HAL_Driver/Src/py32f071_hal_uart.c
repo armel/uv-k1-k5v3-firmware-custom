@@ -1389,11 +1389,7 @@ HAL_StatusTypeDef HAL_UART_Transmit_DMA(UART_HandleTypeDef *huart, uint8_t *pDat
 
     /* Enable the DMA transfer for transmit request by setting the DMAT bit
        in the UART CR3 register */
-    __disable_irq();
-    CLEAR_BIT(huart->Instance->CR1, USART_CR1_TE);
-    SET_BIT(huart->Instance->CR1, USART_CR1_TE);
     SET_BIT(huart->Instance->CR3, USART_CR3_DMAT);
-    __enable_irq();
 
     return HAL_OK;
   }
@@ -3083,22 +3079,12 @@ static HAL_StatusTypeDef UART_Transmit_IT(UART_HandleTypeDef *huart)
     if ((huart->Init.WordLength == UART_WORDLENGTH_9B)&&(huart->Init.Parity == UART_PARITY_NONE))
     {
       tmp16bit=(uint16_t *) huart->pTxBuffPtr;
-      /* To prevent the TC flag bit from being affected by other operations during
-         data transmission, read the SR register in conjunction with write the DR 
-         Register to clear the TC flag bit.
-         */
-      (void)(huart->Instance->SR);
       huart->Instance->DR = (uint16_t)(*tmp16bit & (uint16_t)0x01FF);
       huart->pTxBuffPtr += 2U;
     }
     else
     {
       tmp8bit=(uint8_t *) huart->pTxBuffPtr;
-      /* To prevent the TC flag bit from being affected by other operations during
-         data transmission, read the SR register in conjunction with write the DR 
-         Register to clear the TC flag bit.
-         */
-      (void)(huart->Instance->SR);
       huart->Instance->DR = (uint8_t)(*tmp8bit & (uint8_t)0x00FF);
       huart->pTxBuffPtr++;
     }

@@ -348,6 +348,9 @@ HAL_StatusTypeDef HAL_IRDA_Init(IRDA_HandleTypeDef *hirda)
   CLEAR_BIT(hirda->Instance->CR2, (USART_CR2_LINEN | USART_CR2_STOP | USART_CR2_CLKEN));
   CLEAR_BIT(hirda->Instance->CR3, (USART_CR3_SCEN | USART_CR3_HDSEL));
 
+  /* Enable the IRDA peripheral */
+  __HAL_IRDA_ENABLE(hirda);
+
   /* Set the prescaler */
   MODIFY_REG(hirda->Instance->GTPR, USART_GTPR_PSC, hirda->Init.Prescaler);
 
@@ -356,9 +359,6 @@ HAL_StatusTypeDef HAL_IRDA_Init(IRDA_HandleTypeDef *hirda)
 
   /* Enable the IrDA mode by setting the IREN bit in the CR3 register */
   SET_BIT(hirda->Instance->CR3, USART_CR3_IREN);
-
-  /* Enable the IRDA peripheral */
-  __HAL_IRDA_ENABLE(hirda);
 
   /* Initialize the IRDA state*/
   hirda->ErrorCode = HAL_IRDA_ERROR_NONE;
@@ -2470,11 +2470,6 @@ static HAL_StatusTypeDef IRDA_Transmit_IT(IRDA_HandleTypeDef *hirda)
     if (hirda->Init.WordLength == IRDA_WORDLENGTH_9B)
     {
       tmp = (uint16_t *) hirda->pTxBuffPtr;
-      /* To prevent the TC flag bit from being affected by other operations during
-         data transmission, read the SR register in conjunction with write the DR 
-         Register to clear the TC flag bit.
-         */
-      (void)(hirda->Instance->SR);
       hirda->Instance->DR = (uint16_t)(*tmp & (uint16_t)0x01FF);
       if (hirda->Init.Parity == IRDA_PARITY_NONE)
       {
@@ -2487,11 +2482,6 @@ static HAL_StatusTypeDef IRDA_Transmit_IT(IRDA_HandleTypeDef *hirda)
     }
     else
     {
-      /* To prevent the TC flag bit from being affected by other operations during
-         data transmission, read the SR register in conjunction with write the DR 
-         Register to clear the TC flag bit.
-         */
-      (void)(hirda->Instance->SR);
       hirda->Instance->DR = (uint8_t)(*hirda->pTxBuffPtr++ & (uint8_t)0x00FF);
     }
 

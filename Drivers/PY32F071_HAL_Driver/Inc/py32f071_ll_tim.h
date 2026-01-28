@@ -897,17 +897,6 @@ typedef struct
   * @}
   */
 
-/** @defgroup TIMEx_Remap TIM Extended Remapping
-  * @{
-  */
-#define LL_TIM_TIM14_TI1_RMP_GPIO                         (0x00000000U) /*!< TIM14 TI1 is connected to GPIO */
-#define LL_TIM_TIM14_TI1_RMP_RTC                          (0x00000001U) /*!< TIM14 TI1 is connected to RTC_clock */
-#define LL_TIM_TIM14_TI1_RMP_HSE_32                       (0x00000002U) /*!< TIM14 TI1 is connected to HSE/32U */
-#define LL_TIM_TIM14_TI1_RMP_MCO                          (0x00000003U) /*!< TIM14 TI1 is connected to MCO */
-/**
-  * @}
-  */
-
 /**
   * @}
   */
@@ -4028,48 +4017,6 @@ __STATIC_INLINE void LL_TIM_GenerateEvent_BRK(TIM_TypeDef *TIMx)
 /**
   * @}
   */
-
-/** @defgroup TIM_LL_EF_Remap Remap
-  * @{
-  */
-#if defined(TIM14)
-/**
-  * @brief  Configures the TIMx Remapping input capabilities.
-  * @param  TIMx TIM.
-  * @param  Remap specifies the TIM remapping source.
-  *         For TIM14, the parameter can have the following values:
-  *           @arg LL_TIM_TIM14_TI1_RMP_GPIO:    TIM14 TI1 is connected to GPIO
-  *           @arg LL_TIM_TIM14_TI1_RMP_RTC:     TIM14 TI1 is connected to RTC_clock
-  *           @arg LL_TIM_TIM14_TI1_RMP_HSE_32:  TIM14 TI1 is connected to HSE/32
-  *           @arg LL_TIM_TIM14_TI1_RMP_MCO:     TIM14 TI1 is connected to MCO
-  *
-  * @retval HAL status
-  */
-__STATIC_INLINE void LL_TIM_SetRemap(TIM_TypeDef *TIMx, uint32_t Remap)
-{
-  WRITE_REG(TIMx->OR, Remap);
-}
-
-/**
-  * @brief  Configures the TIMx Remapping input capabilities.
-  * @param  TIMx TIM
-  * @retval  Remap specifies the TIM remapping source.
-  *         For TIM14, the parameter can have the following values:
-  *           @arg LL_TIM_TIM14_TI1_RMP_GPIO:    TIM14 TI1 is connected to GPIO
-  *           @arg LL_TIM_TIM14_TI1_RMP_RTC:     TIM14 TI1 is connected to RTC_clock
-  *           @arg LL_TIM_TIM14_TI1_RMP_HSE_32:  TIM14 TI1 is connected to HSE/32
-  *           @arg LL_TIM_TIM14_TI1_RMP_MCO:     TIM14 TI1 is connected to MCO
-  */
-__STATIC_INLINE uint32_t LL_TIM_GetRemap(TIM_TypeDef *TIMx)
-{
-  return READ_REG(TIMx->OR);
-}
-#endif
-/**
-  * @}
-  */
-
-
 
 #if defined(USE_FULL_LL_DRIVER)
 /** @defgroup TIM_LL_EF_Init Initialisation and deinitialisation functions

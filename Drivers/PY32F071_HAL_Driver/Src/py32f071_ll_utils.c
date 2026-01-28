@@ -60,7 +60,7 @@
 #define UTILS_HSE_FREQUENCY_MAX      32000000U     /*!< Frequency max for HSE frequency, in Hz   */
 
 /* Defines used for PLL input range */
-#define LL_RCC_PLLINPUT_FREQ_MIN     16000000U     /*!< Frequency min for PLL input frequency, in Hz   */
+#define LL_RCC_PLLINPUT_FREQ_MIN     12000000U     /*!< Frequency min for PLL input frequency, in Hz   */
 #define LL_RCC_PLLINPUT_FREQ_MAX     24000000U     /*!< Frequency max for PLL input frequency, in Hz   */
 #endif
 
@@ -242,7 +242,7 @@ ErrorStatus LL_PLL_ConfigSystemClock_HSI(LL_UTILS_PLLInitTypeDef *UTILS_PLLInitS
   uint32_t pllfreq;
 
   uint32_t temp_pllMulIndex;
-  const uint32_t pllMinFreq[]= {16000000,22120000};
+  const uint32_t pllMinFreq[]= {12000000,16000000};
   
   /* Check the parameters */
   assert_param(IS_LL_UTILS_PLLMUL_VALUE(UTILS_PLLInitStruct->PLLMul));
@@ -318,7 +318,7 @@ ErrorStatus LL_PLL_ConfigSystemClock_HSE(uint32_t HSEFrequency, uint32_t HSEBypa
   uint32_t pllfreq;
 
   uint32_t temp_pllMulIndex;
-  const uint32_t pllMinFreq[]= {16000000,22120000};
+  const uint32_t pllMinFreq[]= {12000000,16000000};
   const uint32_t pllMaxFreq[]= {24000000,24000000};
 
   /* Check the parameters */

@@ -411,7 +411,6 @@ HAL_StatusTypeDef     HAL_DAC_UnRegisterCallback(DAC_HandleTypeDef *hdac, HAL_DA
 uint32_t HAL_DAC_GetValue(DAC_HandleTypeDef *hdac, uint32_t Channel);
 
 HAL_StatusTypeDef HAL_DAC_ConfigChannel(DAC_HandleTypeDef *hdac, DAC_ChannelConfTypeDef *sConfig, uint32_t Channel);
-HAL_StatusTypeDef HAL_DAC_ConfigOutputToInternal(DAC_HandleTypeDef *hdac, uint32_t Channel,uint32_t Status);
 /**
   * @}
   */

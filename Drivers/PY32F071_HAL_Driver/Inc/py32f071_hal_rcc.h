@@ -1185,7 +1185,7 @@ typedef struct
 #define __HAL_RCC_LED_CLK_DISABLE()            CLEAR_BIT(RCC->APBENR2, RCC_APBENR2_LEDEN)
 #endif
 #if defined(LCD)
-#define __HAL_RCC_LCD_CLK_DISABLE()            CLEAR_BIT(RCC->APBENR2, RCC_APBENR2_LCDEN)
+#define __HAL_RCC_LED_CLK_DISABLE()            CLEAR_BIT(RCC->APBENR2, RCC_APBENR2_LCDEN)
 #endif
 /**
   * @}
