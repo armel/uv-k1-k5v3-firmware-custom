@@ -31,13 +31,16 @@ fi
 # ---------------------------------------------
 # Build the Docker image (only needed once)
 # ---------------------------------------------
-docker build -t "$IMAGE" .
+if [[ "$(docker images -q $IMAGE)" == "" ]]; then
+  echo "Building Docker image..."
+  docker build -t "$IMAGE" .
+fi
 
 # ---------------------------------------------
 # Clean existing CMake cache to ensure toolchain reload
 # ---------------------------------------------
 rm -rf build
-
+export MSYS_NO_PATHCONV=1
 # ---------------------------------------------
 # Function to build one preset
 # ---------------------------------------------
