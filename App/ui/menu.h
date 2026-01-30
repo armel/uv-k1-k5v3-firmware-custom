@@ -96,6 +96,8 @@ enum
     MENU_D_LIST,
 #endif
     MENU_D_LIVE_DEC,
+    MENU_SELECTIVE,
+    MENU_SELCAL_CODE,
     MENU_PONMSG,
     MENU_ROGER,
     MENU_VOL,
@@ -201,8 +203,8 @@ extern const char        gSubMenu_D_RSP[4][11];
         extern const char    gSubMenu_SET_AUD[5][6];
     #endif
 #endif
-
 extern const char* const gSubMenu_PTT_ID[5];
+extern const char * const gSubMenu_SELCAL[6]; 
 #ifdef ENABLE_FEAT_F4HWN
     extern const char        gSubMenu_PONMSG[5][8];
 #else

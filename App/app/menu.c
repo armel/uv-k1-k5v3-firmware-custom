@@ -335,6 +335,12 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = ARRAY_SIZE(gSubMenu_PTT_ID) - 1;
             break;
 
+        case MENU_SELECTIVE:
+            *pMin = 0;
+            *pMax = 5;   // 6 choix : 0–5
+            break;
+
+            
         case MENU_BAT_TXT:
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_BAT_TXT) - 1;
@@ -477,6 +483,11 @@ void MENU_AcceptSetting(void)
 
     switch (UI_MENU_GetCurrentMenuId())
     {
+        
+        case MENU_SELCAL_CODE: //Les digits sont déjà dans gEeprom.selective_tx_seq[], 
+            SETTINGS_SaveSettings();
+            break;
+
         default:
             return;
 
@@ -546,6 +557,11 @@ void MENU_AcceptSetting(void)
             gTxVfo->TX_OFFSET_FREQUENCY_DIRECTION = gSubMenuSelection;
             gRequestSaveChannel                   = 1;
             return;
+        
+        case MENU_SELECTIVE:
+            gEeprom.selective_mode = gSubMenuSelection;
+            SETTINGS_SaveSettings();
+            break;
 
         case MENU_OFFSET:
             gTxVfo->TX_OFFSET_FREQUENCY = gSubMenuSelection;
@@ -1118,6 +1134,8 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gEeprom.MrChannel[gEeprom.TX_VFO];
             break;
 
+        
+        
         case MENU_SAVE:
             gSubMenuSelection = gEeprom.BATTERY_SAVE;
             break;
@@ -1239,6 +1257,10 @@ void MENU_ShowCurrentSetting(void)
 
         case MENU_D_ST:
             gSubMenuSelection = gEeprom.DTMF_SIDE_TONE;
+            break;
+        
+        case MENU_SELECTIVE:
+            gSubMenuSelection = gEeprom.selective_mode;
             break;
 
 #ifdef ENABLE_DTMF_CALLING
@@ -1720,8 +1742,17 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
             edit_index          = -1;
         }
 
+        if (UI_MENU_GetCurrentMenuId() == MENU_SELCAL_CODE)
+        {
+            // Quand on entre dans SelSeq, on commence au le premier digit/
+            gSelcalCursor = 0;
+        }
+
         return;
     }
+
+    
+
 
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME)
     {
@@ -1847,6 +1878,19 @@ static void MENU_Key_STAR(const bool bKeyPressed, const bool bKeyHeld)
         return;
     }
 
+    if (UI_MENU_GetCurrentMenuId() == MENU_SELCAL_CODE && gIsInSubMenu)
+    {
+        // Avance le curseur sur le digit suivant (0..4 -> boucle)
+        if (gSelcalCursor < 4)
+            gSelcalCursor++;
+        else
+            gSelcalCursor = 0;
+
+        gRequestDisplayScreen = DISPLAY_MENU;
+        return;
+    }
+
+
     RADIO_SelectVfos();
 
     #ifdef ENABLE_NOAA
@@ -1897,6 +1941,29 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
         }
         return;
     }
+
+    if (UI_MENU_GetCurrentMenuId() == MENU_SELCAL_CODE && gIsInSubMenu)
+    {
+        // UP/DOWN changent la valeur du digit courant (0..9)
+        if (bKeyPressed && Direction != 0)
+        {
+            uint8_t v = gEeprom.selective_tx_seq[gSelcalCursor];
+
+            if (Direction < 0) {
+                // UP -> +1 modulo 10
+                v = (uint8_t)((v + 1) % 10);
+            } else { // Direction > 0
+                // DOWN -> -1 modulo 10
+                v = (v == 0) ? 9 : (uint8_t)(v - 1);
+            }
+
+            gEeprom.selective_tx_seq[gSelcalCursor] = v;
+            gRequestDisplayScreen = DISPLAY_MENU;
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        }
+        return;
+    }
+
 
     if (!bKeyHeld)
     {

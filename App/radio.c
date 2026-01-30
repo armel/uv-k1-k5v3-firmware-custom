@@ -35,12 +35,16 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/menu.h"
+#include "app/selective_call.h"
+
 
 VFO_Info_t    *gTxVfo;
 VFO_Info_t    *gRxVfo;
 VFO_Info_t    *gCurrentVfo;
 DCS_CodeType_t gCurrentCodeType;
 VfoState_t     VfoState[2];
+volatile bool gSelectiveCall_Pending = false;
+
 
 const char gModulationStr[MODULATION_UKNOWN][4] = {
     [MODULATION_FM]="FM",
@@ -1251,6 +1255,7 @@ void RADIO_PrepareTX(void)
 
     // TX is allowed
 
+
 #ifdef ENABLE_DTMF_CALLING
     if (gDTMF_ReplyState == DTMF_REPLY_ANI)
     {
@@ -1265,7 +1270,15 @@ void RADIO_PrepareTX(void)
     }
 #endif
 
+    // ------------------------------------------
+    // Selective Call (ZVEI / CCIR / REGA)
+    // ------------------------------------------
+    gSelectiveCall_Pending = (gEeprom.selective_mode > 0);
+
+
     FUNCTION_Select(FUNCTION_TRANSMIT);
+
+
 
     gTxTimerCountdown_500ms = 0;            // no timeout
 

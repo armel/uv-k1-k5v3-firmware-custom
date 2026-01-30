@@ -25,6 +25,11 @@
 #include "radio.h"
 #include <driver/backlight.h>
 
+#ifndef SELECTIVE_MAX_TONES
+#define SELECTIVE_MAX_TONES 5
+#endif
+
+
 enum POWER_OnDisplayMode_t {
 #ifdef ENABLE_FEAT_F4HWN
     POWER_ON_DISPLAY_MODE_ALL,
@@ -303,6 +308,8 @@ typedef struct {
     uint8_t               S0_LEVEL;
     uint8_t               S9_LEVEL;
 #endif
+    uint8_t               selective_mode; 
+    uint8_t               selective_tx_seq[SELECTIVE_MAX_TONES]; 
 } EEPROM_Config_t;
 
 extern EEPROM_Config_t gEeprom;
