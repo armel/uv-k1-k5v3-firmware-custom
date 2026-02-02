@@ -42,7 +42,12 @@
 #include <stdint.h>
 #include <string.h>
 
-static const uint8_t DrawingEndY = 40;
+static const uint8_t DrawingEndY = 31;
+static const uint8_t WaterfallTopY = DrawingEndY + 1;
+enum
+{
+    WaterfallHeight = 16
+};
 
 static const uint8_t U8RssiMap[] = {
     121,
