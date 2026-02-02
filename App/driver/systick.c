@@ -20,8 +20,8 @@
 static uint32_t gTickMultiplier;
 void SYSTICK_Init(void)
 {
-    SysTick_Config(480000);
-    gTickMultiplier = 48;
+    SysTick_Config(720000);
+    gTickMultiplier = 72;
     NVIC_SetPriority(SysTick_IRQn, 0);
 }
 void SYSTICK_DelayUs(uint32_t Delay)
