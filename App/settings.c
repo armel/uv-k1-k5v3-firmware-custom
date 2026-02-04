@@ -1253,12 +1253,12 @@ void SETTINGS_ResetTxLock(void)
     // This is an expensive operation: full scan of all MR channels
 
     #define CHANNEL_SIZE               16
-    #define TXLOCK_BYTE_OFFSET         4
+    #define TXLOCK_BYTE_OFFSET         12
     #define TXLOCK_BIT                 6
-    #define SETTINGS_ResetTxLock_BATCH 16
+    #define SETTINGS_ResetTxLock_BATCH 32
 
-    const uint32_t TotalBytes  = MR_CHANNELS_MAX * CHANNEL_SIZE;   // 512 * 16 = 8192
-    const uint32_t BatchSize   = TotalBytes / SETTINGS_ResetTxLock_BATCH; // 8192 / 16 = 512
+    const uint32_t TotalBytes  = MR_CHANNELS_MAX * CHANNEL_SIZE;   // 1024 * 16 = 16 384
+    const uint32_t BatchSize   = TotalBytes / SETTINGS_ResetTxLock_BATCH; // 16 384 / 32 = 512
     const uint32_t BatchChCnt  = BatchSize / CHANNEL_SIZE;         // 32 channels per batch
 
     uint8_t Buf[BatchSize];
@@ -1277,6 +1277,9 @@ void SETTINGS_ResetTxLock(void)
 
         PY25Q16_WriteBuffer(Offset, Buf, BatchSize, false);
     }
+
+    RADIO_ConfigureChannel(0, VFO_CONFIGURE_RELOAD);
+    RADIO_ConfigureChannel(1, VFO_CONFIGURE_RELOAD);
 
     #undef SETTINGS_ResetTxLock_BATCH
     #undef CHANNEL_SIZE
