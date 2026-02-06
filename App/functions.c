@@ -192,15 +192,35 @@ void FUNCTION_Transmit()
 
     GUI_DisplayScreen();
 
+    // CW: key an unmodulated carrier with PTT.
+    // The VFO modulation stays MODULATION_CW for UI, but TX hardware is forced to FM with AF muted.
+    const bool isCw = (gCurrentVfo != NULL && gCurrentVfo->Modulation == MODULATION_CW);
+    if (isCw) {
+        RADIO_SetModulation(MODULATION_FM);
+    }
+
     RADIO_SetTxParameters();
+
+    if (isCw) {
+        BK4819_SetAF(BK4819_AF_MUTE);
+
+        // Set FM deviation(REG_40) to zero to prevent sidetone from modulating the TX carrier.
+        BK4819_WriteRegister((BK4819_REGISTER_t)0x40U, 0x0000);
+
+        AUDIO_AudioPathOn();
+        gEnableSpeaker = true;
+        BK4819_TransmitTone(true, 650);
+    }
 
     // turn the RED LED on
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
 
-    DTMF_Reply();
+    if (!isCw) {
+        DTMF_Reply();
 
-    if (gCurrentVfo->DTMF_PTT_ID_TX_MODE == PTT_ID_APOLLO)
-        BK4819_PlaySingleTone(2525, 250, 0, gEeprom.DTMF_SIDE_TONE);
+        if (gCurrentVfo->DTMF_PTT_ID_TX_MODE == PTT_ID_APOLLO)
+            BK4819_PlaySingleTone(2525, 250, 0, gEeprom.DTMF_SIDE_TONE);
+    }
 
 #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
     if (gAlarmState != ALARM_STATE_OFF) {
