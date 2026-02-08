@@ -2192,7 +2192,7 @@ Skip:
     }
 
     if (gRequestSaveChannel > 0) { // TODO: remove the gRequestSaveChannel, why use global variable for that??
-        if ((!bKeyHeld && !bKeyPressed) || (UI_MENU_GetCurrentMenuId() != 0 && gScreenToDisplay == DISPLAY_MENU))
+        if ((!bKeyHeld && !bKeyPressed) || (UI_MENU_GetCurrentMenuId() != 0 && gScreenToDisplay == DISPLAY_MENU) || gScreenToDisplay == DISPLAY_SCANNER)
         {
             SETTINGS_SaveChannel(gTxVfo->CHANNEL_SAVE, gEeprom.TX_VFO, gTxVfo, gRequestSaveChannel);
 

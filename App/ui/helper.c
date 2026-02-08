@@ -44,11 +44,11 @@ void UI_GenerateChannelString(char *pString, const uint16_t Channel)
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber)
 {
     if (gInputBoxIndex > 0) {
-        for (unsigned int i = 0; i < 3; i++) {
+        for (unsigned int i = 0; i < 4; i++) {
             pString[i] = (gInputBox[i] == 10) ? '-' : gInputBox[i] + '0';
         }
 
-        pString[3] = 0;
+        pString[4] = 0;
         return;
     }
 

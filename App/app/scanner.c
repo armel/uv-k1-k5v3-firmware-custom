@@ -32,7 +32,7 @@ DCS_CodeType_t    gScanCssResultType;
 uint8_t           gScanCssResultCode;
 bool              gScanSingleFrequency; // scan CTCSS/DCS codes for current frequency
 SCAN_SaveState_t  gScannerSaveState;
-uint8_t           gScanChannel;
+uint16_t          gScanChannel;
 uint32_t          gScanFrequency;
 SCAN_CssState_t   gScanCssState;
 uint8_t           gScanProgressIndicator;
@@ -52,7 +52,7 @@ static void SCANNER_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
             gRequestDisplayScreen = DISPLAY_SCANNER;
 
-            if (gInputBoxIndex < 3) {
+            if (gInputBoxIndex < 4) {
 #ifdef ENABLE_VOICE
                 gAnotherVoiceID = (VOICE_ID_t)Key;
 #endif
@@ -61,13 +61,14 @@ static void SCANNER_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
             gInputBoxIndex = 0;
 
-            uint16_t chan = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
+            // uint16_t chan = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
+            uint16_t chan = ((gInputBox[0] * 1000) + (gInputBox[1] * 100) + (gInputBox[2] * 10) + gInputBox[3]) - 1;
             if (IS_MR_CHANNEL(chan)) {
 #ifdef ENABLE_VOICE
                 gAnotherVoiceID = (VOICE_ID_t)Key;
 #endif
                 gShowChPrefix = RADIO_CheckValidChannel(chan, false, 0);
-                gScanChannel  = (uint8_t)chan;
+                gScanChannel  = chan;
                 return;
             }
         }
@@ -207,7 +208,7 @@ static void SCANNER_Key_MENU(bool bKeyPressed, bool bKeyHeld)
                 gTxVfo->freq_config_TX.Code     = gScanCssResultCode;
             }
 
-            uint8_t chan;
+            uint16_t chan;
             if (IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE)) {
                 chan = gScanChannel;
                 gEeprom.MrChannel[gEeprom.TX_VFO] = chan;
@@ -275,10 +276,16 @@ void SCANNER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             SCANNER_Key_MENU(bKeyPressed, bKeyHeld);
             break;
         case KEY_UP:
-            SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld,  1);
+            if(gEeprom.SET_NAV == 0)
+                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld,  -1);
+            else
+                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld,  1);
             break;
         case KEY_DOWN:
-            SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
+            if(gEeprom.SET_NAV == 0)
+                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
+            else
+                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
             break;
         case KEY_EXIT:
             SCANNER_Key_EXIT(bKeyPressed, bKeyHeld);

@@ -1553,9 +1553,9 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         UI_MENU_GetCurrentMenuId() == MENU_S_PRI_CH_1 ||
         UI_MENU_GetCurrentMenuId() == MENU_S_PRI_CH_2 ||
         UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME)
-    {   // enter 3-digit channel number
+    {   // enter 4-digit channel number
 
-        if (gInputBoxIndex < 3)
+        if (gInputBoxIndex < 4)
         {
             #ifdef ENABLE_VOICE
                 gAnotherVoiceID   = (VOICE_ID_t)Key;
@@ -1566,7 +1566,8 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
         gInputBoxIndex = 0;
 
-        Value = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
+        //Value = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
+        Value = ((gInputBox[0] * 1000) + (gInputBox[1] * 100) + (gInputBox[2] * 10) + gInputBox[3]) - 1;
 
         if (IS_MR_CHANNEL(Value))
         {

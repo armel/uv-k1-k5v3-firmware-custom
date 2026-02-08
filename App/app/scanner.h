@@ -40,7 +40,7 @@ extern DCS_CodeType_t    gScanCssResultType;
 extern uint8_t           gScanCssResultCode;
 extern bool              gScanSingleFrequency;
 extern SCAN_SaveState_t  gScannerSaveState;
-extern uint8_t           gScanChannel;
+extern uint16_t          gScanChannel;
 extern uint32_t          gScanFrequency;
 extern SCAN_CssState_t   gScanCssState;
 extern uint8_t           gScanProgressIndicator;
