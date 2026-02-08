@@ -1004,7 +1004,7 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())
                             {
-                                String[9] = 0;
+                                String[10] = 0;
                                 UI_PrintString(String, 36, 0, line, 8);
                             }
                             else
