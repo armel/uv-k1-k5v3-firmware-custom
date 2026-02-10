@@ -89,12 +89,13 @@ DECLARE_AIRCOPY_BANK(1)
 
 static const AIRCOPY_Segment_t AIRCOPY_Segments_Settings[] = {
     { 0xA000, 0xA170, AIRCOPY_WRITE_BYTES },
+    { 0x880E, 0x886E, AIRCOPY_WRITE_BYTES },
 };
 
 static const AIRCOPY_TransferMap_t AIRCOPY_Map_Settings = {
     .segments = AIRCOPY_Segments_Settings,
-    .num_segments = 1,
-    .total_blocks = 6
+    .num_segments = 2,
+    .total_blocks = 8
 };
 
 // Finally
