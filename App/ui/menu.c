@@ -974,9 +974,9 @@ void UI_DisplayMenu(void)
                 
                 // If first character is empty/invalid, display "N/A"
                 if (name[0] == '\0' || name[0] == '\xff' || name[0] == ' ')
-                    sprintf(String, "%02u - N/A", gSubMenuSelection);
+                    sprintf(String, "%02u", gSubMenuSelection);
                 else
-                    sprintf(String, "%02u - %.3s", gSubMenuSelection, name);
+                    sprintf(String, "%02u (%.3s)", gSubMenuSelection, name);
             }
             break;
 
@@ -987,9 +987,9 @@ void UI_DisplayMenu(void)
                 const char *name = gListName[gSubMenuSelection - 1];
                 // If first character is empty/invalid, display "N/A"
                 if (name[0] == '\0' || name[0] == '\xff' || name[0] == ' ')
-                    sprintf(String, "%02u - N/A", gSubMenuSelection);
+                    sprintf(String, "%02u", gSubMenuSelection);
                 else
-                    sprintf(String, "%02u - %.3s", gSubMenuSelection, name);
+                    sprintf(String, "%02u (%.3s)", gSubMenuSelection, name);
             }
             break;
 
