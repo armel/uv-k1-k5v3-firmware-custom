@@ -969,15 +969,28 @@ void UI_DisplayMenu(void)
                 strcpy(String, "ALL");
             else if (gSubMenuSelection == 0)
                 strcpy(String, "OFF");
-            else
-                sprintf(String, "%u", gSubMenuSelection);
+            else {
+                const char *name = gListName[gSubMenuSelection - 1];
+                
+                // If first character is empty/invalid, display "N/A"
+                if (name[0] == '\0' || name[0] == '\xff' || name[0] == ' ')
+                    sprintf(String, "%02u - N/A", gSubMenuSelection);
+                else
+                    sprintf(String, "%02u - %.3s", gSubMenuSelection, name);
+            }
             break;
 
         case MENU_S_LIST:
             if (gSubMenuSelection == MR_CHANNELS_LIST + 1)
                 strcpy(String, "ALL");
-            else
-                sprintf(String, "%u", gSubMenuSelection);
+            else {
+                const char *name = gListName[gSubMenuSelection - 1];
+                // If first character is empty/invalid, display "N/A"
+                if (name[0] == '\0' || name[0] == '\xff' || name[0] == ' ')
+                    sprintf(String, "%02u - N/A", gSubMenuSelection);
+                else
+                    sprintf(String, "%02u - %.3s", gSubMenuSelection, name);
+            }
             break;
 
         #ifdef ENABLE_ALARM

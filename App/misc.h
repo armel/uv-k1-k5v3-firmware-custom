@@ -455,6 +455,8 @@ extern volatile uint8_t      boot_counter_10ms;
     extern uint16_t gVfoSaveCountdown_10ms;
     extern bool gScheduleVfoSave;
     extern bool gVfoStateChanged;
+
+    extern char gListName[MR_CHANNELS_LIST][4];
 #endif
 
 int32_t NUMBER_AddWithWraparound(int32_t Base, int32_t Add, int32_t LowerLimit, int32_t UpperLimit);

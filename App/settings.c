@@ -403,6 +403,9 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     }
     */
 
+    // Init list name
+    PY25Q16_ReadBuffer(0x00880E, gListName, sizeof(gListName));
+
     // Init attr cache
     MR_InitChannelAttributesCache();
 

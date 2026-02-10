@@ -334,6 +334,7 @@ uint8_t           gIsLocked = 0xFF;
     uint16_t gVfoSaveCountdown_10ms = 0;
     bool gScheduleVfoSave = false;
     bool gVfoStateChanged = false;
+    char    gListName[MR_CHANNELS_LIST][4];
 #endif
 
 inline void FUNCTION_NOP() { ; }

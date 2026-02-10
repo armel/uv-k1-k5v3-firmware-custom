@@ -111,13 +111,19 @@ void UI_DisplayStatus()
                 }
                 else
                 {
-                    if(gEeprom.SCAN_LIST_ENABLED==1) {
-                        sprintf(str, "%02d+", gEeprom.SCAN_LIST_DEFAULT);
-                        end = 15;
-                    }
+                    const char *name = gListName[gEeprom.SCAN_LIST_DEFAULT - 1];
+
+                    // Check if name is valid
+                    bool nameValid = (name[0] != '\0' && name[0] != '\xff' && name[0] != ' ');
+
+                    // Format the string
+                    if (nameValid) {
+                        sprintf(str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
+                        end = gEeprom.SCAN_LIST_ENABLED ? 19 : 15;
+                    } 
                     else {
-                        sprintf(str, "%02d", gEeprom.SCAN_LIST_DEFAULT);
-                        end = 11;
+                        sprintf(str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
+                        end = gEeprom.SCAN_LIST_ENABLED ? 15 : 11;
                     }
                 }
 

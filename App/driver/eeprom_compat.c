@@ -48,7 +48,8 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
     _MK_MAPPING(0x006000, 0x006000, 0x007000),  // 256 MR Name * 16 Bytes
     _MK_MAPPING(0x007000, 0x007000, 0x008000),  // 256 MR Name * 16 Bytes
 
-    _MK_MAPPING(0x008000, 0x008000, 0x00880E),  // 1024 MR  + 7 VFO Attributes * 2 Bytes (ex 0x002000)
+    _MK_MAPPING(0x008000, 0x008000, 0x00886E),  // 1024 MR  + 7 VFO Attributes * 2 Bytes (ex 0x002000) 0x008000 -> 0x00880E
+                                                // List name * 4 Bytes 0x00880E -> 0x00886E
 
     _MK_MAPPING(0x009000, 0x009000, 0x0090D6),  // 14 VFO * 16 Bytes (ex 0x001000)
 

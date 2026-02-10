@@ -917,13 +917,35 @@ void UI_DisplayMain(void)
                         countList = 0;
                     }
 
-                    const char *displayStr = (countList == MR_CHANNELS_LIST + 1) ? "ALL" : 
-                                             (countList == 0) ? "OFF" : String;
-                    uint8_t xStart = (countList > 0 && countList != MR_CHANNELS_LIST + 1) ? 117 : 113;
-                    uint8_t xDisplay = (countList > 0 && countList != MR_CHANNELS_LIST + 1) ? 119 : 115;
+                    const char *displayStr;
+                    uint8_t xStart, xDisplay;
 
-                    if(countList > 0 && countList != MR_CHANNELS_LIST + 1) {
-                        sprintf(String, "%02d", countList);
+                    if (countList == MR_CHANNELS_LIST + 1) {
+                        displayStr = "ALL";
+                        xStart = 113;
+                        xDisplay = 115;
+                    } 
+                    else if (countList == 0) {
+                        displayStr = "OFF";
+                        xStart = 113;
+                        xDisplay = 115;
+                    } 
+                    else {
+                        // List 1 to MR_CHANNELS_LIST
+                        const char *name = gListName[countList - 1];
+                        
+                        // If name is empty/invalid, display number
+                        if (name[0] == '\0' || name[0] == '\xff' || name[0] == ' ') {
+                            sprintf(String, "%02d", countList);
+                            xStart = 117;  // 2-digit number aligned right
+                            xDisplay = 119;
+                        } 
+                        else {
+                            sprintf(String, "%.3s", name);
+                            xStart = 113;  // 3-char name aligned left
+                            xDisplay = 115;
+                        }
+                        displayStr = String;
                     }
 
                     GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 2 : 34, false, true);
