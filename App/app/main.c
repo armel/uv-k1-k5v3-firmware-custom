@@ -47,6 +47,12 @@
 #include "ui/ui.h"
 #include <stdlib.h>
 
+// Full VFO backup for restore on EXIT
+static VFO_Info_t gVfoBackup;
+static uint16_t   gScreenChannelBackup = 0;
+static uint16_t   gFreqChannelBackup = 0;
+static bool       gHasVfoBackup = false;
+
 static void toggle_chan_scanlist(void)
 {   // toggle the selected channels scanlist setting
 
@@ -505,6 +511,15 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         }
 
         const uint8_t Vfo = gEeprom.TX_VFO;
+
+        // Save full VFO state BEFORE first digit
+        if (gInputBoxIndex == 0 && IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE)) {
+            memcpy(&gVfoBackup, gTxVfo, sizeof(VFO_Info_t));
+            gScreenChannelBackup = gEeprom.ScreenChannel[Vfo];
+            gFreqChannelBackup = gEeprom.FreqChannel[Vfo];
+            gHasVfoBackup = true;
+        }
+
         INPUTBOX_Append(Key);
         gKeyInputCountdown = key_input_timeout_500ms;
 
@@ -684,6 +699,25 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
                     return;
                 gInputBox[--gInputBoxIndex] = 10;
 
+                // Restore full VFO state when back to 0
+                if (gInputBoxIndex == 0 && gHasVfoBackup) {
+                    const uint8_t Vfo = gEeprom.TX_VFO;
+
+                    // Restore indices
+                    gEeprom.ScreenChannel[Vfo] = gScreenChannelBackup;
+                    gEeprom.FreqChannel[Vfo] = gFreqChannelBackup;
+
+                    // Restore full VFO
+                    memcpy(gTxVfo, &gVfoBackup, sizeof(VFO_Info_t));
+
+                    // Save and apply
+                    SETTINGS_SaveVfoIndices();
+                    RADIO_ConfigureSquelchAndOutputPower(gTxVfo);
+                    RADIO_SetupRegisters(true);
+
+                    gHasVfoBackup = false;
+                }
+
                 gKeyInputCountdown = key_input_timeout_500ms;
 
 #ifdef ENABLE_VOICE
@@ -713,6 +747,26 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
     if (bKeyHeld && bKeyPressed) { // exit key held down
         if (gInputBoxIndex > 0 || gDTMF_InputBox_Index > 0 || gDTMF_InputMode)
         {   // cancel key input mode (channel/frequency entry)
+
+            // Restore full VFO state on long press EXIT
+            if (gHasVfoBackup) {
+                const uint8_t Vfo = gEeprom.TX_VFO;
+
+                // Restore indices
+                gEeprom.ScreenChannel[Vfo] = gScreenChannelBackup;
+                gEeprom.FreqChannel[Vfo] = gFreqChannelBackup;
+
+                // Restore full VFO
+                memcpy(gTxVfo, &gVfoBackup, sizeof(VFO_Info_t));
+
+                // Save and apply
+                SETTINGS_SaveVfoIndices();
+                RADIO_ConfigureSquelchAndOutputPower(gTxVfo);
+                RADIO_SetupRegisters(true);
+
+                gHasVfoBackup = false;
+            }
+
             gDTMF_InputMode       = false;
             gDTMF_InputBox_Index  = 0;
             memset(gDTMF_String, 0, sizeof(gDTMF_String));
