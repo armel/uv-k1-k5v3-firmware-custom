@@ -1552,9 +1552,9 @@ void UI_DisplayMain(void)
     if (isMainOnly() && !gDTMF_InputMode)
     {
         sprintf(String, "VFO %s", activeTxVFO ? "B" : "A");
-        GUI_DisplaySmallest(String, 108, 50, false, true);
+        GUI_DisplaySmallest(String, 107, 50, false, true);
 
-        for (uint8_t x = 107; x < 128; x++) {
+        for (uint8_t x = 105; x < 128; x++) {
             gFrameBuffer[6][x] ^= 0xFE;
         }
         /*
