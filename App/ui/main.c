@@ -821,7 +821,7 @@ void UI_DisplayMain(void)
 
         if (IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num]))
         {   // channel mode
-            const unsigned int x = 3;
+            const unsigned int x = 2;
             const bool inputting = gInputBoxIndex != 0 && gEeprom.TX_VFO == vfo_num;
             if (!inputting || gScanStateDir != SCAN_OFF)
                 sprintf(String, "%04u", gEeprom.ScreenChannel[vfo_num] + 1);
@@ -948,10 +948,10 @@ void UI_DisplayMain(void)
                         displayStr = String;
                     }
 
-                    GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 2 : 34, false, true);
+                    GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 1 : 33, false, true);
 
                     for (uint8_t x = xStart; x < 128; x++) {
-                        gFrameBuffer[line][x] ^= 0xFE;
+                        gFrameBuffer[line][x] ^= 0x7F;
                     }
 
                 }
@@ -962,10 +962,10 @@ void UI_DisplayMain(void)
                     uint8_t xStart = 117;
                     uint8_t xDisplay = 119;
                     
-                    GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 2 : 34, false, true);
+                    GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 1 : 33, false, true);
 
                     for (uint8_t x = xStart; x < 128; x++) {
-                        gFrameBuffer[line][x] ^= 0xFE;
+                        gFrameBuffer[line][x] ^= 0x7F;
                     }
                 }
 
@@ -1552,11 +1552,18 @@ void UI_DisplayMain(void)
     if (isMainOnly() && !gDTMF_InputMode)
     {
         sprintf(String, "VFO %s", activeTxVFO ? "B" : "A");
+        GUI_DisplaySmallest(String, 108, 50, false, true);
+
+        for (uint8_t x = 107; x < 128; x++) {
+            gFrameBuffer[6][x] ^= 0xFE;
+        }
+        /*
         UI_PrintStringSmallBold(String, 92, 0, 6);
         for (uint8_t i = 92; i < 128; i++)
         {
             gFrameBuffer[6][i] ^= 0x7F;
         }
+        */
     }
     //#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     //}

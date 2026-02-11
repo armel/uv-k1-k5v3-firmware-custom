@@ -130,17 +130,17 @@ void UI_PrintStringSmallNormalInverse(const char *pString, uint8_t Start, uint8_
     if (End != 0 && x_end > End)
         x_end = End;
 
-    gFrameBuffer[Line][x_start - 3] ^= 0x3E;
-    gFrameBuffer[Line][x_start - 2] ^= 0x7F;
-    gFrameBuffer[Line][x_start - 1] ^= 0xFF;
+    gFrameBuffer[Line][x_start - 2] ^= 0x3E;
+    gFrameBuffer[Line][x_start - 1] ^= 0x7F;
+    //gFrameBuffer[Line][x_start - 1] ^= 0xFF;
     for (uint8_t x = x_start; x < x_end; x++)
     {
         gFrameBuffer[Line][x] ^= 0xFF;
         gFrameBuffer[Line - 1][x] ^= 0x80;
     }
-    gFrameBuffer[Line][x_end + 0] ^= 0xFF;
-    gFrameBuffer[Line][x_end + 1] ^= 0x7F;
-    gFrameBuffer[Line][x_end + 2] ^= 0x3E;
+    //gFrameBuffer[Line][x_end + 0] ^= 0xFF;
+    gFrameBuffer[Line][x_end + 0] ^= 0x7F;
+    gFrameBuffer[Line][x_end + 1] ^= 0x3E;
 }
 
 
