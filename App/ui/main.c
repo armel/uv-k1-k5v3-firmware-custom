@@ -1007,7 +1007,7 @@ void UI_DisplayMain(void)
                         break;
 
                     case MDF_CHANNEL:   // show the channel number
-                        sprintf(String, "CH-%03u", gEeprom.ScreenChannel[vfo_num] + 1);
+                        sprintf(String, "CH-%04u", gEeprom.ScreenChannel[vfo_num] + 1);
                         UI_PrintString(String, 36, 0, line, 8);
                         break;
 
@@ -1017,7 +1017,7 @@ void UI_DisplayMain(void)
                         SETTINGS_FetchChannelName(String, gEeprom.ScreenChannel[vfo_num]);
                         if (String[0] == 0)
                         {   // no channel name, show the channel number instead
-                            sprintf(String, "CH-%03u", gEeprom.ScreenChannel[vfo_num] + 1);
+                            sprintf(String, "CH-%04u", gEeprom.ScreenChannel[vfo_num] + 1);
                         }
 
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
