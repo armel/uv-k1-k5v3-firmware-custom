@@ -833,9 +833,11 @@ void UI_DisplayMain(void)
         {   // frequency mode
             // show the frequency band number
             const unsigned int x = 2;
-            char * buf = gEeprom.VfoInfo[vfo_num].pRX->Frequency < _1GHz_in_KHz ? "" : "+";
-            sprintf(String, "F%u%s", 1 + gEeprom.ScreenChannel[vfo_num] - FREQ_CHANNEL_FIRST, buf);
-            UI_PrintStringSmallNormal(String, x, 0, line + 1);
+            const uint8_t f = 1 + gEeprom.ScreenChannel[vfo_num] - FREQ_CHANNEL_FIRST;
+            const bool over1GHz = gEeprom.VfoInfo[vfo_num].pRX->Frequency >= _1GHz_in_KHz;
+
+            sprintf(String, over1GHz ? "F%u+" : "F%u", f);
+            UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
         }
 #ifdef ENABLE_NOAA
         else
