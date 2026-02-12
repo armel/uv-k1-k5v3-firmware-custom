@@ -827,7 +827,24 @@ void UI_DisplayMain(void)
                 sprintf(String, "%04u", gEeprom.ScreenChannel[vfo_num] + 1);
             else
                 sprintf(String, "%.4s", INPUTBOX_GetAscii());  // show the input text
-            UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+
+            //if (gSetting_set_gui) {
+                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+            /*
+            }
+            else
+            {
+                GUI_DisplaySmallest(String, x + 1, line == 0 ? 9 : 41, false, true);
+                gFrameBuffer[line + 1][0] ^= 0x1C;
+                gFrameBuffer[line + 1][1] ^= 0x3E;
+                for (uint8_t i = 2; i < 21; i++) {
+                    gFrameBuffer[line + 1][i] ^= 0x7F;
+                }
+                gFrameBuffer[line + 1][21] ^= 0x3E;
+                gFrameBuffer[line + 1][22] ^= 0x1C;
+
+            }
+            */
         }
         else if (IS_FREQ_CHANNEL(gEeprom.ScreenChannel[vfo_num]))
         {   // frequency mode
@@ -837,7 +854,27 @@ void UI_DisplayMain(void)
             const bool over1GHz = gEeprom.VfoInfo[vfo_num].pRX->Frequency >= _1GHz_in_KHz;
 
             sprintf(String, over1GHz ? "F%u+" : "F%u", f);
-            UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+            //if (gSetting_set_gui) {
+                UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
+            /*
+            }
+            else
+            {
+                GUI_DisplaySmallest(String, x + 2, line == 0 ? 9 : 41, false, true);
+                uint8_t g = 13;
+                if(over1GHz)
+                    g = 17;
+
+                gFrameBuffer[line + 1][0] ^= 0x1C;
+                gFrameBuffer[line + 1][1] ^= 0x3E;
+                for (uint8_t i = 2; i < g; i++) {
+                    gFrameBuffer[line + 1][i] ^= 0x7F;
+                }
+                gFrameBuffer[line + 1][g] ^= 0x3E;
+                gFrameBuffer[line + 1][g + 1] ^= 0x1C;
+
+            }
+            */
         }
 #ifdef ENABLE_NOAA
         else
