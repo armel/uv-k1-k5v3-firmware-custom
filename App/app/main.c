@@ -32,7 +32,7 @@
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_GAME
-#include "app/breakout.h"
+#include "app/game.h"
 #endif
 
 #include "audio.h"
@@ -408,6 +408,7 @@ void channelMoveSwitch(void) {
     }
 }
 
+
 static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
     if (bKeyHeld) { // key held down
@@ -653,7 +654,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
         #endif
-        APP_RunBreakout();
+        APP_GameMenu();
         return;
     }
     #endif
