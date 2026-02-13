@@ -273,24 +273,23 @@ void DisplayRSSIBar(const bool now)
     //sprintf(String, "%d", RxBlink);
     //UI_PrintStringSmallBold(String, 80, 0, RxLine);
 
-    /*
     if(RxLine >= 0 && center_line != CENTER_LINE_IN_USE)
     {
-        if (RxBlink == 0 || RxBlink == 1) {
-            UI_PrintStringSmallBold("RX", 8, 0, RxLine);
-            //GUI_DisplaySmallest("RX", 10, (RxLine * 8) + 1, false, true);
+        static bool clean = false;
+        uint8_t *p_line0 = gFrameBuffer[RxLine + 0];
 
-            if (RxBlink == 1) RxBlink = 2;
+        clean = !clean;
+
+        if(clean) {
+            for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Default); i++)
+                p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Default[i];
         } else {
-            for (uint8_t i = 8; i < 24; i++)
-            {
-                gFrameBuffer[RxLine][i] = 0x00;
-            }
-            RxBlink = 1;
+            for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Empty); i++)
+                p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Empty[i];
         }
+
         ST7565_BlitLine(RxLine);
     }
-    */
 #else
     const unsigned int line = 3;
 #endif
@@ -809,8 +808,9 @@ void UI_DisplayMain(void)
             {
                 if(RxOnVfofrequency == frequency && !isMainOnly())
                 {
-                    UI_PrintStringSmallNormal(">>", 8, 0, line);
+                    //UI_PrintStringSmallNormal(">>", 8, 0, line);
                     //memcpy(p_line0 + 14, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+                    GUI_DisplaySmallest(">>", 8, RxLine == 0 ? 1 : 33, false, true);
                 }
 
                 if(RxBlinkLed == 1)

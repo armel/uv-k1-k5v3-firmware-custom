@@ -199,6 +199,17 @@ const uint8_t BITMAP_VFO_NotDefault[7] =
     0b00001000
 };
 
+const uint8_t BITMAP_VFO_Empty[7] =
+{
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b00000000,
+    0b00000000
+};
+
 const uint8_t BITMAP_compand[6] =
 {
     0b00000000,
