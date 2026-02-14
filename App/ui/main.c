@@ -82,7 +82,7 @@ const char *VfoStateStr[] = {
 
 // ***************************************************************************
 
-static void DrawSmallAntennaAndBars(uint8_t *p, unsigned int level)
+static void DrawSmallPowerBars(uint8_t *p, unsigned int level)
 {
     if(level>6)
         level = 6;
@@ -426,7 +426,7 @@ void DisplayRSSIBar(const bool now)
     uint8_t *pLine = (gEeprom.RX_VFO == 0)? gFrameBuffer[2] : gFrameBuffer[6];
     if (now)
         memset(pLine, 0, 23);
-    DrawSmallAntennaAndBars(pLine, Level);
+    DrawSmallPowerBars(pLine, Level);
     if (now)
         ST7565_BlitFullScreen();
 #endif
@@ -1190,7 +1190,7 @@ void UI_DisplayMain(void)
                 #endif
             }
             if(Level >= 0)
-                DrawSmallAntennaAndBars(p_line1 + LCD_WIDTH, Level);
+                DrawSmallPowerBars(p_line1 + LCD_WIDTH, Level);
         }
 
         // ************
