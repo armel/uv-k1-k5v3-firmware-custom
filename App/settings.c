@@ -604,6 +604,7 @@ void SETTINGS_FactoryReset(bool bIsAll)
 {
     PY25Q16_SectorErase(0x000000);
     PY25Q16_SectorErase(0x001000);
+    PY25Q16_SectorErase(0x002000);
     PY25Q16_SectorErase(0x003000);
     PY25Q16_SectorErase(0x004000);
     PY25Q16_SectorErase(0x005000);
