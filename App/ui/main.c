@@ -80,7 +80,7 @@ const char *VfoStateStr[] = {
        [VFO_STATE_VOLTAGE_HIGH]="VOLT HIGH"
 };
 
-// ***************************************************************************
+// ----------------------------------------
 
 static void DrawSmallPowerBars(uint8_t *p, unsigned int level)
 {
@@ -535,7 +535,7 @@ void UI_MAIN_TimeSlice500ms(void)
     }
 }
 
-// ***************************************************************************
+// ----------------------------------------
 
 void UI_DisplayMain(void)
 {
@@ -899,7 +899,7 @@ void UI_DisplayMain(void)
         }
 #endif
 
-        // ************
+        // ----------------------------------------
 
         enum VfoState_t state = VfoState[vfo_num];
 
@@ -1151,7 +1151,7 @@ void UI_DisplayMain(void)
             }
         }
 
-        // ************
+        // ----------------------------------------
 
         {   // show the TX/RX level
             int8_t Level = -1;
@@ -1193,7 +1193,7 @@ void UI_DisplayMain(void)
                 DrawSmallPowerBars(p_line1 + LCD_WIDTH, Level);
         }
 
-        // ************
+        // ----------------------------------------
 
         String[0] = '\0';
         const VFO_Info_t *vfoInfo = &gEeprom.VfoInfo[vfo_num];
@@ -1619,5 +1619,3 @@ void UI_DisplayMain(void)
 
     ST7565_BlitFullScreen();
 }
-
-// ***************************************************************************
