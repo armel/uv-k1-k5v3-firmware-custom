@@ -157,15 +157,6 @@ const uint8_t BITMAP_USB_C[9] =
     };
 #endif
 
-const uint8_t BITMAP_Antenna[5] =
-{
-    0b00000011,
-    0b00000101,
-    0b01111111,
-    0b00000101,
-    0b00000011
-};
-
 const uint8_t BITMAP_VFO_Lock[7] =
 {
     0b00111100,

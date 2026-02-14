@@ -87,11 +87,19 @@ static void DrawSmallAntennaAndBars(uint8_t *p, unsigned int level)
     if(level>6)
         level = 6;
 
-    memcpy(p, BITMAP_Antenna, ARRAY_SIZE(BITMAP_Antenna));
-
-    for(uint8_t i = 1; i <= level; i++) {
-        char bar = (0xff << (6-i)) & 0x7F;
-        memset(p + 2 + i*3, bar, 2);
+    if(gSetting_set_gui)
+    {
+        for(uint8_t i = 0; i <= level; i++) {
+            char bar = (0xff << (6-i)) & 0x7F;
+            memset(p + 2 + i*3, bar, 2);
+        }
+    }
+    else
+    {
+        for(uint8_t i = 0; i <= level; i++) {
+            char bar = 0b00111110;
+            memset(p + 2 + i*3, bar, 2);
+        }
     }
 }
 #if defined ENABLE_AUDIO_BAR || defined ENABLE_RSSI_BAR
