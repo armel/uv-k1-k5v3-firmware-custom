@@ -104,6 +104,12 @@ def main_restore(args, ser: serial.Serial):
     while (not quit_flag) and dump.loop():
         sleep(0)
 
+def main_ports(args):
+    from serial.tools import list_ports
+    port = list(list_ports.comports())
+    print("USB Device avalaible:")
+    for p in port:
+        print(p.device)
 
 def main_flash(args, ser: serial.Serial):
 
@@ -154,6 +160,8 @@ def main():
     # )
     sp = ap.add_subparsers(required=True, dest="subcommand")
 
+    ap_ports = sp.add_parser("ports", help="list usb ports")
+
     ap_flash = sp.add_parser("flash", help="flash firmware")
     ap_flash.add_argument(
         "--port", "-p", help="serial port, eg., '/dev/ttyUSB0'", required=True
@@ -199,8 +207,13 @@ def main():
     ap_restore.add_argument("file", help="input dump file")
 
     args = ap.parse_args()
-    port: str = args.port
     sub_name: str = args.subcommand
+
+    if sub_name =='ports':
+        main_ports(args)
+        exit(0)
+
+    port: str = args.port
 
     print(ap.description)
     # print("Press Ctrl-C to quit")

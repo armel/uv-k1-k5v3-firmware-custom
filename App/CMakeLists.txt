@@ -180,7 +180,9 @@ enable_feature(ENABLE_EXTRA_UART_CMD)
 
 enable_feature(ENABLE_FEAT_F4HWN)
 enable_feature(ENABLE_FEAT_F4HWN_GAME 
+    app/game.c
     app/breakout.c
+    app/snake.c
 )
 enable_feature(ENABLE_FEAT_F4HWN_SCREENSHOT 
     screenshot.c
