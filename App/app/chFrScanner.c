@@ -55,7 +55,7 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
     {   
 
         if(!RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT)) {
-            RADIO_NextValidList();
+            RADIO_NextValidList(1);
         }
 
         // channel mode

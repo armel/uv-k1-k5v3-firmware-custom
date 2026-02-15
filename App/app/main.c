@@ -291,16 +291,25 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 
 #ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down and Step F + SIDE1 or F + SIDE2
         case KEY_UP:
-            gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1: 9;
-            gVfoConfigureMode     = VFO_CONFIGURE;
-            gWasFKeyPressed = false;
-            break;
         case KEY_DOWN:
-            gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1: 0;
-            gVfoConfigureMode     = VFO_CONFIGURE;
-            gWasFKeyPressed = false;
-            break;
+            {
+                int8_t direction = (Key == KEY_UP) ? 1 : -1;
 
+                if (gScanStateDir != SCAN_OFF) {
+                    RADIO_NextValidList(direction);
+                } else {
+                    // Adjust squelch: UP increments, DOWN decrements
+                    if (direction > 0) {
+                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1 : 9;
+                    } else {
+                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1 : 0;
+                    }
+                    gVfoConfigureMode = VFO_CONFIGURE;
+                }
+
+                gWasFKeyPressed = false;
+            }
+            break;
         case KEY_SIDE1:
             uint8_t a = FREQUENCY_GetSortedIdxFromStepIdx(gTxVfo->STEP_SETTING);
             if (a < STEP_N_ELEM - 1)
@@ -496,7 +505,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                     /* Requested scan list is empty or invalid:
                        jump to the next valid scan list */
                     gEeprom.SCAN_LIST_DEFAULT = value;
-                    RADIO_NextValidList();
+                    RADIO_NextValidList(1);
                 }
 
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
