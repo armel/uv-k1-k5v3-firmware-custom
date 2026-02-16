@@ -62,7 +62,7 @@ center_line_t center_line = CENTER_LINE_NONE;
 
 const int8_t dBmCorrTable[7] = {
             -15, // band 1
-            -12, // band 2
+            -16, // band 2
             -10, // band 3
             -4, // band 4
             -7, // band 5
