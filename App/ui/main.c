@@ -340,6 +340,23 @@ void DisplayRSSIBar(const bool now)
 
     rssi_dBm = -rssi_dBm;
 
+    // VHF band 2 & 3 strong signal correction
+    if((gRxVfo->Band == 1 ||  gRxVfo->Band == 2) && rssi_dBm < 93) {  // Band 2 & 3, signal > S9
+        if(rssi_dBm <= 63) {
+            rssi_dBm -= 4;
+        }
+        else if(rssi_dBm <= 73) {
+            rssi_dBm -= 3;
+        }
+        else if(rssi_dBm <= 85) {
+            rssi_dBm -= 1;
+        }
+    }
+    // UHF band 6 strong signal correction
+    else if(gRxVfo->Band == 5 && rssi_dBm < 93) {  // Band 6, signal > S9)
+        rssi_dBm -= 2;
+    }
+
     if(rssi_dBm > 141) rssi_dBm = 141;
     if(rssi_dBm < 53) rssi_dBm = 53;
 
