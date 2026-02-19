@@ -846,7 +846,7 @@ void UI_DisplayMain(void)
 
         if (IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num]))
         {   // channel mode
-            const unsigned int x = 2;
+            const unsigned int x = 1;
             const bool inputting = gInputBoxIndex != 0 && gEeprom.TX_VFO == vfo_num;
             if (!inputting || gScanStateDir != SCAN_OFF)
                 sprintf(String, "%04u", gEeprom.ScreenChannel[vfo_num] + 1);
@@ -1014,9 +1014,11 @@ void UI_DisplayMain(void)
 
                     GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 1 : 33, false, true);
 
-                    for (uint8_t x = xStart; x < 128; x++) {
+                    gFrameBuffer[line][xStart] ^= 0x3E;
+                    for (uint8_t x = xStart + 1; x < 127; x++) {
                         gFrameBuffer[line][x] ^= 0x7F;
                     }
+                    gFrameBuffer[line][127] ^= 0x3E;
 
                 }
                 else
@@ -1083,15 +1085,15 @@ void UI_DisplayMain(void)
                         }
 
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
-                            String[9] = 0;
-                            UI_PrintString(String, 36, 0, line, 8);
+                            String[10] = 0;
+                            UI_PrintString(String, 33, 0, line, 8);
                         }
                         else {
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())
                             {
                                 String[10] = 0;
-                                UI_PrintString(String, 36, 0, line, 8);
+                                UI_PrintString(String, 33, 0, line, 8);
                             }
                             else
                             {
@@ -1618,9 +1620,12 @@ void UI_DisplayMain(void)
         sprintf(String, "VFO %s", activeTxVFO ? "B" : "A");
         GUI_DisplaySmallest(String, 107, 50, false, true);
 
-        for (uint8_t x = 105; x < 128; x++) {
+        gFrameBuffer[6][105] ^= 0x7C;
+        for (uint8_t x = 106; x < 127; x++) {
             gFrameBuffer[6][x] ^= 0xFE;
         }
+        gFrameBuffer[6][127] ^= 0x7C;
+
         /*
         UI_PrintStringSmallBold(String, 92, 0, 6);
         for (uint8_t i = 92; i < 128; i++)

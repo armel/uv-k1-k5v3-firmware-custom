@@ -101,12 +101,12 @@ void UI_DisplayStatus()
                 {
                     if(gEeprom.SCAN_LIST_ENABLED==1) {
                         sprintf(str, "%s+", "ALL");
-                        end = 19;
+                        end = 18;
                     }
                     else
                     {
                         sprintf(str, "%s", "ALL");
-                        end = 15;
+                        end = 14;
                     }
                 }
                 else
@@ -119,19 +119,22 @@ void UI_DisplayStatus()
                     // Format the string
                     if (nameValid) {
                         sprintf(str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 19 : 15;
+                        end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
                     } 
                     else {
                         sprintf(str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 15 : 11;
+                        end = gEeprom.SCAN_LIST_ENABLED ? 14 : 10;
                     }
                 }
 
                 GUI_DisplaySmallest(str, 2, 1, true, true);
-                for (uint8_t x = 0; x < end; x++)
+
+                gStatusLine[0] ^= 0x3E;
+                for (uint8_t x = 1; x < end; x++)
                 {
                     gStatusLine[x] ^= 0x7F;
                 }
+                gStatusLine[end] ^= 0x3E;
             }
             else {  // frequency mode
                 memcpy(line + x + 1, gFontS, sizeof(gFontS));
