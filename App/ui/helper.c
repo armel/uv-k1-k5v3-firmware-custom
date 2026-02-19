@@ -157,30 +157,6 @@ void UI_PrintStringSmallBold(const char *pString, uint8_t Start, uint8_t End, ui
     UI_PrintStringSmall(pString, Start, End, Line, char_width, font);
 }
 
-void UI_PrintStringSmallBoldInverse(const char *pString, uint8_t Start, uint8_t End, uint8_t Line)
-{
-    // First draw the string normally
-    UI_PrintStringSmallBold(pString, Start, End, Line);
-
-    // Now invert the framebuffer bits for the rendered area
-    uint8_t len = strlen(pString);
-    uint8_t char_width = 7; // small font is typically 6px wide
-
-    uint8_t x_start = Start;
-    uint8_t x_end   = Start + (len * char_width);
-
-    if (End != 0 && x_end > End)
-        x_end = End;
-
-    gFrameBuffer[Line][x_start] ^= 0x7F;
-    for (uint8_t x = x_start + 1; x < x_end; x++)
-    {
-        gFrameBuffer[Line][x] ^= 0x41;
-    }
-    gFrameBuffer[Line][x_end + 1] ^= 0x7F;
-}
-
-
 void UI_PrintStringSmallBufferNormal(const char *pString, uint8_t * buffer)
 {
     UI_PrintStringBuffer(pString, buffer, ARRAY_SIZE(gFontSmall[0]), (uint8_t *)gFontSmall);
