@@ -65,6 +65,7 @@
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
                 "ENABLE_FEAT_F4HWN_CA": true,
                 "ENABLE_FEAT_F4HWN_DEBUG": false,
+                "ENABLE_FEAT_F4HWN_MEM": false,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,
@@ -188,6 +189,7 @@
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_VOL": true,
                 "ENABLE_FEAT_F4HWN_AUDIO": true,
+                "ENABLE_FEAT_F4HWN_MEM": true,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"

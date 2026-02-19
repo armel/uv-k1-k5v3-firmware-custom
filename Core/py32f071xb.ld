@@ -145,6 +145,15 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
   } >RAM AT> FLASH
 
+  /* Explicit placement of .noncacheable (CherryUSB) + end-of-FLASH symbol */
+  .noncacheable :
+  {
+    . = ALIGN(4);
+    *(.noncacheable)
+    *(.noncacheable*)
+    . = ALIGN(4);
+  } >RAM AT> FLASH
+  _eflash_used = LOADADDR(.noncacheable) + SIZEOF(.noncacheable);
   
   /* Uninitialized data section */
   . = ALIGN(4);
