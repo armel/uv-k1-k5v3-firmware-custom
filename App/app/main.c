@@ -728,6 +728,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
                 }
 
                 gKeyInputCountdown = key_input_timeout_500ms;
+                channelMoveSwitch();
 
 #ifdef ENABLE_VOICE
                 if (gInputBoxIndex == 0)
