@@ -19,6 +19,7 @@
 #include "screenshot.h"
 #include "misc.h"
 #include "driver/vcp.h"
+#include "driver/keyboard.h"
 
 static void Screenshot_Send(const uint8_t *buf, uint16_t len)
 {
@@ -123,6 +124,11 @@ void getScreenShot(bool force)
     forcedBlock = (forcedBlock + 1) % 128;
 
     if (deltaLen == 0)
+        return;
+
+    // Skip transmission if a key is currently pressed
+    // UART_Send is blocking - would freeze the main loop and lose keypresses
+    if (gKeyReading0 != KEY_INVALID)
         return;
 
     // ==== Send version marker (for backward compatibility detection) ====
