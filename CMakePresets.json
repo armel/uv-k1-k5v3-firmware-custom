@@ -189,7 +189,6 @@
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_VOL": true,
                 "ENABLE_FEAT_F4HWN_AUDIO": true,
-                "ENABLE_FEAT_F4HWN_MEM": true,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
