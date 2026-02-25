@@ -490,16 +490,13 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             /* 01 .. MR_CHANNELS_LIST */
             if (value <= MR_CHANNELS_LIST)
             {
-                if (RADIO_CheckValidList(value))
-                {
-                    /* Requested scan list is valid */
-                    gEeprom.SCAN_LIST_DEFAULT = value;
-                }
-                else
+                gEeprom.SCAN_LIST_DEFAULT = value;
+
+                if (!RADIO_CheckValidList(value))
                 {
                     /* Requested scan list is empty or invalid:
                        jump to the next valid scan list */
-                    gEeprom.SCAN_LIST_DEFAULT = value;
+                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                     RADIO_NextValidList(1);
                 }
 
@@ -509,8 +506,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             }
 
             gInputBoxIndex = 0;
-
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
