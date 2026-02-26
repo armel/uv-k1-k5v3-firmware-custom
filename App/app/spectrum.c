@@ -99,7 +99,8 @@ char freqInputString[11];
 
 uint8_t menuState = 0;
 uint8_t currentSL = 0;
-uint16_t countSLchannels = 0;
+uint8_t countSLchannels = 0;
+FREQUENCY_Band_t slBand = 0;
 uint32_t chFreqs[128];
 uint16_t listenT = 0;
 
@@ -176,7 +177,7 @@ static uint8_t DBm2S(int dbm)
 
 static int Rssi2DBm(uint16_t rssi)
 {
-    return (rssi / 2) - 160 + dBmCorrTable[gRxVfo->Band];
+    return (rssi / 2) - 160 + dBmCorrTable[isChMode? slBand : gRxVfo->Band];
 }
 
 static uint16_t GetRegMenuValue(uint8_t st)
@@ -579,6 +580,7 @@ static void InitScan()
         scanInfo.f = GetFStart();
         scanInfo.scanStep = GetScanStep();
         scanInfo.measurementsCount = GetStepsCount();
+        slBand = FREQUENCY_GetBand(chFreqs[0]);
     }
     else 
     {
@@ -677,7 +679,7 @@ static void Measure()
 
 static uint16_t dbm2rssi(int dBm)
 {
-    return (dBm + 160 - dBmCorrTable[gRxVfo->Band]) * 2;
+    return (dBm + 160 - dBmCorrTable[isChMode? slBand : gRxVfo->Band]) * 2;
 }
 
 static void ClampRssiTriggerLevel()
