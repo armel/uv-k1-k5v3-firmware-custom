@@ -467,6 +467,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             */
 
             INPUTBOX_Append(Key);
+            gKeyInputCountdown = key_input_timeout_500ms;
 
             /* Check if the user is trying to enter a list number between 30 and 99 */
             if (gInputBox[0] >= (MR_CHANNELS_LIST / 10 + 1)) {
@@ -481,6 +482,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
             /* Two digits entered */
             gInputBoxIndex = 0;
+            gKeyInputCountdown = 1;
 
             uint8_t value = (gInputBox[0] * 10) + gInputBox[1];
 
@@ -778,6 +780,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         }
         else {
             gScanKeepResult = false;
+            gKeyInputCountdown = 1;
             gInputBoxIndex = 0;
             CHFRSCANNER_Stop();
 
