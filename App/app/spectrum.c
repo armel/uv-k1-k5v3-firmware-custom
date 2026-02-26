@@ -1262,7 +1262,7 @@ static void OnKeyDown(uint8_t key)
     case KEY_UP:
         if(isChMode)
         {
-            if(nav)
+            if(!nav)
                 setChannelFrequencies(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
             else 
                 setChannelFrequencies(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true);
@@ -1280,7 +1280,7 @@ static void OnKeyDown(uint8_t key)
     case KEY_DOWN:
         if(isChMode)
         {
-            if(nav)
+            if(!nav)
                 setChannelFrequencies(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true);
             else 
                 setChannelFrequencies(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
