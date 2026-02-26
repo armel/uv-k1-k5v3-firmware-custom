@@ -468,6 +468,13 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
             INPUTBOX_Append(Key);
 
+            /* Check if the user is trying to enter a list number between 30 and 99 */
+            if (gInputBox[0] >= (MR_CHANNELS_LIST / 10 + 1)) {
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                gInputBoxIndex = 0;
+                return;
+            }
+
             /* Wait until exactly two digits are entered */
             if (gInputBoxIndex < 2)
                 return;
@@ -487,23 +494,29 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
 
-            /* 01 .. MR_CHANNELS_LIST */
-            if (value <= MR_CHANNELS_LIST)
-            {
-                gEeprom.SCAN_LIST_DEFAULT = value;
+            gEeprom.SCAN_LIST_DEFAULT = value;
 
-                if (!RADIO_CheckValidList(value))
-                {
-                    /* Requested scan list is empty or invalid:
-                       jump to the next valid scan list */
-                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
-                    RADIO_NextValidList(1);
-                }
+            /* 25 = ALL scan lists + error beep */
+            if (value == MR_CHANNELS_LIST + 1)
+            {
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+                SETTINGS_WriteCurrentState();
+            #endif
+                return;
+            }
+
+            if (!RADIO_CheckValidList(value))
+            {
+                /* Requested scan list is empty or invalid:
+                    jump to the next valid scan list */
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                RADIO_NextValidList(1);
+            }
 
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
             #endif
-            }
 
             gInputBoxIndex = 0;
             return;
@@ -765,6 +778,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         }
         else {
             gScanKeepResult = false;
+            gInputBoxIndex = 0;
             CHFRSCANNER_Stop();
 
 #ifdef ENABLE_VOICE
