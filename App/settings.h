@@ -54,6 +54,9 @@ enum TxLockModes_t {
 #ifdef ENABLE_FEAT_F4HWN_GMRS_FRS_MURS
     F_LOCK_GMRS_FRS_MURS,
 #endif
+#ifdef ENABLE_FEAT_DUALMODE
+    F_LOCK_EU_SAFE,  // PMR446 only, used when op_mode is EU Safe
+#endif
     F_LOCK_ALL, // disable TX on all frequencies
     F_LOCK_NONE, // enable TX on all frequencies
     F_LOCK_LEN
@@ -308,6 +311,9 @@ typedef struct {
 extern EEPROM_Config_t gEeprom;
 
 void     SETTINGS_InitEEPROM(void);
+#ifdef ENABLE_FEAT_DUALMODE
+bool     SETTINGS_DualModeFirstRun(void);
+#endif
 void     SETTINGS_LoadCalibration(void);
 uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel);
 void     SETTINGS_FetchChannelName(char *s, const uint16_t channel);

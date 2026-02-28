@@ -2,6 +2,7 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "functions.h"
+#include "frequencies.h"
 #include "misc.h"
 #include "settings.h"
 //#include "debugging.h"
@@ -44,7 +45,11 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
         gScanKeepResult = false;
     }
-    
+#ifdef ENABLE_FEAT_DUALMODE
+    /* TZ: Frequency scan runs on VFO B (index 1, RX-only row) */
+    if (!IS_MR_CHANNEL(gEeprom.VfoInfo[gEeprom.RX_VFO].CHANNEL_SAVE))
+        gEeprom.RX_VFO = 1;  /* force VFO B for freq scan */
+#endif
     RADIO_SelectVfos();
 
     gNextMrChannel   = gRxVfo->CHANNEL_SAVE;
@@ -70,6 +75,13 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
         if (storeBackupSettings) {
             initialFrqOrChan = gRxVfo->freq_config_RX.Frequency;
             lastFoundFrqOrChan = initialFrqOrChan;
+#ifdef ENABLE_FEAT_DUALMODE
+            /* TZ: If in dead zone 630-840 MHz, jump to 840 */
+            if (initialFrqOrChan > BX4819_band1.upper && initialFrqOrChan < BX4819_band2.lower) {
+                gRxVfo->freq_config_RX.Frequency = BX4819_band2.lower;
+                initialFrqOrChan = lastFoundFrqOrChan = BX4819_band2.lower;
+            }
+#endif
         }
         NextFreqChannel();
     }
@@ -238,8 +250,18 @@ static void NextFreqChannel(void)
     }
     else
 #endif
+#ifdef ENABLE_FEAT_DUALMODE
+        /* TZ: Full scan 18-1300 MHz with dead zone 660-840 skip */
+        gRxVfo->freq_config_RX.Frequency = APP_SetFrequencyByStepFullRange(gRxVfo, gScanStateDir);
+#else
         gRxVfo->freq_config_RX.Frequency = APP_SetFrequencyByStep(gRxVfo, gScanStateDir);
+#endif
+    gRxVfo->Band = FREQUENCY_GetBand(gRxVfo->freq_config_RX.Frequency);
 
+#ifdef ENABLE_FEAT_DUALMODE
+    gRxVfo->Modulation = RADIO_GetModulationForFrequency(gRxVfo->pRX->Frequency);
+    RADIO_SetModulation(gRxVfo->Modulation);
+#endif
     RADIO_ApplyOffset(gRxVfo);
     RADIO_ConfigureSquelchAndOutputPower(gRxVfo);
     RADIO_SetupRegisters(true);

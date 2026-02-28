@@ -201,6 +201,12 @@ enable_feature(ENABLE_FEAT_F4HWN_PMR)
 enable_feature(ENABLE_FEAT_F4HWN_GMRS_FRS_MURS)
 enable_feature(ENABLE_FEAT_F4HWN_CA)
 enable_feature(ENABLE_FEAT_F4HWN_DEBUG)
+enable_feature(ENABLE_FEAT_DUALMODE
+    app/op_mode.c
+    app/presets.c
+    ui/menu_categories.c
+    ui/pin.c
+)
 
 # ---- DEBUGGING ----
 

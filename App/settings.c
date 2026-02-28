@@ -26,9 +26,16 @@
 #include "driver/py25q16.h"
 #include "misc.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_DUALMODE
+    #include "app/presets.h"
+#endif
 #include "ui/menu.h"
 
 EEPROM_Config_t gEeprom = { 0 };
+
+#ifdef ENABLE_FEAT_DUALMODE
+static bool s_dualModeFirstRun = false;
+#endif
 
 void SETTINGS_InitEEPROM(void)
 {
@@ -97,6 +104,11 @@ void SETTINGS_InitEEPROM(void)
             if (needsWrite) {
                 PY25Q16_WriteBuffer(0x00A0C8, logoLines, sizeof(logoLines), false);
             }
+
+#ifdef ENABLE_FEAT_DUALMODE
+            PRESETS_LoadDualModeChannels();
+            s_dualModeFirstRun = true;
+#endif
         }
     }
 
@@ -491,6 +503,17 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gEeprom.KEY_LOCK_PTT = gSetting_set_lck;
     #endif
 }
+
+#ifdef ENABLE_FEAT_DUALMODE
+bool SETTINGS_DualModeFirstRun(void)
+{
+    if (s_dualModeFirstRun) {
+        s_dualModeFirstRun = false;
+        return true;
+    }
+    return false;
+}
+#endif
 
 void SETTINGS_LoadCalibration(void)
 {

@@ -167,6 +167,10 @@ const t_menu_item MenuList[] =
     {"SetNWR",      MENU_NOAA_S    },
 #endif
 #endif
+#ifdef ENABLE_FEAT_DUALMODE
+    {"OpMode",      MENU_OP_MODE       },
+    {"Set PIN",     MENU_OP_MODE_SET_PIN},
+#endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
     {"F Lock",      MENU_F_LOCK        },
@@ -323,9 +327,16 @@ const char * const gSubMenu_F_LOCK[] =
 #ifdef ENABLE_FEAT_F4HWN_GMRS_FRS_MURS
     "GMRS\nFRS\nMURS",
 #endif
+#ifdef ENABLE_FEAT_DUALMODE
+    "EU Safe\nPMR446",
+#endif
     "DISABLE\nALL",
     "UNLOCK\nALL",
 };
+
+#ifdef ENABLE_FEAT_DUALMODE
+const char * const gSubMenu_OP_MODE[] = { "EU Safe", "Blackout" };
+#endif
 
 const char gSubMenu_RX_TX[][6] =
 {
@@ -496,10 +507,21 @@ const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);
 bool    gIsInSubMenu;
 uint8_t gMenuCursor;
 int UI_MENU_GetCurrentMenuId() {
+#ifdef ENABLE_FEAT_DUALMODE
+    if (UI_MENU_IsSelectingCategory())
+        return 0xFF; /* no menu_id when selecting category */
+    {
+        const uint8_t idx = UI_MENU_GetEffectiveListIndex();
+        if (idx < ARRAY_SIZE(MenuList))
+            return MenuList[idx].menu_id;
+        return MenuList[ARRAY_SIZE(MenuList)-1].menu_id;
+    }
+#else
     if(gMenuCursor < ARRAY_SIZE(MenuList))
         return MenuList[gMenuCursor].menu_id;
 
     return MenuList[ARRAY_SIZE(MenuList)-1].menu_id;
+#endif
 }
 
 uint8_t UI_MENU_GetMenuIdx(uint8_t id)
@@ -541,12 +563,55 @@ void UI_DisplayMenu(void)
     }
 #endif
 
+#ifdef ENABLE_FEAT_DUALMODE
+    /* Category selection: Radio, Scan, Mode, Config */
+    if (UI_MENU_IsSelectingCategory()) {
+        static const char *cat_names[] = {"Radio", "Scan", "Mode", "Config"};
+        const uint8_t cur = gMenuCursor < 4 ? gMenuCursor : 0;
+        for (i = 0; i < 3; i++) {
+            int k = (int)cur + (int)i - 1;
+            if (k < 0) k = 4 + k;
+            else if (k >= 4) k = k - 4;
+            if (k >= 0 && k < 4)
+                UI_PrintString((char *)cat_names[k], 0, 0, i * 2, 8);
+        }
+        for (i = 0; i < (8 * menu_list_width); i++) {
+            gFrameBuffer[2][i] ^= 0xFF;
+            gFrameBuffer[3][i] ^= 0xFF;
+        }
+        for (i = 0; i < 7; i++)
+            gFrameBuffer[i][(8 * menu_list_width) + 1] = 0xAA;
+        sprintf(String, "1/4");
+        UI_PrintStringSmallNormal(String, 2, 0, 6);
+    }
+    else
+#endif
+    {
 #ifndef ENABLE_CUSTOM_MENU_LAYOUT
         // original menu layout
+#ifdef ENABLE_FEAT_DUALMODE
+    {
+        const int cur = (int)gMenuCursor;
+        const int cnt = (int)UI_MENU_GetEffectiveListCount();
+        for (i = 0; i < 3; i++)
+            if (cur > 0 || i > 0)
+                if ((cnt - 1) != cur || i != 2) {
+                    int k = cur + i - 1;
+                    if (k < 0) k += cnt;
+                    else if (k >= cnt) k -= cnt;
+                    if (k >= 0 && k < cnt)
+                        UI_PrintString(MenuList[UI_MENU_GetCategoryMenuListIndex(UI_MENU_GetCategory(), (uint8_t)k)].name, 0, 0, i * 2, 8);
+                }
+        sprintf(String, "%2u.%u", 1 + cur, (unsigned)cnt);
+    }
+#else
     for (i = 0; i < 3; i++)
         if (gMenuCursor > 0 || i > 0)
             if ((gMenuListCount - 1) != gMenuCursor || i != 2)
                 UI_PrintString(MenuList[gMenuCursor + i - 1].name, 0, 0, i * 2, 8);
+
+    sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
+#endif
 
     // invert the current menu list item pixels
     for (i = 0; i < (8 * menu_list_width); i++)
@@ -563,61 +628,90 @@ void UI_DisplayMenu(void)
     if (gIsInSubMenu)
         memcpy(gFrameBuffer[0] + (8 * menu_list_width) + 1, BITMAP_CurrentIndicator, sizeof(BITMAP_CurrentIndicator));
 
-    // draw the menu index number/count
+    // draw the menu index number/count (already set in DualMode block above)
+#ifndef ENABLE_FEAT_DUALMODE
     sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
+#endif
 
     UI_PrintStringSmallNormal(String, 2, 0, 6);
 
 #else
     {   // new menu layout .. experimental & unfinished
-        const int menu_index = gMenuCursor;  // current selected menu item
+#ifdef ENABLE_FEAT_DUALMODE
+        const int list_count = (int)UI_MENU_GetEffectiveListCount();
+        const int cursor = (int)gMenuCursor;
+        const int menu_index = (int)UI_MENU_GetEffectiveListIndex();
+#else
+        const int menu_index = gMenuCursor;
+        const int list_count = (int)gMenuListCount;
+        const int cursor = gMenuCursor;
+#endif
         i = 1;
 
         if (!gIsInSubMenu) {
             while (i < 2)
             {   // leading menu items - small text
-                const int k = menu_index + i - 2;
+                const int k = cursor + i - 2;
+#ifdef ENABLE_FEAT_DUALMODE
+                {
+                    int idx = k;
+                    if (idx < 0) idx += list_count;
+                    else if (idx >= list_count) idx -= list_count;
+                    if (idx >= 0 && idx < list_count)
+                        UI_PrintStringSmallNormal(MenuList[UI_MENU_GetCategoryMenuListIndex(UI_MENU_GetCategory(), (uint8_t)idx)].name, 0, 0, i);
+                }
+#else
                 if (k < 0)
                     UI_PrintStringSmallNormal(MenuList[gMenuListCount + k].name, 0, 0, i);  // wrap-a-round
-                else if (k >= 0 && k < (int)gMenuListCount)
+                else if (k >= 0 && k < list_count)
                     UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, i);
+#endif
                 i++;
             }
 
             // current menu item - keep big n fat
-            if (menu_index >= 0 && menu_index < (int)gMenuListCount)
+            if (menu_index >= 0 && menu_index < (int)ARRAY_SIZE(MenuList))
                 UI_PrintString(MenuList[menu_index].name, 0, 0, 2, 8);
             i++;
 
             while (i < 4)
             {   // trailing menu item - small text
-                const int k = menu_index + i - 2;
-                if (k >= 0 && k < (int)gMenuListCount)
+                const int k = cursor + i - 2;
+#ifdef ENABLE_FEAT_DUALMODE
+                {
+                    int idx = k;
+                    if (idx < 0) idx += list_count;
+                    else if (idx >= list_count) idx -= list_count;
+                    if (idx >= 0 && idx < list_count)
+                        UI_PrintStringSmallNormal(MenuList[UI_MENU_GetCategoryMenuListIndex(UI_MENU_GetCategory(), (uint8_t)idx)].name, 0, 0, 1 + i);
+                }
+#else
+                if (k >= 0 && k < list_count)
                     UI_PrintStringSmallNormal(MenuList[k].name, 0, 0, 1 + i);
-                else if (k >= (int)gMenuListCount)
+                else if (k >= list_count)
                     UI_PrintStringSmallNormal(MenuList[gMenuListCount - k].name, 0, 0, 1 + i);  // wrap-a-round
+#endif
                 i++;
             }
 
             // draw the menu index number/count
 #ifndef ENABLE_FEAT_F4HWN
-            sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
+            sprintf(String, "%2u.%u", 1 + cursor, (unsigned)list_count);
             UI_PrintStringSmallNormal(String, 2, 0, 6);
 #endif
         }
-        else if (menu_index >= 0 && menu_index < (int)gMenuListCount)
+        else if (menu_index >= 0 && menu_index < list_count)
         {   // current menu item
-//          strcat(String, ":");
             UI_PrintString(MenuList[menu_index].name, 0, 0, 0, 8);
-//          UI_PrintStringSmallNormal(String, 0, 0, 0);
         }
 
 #ifdef ENABLE_FEAT_F4HWN
-        sprintf(String, "%02u/%u", 1 + gMenuCursor, gMenuListCount);
+        sprintf(String, "%02u/%u", 1 + cursor, (unsigned)list_count);
         UI_PrintStringSmallNormal(String, 6, 0, 6);
 #endif
     }
 #endif
+    }
 
     // **************
 
@@ -1065,6 +1159,15 @@ void UI_DisplayMenu(void)
             else
                 strcpy(String, gSubMenu_F_LOCK[gSubMenuSelection]);
             break;
+
+#ifdef ENABLE_FEAT_DUALMODE
+        case MENU_OP_MODE:
+            strcpy(String, gSubMenu_OP_MODE[gSubMenuSelection]);
+            break;
+        case MENU_OP_MODE_SET_PIN:
+            strcpy(String, "MENU=Set");
+            break;
+#endif
 
         #ifdef ENABLE_F_CAL_MENU
             case MENU_F_CALI:

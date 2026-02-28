@@ -210,3 +210,22 @@ void UI_DisplayWelcome(void)
         #endif
     }
 }
+
+#ifdef ENABLE_FEAT_DUALMODE
+void UI_DisplayDualModeDisclaimer(void)
+{
+    memset(gStatusLine, 0, sizeof(gStatusLine));
+#if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
+    ST7565_ContrastAndInv();
+#endif
+    UI_DisplayClear();
+    UI_PrintStringSmallNormal("DualMode firmware.", 0, 127, 0);
+    UI_PrintStringSmallNormal("TX: PMR446 only", 0, 127, 1);
+    UI_PrintStringSmallNormal("(EU Safe).", 0, 127, 2);
+    UI_PrintStringSmallNormal("You are responsible", 0, 127, 3);
+    UI_PrintStringSmallNormal("for legal use.", 0, 127, 4);
+    UI_PrintStringSmallNormal("Press any key", 0, 127, 6);
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
+#endif

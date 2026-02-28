@@ -42,6 +42,9 @@
 
 #include "app/app.h"
 #include "app/dtmf.h"
+#ifdef ENABLE_FEAT_DUALMODE
+    #include "app/op_mode.h"
+#endif
 
 #include "driver/backlight.h"
 #include "driver/bk4819.h"
@@ -98,6 +101,10 @@ void Main(void)
     BOARD_ADC_GetBatteryInfo(&gBatteryCurrentVoltage, &gBatteryCurrent);
 
     SETTINGS_InitEEPROM();
+
+#ifdef ENABLE_FEAT_DUALMODE
+    OpMode_Init();
+#endif
 
     #ifdef ENABLE_FEAT_F4HWN
         gDW = gEeprom.DUAL_WATCH;
@@ -210,6 +217,16 @@ void Main(void)
         UI_DisplayWelcome();
 
         BACKLIGHT_TurnOn();
+
+#ifdef ENABLE_FEAT_DUALMODE
+        if (SETTINGS_DualModeFirstRun()) {
+            UI_DisplayDualModeDisclaimer();
+            while (KEYBOARD_Poll() == KEY_INVALID)
+                SYSTEM_DelayMs(50);
+            for (int i = 0; i < 50; i++)
+                SYSTEM_DelayMs(10);
+        }
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN
         if (gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE && gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_SOUND)

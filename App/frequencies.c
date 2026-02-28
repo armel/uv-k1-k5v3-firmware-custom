@@ -237,6 +237,13 @@ int32_t TX_freq_check(const uint32_t Frequency)
             break;
 #endif
 
+#ifdef ENABLE_FEAT_DUALMODE
+        case F_LOCK_EU_SAFE:
+            if (Frequency >= 44600625 && Frequency <= 44619375)
+                return 0;
+            break;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_GMRS_FRS_MURS
         case F_LOCK_GMRS_FRS_MURS:
             // https://forums.radioreference.com/threads/the-great-unofficial-radioreference-frs-gmrs-murs-fact-sheet.275370/

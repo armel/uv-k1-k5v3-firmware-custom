@@ -19,6 +19,9 @@
 
 void UI_DisplayReleaseKeys(void);
 void UI_DisplayWelcome(void);
+#ifdef ENABLE_FEAT_DUALMODE
+void UI_DisplayDualModeDisclaimer(void);
+#endif
 
 #endif
 

@@ -21,12 +21,16 @@
 #include "app/scanner.h"
 #include "audio.h"
 #include "driver/bk4819.h"
+#include "driver/keyboard.h"
 #include "frequencies.h"
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
 #include "ui/inputbox.h"
 #include "ui/ui.h"
+#ifdef ENABLE_FEAT_DUALMODE
+#include "app/presets.h"
+#endif
 
 DCS_CodeType_t    gScanCssResultType;
 uint8_t           gScanCssResultCode;
@@ -111,6 +115,20 @@ static void SCANNER_Key_MENU(bool bKeyPressed, bool bKeyHeld)
 {
     if (bKeyHeld || !bKeyPressed) // ignore long press or release button events
         return;
+
+#ifdef ENABLE_FEAT_DUALMODE
+    /* F+MENU during scan: Quick Bookmark - save current freq to List 3 */
+    if (gWasFKeyPressed) {
+        gWasFKeyPressed = false;
+        uint32_t f = (gScanFrequency != 0 && gScanFrequency != 0xFFFFFFFF) ? gScanFrequency : 0;
+        if (PRESETS_QuickBookmark(f)) {
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        } else {
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        }
+        return;
+    }
+#endif
 
     /*
     if (gScanCssState == SCAN_CSS_STATE_OFF && !gScanSingleFrequency) {
@@ -407,6 +425,12 @@ void SCANNER_TimeSlice10ms(void)
 
             int32_t delta = result - gScanFrequency;
             gScanFrequency = result;
+
+#ifdef ENABLE_FEAT_DUALMODE
+            gRxVfo->pRX->Frequency = gScanFrequency;
+            gRxVfo->Modulation = RADIO_GetModulationForFrequency(gScanFrequency);
+            RADIO_SetModulation(gRxVfo->Modulation);
+#endif
 
             if (delta < 0)
                 delta = -delta;

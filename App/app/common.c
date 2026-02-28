@@ -2,6 +2,7 @@
 #include "audio.h"
 #include "functions.h"
 #include "misc.h"
+#include "radio.h"
 #include "settings.h"
 #include "ui/ui.h"
 
@@ -24,15 +25,20 @@ void COMMON_KeypadLockToggle()
 
 void COMMON_SwitchVFOs()
 {
-#ifdef ENABLE_SCAN_RANGES    
+#ifdef ENABLE_SCAN_RANGES
     gScanRangeStart = 0;
 #endif
+#ifdef ENABLE_FEAT_DUALMODE
+    /* TZ: TX always on VFO A (index 0). Only toggle RX_VFO for viewing/editing. */
+    gEeprom.TX_VFO = 0;
+    gEeprom.RX_VFO ^= 1;
+#else
     gEeprom.TX_VFO ^= 1;
-
     if (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF)
         gEeprom.CROSS_BAND_RX_TX = gEeprom.TX_VFO + 1;
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
         gEeprom.DUAL_WATCH = gEeprom.TX_VFO + 1;
+#endif
 
     gRequestSaveSettings  = 1;
     gFlagReconfigureVfos  = true;

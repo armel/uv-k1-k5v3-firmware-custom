@@ -44,6 +44,7 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/menu.h"
 #include "ui/ui.h"
 #include <stdlib.h>
 
@@ -788,6 +789,9 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
 
             gFlagRefreshSetting = true;
             gRequestDisplayScreen = DISPLAY_MENU;
+#ifdef ENABLE_FEAT_DUALMODE
+            UI_MENU_EnterWithCategories();
+#endif
             #ifdef ENABLE_VOICE
                 gAnotherVoiceID   = VOICE_ID_MENU;
             #endif

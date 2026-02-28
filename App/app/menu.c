@@ -41,6 +41,10 @@
 #include "ui/inputbox.h"
 #include "ui/menu.h"
 #include "ui/ui.h"
+#ifdef ENABLE_FEAT_DUALMODE
+    #include "app/op_mode.h"
+    #include "ui/pin.h"
+#endif
 
 
 uint8_t gUnlockAllTxConfCnt;
@@ -143,6 +147,15 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_F_LOCK) - 1;
             break;
+
+#ifdef ENABLE_FEAT_DUALMODE
+        case MENU_OP_MODE:
+            *pMax = 1;
+            break;
+        case MENU_OP_MODE_SET_PIN:
+            *pMax = 0;
+            break;
+#endif
 
         case MENU_MDF:
             //*pMin = 0;
@@ -836,6 +849,21 @@ void MENU_AcceptSetting(void)
             break;
 #endif
 
+#ifdef ENABLE_FEAT_DUALMODE
+        case MENU_OP_MODE: {
+            if (gSubMenuSelection == 0) {
+                OpMode_Activate(OP_MODE_EU_SAFE);
+            } else {
+                if (UI_DisplayPinEntry())
+                    OpMode_Activate(OP_MODE_BLACKOUT);
+            }
+            gUpdateStatus = true;
+            break;
+        }
+        case MENU_OP_MODE_SET_PIN:
+            UI_DisplaySetPin();
+            break;
+#endif
         case MENU_F_LOCK: {
             if(gSubMenuSelection == F_LOCK_NONE) { // select 10 times to enable
                 gUnlockAllTxConfCnt++;
@@ -1316,6 +1344,15 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gSetting_F_LOCK;
             break;
 
+#ifdef ENABLE_FEAT_DUALMODE
+        case MENU_OP_MODE:
+            gSubMenuSelection = OpMode_GetCurrent();
+            break;
+        case MENU_OP_MODE_SET_PIN:
+            gSubMenuSelection = 0;
+            break;
+#endif
+
 #ifndef ENABLE_FEAT_F4HWN
         case MENU_200TX:
             gSubMenuSelection = gSetting_200TX;
@@ -1634,6 +1671,22 @@ static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
            just in case we are exiting from one of them. */
         BACKLIGHT_TurnOn();
 
+#ifdef ENABLE_FEAT_DUALMODE
+        if (!gIsInSubMenu)
+        {
+            if (UI_MENU_IsSelectingCategory())
+            {
+                gRequestDisplayScreen = DISPLAY_MAIN;
+                gPttWasReleased = true;
+                return;
+            }
+            /* In items view - go back to category selection */
+            UI_MENU_SetSelectingCategory(true);
+            gMenuCursor = 0;
+            gRequestDisplayScreen = DISPLAY_MENU;
+            return;
+        }
+#endif
         if (gIsInSubMenu)
         {
             if (gInputBoxIndex == 0 || UI_MENU_GetCurrentMenuId() != MENU_OFFSET)
@@ -1691,9 +1744,24 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 
     if (!gIsInSubMenu)
     {
+#ifdef ENABLE_FEAT_DUALMODE
+        if (UI_MENU_IsSelectingCategory())
+        {
+            UI_MENU_SetCategory((uint8_t)gMenuCursor);
+            UI_MENU_SetSelectingCategory(false);
+            gMenuCursor = 0;
+            gRequestDisplayScreen = DISPLAY_MENU;
+            return;
+        }
+#endif
         #ifdef ENABLE_VOICE
-            if (UI_MENU_GetCurrentMenuId() != MENU_SCR)
+            if (UI_MENU_GetCurrentMenuId() != MENU_SCR) {
+#ifdef ENABLE_FEAT_DUALMODE
+                gAnotherVoiceID = MenuList[UI_MENU_GetEffectiveListIndex()].voice_id;
+#else
                 gAnotherVoiceID = MenuList[gMenuCursor].voice_id;
+#endif
+            }
         #endif
         if (UI_MENU_GetCurrentMenuId() == MENU_UPCODE 
             || UI_MENU_GetCurrentMenuId() == MENU_DWCODE 
@@ -1914,7 +1982,14 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
     if (!gIsInSubMenu)
     {
+#ifdef ENABLE_FEAT_DUALMODE
+        {
+            const int max_idx = (int)UI_MENU_GetEffectiveListCount() - 1;
+            gMenuCursor = (uint8_t)NUMBER_AddWithWraparound((int)gMenuCursor, -Direction, 0, max_idx > 0 ? max_idx : 0);
+        }
+#else
         gMenuCursor = NUMBER_AddWithWraparound(gMenuCursor, -Direction, 0, gMenuListCount - 1);
+#endif
 
         gFlagRefreshSetting = true;
 

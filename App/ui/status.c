@@ -33,6 +33,9 @@
 #include "ui/helper.h"
 #include "ui/ui.h"
 #include "ui/status.h"
+#ifdef ENABLE_FEAT_DUALMODE
+    #include "app/op_mode.h"
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
 #ifndef ENABLE_FEAT_F4HWN_DEBUG
@@ -290,17 +293,18 @@ void UI_DisplayStatus()
     }
 
     if (BatTxt) {
-        x2 -= (7 * strlen(str));
+        x2 -= (7 * (unsigned int)strlen(str));
         UI_PrintStringSmallBufferNormal(str, line + x2);
-        /*
-        uint8_t shift = (strlen(str) < 5) ? 92 : 88;
-        GUI_DisplaySmallest(str, shift, 1, true, true);
-
-        for (uint8_t i = shift - 2; i < 110; i++) {
-            gStatusLine[i] ^= 0x7F; // invert
-        }
-        */
     }
+
+#ifdef ENABLE_FEAT_DUALMODE
+    /* EU/BL indicator next to battery (left of battery text/icon) */
+    {
+        const char *modeStr = OpMode_IsBlackout() ? "BL" : "EU";
+        x2 -= 16;
+        UI_PrintStringSmallBufferNormal(modeStr, line + x2);
+    }
+#endif
 
     // **************
 

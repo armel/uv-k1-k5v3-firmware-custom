@@ -192,6 +192,20 @@
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
             }
+        },
+        {
+            "name": "DualMode",
+            "inherits": "Bandscope",
+            "cacheVariables": {
+                "ENABLE_AIRCOPY": false,
+                "ENABLE_FMRADIO": true,
+                "ENABLE_FEAT_F4HWN_SCREENSHOT": false,
+                "ENABLE_FEAT_F4HWN_GAME": false,
+                "ENABLE_FEAT_DUALMODE": true,
+                "ENABLE_WIDE_RX": true,
+                "EDITION_STRING": "DualMode",
+                "TARGET": "f4hwn.dualmode"
+            }
         }
     ],
     "buildPresets": [
@@ -222,6 +236,10 @@
         {
             "name": "Fusion",
             "configurePreset": "Fusion"
+        },
+        {
+            "name": "DualMode",
+            "configurePreset": "DualMode"
         }
     ]
 }

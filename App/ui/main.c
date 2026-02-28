@@ -1224,6 +1224,18 @@ void UI_DisplayMain(void)
 
         if (state == VFO_STATE_NORMAL || state == VFO_STATE_ALARM)
         {   // show the TX power
+#ifdef ENABLE_FEAT_DUALMODE
+            /* VFO B (vfo_num 1) = RX-only, show ---- instead of power */
+            if (vfo_num == 1)
+            {
+                if (gSetting_set_gui)
+                    UI_PrintStringSmallNormal("--", LCD_WIDTH + 42, 0, line + 1);
+                else
+                    GUI_DisplaySmallest("----", 24, line == 0 ? 17 : 49, false, true);
+            }
+            else
+#endif
+            {
             uint8_t currentPower = vfoInfo->OUTPUT_POWER % 8;
             uint8_t arrowPos = 19;
             bool userPower = false;
@@ -1242,8 +1254,6 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char pwr_short[][3] = {"L1", "L2", "L3", "L4", "L5", "M", "H"};
-                //sprintf(String, "%s", pwr_short[currentPower]);
-                //UI_PrintStringSmallNormal(String, LCD_WIDTH + 42, 0, line + 1);
                 UI_PrintStringSmallNormal(pwr_short[currentPower], LCD_WIDTH + 42, 0, line + 1);
 
                 arrowPos = 38;
@@ -1251,14 +1261,13 @@ void UI_DisplayMain(void)
             else
             {
                 const char pwr_long[][5] = {"LOW1", "LOW2", "LOW3", "LOW4", "LOW5", "MID", "HIGH"};
-                //sprintf(String, "%s", pwr_long[currentPower]);
-                //GUI_DisplaySmallest(String, 24, line == 0 ? 17 : 49, false, true);
                 GUI_DisplaySmallest(pwr_long[currentPower], 24, line == 0 ? 17 : 49, false, true);
             }
 
             if(userPower == true)
             {
                 memcpy(p_line0 + 256 + arrowPos, BITMAP_PowerUser, sizeof(BITMAP_PowerUser));
+            }
             }
         }
 

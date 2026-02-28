@@ -110,6 +110,10 @@ enum
     #endif
 #endif
     MENU_RESET,
+#ifdef ENABLE_FEAT_DUALMODE
+    MENU_OP_MODE,
+    MENU_OP_MODE_SET_PIN,
+#endif
     MENU_F_LOCK,
 #ifndef ENABLE_FEAT_F4HWN
     MENU_200TX,
@@ -236,5 +240,18 @@ extern int               edit_index;
 void UI_DisplayMenu(void);
 int UI_MENU_GetCurrentMenuId();
 uint8_t UI_MENU_GetMenuIdx(uint8_t id);
+
+#ifdef ENABLE_FEAT_DUALMODE
+void UI_MENU_EnterWithCategories(void);
+bool UI_MENU_IsSelectingCategory(void);
+void UI_MENU_SetSelectingCategory(bool sel);
+uint8_t UI_MENU_GetCategory(void);
+void UI_MENU_SetCategory(uint8_t cat);
+uint8_t UI_MENU_GetCategoryItemCount(uint8_t category);
+uint8_t UI_MENU_GetCategoryMenuListIndex(uint8_t category, uint8_t idx);
+uint8_t UI_MENU_GetCategoryFromListIndex(uint8_t list_idx);
+uint8_t UI_MENU_GetEffectiveListIndex(void);
+uint8_t UI_MENU_GetEffectiveListCount(void);
+#endif
 
 #endif

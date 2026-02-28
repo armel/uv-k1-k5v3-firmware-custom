@@ -729,8 +729,13 @@ static void RADIO_SelectCurrentVfo(void)
 
 void RADIO_SelectVfos(void)
 {
+#ifdef ENABLE_FEAT_DUALMODE
+    /* TZ: TX always on VFO A (0). RX_VFO can differ for viewing VFO B. */
+    gEeprom.TX_VFO = 0;
+#else
     // if crossband without DW is used then RX_VFO is the opposite to the TX_VFO
     gEeprom.RX_VFO = (gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF || gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) ? gEeprom.TX_VFO : !gEeprom.TX_VFO;
+#endif
 
     gTxVfo = &gEeprom.VfoInfo[gEeprom.TX_VFO];
     gRxVfo = &gEeprom.VfoInfo[gEeprom.RX_VFO];
@@ -1052,6 +1057,20 @@ void RADIO_SetTxParameters(void)
     }
 }
 
+#ifdef ENABLE_FEAT_DUALMODE
+ModulationMode_t RADIO_GetModulationForFrequency(uint32_t frequency)
+{
+    /* TZ: AM for 18-30 (HF/CB), 108-137 (airband), 225-400 (military UHF); FM otherwise */
+    if (frequency >= 10800000 && frequency < 13700000)   /* airband */
+        return MODULATION_AM;
+    if (frequency >= 18000000 && frequency < 30000000)   /* HF/CB 18-30 MHz */
+        return MODULATION_AM;
+    if (frequency >= 22500000 && frequency < 40000000)   /* military UHF 225-400 MHz */
+        return MODULATION_AM;
+    return MODULATION_FM;
+}
+#endif
+
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
     BK4819_AF_Type_t mod;
@@ -1198,6 +1217,16 @@ void RADIO_PrepareTX(void)
     }
 
     RADIO_SelectCurrentVfo();
+
+#ifdef ENABLE_FEAT_DUALMODE
+    /* VFO B (index 1) = RX-only, always block TX */
+    if (gEeprom.TX_VFO == 1) {
+        State = VFO_STATE_TX_DISABLE;
+        RADIO_SetVfoState(State);
+        AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
+        return;
+    }
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN
         if(TX_freq_check(gCurrentVfo->pTX->Frequency) != 0 && gCurrentVfo->TX_LOCK == true

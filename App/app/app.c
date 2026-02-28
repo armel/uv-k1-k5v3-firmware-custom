@@ -606,6 +606,34 @@ uint32_t APP_SetFrequencyByStep(VFO_Info_t *pInfo, int8_t direction)
     return APP_SetFreqByStepAndLimits(pInfo, direction, frequencyBandTable[pInfo->Band].lower, frequencyBandTable[pInfo->Band].upper);
 }
 
+#ifdef ENABLE_FEAT_DUALMODE
+/* TZ: Full scan 18-630 MHz, jump over dead zone, 840-1300 MHz, wrap to 18 */
+uint32_t APP_SetFrequencyByStepFullRange(VFO_Info_t *pInfo, int8_t direction)
+{
+    const uint32_t band1_upper = BX4819_band1.upper;   /* 630 MHz */
+    const uint32_t band2_lower = BX4819_band2.lower;   /* 840 MHz */
+    const uint32_t band1_lower = BX4819_band1.lower;   /* 18 MHz */
+    const uint32_t band2_upper = BX4819_band2.upper;   /* 1300 MHz */
+
+    uint32_t f = FREQUENCY_RoundToStep(pInfo->freq_config_RX.Frequency + (direction * pInfo->StepFrequency), pInfo->StepFrequency);
+
+    if (direction > 0) {
+        /* Going up: wrap past 630 -> 840, past 1300 -> 18 */
+        if (f > band2_upper)
+            f = band1_lower;
+        else if (f > band1_upper && f < band2_lower)
+            f = band2_lower;
+    } else {
+        /* Going down: wrap below 840 -> 630, below 18 -> 1300 */
+        if (f < band1_lower)
+            f = FREQUENCY_RoundToStep(band2_upper - pInfo->StepFrequency, pInfo->StepFrequency);
+        else if (f > band1_upper && f < band2_lower)
+            f = FREQUENCY_RoundToStep(band1_upper - pInfo->StepFrequency, pInfo->StepFrequency);
+    }
+    return f;
+}
+#endif
+
 #ifdef ENABLE_NOAA
     static void NOAA_IncreaseChannel(void)
     {
