@@ -100,8 +100,9 @@ char freqInputString[11];
 uint8_t menuState = 0;
 uint8_t currentSL = 0;
 uint8_t countSLchannels = 0;
+uint16_t firstChannel = 0;
+uint16_t currentSLchannel = 0;
 FREQUENCY_Band_t slBand = 0;
-uint32_t chFreqs[128];
 uint16_t listenT = 0;
 
 RegisterSpec registerSpecs[] = {
@@ -537,28 +538,25 @@ static void ToggleRX(bool on)
     }
 }
 
-void setChannelFrequencies(uint8_t scanlist, uint8_t recursive, bool inc)
+void getScanlistInfo(uint8_t scanlist, uint8_t recursive, bool inc)
 {
     if(!recursive)
         return;
-    uint16_t size_freqs = sizeof(chFreqs)/sizeof(chFreqs[0]);
-    uint16_t firstChannel = RADIO_FindNextChannel(0, 1, true, scanlist);
+    firstChannel = RADIO_FindNextChannel(0, 1, true, scanlist);
     uint16_t channel = firstChannel;
     countSLchannels = 0;
     do
-    {
-        uint32_t base = channel * 16;
-        struct {
-            uint32_t Frequency;
-            uint32_t Offset;
-        } __attribute__((packed)) info;
-        PY25Q16_ReadBuffer(base, &info, sizeof(info)); // from chFrScanner.c
-        chFreqs[countSLchannels++] = info.Frequency; // Unsure if we need to add the offset
         channel = RADIO_FindNextChannel(channel + 1, 1, true, scanlist);
-    } while (channel != firstChannel && countSLchannels < size_freqs);
+    while (++countSLchannels && channel != firstChannel);
     if(firstChannel == 0xFFFF)
-        setChannelFrequencies(inc? (scanlist >= MR_CHANNELS_LIST ? 1 : scanlist + 1) : (scanlist <= 1? MR_CHANNELS_LIST : scanlist - 1), recursive - 1, inc);
-    else currentSL = scanlist;
+        getScanlistInfo(inc? (scanlist >= MR_CHANNELS_LIST ? 1 : scanlist + 1) : (scanlist <= 1? MR_CHANNELS_LIST : scanlist - 1), recursive - 1, inc);
+    else 
+    {
+        currentSL = scanlist;
+        uint32_t base = firstChannel * 16;
+        PY25Q16_ReadBuffer(base, &initialFreq, sizeof(initialFreq));
+        slBand = FREQUENCY_GetBand(initialFreq);
+    }
 }
 
 // Scan info
@@ -580,12 +578,12 @@ static void InitScan()
         scanInfo.f = GetFStart();
         scanInfo.scanStep = GetScanStep();
         scanInfo.measurementsCount = GetStepsCount();
-        slBand = FREQUENCY_GetBand(chFreqs[0]);
     }
     else 
     {
-        scanInfo.f = chFreqs[0];
+        scanInfo.f = initialFreq;
         scanInfo.measurementsCount = countSLchannels;
+        currentSLchannel = firstChannel;
     }
 }
 
@@ -1263,9 +1261,9 @@ static void OnKeyDown(uint8_t key)
         if(isChMode)
         {
             if(!nav)
-                setChannelFrequencies(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
+                getScanlistInfo(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
             else 
-                setChannelFrequencies(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true);
+                getScanlistInfo(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true);
             RelaunchScan();
             redrawScreen = true;
         }
@@ -1281,9 +1279,9 @@ static void OnKeyDown(uint8_t key)
         if(isChMode)
         {
             if(!nav)
-                setChannelFrequencies(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true);
+                getScanlistInfo(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true);
             else 
-                setChannelFrequencies(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
+                getScanlistInfo(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
             RelaunchScan();
             redrawScreen = true;
         }
@@ -1664,7 +1662,11 @@ static void NextScanStep()
     ++peak.t;
     ++scanInfo.i;
     if (isChMode)
-        scanInfo.f = chFreqs[scanInfo.i];
+    {
+        currentSLchannel = RADIO_FindNextChannel(currentSLchannel + 1, 1, true, currentSL);
+        uint32_t base = currentSLchannel * 16;
+        PY25Q16_ReadBuffer(base, &scanInfo.f, sizeof(scanInfo.f));
+    }
     else 
         scanInfo.f += scanInfo.scanStep;
 }
@@ -1853,7 +1855,7 @@ void APP_RunSpectrum()
     if(IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE) && currentSL)
     {
         isChMode = true;
-        setChannelFrequencies(currentSL, MR_CHANNELS_LIST + 1, true);
+        getScanlistInfo(currentSL, MR_CHANNELS_LIST + 1, true);
     }
 #ifdef ENABLE_SCAN_RANGES
     else if (gScanRangeStart)
