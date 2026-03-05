@@ -768,22 +768,23 @@ void UI_DisplayMain(void)
         {   // receiving .. show the RX symbol
             mode = VFO_MODE_RX;
             //if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num) {
-            if (FUNCTION_IsRx() && gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {
+            if (FUNCTION_IsRx()) {
+                if (gEeprom.RX_VFO == vfo_num && VfoState[vfo_num] == VFO_STATE_NORMAL) {
 #ifdef ENABLE_FEAT_F4HWN
                     RxBlinkLed = 1;
                     RxBlinkLedCounter = 0;
                     RxLine = line;
                     RxOnVfofrequency = frequency;
-                // if(!isMainVFO)
-                // {
-                //     RxBlink = 1;
-                // }
-                // else
-                // {
-                //     RxBlink = 0;
-                // }
+                    // if(!isMainVFO)
+                    // {
+                    //     RxBlink = 1;
+                    // }
+                    // else
+                    // {
+                    //     RxBlink = 0;
+                    // }
 
-                // if (RxBlink == 0 || RxBlink == 1) {
+                    // if (RxBlink == 0 || RxBlink == 1) {
                         if(gRxVfo->Modulation == MODULATION_AM)
                             GUI_DisplaySmallest("AIR", 10, RxLine == 0 ? 1 : 33, false, true);
                         else {
@@ -796,16 +797,19 @@ void UI_DisplayMain(void)
                         }
 
                         //UI_PrintStringSmallBold("RX", 8, 0, RxLine);
-                // }
+                    // }
 #else
                     UI_PrintStringSmallBold("RX", 8, 0, line);
 #endif
                 }
 #ifdef ENABLE_FEAT_F4HWN
-            else
-            {
-                if(RxOnVfofrequency == frequency && !isMainOnly())
-                {
+                else {
+                    if(RxBlinkLed == 1)
+                        RxBlinkLed = 2;
+                }
+            }
+            else {
+                if(RxOnVfofrequency == frequency && !isMainOnly()) {
                     //UI_PrintStringSmallNormal(">>", 8, 0, line);
                     //memcpy(p_line0 + 14, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
                     GUI_DisplaySmallest(">>", 8, RxLine == 0 ? 1 : 33, false, true);

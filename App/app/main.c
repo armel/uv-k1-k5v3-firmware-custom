@@ -75,9 +75,10 @@ static void toggle_chan_scanlist(void)
     if(att->exclude == true)
     {
         att->exclude = false;
-        return;
+        MR_SaveChannelAttributesToFlash(gTxVfo->CHANNEL_SAVE, att);
     } 
-
+    else 
+    {
         uint8_t scanlist = gTxVfo->SCANLIST_PARTICIPATION;
 
         scanlist++;
@@ -88,6 +89,7 @@ static void toggle_chan_scanlist(void)
         gTxVfo->SCANLIST_PARTICIPATION = scanlist;
 
         SETTINGS_UpdateChannel(gTxVfo->CHANNEL_SAVE, gTxVfo, true, true, true);
+    }
 
     gVfoConfigureMode = VFO_CONFIGURE;
     gFlagResetVfos    = true;
@@ -513,7 +515,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 SETTINGS_WriteCurrentState();
             #endif
 
-            gInputBoxIndex = 0;
             return;
         }
 

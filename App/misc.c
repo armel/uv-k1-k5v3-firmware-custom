@@ -293,7 +293,7 @@ uint8_t           gFSKWriteIndex;
 
 #ifdef ENABLE_NOAA
     bool          gIsNoaaMode;
-    uint16_t      gNoaaChannel;
+    uint8_t      gNoaaChannel;
 #endif
 
 bool              gUpdateDisplay;

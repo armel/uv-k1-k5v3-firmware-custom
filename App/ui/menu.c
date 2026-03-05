@@ -647,6 +647,10 @@ void UI_DisplayMenu(void)
             {   // display the mic gain in actual dB rather than just an index number
                 const uint8_t mic = gMicGain_dB2[gSubMenuSelection];
                 sprintf(String, "+%u.%udB", mic / 2, (mic % 2) * 5);
+
+                gaugeLine = 4;
+                gaugeMin = 0;
+                gaugeMax = 8;
             }
             break;
 
