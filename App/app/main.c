@@ -75,19 +75,21 @@ static void toggle_chan_scanlist(void)
     if(att->exclude == true)
     {
         att->exclude = false;
-        return;
+        MR_SaveChannelAttributesToFlash(gTxVfo->CHANNEL_SAVE, att);
+    } 
+    else 
+    {
+        uint8_t scanlist = gTxVfo->SCANLIST_PARTICIPATION;
+
+        scanlist++;
+
+        if (scanlist > MR_CHANNELS_LIST + 1)
+            scanlist = 0;
+
+        gTxVfo->SCANLIST_PARTICIPATION = scanlist;
+
+        SETTINGS_UpdateChannel(gTxVfo->CHANNEL_SAVE, gTxVfo, true, true, true);
     }
-
-    uint8_t scanlist = gTxVfo->SCANLIST_PARTICIPATION;
-
-    scanlist++;
-
-    if (scanlist > MR_CHANNELS_LIST + 1)
-        scanlist = 0;
-
-    gTxVfo->SCANLIST_PARTICIPATION = scanlist;
-
-    SETTINGS_UpdateChannel(gTxVfo->CHANNEL_SAVE, gTxVfo, true, true, true);
 
     gVfoConfigureMode = VFO_CONFIGURE;
     gFlagResetVfos    = true;
@@ -291,13 +293,13 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
         case KEY_UP:
         case KEY_DOWN:
             {
-                int8_t direction = (Key == KEY_UP) ? 1 : -1;
+                bool isKeyUp = (Key == KEY_UP);
 
                 if (gScanStateDir != SCAN_OFF) {
-                    RADIO_NextValidList(direction);
+                    RADIO_NextValidList(isKeyUp ? 1 : -1);
                 } else {
                     // Adjust squelch: UP increments, DOWN decrements
-                    if (direction > 0) {
+                    if (isKeyUp) {
                         gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1 : 9;
                     } else {
                         gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1 : 0;
@@ -309,30 +311,23 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             }
             break;
         case KEY_SIDE1:
-            uint8_t a = FREQUENCY_GetSortedIdxFromStepIdx(gTxVfo->STEP_SETTING);
-            if (a < STEP_N_ELEM - 1)
-            {
-                gTxVfo->STEP_SETTING = FREQUENCY_GetStepIdxFromSortedIdx(a + 1);
-            }
-            if (IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE))
-            {
-                gRequestSaveChannel = 1;
-            }
-            gVfoConfigureMode     = VFO_CONFIGURE;
-            gWasFKeyPressed = false;
-            break;
         case KEY_SIDE2:
-            uint8_t b = FREQUENCY_GetSortedIdxFromStepIdx(gTxVfo->STEP_SETTING);
-            if (b > 0)
             {
-                gTxVfo->STEP_SETTING = FREQUENCY_GetStepIdxFromSortedIdx(b - 1);
+                bool isKeySide1 = (Key == KEY_SIDE1);
+                uint8_t idx = FREQUENCY_GetSortedIdxFromStepIdx(gTxVfo->STEP_SETTING);
+
+                if ((isKeySide1 && idx < STEP_N_ELEM - 1) || (!isKeySide1 && idx > 0)) 
+                {
+                    gTxVfo->STEP_SETTING = FREQUENCY_GetStepIdxFromSortedIdx(idx + (isKeySide1 ? 1 : -1));
+                    
+                    if (IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE)) {
+                        gRequestSaveChannel = 1;
+                    }
+                    gVfoConfigureMode = VFO_CONFIGURE;
+                }
+                
+                gWasFKeyPressed = false;
             }
-            if (IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE))
-            {
-                gRequestSaveChannel = 1;
-            }
-            gVfoConfigureMode     = VFO_CONFIGURE;
-            gWasFKeyPressed = false;
             break;
 #endif
 
@@ -490,16 +485,13 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             /* 01 .. MR_CHANNELS_LIST */
             if (value <= MR_CHANNELS_LIST)
             {
-                if (RADIO_CheckValidList(value))
-                {
-                    /* Requested scan list is valid */
-                    gEeprom.SCAN_LIST_DEFAULT = value;
-                }
-                else
+                gEeprom.SCAN_LIST_DEFAULT = value;
+
+                if (!RADIO_CheckValidList(value))
                 {
                     /* Requested scan list is empty or invalid:
-                       jump to the next valid scan list */
-                    gEeprom.SCAN_LIST_DEFAULT = value;
+                        jump to the next valid scan list */
+                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                     RADIO_NextValidList(1);
                 }
 
@@ -508,9 +500,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             #endif
             }
 
-            gInputBoxIndex = 0;
-
-            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             return;
         }
 
@@ -770,6 +759,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         }
         else {
             gScanKeepResult = false;
+            gInputBoxIndex = 0;
             CHFRSCANNER_Stop();
 
 #ifdef ENABLE_VOICE
@@ -826,7 +816,6 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
                     gRequestDisplayScreen = DISPLAY_MAIN;
                 }
 
-                gWasFKeyPressed = false;
                 gUpdateStatus   = true;
 
                 ACTION_Handle(KEY_MENU, bKeyPressed, bKeyHeld);
@@ -963,18 +952,13 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
 
 static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 {
+    if (!gEeprom.SET_NAV) {
+        Direction = -Direction;
+    }
 
 #ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down
     if(gWasFKeyPressed) {
-        switch(Direction)
-        {
-            case 1:
-                processFKeyFunction(KEY_UP, false);
-                break;
-            case -1:
-                processFKeyFunction(KEY_DOWN, false);
-                break;
-        }
+        processFKeyFunction(Direction == 1 ? KEY_UP : KEY_DOWN, false);
         return;
     }
 #endif
@@ -1102,16 +1086,8 @@ void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             MAIN_Key_MENU(bKeyPressed, bKeyHeld);
             break;
         case KEY_UP:
-            if(gEeprom.SET_NAV == 0)
-                MAIN_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);            
-            else
-                MAIN_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            break;
         case KEY_DOWN:
-            if(gEeprom.SET_NAV == 0)
-                MAIN_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            else
-                MAIN_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
+            MAIN_Key_UP_DOWN(bKeyPressed, bKeyHeld, Key == KEY_UP ? 1 : -1);
             break;
         case KEY_EXIT:
             MAIN_Key_EXIT(bKeyPressed, bKeyHeld);

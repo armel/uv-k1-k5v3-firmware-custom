@@ -148,7 +148,7 @@ extern const uint16_t        scan_pause_delay_in_7_10ms;
 //extern const uint16_t        gMax_bat_v;
 //extern const uint16_t        gMin_bat_v;
 
-extern const uint8_t         gMicGain_dB2[5];
+extern const uint8_t         gMicGain_dB2[9];
 
 #ifndef ENABLE_FEAT_F4HWN
 extern bool                  gSetting_350TX;
@@ -197,7 +197,7 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern bool               gSetting_set_tmr;
     extern bool               gSetting_set_ptt_session;
     #ifdef ENABLE_FEAT_F4HWN_DEBUG
-        extern uint16_t            gDebug;
+        extern int16_t        gDebug;
     #endif
     extern uint8_t            gDW;
     extern uint8_t            gCB;

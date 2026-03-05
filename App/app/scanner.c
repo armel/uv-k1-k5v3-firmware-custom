@@ -257,6 +257,10 @@ static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool pKeyHeld, int8_t Directio
         gBeepToPlay    = BEEP_1KHZ_60MS_OPTIONAL;
     }
 
+    if (!gEeprom.SET_NAV) {
+        Direction = -Direction;
+    }
+
     if (gScannerSaveState == SCAN_SAVE_CHAN_SEL) {
         gScanChannel          = NUMBER_AddWithWraparound(gScanChannel, Direction, 0, MR_CHANNEL_LAST);
         gShowChPrefix         = RADIO_CheckValidChannel(gScanChannel, false, 0);
@@ -276,16 +280,8 @@ void SCANNER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             SCANNER_Key_MENU(bKeyPressed, bKeyHeld);
             break;
         case KEY_UP:
-            if(gEeprom.SET_NAV == 0)
-                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld,  -1);
-            else
-                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld,  1);
-            break;
         case KEY_DOWN:
-            if(gEeprom.SET_NAV == 0)
-                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            else
-                SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
+            SCANNER_Key_UP_DOWN(bKeyPressed, bKeyHeld, Key == KEY_UP ? 1 : -1);
             break;
         case KEY_EXIT:
             SCANNER_Key_EXIT(bKeyPressed, bKeyHeld);

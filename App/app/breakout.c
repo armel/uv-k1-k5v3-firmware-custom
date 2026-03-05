@@ -426,15 +426,7 @@ static bool HandleUserInput()
     if (kbd.current != KEY_INVALID && kbd.current == kbd.prev)
     {
         kbd.counter = 1;
-    }
-    else
-    {
-        kbd.counter = 0;
-    }
-    
-    // Process the key if counter indicates it should be handled
-    if (kbd.counter == 1)
-    {
+
         OnKeyDown(kbd.current);
         
         // Special handling for MENU key
@@ -443,6 +435,10 @@ static bool HandleUserInput()
             kbd.counter = 0;
             SYSTEM_DelayMs(250);
         }
+    }
+    else
+    {
+        kbd.counter = 0;
     }
     
     return true;

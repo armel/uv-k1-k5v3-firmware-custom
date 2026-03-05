@@ -308,7 +308,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 
         case MENU_MIC:
             //*pMin = 0;
-            *pMax = 4;
+            *pMax = 8;
             break;
 
         case MENU_LIST_CH:
@@ -1874,6 +1874,10 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     uint16_t Channel;
     bool    bCheckScanList;
 
+    if (!gEeprom.SET_NAV && gIsInSubMenu) {
+        Direction = -Direction;
+    }
+
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && gIsInSubMenu && edit_index >= 0)
     {   // change the character
         if (bKeyPressed && edit_index < 10 && Direction != 0)
@@ -2014,42 +2018,15 @@ void MENU_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
     switch (Key)
     {
-        case KEY_0:
-        case KEY_1:
-        case KEY_2:
-        case KEY_3:
-        case KEY_4:
-        case KEY_5:
-        case KEY_6:
-        case KEY_7:
-        case KEY_8:
-        case KEY_9:
+        case KEY_0...KEY_9:
             MENU_Key_0_to_9(Key, bKeyPressed, bKeyHeld);
             break;
         case KEY_MENU:
             MENU_Key_MENU(bKeyPressed, bKeyHeld);
             break;
         case KEY_UP:
-            if(gEeprom.SET_NAV == 0) {
-                if(gIsInSubMenu)
-                    MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-                else
-                    MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            }
-            else {
-                MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-            }
-            break;
         case KEY_DOWN:
-            if(gEeprom.SET_NAV == 0) {
-                if(gIsInSubMenu)
-                    MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, 1);
-                else
-                    MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-            }
-            else {
-                MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, -1);
-            }
+            MENU_Key_UP_DOWN(bKeyPressed, bKeyHeld, Key == KEY_UP ? 1 : -1);
             break;
         case KEY_EXIT:
             MENU_Key_EXIT(bKeyPressed, bKeyHeld);
