@@ -164,7 +164,9 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
     void ST7565_BlitLine(unsigned line)
     {
         ST7565_BlitScreen(line + 1);
-        getScreenShot(true);  // Force immediate capture
+        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+            getScreenShot(true);  // Force immediate capture
+        #endif
     }
 
     void ST7565_BlitStatusLine(void)

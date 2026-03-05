@@ -45,6 +45,7 @@ void VCP_Init()
     NVIC_EnableIRQ(USBD_IRQn);
 }
 
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
 bool VCP_ScreenshotPing(void)
 {
     // State machine for parsing incoming packets:
@@ -145,3 +146,4 @@ bool VCP_ScreenshotPing(void)
 
     return connected;
 }
+#endif // ENABLE_FEAT_F4HWN_SCREENSHOT

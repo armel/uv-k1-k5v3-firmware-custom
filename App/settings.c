@@ -128,7 +128,7 @@ void SETTINGS_InitEEPROM(void)
         gEeprom.VOX_SWITCH       = (Data[5] <  2) ? Data[5] : false;
         gEeprom.VOX_LEVEL        = (Data[6] < 10) ? Data[6] : 1;
     #endif
-    gEeprom.MIC_SENSITIVITY      = (Data[7] <  5) ? Data[7] : 4;
+    gEeprom.MIC_SENSITIVITY      = (Data[7] <  9) ? Data[7] : 4;
 
     // 0E78..0E7F
     PY25Q16_ReadBuffer(0x00A008, Data, 8);

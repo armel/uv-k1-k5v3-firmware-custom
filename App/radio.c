@@ -796,8 +796,8 @@ void RADIO_SetupRegisters(bool switchToForeground)
     }
     BK4819_WriteRegister(BK4819_REG_3F, 0);
 
-    // mic gain 0.5dB/step 0 to 31
-    BK4819_WriteRegister(BK4819_REG_7D, 0xE940 | (gEeprom.MIC_SENSITIVITY_TUNING & 0x1f));
+    // mic gain 0.5dB/step 0 to 63
+    BK4819_WriteRegister(BK4819_REG_7D, 0xE940 | (gEeprom.MIC_SENSITIVITY_TUNING & 0x3f));
 
     uint32_t Frequency;
     #ifdef ENABLE_NOAA
