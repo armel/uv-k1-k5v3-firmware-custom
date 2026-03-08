@@ -31,6 +31,7 @@
 #include "settings.h"
 #include "ui/battery.h"
 #include "ui/helper.h"
+#include "ui/inputbox.h"
 #include "ui/ui.h"
 #include "ui/status.h"
 
@@ -97,7 +98,7 @@ void UI_DisplayStatus()
 
                 uint8_t end = 0;
 
-                if(gEeprom.SCAN_LIST_DEFAULT == MR_CHANNELS_LIST + 1)
+                if(gEeprom.SCAN_LIST_DEFAULT == MR_CHANNELS_LIST + 1 && gInputBoxIndex == 0)
                 {
                     if(gEeprom.SCAN_LIST_ENABLED==1) {
                         sprintf(str, "%s+", "ALL");
@@ -117,13 +118,20 @@ void UI_DisplayStatus()
                     bool nameValid = (name[0] != '\0' && name[0] != '\xff' && name[0] != ' ');
 
                     // Format the string
-                    if (nameValid) {
+                    if (nameValid && gInputBoxIndex == 0) {
                         sprintf(str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
                         end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
                     } 
                     else {
-                        sprintf(str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 14 : 10;
+                        if (gInputBoxIndex == 0) {
+                            sprintf(str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
+                            end = gEeprom.SCAN_LIST_ENABLED ? 14 : 10;
+                        }
+                            
+                        else {
+                            sprintf(str, "%d-", gInputBox[0]);
+                            end = 10;
+                        }
                     }
                 }
 
