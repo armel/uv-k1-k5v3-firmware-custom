@@ -1269,6 +1269,7 @@ static void OnKeyDown(uint8_t key)
             else 
                 getScanlistInfo(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
             RelaunchScan();
+            ResetBlacklist();
             redrawScreen = true;
         }
 #ifdef ENABLE_SCAN_RANGES
