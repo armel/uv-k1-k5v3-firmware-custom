@@ -535,7 +535,17 @@ void APP_StartListening(FUNCTION_Type_t function)
         gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
     {   // not scanning, dual watch is enabled
 
-        gDualWatchCountdown_10ms = dual_watch_count_after_2_10ms;
+        //gDualWatchCountdown_10ms = dual_watch_count_after_2_10ms;
+
+        const bool isMainTxDualRx =
+        (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) &&
+        (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF);
+
+        // Use a short hold only for MAIN TX DUAL RX, keep legacy hold otherwise
+        gDualWatchCountdown_10ms = isMainTxDualRx
+            ? dual_watch_count_after_2_10ms / 4 // Short timer = 420 / 4 ...
+            : dual_watch_count_after_2_10ms;
+
         gScheduleDualWatch       = false;
 
         // when crossband is active only the main VFO should be used for TX
@@ -882,6 +892,12 @@ static void HandleVox(void)
 
 void APP_Update(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+    // Parse incoming packets on every tick so serial keys are never missed,
+    // regardless of whether the screen needs redrawing.
+    SCREENSHOT_ParseInput();
+#endif
+
 #ifdef ENABLE_VOICE
     if (gFlagPlayQueuedVoice) {
             AUDIO_PlayQueuedVoice();
@@ -1348,9 +1364,9 @@ void APP_TimeSlice10ms(void)
 {
     gNextTimeslice = false;
 
-    if (gScheduleVfoSave) {
-        SETTINGS_SaveVfoIndicesFlush();
-    }
+    SETTINGS_SaveVfoIndicesFlush();
+
+    BACKLIGHT_Update();
 
     gFlashLightBlinkCounter++;
 
@@ -1396,7 +1412,7 @@ void APP_TimeSlice10ms(void)
 
     #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     if (gUpdateDisplayCurrent || gUpdateStatusCurrent) {
-        getScreenShot(false);
+        SCREENSHOT_Update(false);
     }
     #endif
 

@@ -976,7 +976,7 @@ void UI_DisplayMain(void)
                         const char *name = gListName[countList - 1];
                         
                         // If name is empty/invalid, display number
-                        if (name[0] == '\0' || name[0] == '\xff' || name[0] == ' ') {
+                        if (IsEmptyName(name, sizeof(gListName[0]))) {
                             sprintf(String, "%02d", countList);
                             xStart = 117;  // 2-digit number aligned right
                             xDisplay = 119;
@@ -1007,9 +1007,11 @@ void UI_DisplayMain(void)
                     
                     GUI_DisplaySmallest(displayStr, xDisplay, line == 0 ? 1 : 33, false, true);
 
-                    for (uint8_t x = xStart; x < 128; x++) {
+                    gFrameBuffer[line][xStart] ^= 0x3E;
+                    for (uint8_t x = xStart + 1; x < 127; x++) {
                         gFrameBuffer[line][x] ^= 0x7F;
                     }
+                    gFrameBuffer[line][127] ^= 0x3E;
                 }
 
                 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
@@ -1520,7 +1522,7 @@ void UI_DisplayMain(void)
         if (rx || gCurrentFunction == FUNCTION_FOREGROUND || gCurrentFunction == FUNCTION_POWER_SAVE)
         {
             #if 1
-                if (gSetting_live_DTMF_decoder && gDTMF_RX_live[0] != 0)
+                if (gSetting_live_DTMF_decoder && gDTMF_RX_live[0] != 0 && gKeypadLocked == 0)
                 {   // show live DTMF decode
                     const unsigned int len = strlen(gDTMF_RX_live);
                     const unsigned int idx = (len > (17 - 5)) ? len - (17 - 5) : 0;  // limit to last 'n' chars

@@ -40,10 +40,12 @@ typedef enum {
 #endif
 
 void BACKLIGHT_InitHardware();
+void BACKLIGHT_UpdateTickless(void);
 void BACKLIGHT_TurnOn();
 void BACKLIGHT_TurnOff();
 bool BACKLIGHT_IsOn();
 void BACKLIGHT_SetBrightness(uint8_t brigtness);
+void BACKLIGHT_Update(void);
 uint8_t BACKLIGHT_GetBrightness(void);
 
 #endif

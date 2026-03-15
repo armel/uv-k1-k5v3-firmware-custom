@@ -1056,6 +1056,31 @@ void RADIO_SetTxParameters(void)
 
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
+    #ifdef ENABLE_BYP_RAW_DEMODULATORS
+    // BYP on BK4829 uses full audio bypass profile.
+    if (modulation == MODULATION_BYP) {
+        BK4819_EnterBypass();
+        BK4819_SetRegValue(afDacGainRegSpec, 0xF);
+        BK4819_WriteRegister(BK4819_REG_3D, 0x2AAB);
+        RADIO_SetupAGC(false, false);
+        return;
+    }
+
+    // RAW on BK4829 uses RX-only filter bypass profile.
+    if (modulation == MODULATION_RAW) {
+        BK4819_EnterRaw();
+        BK4819_SetRegValue(afDacGainRegSpec, 0xF);
+        BK4819_WriteRegister(BK4819_REG_3D, 0x0000);
+        RADIO_SetupAGC(false, false);
+        return;
+    }
+    #endif
+
+    #ifdef ENABLE_BYP_RAW_DEMODULATORS
+    // Ensure we always leave bypass / raw mode before applying normal modulation settings.
+    BK4819_ExitBypass();
+    #endif
+
     BK4819_AF_Type_t mod;
     switch(modulation) {
         default:
@@ -1069,14 +1094,6 @@ void RADIO_SetModulation(ModulationMode_t modulation)
             mod = BK4819_AF_BASEBAND2;
             break;
 
-#ifdef ENABLE_BYP_RAW_DEMODULATORS
-        case MODULATION_BYP:
-            mod = BK4819_AF_UNKNOWN3;
-            break;
-        case MODULATION_RAW:
-            mod = BK4819_AF_BASEBAND1;
-            break;
-#endif
     }
 
     BK4819_SetAF(mod);
@@ -1229,6 +1246,12 @@ void RADIO_PrepareTX(void)
         // over voltage .. this is being a pain
         State = VFO_STATE_VOLTAGE_HIGH;
     }
+#ifdef ENABLE_BYP_RAW_DEMODULATORS
+    else if (gCurrentVfo->Modulation == MODULATION_BYP || gCurrentVfo->Modulation == MODULATION_RAW) {
+        // BYP/RAW are receive-only modes.
+        State = VFO_STATE_TX_DISABLE;
+    }
+#endif
 #ifndef ENABLE_TX_WHEN_AM
     else if (gCurrentVfo->Modulation != MODULATION_FM) {
         // not allowed to TX if in AM mode

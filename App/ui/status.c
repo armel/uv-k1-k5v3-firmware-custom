@@ -115,10 +115,7 @@ void UI_DisplayStatus()
                     const char *name = gListName[gEeprom.SCAN_LIST_DEFAULT - 1];
 
                     // Check if name is valid
-                    bool nameValid = (name[0] != '\0' && name[0] != '\xff' && name[0] != ' ');
-
-                    // Format the string
-                    if (nameValid && gInputBoxIndex == 0) {
+                    if (!IsEmptyName(name, sizeof(gListName[0]))) {
                         sprintf(str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
                         end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
                     } 

@@ -1154,45 +1154,62 @@ void BK4819_Idle(void)
     BK4819_WriteRegister(BK4819_REG_30, 0x0000);
 }
 
+#ifdef ENABLE_BYP_RAW_DEMODULATORS
+void BK4819_EnterBypass(void)
+{
+    // Keep AF output on normal path (REG_47 mode 0x1 is documented on BK4829).
+    BK4819_SetAF(BK4819_AF_FM);
+
+    // Bypass all AF filters (Rx + Tx) as recommended for digital bypass mode.
+    // REG_2B:
+    //  bit10: Disable AF Rx HPF300
+    //  bit 9: Disable AF Rx LPF3K
+    //  bit 8: Disable AF Rx de-emphasis
+    //  bit 2: Disable AF Tx HPF300
+    //  bit 1: Disable AF Tx LPF1
+    //  bit 0: Disable AF Tx pre-emphasis
+    uint16_t reg2b = BK4819_ReadRegister(BK4819_REG_2B);
+    reg2b |= (1u << 10) | (1u << 9) | (1u << 8) | (1u << 2) | (1u << 1) | (1u << 0);
+    BK4819_WriteRegister(BK4819_REG_2B, reg2b);
+
+    // Keep AGC/AFC behavior aligned with FM-like bypass experiments.
+    BK4819_SetRegValue(afcDisableRegSpec, false);
+}
+
+void BK4819_EnterRaw(void)
+{
+    // Keep AF output on a documented mode.
+    BK4819_SetAF(BK4819_AF_FM);
+
+    // RAW profile: bypass RX AF filters only, keep TX filter path unchanged.
+    // REG_2B:
+    //  bit10: Disable AF Rx HPF300
+    //  bit 9: Disable AF Rx LPF3K
+    //  bit 8: Disable AF Rx de-emphasis
+    uint16_t reg2b = BK4819_ReadRegister(BK4819_REG_2B);
+    reg2b |= (1u << 10) | (1u << 9) | (1u << 8);
+    reg2b &= ~((1u << 2) | (1u << 1) | (1u << 0));
+    BK4819_WriteRegister(BK4819_REG_2B, reg2b);
+
+    // RAW profile keeps AFC disabled to preserve discriminator-like behavior.
+    BK4819_SetRegValue(afcDisableRegSpec, true);
+}
+#endif
+
 void BK4819_ExitBypass(void)
 {
     BK4819_SetAF(BK4819_AF_MUTE);
 
-    // REG_7E
-    //
-    // <15>    0 AGC fix mode
-    //         1 = fix
-    //         0 = auto
-    //
-    // <14:12> 3 AGC fix index
-    //         3 ( 3) = max
-    //         2 ( 2)
-    //         1 ( 1)
-    //         0 ( 0)
-    //         7 (-1)
-    //         6 (-2)
-    //         5 (-3)
-    //         4 (-4) = min
-    //
-    // <11:6>  0 ???
-    //
-    // <5:3>   5 DC filter band width for Tx (MIC In)
-    //         0 ~ 7
-    //         0 = bypass DC filter
-    //
-    // <2:0>   6 DC filter band width for Rx (I.F In)
-    //         0 ~ 7
-    //         0 = bypass DC filter
-    //
+#ifdef ENABLE_BYP_RAW_DEMODULATORS
+    // Restore normal AF filters.
+    uint16_t reg2b = BK4819_ReadRegister(BK4819_REG_2B);
+    reg2b &= ~((1u << 10) | (1u << 9) | (1u << 8) | (1u << 2) | (1u << 1) | (1u << 0));
+    BK4819_WriteRegister(BK4819_REG_2B, reg2b);
+#endif
 
+    // Keep existing REG_7E logic from your current implementation.
     uint16_t regVal = BK4819_ReadRegister(BK4819_REG_7E);
-
-    // 0x302E / 0 011 000000 101 110
-    BK4819_WriteRegister(BK4819_REG_7E, (regVal & ~(0b111 << 3))
-
-        | (5u <<  3)       // 5  DC Filter band width for Tx (MIC In)
-
-    );
+    BK4819_WriteRegister(BK4819_REG_7E, (regVal & ~(0b111 << 3)) | (5u << 3));
 }
 
 void BK4819_PrepareTransmit(void)

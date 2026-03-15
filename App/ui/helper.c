@@ -321,6 +321,16 @@ static void sort(int16_t *a, int16_t *b)
         x += 4;
       }
     }
+
+    bool IsEmptyName(const char *name, uint8_t len) {
+        if (name[0] == '\0' || name[0] == '\xff')
+            return true;
+        for (uint8_t i = 0; i < len; i++) {
+            if (name[i] != ' ' && name[i] != '\xff' && name[i] != '\0')
+                return false;
+        }
+        return true;
+    }
 #endif
     
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black)

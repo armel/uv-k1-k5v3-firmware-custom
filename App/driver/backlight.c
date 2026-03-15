@@ -31,7 +31,7 @@
     #include "misc.h"
 #endif
 
-#define PWM_FREQ 320
+#define PWM_FREQ 4000
 #define DUTY_CYCLE_LEVELS 64
 
 #define DUTY_CYCLE_ON_VALUE GPIO_PIN_MASK(GPIO_PIN_BACKLIGHT)
@@ -44,7 +44,13 @@ static uint32_t dutyCycle[DUTY_CYCLE_LEVELS];
 
 // this is decremented once every 500ms
 uint16_t gBacklightCountdown_500ms = 0;
+bool gUpdateBacklight = false;
 bool backlightOn;
+
+static uint8_t currentIndex = 0;
+static int16_t currentBrightness = 0;
+static int16_t targetBrightness = 0;
+static int16_t fadeStep = 0;
 
 #ifdef ENABLE_FEAT_F4HWN
     const uint8_t value[] = {
@@ -110,6 +116,12 @@ static void BACKLIGHT_Sound(void)
     gK5startup = false;
 }
 
+void BACKLIGHT_UpdateTickless(void) {
+    while(gUpdateBacklight) {
+        BACKLIGHT_Update();
+        SYSTEM_DelayMs(10);
+    }
+}
 
 void BACKLIGHT_TurnOn(void)
 {
@@ -134,27 +146,23 @@ void BACKLIGHT_TurnOn(void)
 
     backlightOn = true;
 
-#ifdef ENABLE_FEAT_F4HWN
-    if(gK5startup == true) {
-        #if defined(ENABLE_FMRADIO) && defined(ENABLE_SPECTRUM)
-            BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MAX);
-        #else
-            for(uint8_t i = 0; i <= gEeprom.BACKLIGHT_MAX; i++)
-            {
-                BACKLIGHT_SetBrightness(i);
-                SYSTEM_DelayMs(50);
-            }
-        #endif
-
-        BACKLIGHT_Sound();
-    }
-    else
-    {
-        BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MAX);
-    }
-#else
     BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MAX);
+
+#ifdef ENABLE_FEAT_F4HWN
+    if(gK5startup == true)
+#else
+    static bool startup = true;
+    
+    if(startup)
 #endif
+    {
+        BACKLIGHT_UpdateTickless();
+#ifdef ENABLE_FEAT_F4HWN
+        BACKLIGHT_Sound();
+#else
+        startup = false;
+#endif
+    }
 
     switch (gEeprom.BACKLIGHT_TIME) {
         default:
@@ -190,18 +198,11 @@ bool BACKLIGHT_IsOn()
     return backlightOn;
 }
 
-static uint8_t currentBrightness = 0;
-
-void BACKLIGHT_SetBrightness(uint8_t brigtness)
+static void BACKLIGHT_SetHardwareBrightness(uint8_t brightness)
 {
     // printf("BL: %d\n", brigtness);
 
-    if (currentBrightness == brigtness)
-    {
-        return;
-    }
-
-    if (0 == brigtness)
+    if (0 == brightness)
     {
         LL_TIM_DisableCounter(TIMx);
         LL_DMA_DisableChannel(DMA1, DMA_CHANNEL);
@@ -210,7 +211,7 @@ void BACKLIGHT_SetBrightness(uint8_t brigtness)
     }
     else
     {
-        const uint32_t level = (uint32_t)(value[brigtness]) * DUTY_CYCLE_LEVELS / 255;
+        const uint32_t level = (uint32_t)(brightness) * DUTY_CYCLE_LEVELS / 255;
         if (level >= DUTY_CYCLE_LEVELS)
         {
             LL_TIM_DisableCounter(TIMx);
@@ -231,11 +232,45 @@ void BACKLIGHT_SetBrightness(uint8_t brigtness)
             }
         }
     }
+}
 
-    currentBrightness = brigtness;
+void BACKLIGHT_Update(void)
+{
+    if (gUpdateBacklight) {
+        currentBrightness += fadeStep;
+
+        if ((fadeStep > 0 && currentBrightness >= targetBrightness) || 
+            (fadeStep < 0 && currentBrightness <= targetBrightness)) {
+            currentBrightness = targetBrightness;
+            gUpdateBacklight = false;
+        }
+
+        BACKLIGHT_SetHardwareBrightness((uint8_t)currentBrightness);
+    }
+}
+
+void BACKLIGHT_SetBrightness(uint8_t targetIndex)
+{
+    if (currentIndex == targetIndex) {
+        return;
+    }
+
+    currentIndex = targetIndex;
+    targetBrightness = value[targetIndex];
+
+    int16_t diff = targetBrightness - currentBrightness;
+
+    if (diff == 0) {
+        gUpdateBacklight = false;
+        return;
+    }
+    
+    fadeStep = diff > 0 ? -(-diff >> 4) : diff >> 4;
+
+    gUpdateBacklight = true;
 }
 
 uint8_t BACKLIGHT_GetBrightness(void)
 {
-    return currentBrightness;
+    return currentIndex;
 }

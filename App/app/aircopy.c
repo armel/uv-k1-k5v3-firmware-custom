@@ -139,7 +139,7 @@ static void AIRCOPY_clear()
         crc[i] = 0;
     }
     #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        getScreenShot(true);
+        SCREENSHOT_Update(true);
     #endif
 }
 
@@ -167,7 +167,7 @@ static inline void AIRCOPY_CheckComplete(void)
     {
         gAircopyState = AIRCOPY_COMPLETE;
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        getScreenShot(false);
+        SCREENSHOT_Update(false);
 #endif
     }
 }
@@ -212,7 +212,7 @@ bool AIRCOPY_SendMessage(void)
     if (CurrentSegmentIndex >= map->num_segments) {
         gAircopyState = AIRCOPY_COMPLETE;
         #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            getScreenShot(false);
+            SCREENSHOT_Update(false);
         #endif
         return 0;
     }

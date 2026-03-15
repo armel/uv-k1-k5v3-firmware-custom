@@ -190,8 +190,13 @@ void cdc_acm_data_send_with_dtr(const uint8_t *buf, uint32_t size)
     {
         ep_tx_busy_flag = true;
         usbd_ep_start_write(CDC_IN_EP, buf, size);
-        while (ep_tx_busy_flag)
+        uint32_t timeout = 100000;
+        while (ep_tx_busy_flag && --timeout)
             ;
+        if (!timeout) {
+            ep_tx_busy_flag = false;
+            dtr_enable = 0;  // Consider USB disconnected
+        }
     }
 }
 

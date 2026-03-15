@@ -155,43 +155,70 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
 
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     bool UART_IsCableConnected(void) {
+        typedef enum {
+            STATE_IDLE = 0,
+            STATE_KA_1,
+            STATE_KA_2,
+            STATE_KA_3,
+            STATE_KEY_1,
+            STATE_KEY_2,
+            STATE_KEY_3,
+            STATE_KEY_3L,
+        } ParseState_t;
+
+        static uint8_t     read_ptr = 0;
+        static ParseState_t state   = STATE_IDLE;
+
         bool connected = false;
 
-        for (size_t i = 0; i < sizeof(UART_DMA_Buffer); i++) {
-            uint8_t b = UART_DMA_Buffer[i];
+        // DMA write position: NbData counts DOWN from 256
+        uint8_t write_ptr = (uint8_t)(sizeof(UART_DMA_Buffer) - 
+                                       LL_DMA_GetDataLength(DMA1, DMA_CHANNEL));
 
-            if (b == 0x55) {
-                // Keepalive byte — viewer is alive
-                UART_DMA_Buffer[i] = 0x00;
-                connected = true;
-            }
-            else if (b == 0xAA) {
-                // Possible start of a key packet: 0xAA 0x55 <type> <keycode>
-                // type 0x03 = short press, 0x04 = long press
-                size_t i1 = (i + 1) % sizeof(UART_DMA_Buffer);
-                size_t i2 = (i + 2) % sizeof(UART_DMA_Buffer);
-                size_t i3 = (i + 3) % sizeof(UART_DMA_Buffer);
+        uint8_t processed = 0;
+        while (read_ptr != write_ptr && processed < sizeof(UART_DMA_Buffer))
+        {
+            uint8_t b = UART_DMA_Buffer[read_ptr++];
+            // read_ptr wraps naturally at 256 since it's uint8_t
+            processed++;
 
-                if (UART_DMA_Buffer[i1] == 0x55 &&
-                    (UART_DMA_Buffer[i2] == UART_TYPE_KEY ||
-                     UART_DMA_Buffer[i2] == UART_TYPE_KEY_LONG))
-                {
-                    uint8_t type    = UART_DMA_Buffer[i2];
-                    uint8_t keyCode = UART_DMA_Buffer[i3];
-
-                    // Consume all 4 bytes
-                    UART_DMA_Buffer[i]  = 0x00;
-                    UART_DMA_Buffer[i1] = 0x00;
-                    UART_DMA_Buffer[i2] = 0x00;
-                    UART_DMA_Buffer[i3] = 0x00;
-
-                    if (type == UART_TYPE_KEY_LONG)
-                        KEYBOARD_InjectKeyLong(keyCode);
-                    else
-                        KEYBOARD_InjectKey(keyCode);
-
+            switch (state)
+            {
+                case STATE_IDLE:
+                    if      (b == 0x55) state = STATE_KA_1;
+                    else if (b == 0xAA) state = STATE_KEY_1;
+                    break;
+                case STATE_KA_1:
+                    state = (b == 0xAA) ? STATE_KA_2 : STATE_IDLE;
+                    break;
+                case STATE_KA_2:
+                    state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
+                    break;
+                case STATE_KA_3:
+                    if (b == 0x00) connected = true;
+                    state = STATE_IDLE;
+                    break;
+                case STATE_KEY_1:
+                    state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;
+                    break;
+                case STATE_KEY_2:
+                    if      (b == UART_TYPE_KEY)      state = STATE_KEY_3;
+                    else if (b == UART_TYPE_KEY_LONG) state = STATE_KEY_3L;
+                    else                              state = STATE_IDLE;
+                    break;
+                case STATE_KEY_3:
+                    KEYBOARD_InjectKey(b);
                     connected = true;
-                }
+                    state = STATE_IDLE;
+                    break;
+                case STATE_KEY_3L:
+                    KEYBOARD_InjectKeyLong(b);
+                    connected = true;
+                    state = STATE_IDLE;
+                    break;
+                default:
+                    state = STATE_IDLE;
+                    break;
             }
         }
 
