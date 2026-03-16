@@ -35,6 +35,12 @@ void UI_DisplayFM(void)
     char *pPrintStr = String;
     UI_DisplayClear();
 
+#ifdef ENABLE_FEAT_F4HWN
+    if (gEeprom.KEY_LOCK && gKeypadLocked > 0) { 
+        UI_PrintStringSmallBold("UNLOCK KEYBOARD", 12, 0, 5);
+    }
+#endif
+
     UI_PrintString("FM", 2, 0, 0, 8);
 
     sprintf(String, "%d%s-%dM", 

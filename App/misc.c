@@ -635,3 +635,15 @@ void MR_PrintCacheStats(void)
 }
 
 #endif
+
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+    bool SCREENSHOT_IsLocked(void) 
+    {
+        if (gUART_LockScreenshot > 0) {
+            gUART_LockScreenshot--;
+            return true;
+        }
+        
+        return false;
+    }
+#endif

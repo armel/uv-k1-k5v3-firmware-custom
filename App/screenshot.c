@@ -26,17 +26,19 @@
 // - No currentFrame or deltaFrame static buffers
 static uint8_t previousFrame[1024] = {0};
 static uint8_t forcedBlock = 0;
-static uint8_t keepAlive = 10;
-static bool    wasConnected = false;
+static uint8_t keepAlive = 0;
 
 void SCREENSHOT_ParseInput(void)
 {
+    if (SCREENSHOT_IsLocked())
+        return;
+
     if (UART_IsCableConnected()) {
-        keepAlive = 10;
+        keepAlive = 7;
         gUSB_ScreenshotEnabled = false;
     }
-    if (VCP_ScreenshotPing()) {
-        keepAlive = 10;
+    else if (VCP_ScreenshotPing()) {
+        keepAlive = 7;
         gUSB_ScreenshotEnabled = true;
     }
 }
@@ -58,21 +60,10 @@ void SCREENSHOT_Update(bool force)
     uint16_t index = 0;
     uint8_t acc = 0;
     uint8_t bitCount = 0;
+    static bool wasConnected = false;
 
-    if (gUART_LockScreenshot > 0) {
-        gUART_LockScreenshot--;
+    if (SCREENSHOT_IsLocked())
         return;
-    }
-
-    if (UART_IsCableConnected()) {
-        keepAlive = 10;
-        gUSB_ScreenshotEnabled = false;
-    }
-
-    if (VCP_ScreenshotPing()) {
-        keepAlive = 10;
-        gUSB_ScreenshotEnabled = true;
-    }
 
     if (keepAlive > 0) {
         if (--keepAlive == 0) {
@@ -97,7 +88,7 @@ void SCREENSHOT_Update(bool force)
             uint8_t bit = (gStatusLine[i] >> b) & 0x01;
             acc |= (bit << bitCount++);
             if (bitCount == 8) {
-                frameBuffer[index++] = acc;
+                frameBuffer[index++] = gSetting_set_inv ? ~acc : acc;
                 acc = 0;
                 bitCount = 0;
             }
@@ -111,7 +102,7 @@ void SCREENSHOT_Update(bool force)
                 uint8_t bit = (gFrameBuffer[l][i] >> b) & 0x01;
                 acc |= (bit << bitCount++);
                 if (bitCount == 8) {
-                    frameBuffer[index++] = acc;
+                    frameBuffer[index++] = gSetting_set_inv ? ~acc : acc;
                     acc = 0;
                     bitCount = 0;
                 }

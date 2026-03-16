@@ -221,8 +221,8 @@ void UI_DisplayWelcome(void)
         //ST7565_BlitStatusLine();  // blank status line : I think it's useless
         ST7565_BlitFullScreen();
 
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            SCREENSHOT_Update(true);
-        #endif
+        // #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+        //     SCREENSHOT_Update(true);   // I think that's useless too
+        // #endif
     }
 }

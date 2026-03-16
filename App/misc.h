@@ -323,6 +323,8 @@ extern volatile bool         gTxTimeoutReached;
     #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
         extern volatile uint8_t  gUART_LockScreenshot; // lock screenshot if Chirp is used
         extern bool gUSB_ScreenshotEnabled;
+
+        bool SCREENSHOT_IsLocked(void);
     #endif
 #endif
 

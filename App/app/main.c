@@ -99,16 +99,15 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 {
     uint8_t Vfo = gEeprom.TX_VFO;
 
-#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-    if(gEeprom.MENU_LOCK == true) {
-        if(Key == 2) { // Enable A/B only
-            gVfoConfigureMode     = VFO_CONFIGURE;
-            COMMON_SwitchVFOs();
-            if (beep)
-                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-        }
+    if (beep)
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
-        return; // prevent F function if MENU LOCK is true
+#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+    if(gEeprom.MENU_LOCK == true && Key != 2) {
+        gUpdateStatus   = true;
+        gWasFKeyPressed = false;
+
+        return;
     }
 #endif
 
@@ -128,7 +127,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             if (!IS_FREQ_CHANNEL(gTxVfo->CHANNEL_SAVE)) {
                 gWasFKeyPressed = false;
                 gUpdateStatus   = true;
-                gBeepToPlay     = BEEP_1KHZ_60MS_OPTIONAL;
 
 #ifdef ENABLE_COPY_CHAN_TO_VFO
                 if (!gEeprom.VFO_OPEN || gCssBackgroundScan) {
@@ -192,9 +190,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 
             gRequestDisplayScreen      = DISPLAY_MAIN;
 
-            if (beep)
-                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-
             break;
 
         case KEY_2:
@@ -202,8 +197,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 gVfoConfigureMode     = VFO_CONFIGURE;
             #endif
             COMMON_SwitchVFOs();
-            if (beep)
-                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
             break;
 
         case KEY_3:
@@ -211,8 +204,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 gVfoConfigureMode     = VFO_CONFIGURE;
             #endif
             COMMON_SwitchVFOMode();
-            if (beep)
-                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
             break;
 
@@ -222,8 +213,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
             gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
             gUpdateStatus            = true;        
-            if (beep)
-                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
             SCANNER_Start(false);
             gRequestDisplayScreen = DISPLAY_SCANNER;
@@ -550,7 +539,13 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
             
-            gKeyInputCountdown = (gInputBoxIndex == totalDigits) ? (key_input_timeout_500ms / 16) : (key_input_timeout_500ms / 3);
+            gKeyInputCountdown = (gInputBoxIndex >= totalDigits) ? (key_input_timeout_500ms / 16) : (key_input_timeout_500ms / 3);
+
+            if (gInputBoxIndex >= totalDigits) {
+                gInputBoxIndex =  totalDigits;
+
+                return;
+            }
 
             const char *inputStr = INPUTBOX_GetAscii();
             uint8_t inputLength = gInputBoxIndex;
@@ -643,6 +638,12 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     gWasFKeyPressed = false;
     gUpdateStatus   = true;
 
+    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+        if(gEeprom.MENU_LOCK == true && Key != 2) {
+            return;
+        }
+    #endif
+
     if(Key == 8)
     {
         ACTION_BackLightOnDemand();
@@ -656,11 +657,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     #ifdef ENABLE_FEAT_F4HWN_GAME
     else if(Key == 7)
     {
-        #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-            if(gEeprom.MENU_LOCK == true) {
-                return;
-            }
-        #endif
         APP_RunBreakout();
         return;
     }
@@ -839,17 +835,18 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
             }
 
             #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-            if(gEeprom.MENU_LOCK == false) {
+                if(gEeprom.MENU_LOCK == true) {
+                    gUpdateStatus   = true;
+                    gWasFKeyPressed = false;
+
+                    return;
+                }
             #endif
 
             gFlagRefreshSetting = true;
             gRequestDisplayScreen = DISPLAY_MENU;
             #ifdef ENABLE_VOICE
                 gAnotherVoiceID   = VOICE_ID_MENU;
-            #endif
-
-            #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-            }
             #endif
         }
         else {
@@ -860,13 +857,6 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
 
 static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
 {
-
-#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-    if(gEeprom.MENU_LOCK == true) {
-        return; // prevent F function if MENU LOCK is true
-    }
-#endif
-
     if (gCurrentFunction == FUNCTION_TRANSMIT)
         return;
     
@@ -875,6 +865,20 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         return;
     }
+
+    if (!bKeyHeld && bKeyPressed) { // star key pressed
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;  // beep when key is pressed
+        return;                                 // don't use the key till it's released
+    }
+
+    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+        if(gEeprom.MENU_LOCK == true) {
+            gUpdateStatus   = true;
+            gWasFKeyPressed = false;
+
+            return; // prevent F function if MENU LOCK is true
+        }
+    #endif
 
     if (bKeyHeld && !gWasFKeyPressed){ // long press
         if (!bKeyPressed) // released
@@ -898,12 +902,6 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
         return;
     }
-
-    if (bKeyPressed) { // just pressed
-        return;
-    }
-    
-    // just released
     
     if (!gWasFKeyPressed) // pressed without the F-key
     {   
@@ -916,7 +914,6 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
 #endif      
         )
         {   // start entering a DTMF string
-            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
             memcpy(gDTMF_InputBox, gDTMF_String, MIN(sizeof(gDTMF_InputBox), sizeof(gDTMF_String) - 1));
             gDTMF_InputBox_Index  = 0;
             gDTMF_InputMode       = true;
@@ -958,7 +955,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
 #ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down
     if(gWasFKeyPressed) {
-        processFKeyFunction(Direction == 1 ? KEY_UP : KEY_DOWN, false);
+        processFKeyFunction(Direction == 1 ? KEY_UP : KEY_DOWN, true);
         return;
     }
 #endif

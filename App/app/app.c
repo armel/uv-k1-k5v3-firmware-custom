@@ -1609,9 +1609,11 @@ void APP_TimeSlice500ms(void)
     }
 #endif
 
+    const int m = UI_MENU_GetCurrentMenuId();
+
     if (gBacklightCountdown_500ms > 0 && !gAskToSave && !gCssBackgroundScan
         // don't turn off backlight if user is in backlight menu option
-        && !(gScreenToDisplay == DISPLAY_MENU && (UI_MENU_GetCurrentMenuId() == MENU_ABR || UI_MENU_GetCurrentMenuId() == MENU_ABR_MAX))
+        && !(gScreenToDisplay == DISPLAY_MENU && (m == MENU_ABR || m == MENU_ABR_MAX || m == MENU_ABR_MIN))
         && --gBacklightCountdown_500ms == 0
         && gEeprom.BACKLIGHT_TIME < 61
     ) {
@@ -1729,8 +1731,10 @@ void APP_TimeSlice500ms(void)
         if (exit_menu) {
             gMenuCountdown = 0;
 
-            if (gEeprom.BACKLIGHT_TIME == 0) {
-                BACKLIGHT_TurnOff();
+            const int m = UI_MENU_GetCurrentMenuId();
+
+            if (gScreenToDisplay == DISPLAY_MENU && (m == MENU_ABR || m == MENU_ABR_MAX || m == MENU_ABR_MIN)) {
+                BACKLIGHT_TurnOn();
             }
 
             if (gInputBoxIndex > 0 || gDTMF_InputMode) {

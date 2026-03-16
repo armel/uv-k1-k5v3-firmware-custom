@@ -331,10 +331,6 @@ void AIRCOPY_StorePacket(void)
 
 static void AIRCOPY_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     INPUTBOX_Append(Key);
 
     gRequestDisplayScreen = DISPLAY_AIRCOPY;
@@ -379,10 +375,6 @@ static void AIRCOPY_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
 static void AIRCOPY_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     if (gInputBoxIndex == 0) {
         gAircopyStep = 1;
         gFSKWriteIndex = 0;
@@ -405,10 +397,6 @@ static void AIRCOPY_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 
 static void AIRCOPY_Key_MENU(bool bKeyPressed, bool bKeyHeld)
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     gAircopyStep = 1;
     gFSKWriteIndex = 0;
     gAirCopyBlockNumber = 0;
@@ -427,10 +415,6 @@ static void AIRCOPY_Key_MENU(bool bKeyPressed, bool bKeyHeld)
 
 static void AIRCOPY_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     if (!gEeprom.SET_NAV) {
         Direction = -Direction;
     }
@@ -450,6 +434,14 @@ static void AIRCOPY_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Directio
 
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
+    if (bKeyHeld || !bKeyPressed) {
+        return;
+    }
+
+    if (Key != KEY_PTT) {
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+    }
+
     switch (Key) {
     case KEY_0...KEY_9:
         AIRCOPY_Key_DIGITS(Key, bKeyPressed, bKeyHeld);
@@ -464,7 +456,10 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     case KEY_DOWN:
         AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, Key == KEY_UP ? 1 : -1);
         break;
+    case KEY_PTT:
+        break;
     default:
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         break;
     }
 }
