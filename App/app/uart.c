@@ -45,6 +45,10 @@
 #include "settings.h"
 #include "version.h"
 
+#ifdef ENABLE_DIGMODE
+#include "app/digmode.h"
+#endif
+
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
 #endif
@@ -705,11 +709,31 @@ bool UART_IsCommandAvailable(uint32_t Port)
         else
             CommandLength = (DmaLength + ReadBufSize) - (*pReadPointer);
 
-        if (CommandLength < 8)
-            return 0;
+        if (CommandLength < 2)
+            return false;
 
         if (ReadBuf[DMA_INDEX(*pReadPointer, 1, ReadBufSize)] == 0xCD)
+        {
+            if (CommandLength < 8)
+                return false;
             break;
+        }
+
+#ifdef ENABLE_DIGMODE
+        {
+            uint8_t nextByte = ReadBuf[DMA_INDEX(*pReadPointer, 1, ReadBufSize)];
+            if (nextByte >= 0x01 && nextByte <= DIGMODE_MAX_CMD)
+            {
+                uint16_t consumed = DIGMODE_ProcessByte(
+                    ReadBuf, CommandLength, ReadBufSize, *pReadPointer);
+                if (consumed == 0)
+                    return false;
+                for (uint16_t k = 0; k < consumed; k++)
+                    *pReadPointer = DMA_INDEX(*pReadPointer, 1, ReadBufSize);
+                continue;
+            }
+        }
+#endif
 
         *pReadPointer = DMA_INDEX(*pReadPointer, 1, ReadBufSize);
     }

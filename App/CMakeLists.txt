@@ -203,6 +203,14 @@ enable_feature(ENABLE_FEAT_F4HWN_CA)
 enable_feature(ENABLE_FEAT_F4HWN_DEBUG)
 enable_feature(ENABLE_FEAT_F4HWN_MEM)
 
+# ---- DIGITAL MODE (Vernier TX) ----
+
+enable_feature(ENABLE_DIGMODE
+    dsp/vernier.c
+    app/digmode.c
+    ui/digmode.c
+)
+
 # ---- DEBUGGING ----
 
 enable_feature(ENABLE_AGC_SHOW_DATA)

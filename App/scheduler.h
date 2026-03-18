@@ -16,6 +16,7 @@
 #ifndef _SCHEDULER_H
 #define _SCHEDULER_H
 
+#include <stdint.h>
 #include "py32f0xx.h"
 
 static void inline SCHEDULER_Enable()
@@ -27,5 +28,7 @@ static void inline SCHEDULER_Disable()
 {
     NVIC_DisableIRQ(SysTick_IRQn);
 }
+
+uint32_t SCHEDULER_GetMicros(void);
 
 #endif

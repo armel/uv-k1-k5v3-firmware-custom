@@ -33,6 +33,9 @@
 #ifdef ENABLE_REGA
     #include "app/rega.h"
 #endif
+#ifdef ENABLE_DIGMODE
+    #include "ui/digmode.h"
+#endif
 #include "ui/inputbox.h"
 #include "ui/main.h"
 #include "ui/menu.h"
@@ -63,6 +66,10 @@ void (*UI_DisplayFunctions[])(void) = {
 
 #ifdef ENABLE_REGA
     [DISPLAY_REGA] = &UI_DisplayREGA,
+#endif
+
+#ifdef ENABLE_DIGMODE
+    [DISPLAY_DIGMODE] = &UI_DisplayDigmode,
 #endif
 };
 
