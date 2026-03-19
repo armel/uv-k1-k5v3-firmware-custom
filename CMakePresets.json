@@ -66,6 +66,7 @@
                 "ENABLE_FEAT_F4HWN_CA": true,
                 "ENABLE_FEAT_F4HWN_DEBUG": false,
                 "ENABLE_FEAT_F4HWN_MEM": false,
+                "ENABLE_DIGMODE": true,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,

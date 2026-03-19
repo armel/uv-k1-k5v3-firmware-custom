@@ -28,6 +28,7 @@
 
 #include "driver/backlight.h"
 #include "driver/gpio.h"
+#include "driver/systick.h"
 
 #define DECREMENT(cnt) \
     do {               \
@@ -115,4 +116,16 @@ void SysTick_Handler(void)
 #endif
 
     DECREMENT(boot_counter_10ms);
+}
+
+uint32_t SCHEDULER_GetMicros(void)
+{
+    uint32_t ticks, sub;
+    do {
+        ticks = gGlobalSysTickCounter;
+        sub   = SysTick->LOAD + 1 - SysTick->VAL;
+    } while (ticks != gGlobalSysTickCounter);
+
+    uint32_t tick_per_us = SystemCoreClock / 1000000;
+    return ticks * 10000 + sub / tick_per_us;
 }

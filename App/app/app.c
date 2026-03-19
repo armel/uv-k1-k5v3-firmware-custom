@@ -41,6 +41,9 @@
     #include "app/uart.h"
     #include "scheduler.h"
 #endif
+#ifdef ENABLE_DIGMODE
+    #include "app/digmode.h"
+#endif
 #include "py32f0xx.h"
 #include "audio.h"
 #include "board.h"
@@ -85,6 +88,12 @@ static bool flagSaveChannel;
 
 static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
+#ifdef ENABLE_DIGMODE
+static void DIGMODE_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
+{
+    (void)Key; (void)bKeyPressed; (void)bKeyHeld;
+}
+#endif
 
 void (*ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) = {
     [DISPLAY_MAIN] = &MAIN_ProcessKeys,
@@ -98,10 +107,13 @@ void (*ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) 
 #ifdef ENABLE_AIRCOPY
     [DISPLAY_AIRCOPY] = &AIRCOPY_ProcessKeys,
 #endif
+
+#ifdef ENABLE_DIGMODE
+    [DISPLAY_DIGMODE] = &DIGMODE_ProcessKeys,
+#endif
 };
 
-#ifdef ENABLE_REGA
-// This is a hack for REGA as I need a special display element only for it with no key
+#if defined(ENABLE_REGA) && !defined(ENABLE_DIGMODE)
 static_assert(ARRAY_SIZE(ProcessKeysFunctions) == DISPLAY_N_ELEM-1);
 #else
 static_assert(ARRAY_SIZE(ProcessKeysFunctions) == DISPLAY_N_ELEM);
@@ -840,7 +852,11 @@ static void HandleVox(void)
         else if (gVoxStopCountdown_10ms == 0)
             gVOX_NoiseDetected = false;
 
-        if (gCurrentFunction == FUNCTION_TRANSMIT && !gPttIsPressed && !gVOX_NoiseDetected) {
+        if (gCurrentFunction == FUNCTION_TRANSMIT && !gPttIsPressed && !gVOX_NoiseDetected
+#ifdef ENABLE_DIGMODE
+            && !gDigmodeEntered
+#endif
+        ) {
             if (gFlagEndTransmission) {
                 //if (gCurrentFunction != FUNCTION_FOREGROUND)
                     FUNCTION_Select(FUNCTION_FOREGROUND);
@@ -898,8 +914,11 @@ void APP_Update(void)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
-    if (gCurrentFunction == FUNCTION_TRANSMIT && (gTxTimeoutReachedAlert || SerialConfigInProgress()))
-    {
+    if (gCurrentFunction == FUNCTION_TRANSMIT && (gTxTimeoutReachedAlert || SerialConfigInProgress())
+#ifdef ENABLE_DIGMODE
+        && !gDigmodeEntered
+#endif
+    ) {
         if(gSetting_set_tot >= 2)
         {
             if (gEeprom.BACKLIGHT_TIME == 0) {
@@ -943,8 +962,11 @@ void APP_Update(void)
     }
 #endif
 
-    if (gCurrentFunction == FUNCTION_TRANSMIT && (gTxTimeoutReached || SerialConfigInProgress()))
-    {   // transmitter timed out or must de-key
+    if (gCurrentFunction == FUNCTION_TRANSMIT && (gTxTimeoutReached || SerialConfigInProgress())
+#ifdef ENABLE_DIGMODE
+        && !gDigmodeEntered
+#endif
+    ) {   // transmitter timed out or must de-key
         gTxTimeoutReached = false;
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -1381,6 +1403,10 @@ void APP_TimeSlice10ms(void)
             UI_DisplayAudioBar();
 #endif
     }
+
+#ifdef ENABLE_DIGMODE
+    DIGMODE_Poll();
+#endif
 
     bool gUpdateDisplayCurrent = gUpdateDisplay;
     bool gUpdateStatusCurrent  = gUpdateStatus;
@@ -1852,6 +1878,11 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             return;
         }
     }
+    #endif
+
+    #ifdef ENABLE_DIGMODE
+    if (gDigmodeEntered && Key == KEY_PTT)
+        return;
     #endif
 
     if (Key == KEY_EXIT && !BACKLIGHT_IsOn() && gEeprom.BACKLIGHT_TIME > 0)

@@ -38,6 +38,10 @@ enum GUI_DisplayType_t
     DISPLAY_REGA,
 #endif
 
+#ifdef ENABLE_DIGMODE
+    DISPLAY_DIGMODE,
+#endif
+
     DISPLAY_N_ELEM,
     DISPLAY_INVALID = 0xFFu
 };

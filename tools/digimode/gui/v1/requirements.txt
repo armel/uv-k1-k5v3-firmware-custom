@@ -1,0 +1,5 @@
+pyserial>=3.5
+numpy>=1.24
+sounddevice>=0.5
+soundcard>=0.4.5
+pyinstaller>=6.0

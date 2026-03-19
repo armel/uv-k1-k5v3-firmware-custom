@@ -1,0 +1,4 @@
+pyserial>=3.5
+numpy>=1.24
+PyFT8>=2.4.0
+pyinstaller>=6.0

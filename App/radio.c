@@ -46,6 +46,7 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
     [MODULATION_FM]="FM",
     [MODULATION_AM]="AM",
     [MODULATION_USB]="USB",
+    [MODULATION_CW]="CW",
 
 #ifdef ENABLE_BYP_RAW_DEMODULATORS
     [MODULATION_BYP]="BYP",
@@ -808,14 +809,24 @@ void RADIO_SetupRegisters(bool switchToForeground)
     #else
         Frequency = gRxVfo->pRX->Frequency;
     #endif
-    BK4819_SetFrequency(Frequency);
+
+    uint32_t RadioFrequency = Frequency;
+    if (gRxVfo->Modulation == MODULATION_CW) {
+        const uint32_t cwOffset_10Hz = 65u; // 650Hz
+        if (RadioFrequency > cwOffset_10Hz)
+            RadioFrequency -= cwOffset_10Hz;
+        else
+            RadioFrequency = 0;
+    }
+
+    BK4819_SetFrequency(RadioFrequency);
 
     BK4819_SetupSquelch(
         gRxVfo->SquelchOpenRSSIThresh,    gRxVfo->SquelchCloseRSSIThresh,
         gRxVfo->SquelchOpenNoiseThresh,   gRxVfo->SquelchCloseNoiseThresh,
         gRxVfo->SquelchCloseGlitchThresh, gRxVfo->SquelchOpenGlitchThresh);
 
-    BK4819_PickRXFilterPathBasedOnFrequency(Frequency);
+    BK4819_PickRXFilterPathBasedOnFrequency(RadioFrequency);
 
     // what does this in do ?
     BK4819_ToggleGpioOut(BK4819_GPIO0_PIN28_RX_ENABLE, true);
@@ -1068,6 +1079,9 @@ void RADIO_SetModulation(ModulationMode_t modulation)
         case MODULATION_USB:
             mod = BK4819_AF_BASEBAND2;
             break;
+        case MODULATION_CW:
+            mod = BK4819_AF_BASEBAND2;
+            break;
 
 #ifdef ENABLE_BYP_RAW_DEMODULATORS
         case MODULATION_BYP:
@@ -1123,7 +1137,7 @@ void RADIO_SetModulation(ModulationMode_t modulation)
     }
     
     BK4819_SetRegValue(afDacGainRegSpec, 0xF);
-    BK4819_WriteRegister(BK4819_REG_3D, modulation == MODULATION_USB ? 0 : 0x2AAB);
+    BK4819_WriteRegister(BK4819_REG_3D, (modulation == MODULATION_USB || modulation == MODULATION_CW) ? 0 : 0x2AAB);
     BK4819_SetRegValue(afcDisableRegSpec, modulation != MODULATION_FM);
 
     //RADIO_SetupAGC(modulation == MODULATION_AM, false);
@@ -1230,7 +1244,7 @@ void RADIO_PrepareTX(void)
         State = VFO_STATE_VOLTAGE_HIGH;
     }
 #ifndef ENABLE_TX_WHEN_AM
-    else if (gCurrentVfo->Modulation != MODULATION_FM) {
+    else if (gCurrentVfo->Modulation != MODULATION_FM && gCurrentVfo->Modulation != MODULATION_CW) {
         // not allowed to TX if in AM mode
         State = VFO_STATE_TX_DISABLE;
     }
@@ -1323,6 +1337,17 @@ void RADIO_SendCssTail(void)
 
 void RADIO_SendEndOfTransmission(void)
 {
+    if (gCurrentVfo != NULL && gCurrentVfo->Modulation == MODULATION_CW) {
+        BK4819_WriteRegister(BK4819_REG_70, 0x0000);
+        BK4819_WriteRegister(BK4819_REG_71, 0x0000);
+        BK4819_SetAF(BK4819_AF_MUTE);
+        BK4819_WriteRegister((BK4819_REGISTER_t)0x40U, 0x3516);
+        AUDIO_AudioPathOff();
+        gEnableSpeaker = false;
+        RADIO_SetupRegisters(false);
+        return;
+    }
+
     BK4819_PlayRoger();
     DTMF_SendEndOfTransmission();
 
