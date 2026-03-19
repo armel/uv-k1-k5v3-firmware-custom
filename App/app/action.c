@@ -554,55 +554,24 @@ void ACTION_Wn(void)
         BK4819_SetFilterBandwidth(BK4819_FILTER_BW_AM, true);
         return;
     }
+
+    const bool isRx = FUNCTION_IsRx();
+
+    VFO_Info_t *pVfo = isRx ? gRxVfo : gTxVfo;
+    pVfo->CHANNEL_BANDWIDTH = !pVfo->CHANNEL_BANDWIDTH;
+    uint8_t bw = pVfo->CHANNEL_BANDWIDTH;
+
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
-        bool narrower = 0;
-        if (FUNCTION_IsRx())
+        if (isRx && bw == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
         {
-            gRxVfo->CHANNEL_BANDWIDTH = (gRxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            if(gRxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
-            {
-                narrower = 1;
-            }
-
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH + narrower, true);
-            #else
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH + narrower, false);
-            #endif
+            bw++; 
         }
-        else
-        {
-            gTxVfo->CHANNEL_BANDWIDTH = (gTxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            if(gTxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
-            {
-                narrower = 1;
-            }
+    #endif
 
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, true);
-            #else
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, false);
-            #endif
-        }
+    #ifdef ENABLE_AM_FIX
+        BK4819_SetFilterBandwidth(bw, true);
     #else
-        if (FUNCTION_IsRx())
-        {
-            gRxVfo->CHANNEL_BANDWIDTH = (gRxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH, true);
-            #else
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH, false);
-            #endif
-        }
-        else
-        {
-            gTxVfo->CHANNEL_BANDWIDTH = (gTxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, true);
-            #else
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, false);
-            #endif
-        }
+        BK4819_SetFilterBandwidth(bw, false);
     #endif
 }
 

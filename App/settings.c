@@ -617,16 +617,20 @@ void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
 
 void SETTINGS_FactoryReset(bool bIsAll)
 {
-    PY25Q16_SectorErase(0x000000);
-    PY25Q16_SectorErase(0x001000);
-    PY25Q16_SectorErase(0x002000);
-    PY25Q16_SectorErase(0x003000);
-    PY25Q16_SectorErase(0x004000);
-    PY25Q16_SectorErase(0x005000);
-    PY25Q16_SectorErase(0x006000);
-    PY25Q16_SectorErase(0x007000);
-    PY25Q16_SectorErase(0x008000);
-    PY25Q16_SectorErase(0x009000);
+    // PY25Q16_SectorErase(0x000000);
+    // PY25Q16_SectorErase(0x001000);
+    // PY25Q16_SectorErase(0x002000);
+    // PY25Q16_SectorErase(0x003000);
+    // PY25Q16_SectorErase(0x004000);
+    // PY25Q16_SectorErase(0x005000);
+    // PY25Q16_SectorErase(0x006000);
+    // PY25Q16_SectorErase(0x007000);
+    // PY25Q16_SectorErase(0x008000);
+    // PY25Q16_SectorErase(0x009000);
+
+    for (uint32_t addr = 0x000000; addr <= 0x009000; addr += 0x1000) {
+        PY25Q16_SectorErase(addr);
+    }
     
     // 0d60 - 0e30
     if (bIsAll)

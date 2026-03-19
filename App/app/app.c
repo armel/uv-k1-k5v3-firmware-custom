@@ -1165,8 +1165,21 @@ void APP_Update(void)
     }
 }
 
+void StopTransmitting(void) {
+    ProcessKey(KEY_PTT, false, false);
+    gPttIsPressed = false;
+    if (gKeyReading1 != KEY_INVALID)
+        gPttWasReleased = true;
+
+    #ifdef ENABLE_FEAT_F4HWN
+        #if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
+        ST7565_ContrastAndInv();
+        #endif
+    #endif
+}
+
 // called every 10ms
-static void CheckKeys(void)
+void CheckKeys(void)
 {
 #ifdef ENABLE_DTMF_CALLING
     if(gSetting_KILLED){
@@ -1181,75 +1194,63 @@ static void CheckKeys(void)
 #endif
 
 // -------------------- PTT ------------------------
+    const bool serialConfigInProgress = SerialConfigInProgress();
+
+#ifdef ENABLE_FEAT_F4HWN
+    const bool isPressed = GPIO_IsPttPressed() && !serialConfigInProgress;
+#else
+    const bool isPressed = !GPIO_CheckBit(&GPIOC->DATA, GPIOC_PIN_PTT) && !serialConfigInProgress;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     if (gSetting_set_ptt_session)
     {
-        if (GPIO_IsPttPressed() && !SerialConfigInProgress() && gPttOnePushCounter == 0)
-        {   // PTT pressed
-            if (++gPttDebounceCounter >= 3)     // 30ms
-            {   // start transmitting
-                boot_counter_10ms   = 0;
+        if ((isPressed && (gPttOnePushCounter == 0 || gPttOnePushCounter == 2)) ||
+            (!isPressed && (gPttOnePushCounter == 1 || gPttOnePushCounter == 3)) ||
+            serialConfigInProgress) 
+        {
+            if (++gPttDebounceCounter >= 3 || (serialConfigInProgress && gPttOnePushCounter > 0))
+            {
                 gPttDebounceCounter = 0;
-                gPttIsPressed       = true;
-                gPttOnePushCounter = 1;
-                ProcessKey(KEY_PTT, true, false);
+                
+                if (gPttOnePushCounter == 0)
+                {   // start transmitting
+                    boot_counter_10ms   = 0;
+                    gPttIsPressed       = true;
+                    gPttOnePushCounter = 1;
+                    ProcessKey(KEY_PTT, true, false);
+                } 
+                else if (gPttOnePushCounter == 3 || serialConfigInProgress)
+                {   // stop transmitting
+                    StopTransmitting();
+                    gPttOnePushCounter = 0;
+                } 
+                else
+                    gPttOnePushCounter++;
             }
-        }
-        else if ((!GPIO_IsPttPressed() || SerialConfigInProgress()) && gPttOnePushCounter == 1)
-        {   
-            // PTT released or serial comms config in progress
-            if (++gPttDebounceCounter >= 3 || SerialConfigInProgress())     // 30ms
-            {   // stop transmitting
-                gPttOnePushCounter = 2;
-            }
-        }
-        else if (GPIO_IsPttPressed() && !SerialConfigInProgress() && gPttOnePushCounter == 2)
-        {   // PTT pressed again            
-            if (++gPttDebounceCounter >= 3 || SerialConfigInProgress())     // 30ms
-            {   // stop transmitting
-                gPttOnePushCounter = 3;
-            }
-        }
-        else if ((!GPIO_IsPttPressed() || SerialConfigInProgress()) && gPttOnePushCounter == 3)
-        {   // PTT released or serial comms config in progress
-            if (++gPttDebounceCounter >= 3 || SerialConfigInProgress())     // 30ms
-            {   // stop transmitting
-                ProcessKey(KEY_PTT, false, false);
-                gPttIsPressed = false;
-                if (gKeyReading1 != KEY_INVALID)
-                    gPttWasReleased = true;
-                gPttOnePushCounter = 0;
-                #if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
-                ST7565_ContrastAndInv();
-                #endif
-            }
-        }
+        } 
         else
             gPttDebounceCounter = 0;
 
         //gDebug = gPttOnePushCounter;
-    }
-    else
+    } 
+    else 
+#endif
     {
         if (gPttIsPressed)
         {
-            if (!GPIO_IsPttPressed() || SerialConfigInProgress())
+            if (!isPressed)
             {   // PTT released or serial comms config in progress
-                if (++gPttDebounceCounter >= 3 || SerialConfigInProgress())     // 30ms
+                if (++gPttDebounceCounter >= 3 || serialConfigInProgress)   // 30ms
                 {   // stop transmitting
-                    ProcessKey(KEY_PTT, false, false);
-                    gPttIsPressed = false;
-                    if (gKeyReading1 != KEY_INVALID)
-                        gPttWasReleased = true;
-                    #if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
-                    ST7565_ContrastAndInv();
-                    #endif
+                    gPttDebounceCounter = 0;
+                    StopTransmitting();
                 }
-            }
-            else
+            } 
+            else 
                 gPttDebounceCounter = 0;
         }
-        else if (GPIO_IsPttPressed() && !SerialConfigInProgress())
+        else if (isPressed)
         {   // PTT pressed
             if (++gPttDebounceCounter >= 3)     // 30ms
             {   // start transmitting
@@ -1260,37 +1261,8 @@ static void CheckKeys(void)
             }
         }
         else
-            gPttDebounceCounter = 0;        
-    }
-#else
-    if (gPttIsPressed)
-    {
-        if (GPIO_CheckBit(&GPIOC->DATA, GPIOC_PIN_PTT) || SerialConfigInProgress())
-        {   // PTT released or serial comms config in progress
-            if (++gPttDebounceCounter >= 3 || SerialConfigInProgress())     // 30ms
-            {   // stop transmitting
-                ProcessKey(KEY_PTT, false, false);
-                gPttIsPressed = false;
-                if (gKeyReading1 != KEY_INVALID)
-                    gPttWasReleased = true;
-            }
-        }
-        else
             gPttDebounceCounter = 0;
     }
-    else if (!GPIO_CheckBit(&GPIOC->DATA, GPIOC_PIN_PTT) && !SerialConfigInProgress())
-    {   // PTT pressed
-        if (++gPttDebounceCounter >= 3)     // 30ms
-        {   // start transmitting
-            boot_counter_10ms   = 0;
-            gPttDebounceCounter = 0;
-            gPttIsPressed       = true;
-            ProcessKey(KEY_PTT, true, false);
-        }
-    }
-    else
-        gPttDebounceCounter = 0;
-#endif
 
 // --------------------- OTHER KEYS ----------------------------
 

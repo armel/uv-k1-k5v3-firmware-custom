@@ -334,16 +334,23 @@ void DisplayRSSIBar(const bool now)
     uint8_t overS9dBm  = 0;
     uint8_t overS9Bars = 0;
 
-    if      (rssi_dBm >= -93)  s_level = 9;  // S9  = -93 dBm
-    else if (rssi_dBm >= -99)  s_level = 8;  // S8  = -99 dBm
-    else if (rssi_dBm >= -105) s_level = 7;  // S7  = -105 dBm
-    else if (rssi_dBm >= -111) s_level = 6;  // S6  = -111 dBm
-    else if (rssi_dBm >= -117) s_level = 5;  // S5  = -117 dBm
-    else if (rssi_dBm >= -123) s_level = 4;  // S4  = -123 dBm
-    else if (rssi_dBm >= -129) s_level = 3;  // S3  = -129 dBm
-    else if (rssi_dBm >= -135) s_level = 2;  // S2  = -135 dBm
-    else if (rssi_dBm >= -141) s_level = 1;  // S1  = -141 dBm
-    else                       s_level = 0;  // S0 (below -141 dBm)
+    // if      (rssi_dBm >= -93)  s_level = 9;  // S9  = -93 dBm
+    // else if (rssi_dBm >= -99)  s_level = 8;  // S8  = -99 dBm
+    // else if (rssi_dBm >= -105) s_level = 7;  // S7  = -105 dBm
+    // else if (rssi_dBm >= -111) s_level = 6;  // S6  = -111 dBm
+    // else if (rssi_dBm >= -117) s_level = 5;  // S5  = -117 dBm
+    // else if (rssi_dBm >= -123) s_level = 4;  // S4  = -123 dBm
+    // else if (rssi_dBm >= -129) s_level = 3;  // S3  = -129 dBm
+    // else if (rssi_dBm >= -135) s_level = 2;  // S2  = -135 dBm
+    // else if (rssi_dBm >= -141) s_level = 1;  // S1  = -141 dBm
+    // else                       s_level = 0;  // S0 (below -141 dBm)
+
+    s_level = (rssi_dBm + 147) / 6;
+
+    if (s_level > 9)
+        s_level = 9;
+    else if (s_level < 0)
+        s_level = 0;
 
     if (s_level == 9) {
         // Compute over-S9 dB directly

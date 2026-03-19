@@ -270,16 +270,6 @@ static void GUI_DisplaySmallest(const char *pString, uint8_t x, uint8_t y,
 
 // Utility functions
 
-static KEY_Code_t GetKey()
-{
-    KEY_Code_t btn = KEYBOARD_Poll();
-    if (btn == KEY_INVALID && GPIO_IsPttPressed())
-    {
-        btn = KEY_PTT;
-    }
-    return btn;
-}
-
 static int clamp(int v, int min, int max)
 {
     return v <= min ? min : (v >= max ? max : v);
@@ -1517,7 +1507,7 @@ static void Render()
 static bool HandleUserInput()
 {
     kbd.prev = kbd.current;
-    kbd.current = GetKey();
+    kbd.current = KEYBOARD_GetKey();
 
     if (kbd.current != KEY_INVALID && kbd.current == kbd.prev)
     {

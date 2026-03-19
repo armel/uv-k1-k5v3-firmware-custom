@@ -51,20 +51,26 @@ static inline void Flashlight_Toggle(){ GPIO_TogglePin(GPIO_PIN_FLASHLIGHT); }
 
     void ACTION_FlashLight(void)
     {
-        switch (gFlashLightState) {
-            case FLASHLIGHT_OFF:
-                gFlashLightState++;
-                Flashlight_TurnOn();
-                break;
-            case FLASHLIGHT_ON:
-            case FLASHLIGHT_BLINK:
-                gFlashLightState++;
-                break;
-            case FLASHLIGHT_SOS:
-            default:
-                gFlashLightState = 0;
-                Flashlight_TurnOff();
+        // switch (gFlashLightState) {
+        //     case FLASHLIGHT_OFF:
+        //         Flashlight_TurnOn();
+        //         break;
+        //     case FLASHLIGHT_ON:
+        //     case FLASHLIGHT_BLINK:
+        //         break;
+        //     case FLASHLIGHT_SOS:
+        //     default:
+        //         Flashlight_TurnOff();
+        // }
+
+        if(gFlashLightState == FLASHLIGHT_OFF) {
+            Flashlight_TurnOn();
         }
+        else if (gFlashLightState == FLASHLIGHT_SOS) {
+            Flashlight_TurnOff();
+        }
+
+        gFlashLightState = (gFlashLightState + 1) % 4;
     }
 #else
     void ACTION_FlashLight(void)

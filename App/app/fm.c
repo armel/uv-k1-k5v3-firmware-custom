@@ -129,6 +129,18 @@ void FM_EraseChannels(void)
     memset(gFM_Channels, 0xFF, sizeof(gFM_Channels));
 }
 
+uint16_t FM_WrapFrequency(uint16_t Frequency) {
+    const uint16_t freqLoLimit = BK1080_GetFreqLoLimit(gEeprom.FM_Band);
+    const uint16_t freqHiLimit = BK1080_GetFreqHiLimit(gEeprom.FM_Band);
+
+    if (Frequency < freqLoLimit)
+        return freqHiLimit;
+    else if (Frequency > freqHiLimit)
+        return freqLoLimit;
+
+    return Frequency;
+}
+
 void FM_Tune(uint16_t Frequency, int8_t Step, bool bFlag)
 {
     AUDIO_AudioPathOff();
@@ -145,10 +157,7 @@ void FM_Tune(uint16_t Frequency, int8_t Step, bool bFlag)
 
     if (!bFlag) {
         Frequency += Step;
-        if (Frequency < BK1080_GetFreqLoLimit(gEeprom.FM_Band))
-            Frequency = BK1080_GetFreqHiLimit(gEeprom.FM_Band);
-        else if (Frequency > BK1080_GetFreqHiLimit(gEeprom.FM_Band))
-            Frequency = BK1080_GetFreqLoLimit(gEeprom.FM_Band);
+        Frequency = FM_WrapFrequency(Frequency);
 
         gEeprom.FM_FrequencyPlaying = Frequency;
     }
@@ -513,10 +522,7 @@ static void Key_UP_DOWN(uint8_t state, int8_t Step)
     else {
         uint16_t Frequency = gEeprom.FM_SelectedFrequency + Step;
 
-        if (Frequency < BK1080_GetFreqLoLimit(gEeprom.FM_Band))
-            Frequency = BK1080_GetFreqHiLimit(gEeprom.FM_Band);
-        else if (Frequency > BK1080_GetFreqHiLimit(gEeprom.FM_Band))
-            Frequency = BK1080_GetFreqLoLimit(gEeprom.FM_Band);
+        Frequency = FM_WrapFrequency(Frequency);
 
         gEeprom.FM_FrequencyPlaying  = Frequency;
         gEeprom.FM_SelectedFrequency = gEeprom.FM_FrequencyPlaying;

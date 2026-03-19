@@ -401,18 +401,6 @@ static void OnKeyDown(uint8_t key)
     }
 }
 
-
-// Key 
-static KEY_Code_t GetKey()
-{
-    KEY_Code_t btn = KEYBOARD_Poll();
-    if (btn == KEY_INVALID && GPIO_IsPttPressed())
-    {
-        btn = KEY_PTT;
-    }
-    return btn;
-}
-
 // HandleUserInput 
 static bool HandleUserInput()
 {
@@ -423,7 +411,7 @@ static bool HandleUserInput()
 #endif
 
     kbd.prev = kbd.current;
-    kbd.current = GetKey();
+    kbd.current = KEYBOARD_GetKey();
 
     if (kbd.current == KEY_INVALID)
         return true;

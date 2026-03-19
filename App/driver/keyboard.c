@@ -46,7 +46,7 @@ static   uint8_t    gSerialKeyLong      = 0;  // 0 = short press, 1 = long press
 
 // Inject a short or long press from serial (UART or VCP).
 // KEY_PTT is explicitly blocked — PTT release cannot be guaranteed over serial.
-void KEYBOARD_InjectKey(uint8_t keyCode, bool keyLong)
+static inline void KEYBOARD_InjectKey(uint8_t keyCode, bool keyLong)
 {
     if (keyCode < KEY_INVALID && keyCode != KEY_PTT) {
         gKeyFromSerial      = (KEY_Code_t)keyCode;
@@ -250,4 +250,14 @@ KEY_Code_t KEYBOARD_Poll(void)
     GPIO_SetOutputPin(PIN_COLS);
 
     return Key;
+}
+
+KEY_Code_t KEYBOARD_GetKey(void)
+{
+    KEY_Code_t btn = KEYBOARD_Poll();
+    if (btn == KEY_INVALID && GPIO_IsPttPressed())
+    {
+        btn = KEY_PTT;
+    }
+    return btn;
 }

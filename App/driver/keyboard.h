@@ -65,11 +65,10 @@ extern bool       gWasFKeyPressed;
 // Serial-injected key (written by UART/VCP parser, consumed by KEYBOARD_Poll).
 extern volatile KEY_Code_t gKeyFromSerial;
 
-// Inject a short or long press received from serial (UART or VCP).
-void KEYBOARD_InjectKey(uint8_t keyCode, bool keyLong);
 bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b);
 #endif
 
 KEY_Code_t KEYBOARD_Poll(void);
+KEY_Code_t KEYBOARD_GetKey(void);
 
 #endif
