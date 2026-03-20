@@ -1785,7 +1785,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 
                     UI_DisplayMenu();
 
-                    if (UI_MENU_GetCurrentMenuId() == MENU_RESET)
+                    if (m == MENU_RESET)
                     {
                         #ifdef ENABLE_VOICE
                             AUDIO_SetVoiceID(0, VOICE_ID_CONFIRM);

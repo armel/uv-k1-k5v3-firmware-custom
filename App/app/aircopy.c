@@ -312,15 +312,26 @@ void AIRCOPY_StorePacket(void)
     AIRCOPY_CheckComplete();
 }
 
+static void AIRCOPY_InitTransfer(bool isSendMode)
+{
+    gAircopyStep = 1;
+    gFSKWriteIndex = 0;
+    gAirCopyBlockNumber = 0;
+    gInputBoxIndex = 0;
+    gAirCopyIsSendMode = isSendMode;
+
+    AIRCOPY_clear();
+    
+    gAircopyState = AIRCOPY_TRANSFER;
+}
+
 // ============================================================================
 // Key Processing
 // ============================================================================
 
-static void AIRCOPY_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
+static void AIRCOPY_Key_DIGITS(KEY_Code_t Key)
 {
     INPUTBOX_Append(Key);
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 
     if (gInputBoxIndex < 6) {
 #ifdef ENABLE_VOICE
@@ -356,51 +367,31 @@ static void AIRCOPY_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         BK4819_ResetFSK();
         return;
     }
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
-static void AIRCOPY_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
+static void AIRCOPY_Key_EXIT()
 {
     if (gInputBoxIndex == 0) {
-        gAircopyStep = 1;
-        gFSKWriteIndex = 0;
-        gAirCopyBlockNumber = 0;
-        gInputBoxIndex = 0;
+        AIRCOPY_InitTransfer(0); // Mode: Receive
         gErrorsDuringAirCopy = lErrorsDuringAirCopy = 0;
-        gAirCopyIsSendMode = 0;
-
-        AIRCOPY_clear();
 
         BK4819_PrepareFSKReceive();
-
-        gAircopyState = AIRCOPY_TRANSFER;
+        
     } else {
         gInputBox[--gInputBoxIndex] = 10;
     }
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
-static void AIRCOPY_Key_MENU(bool bKeyPressed, bool bKeyHeld)
+static void AIRCOPY_Key_MENU()
 {
-    gAircopyStep = 1;
-    gFSKWriteIndex = 0;
-    gAirCopyBlockNumber = 0;
-    gInputBoxIndex = 0;
-    gAirCopyIsSendMode = 1;
+    AIRCOPY_InitTransfer(1); // Mode: Send
+    
     g_FSK_Buffer[0] = 0xABCD;
     g_FSK_Buffer[1] = 0;
     g_FSK_Buffer[35] = 0xDCBA;
-
-    AIRCOPY_clear();
-
-    GUI_DisplayScreen();
-
-    gAircopyState = AIRCOPY_TRANSFER;
 }
 
-static void AIRCOPY_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
+static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
 {
     if (!gEeprom.SET_NAV) {
         Direction = -Direction;
@@ -415,8 +406,6 @@ static void AIRCOPY_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Directio
             gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + AIRCOPY_NUM_MAPS - 1) % AIRCOPY_NUM_MAPS;
             break;
     }
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
@@ -431,17 +420,17 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     switch (Key) {
     case KEY_0...KEY_9:
-        AIRCOPY_Key_DIGITS(Key, bKeyPressed, bKeyHeld);
+        AIRCOPY_Key_DIGITS(Key);
         break;
     case KEY_MENU:
-        AIRCOPY_Key_MENU(bKeyPressed, bKeyHeld);
+        AIRCOPY_Key_MENU();
         break;
     case KEY_EXIT:
-        AIRCOPY_Key_EXIT(bKeyPressed, bKeyHeld);
+        AIRCOPY_Key_EXIT();
         break;
     case KEY_UP:
     case KEY_DOWN:
-        AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, Key == KEY_UP ? 1 : -1);
+        AIRCOPY_Key_UP_DOWN(Key == KEY_UP ? 1 : -1);
         break;
     case KEY_PTT:
         break;
@@ -449,6 +438,8 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         break;
     }
+
+    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
 #endif

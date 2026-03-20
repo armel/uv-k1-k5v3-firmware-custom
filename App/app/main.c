@@ -294,8 +294,9 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 }
 
                 gWasFKeyPressed = false;
+
+                break;
             }
-            break;
         case KEY_SIDE1:
         case KEY_SIDE2:
             {
@@ -313,8 +314,9 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 }
                 
                 gWasFKeyPressed = false;
+
+                break;
             }
-            break;
 #endif
 
         default:
