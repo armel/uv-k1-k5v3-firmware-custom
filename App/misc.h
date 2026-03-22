@@ -368,6 +368,7 @@ extern AlarmState_t          gAlarmState;
 extern uint16_t              gMenuCountdown;
 extern bool                  gPttWasReleased;
 extern bool                  gPttWasPressed;
+extern bool                  gHasVfoBackup;
 extern bool                  gFlagReconfigureVfos;
 extern uint8_t               gVfoConfigureMode;
 extern bool                  gFlagResetVfos;

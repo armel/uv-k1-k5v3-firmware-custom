@@ -319,19 +319,23 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
-    enum ACTION_OPT_t funcShort = ACTION_OPT_NONE;
-    enum ACTION_OPT_t funcLong  = ACTION_OPT_NONE;
+    enum ACTION_OPT_t func = ACTION_OPT_NONE;
     switch(Key) {
         case KEY_SIDE1:
-            funcShort = gEeprom.KEY_1_SHORT_PRESS_ACTION;
-            funcLong  = gEeprom.KEY_1_LONG_PRESS_ACTION;
+            if (bKeyHeld)
+                func = gEeprom.KEY_1_LONG_PRESS_ACTION;
+            else
+                func = gEeprom.KEY_1_SHORT_PRESS_ACTION;
             break;
         case KEY_SIDE2:
-            funcShort = gEeprom.KEY_2_SHORT_PRESS_ACTION;
-            funcLong  = gEeprom.KEY_2_LONG_PRESS_ACTION;
+            if (bKeyHeld)
+                func = gEeprom.KEY_2_LONG_PRESS_ACTION;
+            else
+                func = gEeprom.KEY_2_SHORT_PRESS_ACTION;
             break;
         case KEY_MENU:
-            funcLong  = gEeprom.KEY_M_LONG_PRESS_ACTION;
+            if (bKeyHeld)
+                func = gEeprom.KEY_M_LONG_PRESS_ACTION;
             break;
         default:
             break;
@@ -347,17 +351,14 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     if(!(bKeyHeld && !bKeyPressed)) // don't beep on released after hold
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
-    if (bKeyHeld || bKeyPressed) // held
+    if (bKeyHeld && !bKeyPressed) // button released after hold
     {
-        funcShort = funcLong;
-
-        if (!bKeyPressed) //ignore release if held
-            return;
+        return;
     }
 
     // held or released after short press beyond this point
 
-    action_opt_table[funcShort]();
+    action_opt_table[func]();
 }
 
 

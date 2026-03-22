@@ -1157,9 +1157,15 @@ void UI_DisplayMain(void)
                     Level = 2;
                 }
                 */
-                Level = gRxVfo->OUTPUT_POWER - 1;
+
+                uint8_t currentPower = gRxVfo->OUTPUT_POWER;
+
+                if(currentPower == OUTPUT_POWER_USER)
+                    Level = gSetting_set_pwr;
+                else
+                    Level = currentPower - 1;
             }
-            else
+            else 
             if (mode == VFO_MODE_RX)
             {   // RX signal level
                 #ifndef ENABLE_RSSI_BAR

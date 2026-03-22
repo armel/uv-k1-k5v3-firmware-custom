@@ -242,6 +242,7 @@ volatile uint16_t gScanPauseDelayIn_10ms;
 uint16_t          gMenuCountdown;
 bool              gPttWasReleased;
 bool              gPttWasPressed;
+bool              gHasVfoBackup;
 uint8_t           gKeypadLocked;
 bool              gFlagReconfigureVfos;
 uint8_t           gVfoConfigureMode;
