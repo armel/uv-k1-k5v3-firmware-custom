@@ -766,21 +766,20 @@ void BK4819_SetupSquelch(
     // <13:11> 5 Squelch = open  Delay Setting
     //         0 ~ 7
     //
-    // <10:9>  7 Squelch = close Delay Setting
+    // <10:9>  3 Squelch = close Delay Setting
     //         0 ~ 3
     //
-    // <8>     0 ???
+    // <8>     1 ???
     //
     // <7:0>   8 Glitch threshold for Squelch = open
     //         0 ~ 255
     //
-    BK4819_WriteRegister(BK4819_REG_4E,  // 01 101 11 1 00000000
-
-        // original (*)
-    (1u << 14) |                  //  1 ???
-    (5u << 11) |                  // *5  squelch = open  delay .. 0 ~ 7
-    (6u <<  9) |                  // *3  squelch = close delay .. 0 ~ 3
-    SquelchOpenGlitchThresh);     //  0 ~ 255
+    BK4819_WriteRegister(BK4819_REG_4E,
+    (1u << 14) |                  // 1 ???
+    (5u << 11) |                  // 5 squelch = open  delay .. 0 ~ 7
+    (3u <<  9) |                  // 3 squelch = close delay .. 0 ~ 3
+    (1u <<  8) |                  // 1 ??? (matches stock BK4829)
+    SquelchOpenGlitchThresh);     // 0 ~ 255
 
 
     // REG_4F
