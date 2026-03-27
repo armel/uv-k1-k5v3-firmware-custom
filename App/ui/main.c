@@ -235,26 +235,65 @@ void UI_DisplayAudioBar(void)
 
 #ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
 
-#define SCOPE_SAMPLES   43
+#define SCOPE_SAMPLES        43   // number of columns (43 × 3px = 128px wide)
+#define SCOPE_NOISE_GATE     50u  // minimum range below which the display shows baseline
+#define SCOPE_FLOOR_RISE     2u   // floor rise per frame (+100 units/s at 20ms/frame)
+#define SCOPE_FLOOR_DROP_SHR 3u   // floor drop IIR shift: drop by (floor-min) >> N per frame (~160ms to halve)
 
 static uint16_t g_scope_buf[SCOPE_SAMPLES];
-static uint8_t  g_scope_write = 0;
-static uint16_t g_scope_floor = 0;  // persistent floor: snaps down fast, rises slowly
+static uint8_t  g_scope_write      = 0;
+static uint16_t g_scope_floor      = 0;     // persistent floor: snaps down fast, rises slowly
+static uint8_t  g_scope_ready      = 0;     // number of valid samples since TX entry
+static bool     g_scope_floor_init = false; // floor initialised from real data yet?
 
 void UI_AudioScope_AddSample(void)
 {
     // REG_64 (VoiceAmplitudeOut) is only meaningful in TX (mic input).
     // FM RX audio is frequency-encoded — no register gives the instantaneous waveform.
 
-    const uint16_t value = BK4819_GetVoiceAmplitudeOut();
-    g_scope_buf[g_scope_write] = value;
-    g_scope_write = (g_scope_write + 1) % SCOPE_SAMPLES;
+    static bool s_was_tx = false;
+
+    if (gCurrentFunction != FUNCTION_TRANSMIT) {
+        s_was_tx = false;
+        return;
+    }
+
+    if (!s_was_tx) {
+        // TX entry: full reset so every new transmission starts from a clean state
+        memset(g_scope_buf, 0, sizeof(g_scope_buf));
+        g_scope_write      = 0u;
+        g_scope_floor      = 0u;
+        g_scope_ready      = 0u;
+        g_scope_floor_init = false;
+        s_was_tx           = true;
+    }
+
+    g_scope_buf[g_scope_write] = BK4819_GetVoiceAmplitudeOut();
+    g_scope_write = (g_scope_write + 1u) % SCOPE_SAMPLES;
+
+    if (g_scope_ready < SCOPE_SAMPLES)
+        g_scope_ready++;
 }
 
 void UI_DisplayAudioScope(void)
 {
     if (gLowBattery && !gLowBatteryConfirmed)
         return;
+
+    // Buffer not yet full: show a dotted baseline while samples warm up
+    if (g_scope_ready < SCOPE_SAMPLES) {
+#ifdef ENABLE_FEAT_F4HWN
+        const unsigned int line = isMainOnly() ? 5u : 3u;
+#else
+        const unsigned int line = 3u;
+#endif
+        uint8_t *p_line = gFrameBuffer[line];
+        memset(p_line, 0, LCD_WIDTH);
+        for (uint8_t x = 0u; x < LCD_WIDTH; x += 3u)
+            p_line[x] = 0x40u;  // one dot every 3px, aligned with column grid
+        ST7565_BlitLine(line);
+        return;
+    }
 
     if (gScreenToDisplay != DISPLAY_MAIN
 #ifdef ENABLE_DTMF_CALLING
@@ -283,25 +322,32 @@ void UI_DisplayAudioScope(void)
     // Find min and max across current buffer
     uint16_t min_val = g_scope_buf[0];
     uint16_t max_val = g_scope_buf[0];
-    for (uint8_t i = 1; i < SCOPE_SAMPLES; i++) {
+    for (uint8_t i = 1u; i < SCOPE_SAMPLES; i++) {
         if (g_scope_buf[i] < min_val) min_val = g_scope_buf[i];
         if (g_scope_buf[i] > max_val) max_val = g_scope_buf[i];
     }
 
+    // First real display frame: seed the floor from the actual buffer minimum
+    // to avoid full-height bars caused by a floor at 0 far below the voice data.
+    if (!g_scope_floor_init) {
+        g_scope_floor      = min_val;
+        g_scope_floor_init = true;
+    }
+
     // Floor tracks buffer minimum with asymmetric IIR:
-    // - drops toward min smoothly (~500ms), avoiding instant-snap ghost
-    // - rises slowly (+2/frame ≈ +67/s) to handle loud constant voice
+    // - drops toward min smoothly (SCOPE_FLOOR_DROP_SHR), avoiding instant-snap ghost
+    // - rises slowly (SCOPE_FLOOR_RISE/frame) to handle loud constant voice
     if (g_scope_floor > min_val)
-        g_scope_floor -= ((g_scope_floor - min_val) >> 3) + 1u;
+        g_scope_floor -= ((g_scope_floor - min_val) >> SCOPE_FLOOR_DROP_SHR) + 1u;
     else
-        g_scope_floor += 2u;
+        g_scope_floor += SCOPE_FLOOR_RISE;
 
-    const uint16_t range = (max_val > g_scope_floor) ? (max_val - g_scope_floor) : 0;
+    const uint16_t range = (max_val > g_scope_floor) ? (max_val - g_scope_floor) : 0u;
 
-    for (uint8_t i = 0; i < SCOPE_SAMPLES; i++) {
+    for (uint8_t i = 0u; i < SCOPE_SAMPLES; i++) {
         const uint8_t  idx    = (g_scope_write + i) % SCOPE_SAMPLES;
-        uint8_t        height = 0;
-        if (range >= 50u) {
+        uint8_t        height = 0u;
+        if (range >= SCOPE_NOISE_GATE) {
             const uint16_t v = (g_scope_buf[idx] > g_scope_floor) ? (g_scope_buf[idx] - g_scope_floor) : 0u;
             height = (uint8_t)((uint32_t)v * 7u / range);
         }

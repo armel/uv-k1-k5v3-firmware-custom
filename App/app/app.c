@@ -1372,7 +1372,7 @@ void APP_TimeSlice10ms(void)
 
 #ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
     if (gCurrentFunction == FUNCTION_TRANSMIT) { // during TX only (FM RX has no usable audio register)
-        if (gSetting_mic_bar && (gFlashLightBlinkCounter % (30 / 10)) == 0) { // once every 30ms
+        if (gSetting_mic_bar && (gFlashLightBlinkCounter % (20 / 10)) == 0) { // once every 20ms
             // Sample audio amplitude
             UI_AudioScope_AddSample();
             // Refresh display
