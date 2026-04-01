@@ -1117,6 +1117,39 @@ void SETTINGS_SaveChannelName(uint16_t channel, const char * name)
     PY25Q16_WriteBuffer(0x004000 + offset, buf, 0x10, false);
 }
 
+void SETTINGS_FetchWelcomeLine(uint8_t line, char *text, uint8_t len)
+{
+    if (text == NULL || len == 0 || line > 1) {
+        return;
+    }
+
+    memset(text, 0, len);
+    PY25Q16_ReadBuffer(0x00A0C8 + (line * 16), text, 16);
+    text[len - 1] = 0;
+
+    for (uint8_t i = 0; i < len - 1; i++) {
+        if (text[i] == 0) {
+            break;
+        }
+        if (text[i] < 0x20 || text[i] > 0x7E) {
+            text[i] = 0;
+            break;
+        }
+    }
+}
+
+void SETTINGS_SaveWelcomeLine(uint8_t line, const char *text)
+{
+    // only line 1 is supported
+    if (line > 1 || text == NULL) {
+        return;
+    }
+
+    uint8_t buf[16] = {0};
+    memcpy(buf, text, MIN(strlen(text), 10u));
+    PY25Q16_WriteBuffer(0x00A0C8 + (line * 16), buf, sizeof(buf), false);
+}
+
 void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep, bool check, bool save)
 {
 #ifdef ENABLE_NOAA
