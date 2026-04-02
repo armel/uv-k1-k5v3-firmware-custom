@@ -1,126 +1,81 @@
 #Cat controll for Quansheng UV-K5v3 or UV-K1, simulates Kenwood TS-480 and have some more commands
 
-#List of commands:
-CAT Protocol Documentation (Kenwood/Quansheng)
-The firmware supports computer communication using ASCII commands (Kenwood protocol). Communication can take place via the physical UART port or the virtual VCP port (USB). Every command must end with a semicolon (;).
+# CAT Protocol Documentation (Quansheng/Kenwood)
 
-Data Format
-Frequencies: Specified in hertz (Hz) as an 11-digit string, padded with leading zeros (e.g., 00145500000 translates to 145.500 MHz).
+The firmware supports computer communication using ASCII commands (Kenwood protocol). Communication can take place via the physical UART port or the virtual VCP port (USB). Every command must end with a semicolon (`;`).
 
-Saving: Changes to VFO parameters (e.g., power, tones, offset) are immediately applied to the radio hardware and permanently saved to the EEPROM memory (or applied globally).
+## Data Format
+* **Frequencies:** Specified in hertz (Hz) as an 11-digit string, padded with leading zeros (e.g., `00145500000` translates to 145.500 MHz).
+* **Saving:** Changes to VFO parameters (e.g., power, tones, offset) are immediately applied to the radio hardware and permanently saved to the EEPROM memory (or applied globally).
 
-Supported Commands List
-1. Identification and Status
-ID; – Request radio identification.
+---
 
-Example: ID;
+## Supported Commands List
 
-Response: ID020;
+### 1. Identification and Status
+* **`ID;`** – Request radio identification.
+    * **Example:** `ID;`
+    * **Response:** `ID020;`
+* **`IF;`** – Request global radio status (Information). Returns information about the active VFO's current frequency, modulation mode (4=FM, 5=AM), and transmission status (0=RX, 1=TX).
+    * **Example:** `IF;`
+    * **Response:** `IF0014550000000000           40;` *(Indicates 145.500 MHz, FM mode, and currently receiving)*
 
-IF; – Request global radio status (Information). Returns information about the active VFO's current frequency, modulation mode (4=FM, 5=AM), and transmission status (0=RX, 1=TX).
+### 2. Frequency Control (VFO)
+* **`FA;` / `FB;`** – Read the frequency for VFO A (upper) or VFO B (lower), respectively.
+    * **Example:** `FA;`
+    * **Response:** `FA00145500000;` *(VFO A is set to 145.500 MHz)*
+* **`FA[11 digits];` / `FB[11 digits];`** – Set the RX and TX frequency for a specific VFO.
+    * **Example 1:** `FA00433000000;` *(Sets VFO A to 433.000 MHz)*
+    * **Example 2:** `FB00145500000;` *(Sets VFO B to 145.500 MHz)*
+* **`FR[0 or 1];`** – Switch the active VFO (0 = VFO A, 1 = VFO B).
+    * **Example:** `FR1;` *(Makes VFO B the active/main VFO)*
 
-Example: IF;
+### 3. Transmission (PTT) and Reception Control
+* **`TX;`** – Start transmitting (PTT ON).
+    * **Example:** `TX;` *(Radio begins transmitting on the active VFO)*
+* **`RX;`** – Stop transmitting (return to reception / PTT OFF).
+    * **Example:** `RX;` *(Radio stops transmitting)*
+* **`MO[0 or 1];`** – Hardware monitor control. Fully opens the squelch.
+    * **Example 1:** `MO1;` *(Turns Monitor ON, opening the squelch)*
+    * **Example 2:** `MO0;` *(Turns Monitor OFF, returning to normal squelch)*
 
-Response: IF0014550000000000           40; (Indicates 145.500 MHz, FM mode, and currently receiving)
+### 4. Channel / VFO Settings
+* **`MD;`** – Read the modulation mode for the active VFO.
+    * **Example:** `MD;`
+    * **Response:** `MD4;` *(Indicates FM mode is active. 5=AM, 2=USB)*
+* **`MD[type];`** – Set the modulation mode (5 = AM, 2 = USB, other values will default to FM).
+    * **Example 1:** `MD5;` *(Sets the active VFO to AM mode)*
+    * **Example 2:** `MD4;` *(Sets the active VFO to FM mode)*
+* **`SQ[0-9];`** – Set the radio's squelch level (scale from 0 to 9).
+    * **Example:** `SQ5;` *(Sets the global squelch level to 5)*
+* **`PC[0-7];`** – Set the transmission power level.
+    * `PC0;` – LOW 1 (20mW)
+    * `PC1;` – LOW 2 (125mW)
+    * `PC2;` – LOW 3 (250mW)
+    * `PC3;` – LOW 4 (500mW)
+    * `PC4;` – LOW 5 (1W)
+    * `PC5;` – MID (2W)
+    * `PC6;` – HIGH (5W)
+    * `PC7;` – USER (custom user-defined power level)
+    * **Example:** `PC6;` *(Sets the active VFO's output power to HIGH / 5W)*
 
-2. Frequency Control (VFO)
-FA; / FB; – Read the frequency for VFO A (upper) or VFO B (lower), respectively.
+### 5. Privacy Codes (CTCSS / DCS)
+*Note: Tone changes apply only to the currently active VFO and are immediately applied to both RX and TX.*
+* **`OF;`** – Turn off CTCSS/DCS codes.
+    * **Example:** `OF;` *(Clears all tones for the active VFO)*
+* **`CT[4 digits];`** – Set the CTCSS tone. The value is given in 0.1 Hz increments (e.g., 114.8 Hz is `1148`).
+    * **Example:** `CT1148;` *(Sets the CTCSS tone to 114.8 Hz)*
+* **`DT[3 octal digits];`** – Set the DCS code (in octal format).
+    * **Example:** `DT023;` *(Sets the DCS code to D023N)*
 
-Example: FA;
-
-Response: FA00145500000; (VFO A is set to 145.500 MHz)
-
-FA[11 digits]; / FB[11 digits]; – Set the RX and TX frequency for a specific VFO.
-
-Example 1: FA00433000000; (Sets VFO A to 433.000 MHz)
-
-Example 2: FB00145500000; (Sets VFO B to 145.500 MHz)
-
-FR[0 or 1]; – Switch the active VFO (0 = VFO A, 1 = VFO B).
-
-Example: FR1; (Makes VFO B the active/main VFO)
-
-3. Transmission (PTT) and Reception Control
-TX; – Start transmitting (PTT ON).
-
-Example: TX; (Radio begins transmitting on the active VFO)
-
-RX; – Stop transmitting (return to reception / PTT OFF).
-
-Example: RX; (Radio stops transmitting)
-
-MO[0 or 1]; – Hardware monitor control. Fully opens the squelch.
-
-Example 1: MO1; (Turns Monitor ON, opening the squelch)
-
-Example 2: MO0; (Turns Monitor OFF, returning to normal squelch)
-
-4. Channel / VFO Settings
-MD; – Read the modulation mode for the active VFO.
-
-Example: MD;
-
-Response: MD4; (Indicates FM mode is active. 5=AM, 2=USB)
-
-MD[type]; – Set the modulation mode (5 = AM, 2 = USB, other values will default to FM).
-
-Example 1: MD5; (Sets the active VFO to AM mode)
-
-Example 2: MD4; (Sets the active VFO to FM mode)
-
-SQ[0-9]; – Set the radio's squelch level (scale from 0 to 9).
-
-Example: SQ5; (Sets the global squelch level to 5)
-
-PC[0-7]; – Set the transmission power level.
-
-PC0; – LOW 1 (20mW)
-
-PC1; – LOW 2 (125mW)
-
-PC2; – LOW 3 (250mW)
-
-PC3; – LOW 4 (500mW)
-
-PC4; – LOW 5 (1W)
-
-PC5; – MID (2W)
-
-PC6; – HIGH (5W)
-
-PC7; – USER (custom user-defined power level)
-
-Example: PC6; (Sets the active VFO's output power to HIGH / 5W)
-
-5. Privacy Codes (CTCSS / DCS)
-Note: Tone changes apply only to the currently active VFO and are immediately applied to both RX and TX.
-
-OF; – Turn off CTCSS/DCS codes.
-
-Example: OF; (Clears all tones for the active VFO)
-
-CT[4 digits]; – Set the CTCSS tone. The value is given in 0.1 Hz increments (e.g., 114.8 Hz is 1148).
-
-Example: CT1148; (Sets the CTCSS tone to 114.8 Hz)
-
-DT[3 octal digits]; – Set the DCS code (in octal format).
-
-Example: DT023; (Sets the DCS code to D023N)
-
-6. Repeater Operation (Offset)
-Note: These commands adjust the frequency offset settings for the active VFO.
-
-OS[1 or 2]; – Set the offset shift direction.
-
-OS1; – Plus (+)
-
-OS2; – Minus (-)
-
-Example: OS2; (Sets the repeater shift to Minus)
-
-OV[11 digits]; – Set the offset value in hertz (Hz).
-
-Example: OV00000600000; (Sets the frequency offset to 600 kHz / 0.6 MHz)
+### 6. Repeater Operation (Offset)
+*Note: These commands adjust the frequency offset settings for the active VFO.*
+* **`OS[1 or 2];`** – Set the offset shift direction.
+    * `OS1;` – Plus (+)
+    * `OS2;` – Minus (-)
+    * **Example:** `OS2;` *(Sets the repeater shift to Minus)*
+* **`OV[11 digits];`** – Set the offset value in hertz (Hz).
+    * **Example:** `OV00000600000;` *(Sets the frequency offset to 600 kHz / 0.6 MHz)*
 
 #Fork of F4HWN firmware port for the UV-K1 and UV-K5 V3 using the PY32F071 MCU with added CAT controll
 
