@@ -6,14 +6,17 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *     Unless required by applicable law or agreed to in writing, software
- *     distributed under the License is distributed on an "AS IS" BASIS,
- *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *     See the License for the specific language governing permissions and
- *     limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
+
+// FORCE CAT COMPILATION
+#define ENABLE_CAT 1
 
 #include <string.h>
 
@@ -45,6 +48,14 @@
 #include "settings.h"
 #include "version.h"
 
+#ifdef ENABLE_CAT
+    #include "dcs.h"        // Access to CTCSS/DCS tables
+    #include "app/action.h" // Access to ACTION_Monitor()
+    #include "frequencies.h"
+    #include "radio.h"
+    #include "ui/ui.h" 
+#endif
+
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
 #endif
@@ -59,6 +70,11 @@
 
 // !! Make sure this is correct!
 #define MAX_REPLY_SIZE 144
+
+#ifdef ENABLE_CAT
+// --- LINKER ERROR FIX ---
+void *_sbrk(int incr) { return (void *)-1; }
+#endif
 
 typedef struct {
     uint16_t ID;
@@ -152,7 +168,6 @@ typedef struct {
     } Data;
 } REPLY_052D_t;
 
-
 #ifdef ENABLE_EXTRA_UART_CMD
 typedef struct {
     Header_t Header;
@@ -189,6 +204,330 @@ typedef union
 
 // static bool     bIsEncrypted = true;
 #define bIsEncrypted true
+
+
+#ifdef ENABLE_CAT
+
+// --- CAT PROTOCOL VARIABLES ---
+static char cat_buffer[64];
+static uint8_t cat_pos = 0;
+
+// --- CAT HELPER FUNCTIONS ---
+
+void UART_SendText(uint32_t Port, const char *str) {
+#if defined(ENABLE_USB)
+    if (Port == UART_PORT_VCP)
+    {
+        VCP_SendAsync((uint8_t *)str, strlen(str));
+        return;
+    }
+#endif
+#if defined(ENABLE_UART)
+    if (Port == UART_PORT_UART)
+    {
+        UART_Send((const uint8_t *)str, strlen(str));
+    }
+#endif
+}
+
+void UIntToText(char* buffer, uint32_t value, int digits, int offset) {
+    for (int i = offset + digits - 1; i >= offset; i--) {
+        buffer[i] = (value % 10) + '0';
+        value /= 10;
+    }
+}
+
+uint32_t TextToUInt(const char* buffer, int start, int len) {
+    uint32_t val = 0;
+    for (int i = start; i < start + len; i++) {
+        if (buffer[i] >= '0' && buffer[i] <= '9') {
+            val = (val * 10) + (buffer[i] - '0');
+        }
+    }
+    return val;
+}
+
+uint16_t ParseDCSCode(const char* buffer, int start) {
+    uint16_t val = 0;
+    for (int i = 0; i < 3; i++) {
+        char c = buffer[start + i];
+        if (c < '0' || c > '7') return 0xFFFF;
+        val = (val * 8) + (c - '0');
+    }
+    return val;
+}
+
+void ForceScreenUpdate(void) {
+    gUpdateStatus = true;
+    gUpdateDisplay = true;
+    #ifdef ENABLE_FEAT_F4HWN
+        gRequestDisplayScreen = DISPLAY_MAIN;
+    #endif
+}
+
+// Bypasses the keypad ProcessKey() loop to apply and permanently save settings immediately
+void CAT_ApplyAndSave(bool bIsGlobal) {
+    if (bIsGlobal) {
+        // Global settings like Squelch
+        SETTINGS_SaveSettings();
+        RADIO_ConfigureChannel(gEeprom.TX_VFO, VFO_CONFIGURE);
+    } else {
+        // VFO specific settings like Offset, Tone, Power
+        SETTINGS_SaveChannel(gEeprom.VfoInfo[gEeprom.TX_VFO].CHANNEL_SAVE, gEeprom.TX_VFO, &gEeprom.VfoInfo[gEeprom.TX_VFO], 1);
+        RADIO_ConfigureChannel(gEeprom.TX_VFO, VFO_CONFIGURE_RELOAD);
+    }
+    
+    if (gRxIdleMode) {
+        BK4819_RX_TurnOn();
+        gRxIdleMode = false;
+    }
+
+    // Apply changes to hardware immediately
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
+    ForceScreenUpdate();
+}
+
+void Apply_Tone_To_Active_VFO(uint8_t code_type, uint8_t code_index) {
+    gEeprom.VfoInfo[gEeprom.TX_VFO].pTX->CodeType = code_type;
+    gEeprom.VfoInfo[gEeprom.TX_VFO].pTX->Code = code_index;
+    gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->CodeType = code_type;
+    gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Code = code_index;
+
+    if (gTxVfo) {
+        gTxVfo->pTX->CodeType = code_type;
+        gTxVfo->pTX->Code = code_index;
+        gTxVfo->pRX->CodeType = code_type;
+        gTxVfo->pRX->Code = code_index;
+    }
+    CAT_ApplyAndSave(false);
+}
+
+// --- KENWOOD CAT COMMAND PARSER ---
+static void Process_Kenwood_CAT(uint32_t Port) {
+    
+    // 1. ID (Identify)
+    if (strncmp(cat_buffer, "ID;", 3) == 0) {
+        UART_SendText(Port, "ID020;");
+        return;
+    }
+
+    // 2. FA/FB (VFO Frequency Control)
+    bool is_fa = (strncmp(cat_buffer, "FA", 2) == 0);
+    bool is_fb = (strncmp(cat_buffer, "FB", 2) == 0);
+    if (is_fa || is_fb) {
+        int vfo_idx = is_fa ? 0 : 1; 
+        if (cat_buffer[2] == ';') { // GET Frequency
+            uint32_t freqHz = gEeprom.VfoInfo[vfo_idx].pRX->Frequency * 10;
+            char resp[16];
+            resp[0] = 'F'; resp[1] = is_fa ? 'A' : 'B';
+            UIntToText(resp, freqHz, 11, 2);
+            resp[13] = ';'; resp[14] = 0;
+            UART_SendText(Port, resp);
+        } else if (cat_pos >= 13) { // SET Frequency
+            uint32_t freqHz = TextToUInt(cat_buffer, 2, 11);
+            if (gEeprom.VfoInfo[vfo_idx].pRX->Frequency != freqHz / 10) {
+                gEeprom.VfoInfo[vfo_idx].pRX->Frequency = freqHz / 10;
+                gEeprom.VfoInfo[vfo_idx].pTX->Frequency = freqHz / 10;
+                if (gEeprom.TX_VFO == vfo_idx) {
+                    CAT_ApplyAndSave(false);
+                } else {
+                    SETTINGS_SaveChannel(gEeprom.VfoInfo[vfo_idx].CHANNEL_SAVE, vfo_idx, &gEeprom.VfoInfo[vfo_idx], 1);
+                }
+            }
+        }
+        return;
+    }
+
+    // 3. FR (Switch Active VFO)
+    if (strncmp(cat_buffer, "FR", 2) == 0 && cat_buffer[3] == ';') {
+        char vfo_char = cat_buffer[2];
+        uint8_t target_vfo = (vfo_char == '1') ? 1 : 0;
+        if (gEeprom.TX_VFO != target_vfo) {
+            gEeprom.TX_VFO = target_vfo;
+            gEeprom.RX_VFO = target_vfo;
+            CAT_ApplyAndSave(true);
+        }
+        return;
+    }
+
+    // 4. TX / RX (PTT Control)
+    if (strncmp(cat_buffer, "TX", 2) == 0) {
+        if (gCurrentFunction != FUNCTION_TRANSMIT) { 
+            FUNCTION_Select(FUNCTION_TRANSMIT); 
+            ForceScreenUpdate(); 
+        }
+        return;
+    }
+    if (strncmp(cat_buffer, "RX", 2) == 0) {
+        if (gCurrentFunction == FUNCTION_TRANSMIT) { 
+            FUNCTION_Select(FUNCTION_FOREGROUND); 
+            ForceScreenUpdate(); 
+        }
+        return;
+    }
+
+    // 5. MO (Hardware Monitor ON/OFF)
+    if (strncmp(cat_buffer, "MO", 2) == 0 && cat_buffer[3] == ';') {
+        char m = cat_buffer[2];
+        if (m == '1') { // Monitor ON
+            if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT) {
+                ACTION_Monitor(); // Fully unmutes hardware audio amp
+            }
+        } else if (m == '0') { // Monitor OFF
+            if (gCurrentFunction == FUNCTION_MONITOR) {
+                ACTION_Monitor(); // Toggles monitor off
+            }
+        }
+        return;
+    }
+
+    // 6. MD (Modulation Mode)
+    if (strncmp(cat_buffer, "MD", 2) == 0) {
+        if (cat_buffer[2] == ';') { // GET Mode
+            uint8_t mod = gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation; 
+            char resp[6] = "MD4;"; 
+            if (mod == 1) resp[2] = '5'; // AM
+            else if (mod == 2) resp[2] = '2'; // USB
+            UART_SendText(Port, resp);
+        } else { // SET Mode
+            char m = cat_buffer[2];
+            uint8_t target_mod = 0; 
+            if (m == '5') target_mod = 1; // AM 
+            else if (m == '2') target_mod = 2; // USB
+            
+            if (gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation != target_mod) {
+                gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation = target_mod;
+                if (gTxVfo) gTxVfo->Modulation = target_mod;
+                CAT_ApplyAndSave(false);
+            }
+        }
+        return;
+    }
+
+    // 7. PC (Power Level)
+    if (strncmp(cat_buffer, "PC", 2) == 0 && cat_buffer[2] != ';') {
+         char p = cat_buffer[2];
+         if (p >= '0' && p <= '7') {
+             uint8_t cat_level = p - '0';
+             uint8_t radio_level = OUTPUT_POWER_HIGH;
+             
+             // Używamy natywnego enuma z settings.h
+             switch(cat_level) {
+                 case 0: radio_level = OUTPUT_POWER_LOW1; break; // Najsłabsza
+                 case 1: radio_level = OUTPUT_POWER_LOW2; break; 
+                 case 2: radio_level = OUTPUT_POWER_LOW3; break; 
+                 case 3: radio_level = OUTPUT_POWER_LOW4; break; 
+                 case 4: radio_level = OUTPUT_POWER_LOW5; break; 
+                 case 5: radio_level = OUTPUT_POWER_MID;  break; 
+                 case 6: radio_level = OUTPUT_POWER_HIGH; break; // Najmocniejsza
+                 case 7: radio_level = OUTPUT_POWER_USER; break; // Własna (USER - 0)
+                 default: radio_level = OUTPUT_POWER_HIGH; break;
+             }
+
+             if (gEeprom.VfoInfo[gEeprom.TX_VFO].OUTPUT_POWER != radio_level) {
+                 gEeprom.VfoInfo[gEeprom.TX_VFO].OUTPUT_POWER = radio_level;
+                 if (gTxVfo) gTxVfo->OUTPUT_POWER = radio_level;
+                 CAT_ApplyAndSave(false);
+             }
+         }
+         return;
+    }
+
+    // 8. OF (Turn OFF CTCSS/DCS)
+    if (strncmp(cat_buffer, "OF;", 3) == 0) {
+        Apply_Tone_To_Active_VFO(0, 0); 
+        return;
+    }
+
+    // 9. CT (Set CTCSS Tone)
+    if (strncmp(cat_buffer, "CT", 2) == 0 && cat_pos >= 7) {
+        uint32_t ct_freq = TextToUInt(cat_buffer, 2, 4);
+        for (uint8_t i = 0; i < 50; i++) {
+            if (CTCSS_Options[i] == ct_freq) {
+                Apply_Tone_To_Active_VFO(1, i);
+                return;
+            }
+        }
+        return;
+    }
+
+    // 10. DT (Set DCS Code)
+    if (strncmp(cat_buffer, "DT", 2) == 0 && cat_pos >= 6) {
+        uint16_t dcs_val = ParseDCSCode(cat_buffer, 2);
+        if (dcs_val != 0xFFFF) {
+            for (uint8_t i = 0; i < 104; i++) {
+                if (DCS_Options[i] == dcs_val) {
+                    Apply_Tone_To_Active_VFO(2, i);
+                    return;
+                }
+            }
+        }
+        return;
+    }
+
+    // 11. SQ (Set Squelch Threshold)
+    if (strncmp(cat_buffer, "SQ", 2) == 0 && cat_buffer[3] == ';') {
+        char s = cat_buffer[2];
+        if (s >= '0' && s <= '9') {
+            uint8_t new_sq = s - '0';
+            if (gEeprom.SQUELCH_LEVEL != new_sq) {
+                gEeprom.SQUELCH_LEVEL = new_sq;
+                CAT_ApplyAndSave(true); // Save to EEPROM and force hardware recalculation
+            }
+        }
+        return;
+    }
+
+    // 12. OS (Offset Shift Direction)
+    if (strncmp(cat_buffer, "OS", 2) == 0 && cat_buffer[3] == ';') {
+        char d = cat_buffer[2];
+        uint8_t dir = 0; 
+        if (d == '1') dir = 1; // Add (+)
+        if (d == '2') dir = 2; // Sub (-)
+        
+        if (gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY_DIRECTION != dir) {
+            gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY_DIRECTION = dir;
+            if (gTxVfo) gTxVfo->TX_OFFSET_FREQUENCY_DIRECTION = dir;
+            CAT_ApplyAndSave(false);
+        }
+        return;
+    }
+
+    // 13. OV (Offset Value)
+    if (strncmp(cat_buffer, "OV", 2) == 0 && cat_pos >= 13) {
+        uint32_t offsetHz = TextToUInt(cat_buffer, 2, 11);
+        if (gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY != offsetHz / 10) {
+            gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY = offsetHz / 10;
+            if (gTxVfo) gTxVfo->TX_OFFSET_FREQUENCY = offsetHz / 10;
+            CAT_ApplyAndSave(false);
+        }
+        return;
+    }
+
+    // 14. IF (Global Status Request)
+    if (strncmp(cat_buffer, "IF;", 3) == 0) {
+        char resp[40]; memset(resp, ' ', 38);
+        resp[0] = 'I'; resp[1] = 'F';
+        
+        uint32_t freqHz = 0;
+        if(gTxVfo) freqHz = gTxVfo->pRX->Frequency * 10;
+        else freqHz = gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Frequency * 10;
+
+        UIntToText(resp, freqHz, 11, 2);
+        resp[13]='0'; resp[14]='0'; resp[15]='0'; resp[16]='0'; resp[17]='0';
+        
+        uint8_t mod = gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation;
+        resp[29] = (mod == 1) ? '5' : '4'; 
+        bool is_tx = (gCurrentFunction == FUNCTION_TRANSMIT);
+        resp[30] = is_tx ? '1' : '0';
+        resp[31] = ';'; resp[32] = 0;
+        UART_SendText(Port, resp);
+        return;
+    }
+}
+#endif // ENABLE_CAT
+
 
 #ifdef ENABLE_USB
 static void SendReply_VCP(void *pReply, uint16_t Size)
@@ -688,7 +1027,28 @@ bool UART_IsCommandAvailable(uint32_t Port)
         // Find 0xAB with iteration limit
         uint16_t searchLimit = ReadBufSize;
         while ((*pReadPointer) != DmaLength && ReadBuf[*pReadPointer] != 0xABU && searchLimit--)
+        {
+            #ifdef ENABLE_CAT
+            uint8_t byte = ReadBuf[*pReadPointer];
+            // Intercept CAT ASCII Commands
+            if ((byte >= 32 && byte <= 126) || byte == '\r' || byte == '\n') {
+                if (cat_pos < sizeof(cat_buffer) - 1) {
+                    if (byte != '\r' && byte != '\n') {
+                        cat_buffer[cat_pos++] = byte;
+                        cat_buffer[cat_pos] = 0;
+                    }
+                }
+                if (byte == ';') { 
+                    Process_Kenwood_CAT(Port); 
+                    cat_pos = 0; 
+                }
+            } else { 
+                cat_pos = 0; 
+            }
+            #endif
+            
             *pReadPointer = DMA_INDEX((*pReadPointer), 1, ReadBufSize);
+        }
 
         if (searchLimit == 0)
         {
