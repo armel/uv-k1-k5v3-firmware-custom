@@ -1193,9 +1193,14 @@ void UI_DisplayMenu(void)
                     strcpy(String, gSubMenu_SET_AUD_AM[gSubMenuSelection]);
                     UI_PrintStringSmallNormal("AM", 114, 0, 0);
                 }
-                else if (gTxVfo->Modulation == MODULATION_USB) {
-                    strcpy(String, "USB");
-                    UI_PrintStringSmallNormal("USB", 108, 0, 0);
+                else if (gTxVfo->Modulation == MODULATION_USB || gTxVfo->Modulation == MODULATION_CW) {
+                    if (gTxVfo->Modulation == MODULATION_CW) {
+                        strcpy(String, "CW");
+                        UI_PrintStringSmallNormal("CW", 114, 0, 0);
+                    } else {
+                        strcpy(String, "USB");
+                        UI_PrintStringSmallNormal("USB", 108, 0, 0);
+                    }
                 }
                 else {
                     strcpy(String, gSubMenu_SET_AUD_FM[gSubMenuSelection]);

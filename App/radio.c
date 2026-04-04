@@ -1195,6 +1195,7 @@ void RADIO_SetModulation(ModulationMode_t modulation)
         }
 
         case MODULATION_USB:
+        case MODULATION_CW:
         {
             uint16_t uVar1 = BK4819_ReadRegister(0x31);
             BK4819_WriteRegister(0x31, uVar1 & 0xfffe); // AM Demodulation Disable
