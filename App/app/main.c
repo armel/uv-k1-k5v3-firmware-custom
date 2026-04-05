@@ -941,12 +941,12 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
     uint16_t Channel = gEeprom.ScreenChannel[gEeprom.TX_VFO];
 
-    if (bKeyHeld || !bKeyPressed) { // key held or released
-        if (gInputBoxIndex > 0) {
-            gInputBoxIndex = 0;
-            gHasVfoBackup = false;
-        }
+    if (gInputBoxIndex > 0) {
+        gInputBoxIndex = 0;
+        gHasVfoBackup = false;
+    }
 
+    if (bKeyHeld || !bKeyPressed) { // key held or released
         if (!bKeyPressed) {
             if (!bKeyHeld || IS_FREQ_CHANNEL(Channel))
                 return;

@@ -948,7 +948,7 @@ void UI_DisplayMain(void)
             if (!inputting || gScanStateDir != SCAN_OFF)
                 sprintf(String, "%04u", gEeprom.ScreenChannel[vfo_num] + 1);
             else
-                sprintf(String, "%.4s", INPUTBOX_GetAscii());  // show the input text
+                sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
             //if (gSetting_set_gui) {
                 UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);

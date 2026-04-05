@@ -40,7 +40,6 @@ volatile int8_t   gFM_ScanState;
 bool              gFM_AutoScan;
 uint8_t           gFM_ChannelPosition;
 bool              gFM_FoundFrequency;
-bool              gFM_AutoScan;
 uint16_t          gFM_RestoreCountdown_10ms;
 
 
@@ -167,6 +166,12 @@ void FM_Tune(uint16_t Frequency, int8_t Step, bool bFlag)
     BK1080_SetFrequency(gEeprom.FM_FrequencyPlaying, gEeprom.FM_Band/*, gEeprom.FM_Space*/);
 }
 
+void FM_AudioPathOn(void) {
+    BACKLIGHT_TurnOn();
+    AUDIO_AudioPathOn();
+    gEnableSpeaker = true;
+}
+
 void FM_PlayAndUpdate(void)
 {
     gFM_ScanState = FM_SCAN_OFF;
@@ -184,9 +189,7 @@ void FM_PlayAndUpdate(void)
     gScheduleFM           = false;
     gAskToSave            = false;
 
-    AUDIO_AudioPathOn();
-
-    gEnableSpeaker   = true;
+    FM_AudioPathOn();
 }
 
 int FM_CheckFrequencyLock(uint16_t Frequency, uint16_t LowerLimit)
@@ -391,8 +394,14 @@ static void Key_FUNC(KEY_Code_t Key, uint8_t state)
 
 static void Key_EXIT(uint8_t state)
 {
-    if (state != BUTTON_EVENT_SHORT)
-        return;
+    if (gInputBoxIndex) {
+        if (state != BUTTON_EVENT_SHORT)
+            return;
+    } 
+    else {
+        if (state != BUTTON_EVENT_PRESSED)
+            return;
+    }
 
     gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
@@ -603,8 +612,7 @@ void FM_Play(void)
             if (!gEeprom.FM_IsMrMode)
                 gEeprom.FM_SelectedFrequency = gEeprom.FM_FrequencyPlaying;
 
-            AUDIO_AudioPathOn();
-            gEnableSpeaker = true;
+            FM_AudioPathOn();
 
             GUI_SelectNextDisplay(DISPLAY_FM);
             return;
@@ -639,9 +647,8 @@ void FM_Start(void)
     // Disable UHF LNA, enable VHF LNA
     BK4819_PickRXFilterPathBasedOnFrequency(10320000); // 103.2 MHz < 280 MHz
 
-    AUDIO_AudioPathOn();
+    FM_AudioPathOn();
 
-    gEnableSpeaker       = true;
     gUpdateStatus        = true;
 
     #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE

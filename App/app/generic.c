@@ -91,7 +91,7 @@ void GENERIC_Key_F(bool bKeyPressed, bool bKeyHeld)
             return;
         }
 #endif
-        gBeepToPlay     = BEEP_440HZ_500MS;
+        gBeepToPlay     = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         gPttWasReleased = true;
     }
 }
