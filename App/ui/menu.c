@@ -92,6 +92,7 @@ const t_menu_item MenuList[] =
     {"MicBar",      MENU_MIC_BAR       },
     {"ChDisp",      MENU_MDF           }, // was "MDF"
     {"POnMsg",      MENU_PONMSG        },
+    {"WelMsg",      MENU_WELMSG        },
     {"BLTime",      MENU_ABR           }, // was "ABR"
     {"BLMin",       MENU_ABR_MIN       },
     {"BLMax",       MENU_ABR_MAX       },
@@ -1043,6 +1044,22 @@ void UI_DisplayMenu(void)
 
         case MENU_PONMSG:
             strcpy(String, gSubMenu_PONMSG[gSubMenuSelection]);
+            break;
+
+        case MENU_WELMSG:
+            if (!gIsInSubMenu) {
+                edit_index = -1;
+            }
+            if (edit_index < 0) {
+                SETTINGS_FetchWelcomeLine(0, String, sizeof(String));
+                UI_PrintString(String[0] ? String : "--", menu_item_x1, menu_item_x2, 2, 8);
+            } else {
+                UI_PrintString(edit, menu_item_x1, menu_item_x2, 2, 8);
+                if (edit_index < 15) {
+                    UI_PrintString("^", menu_item_x1 - 1 + (8 * edit_index), 0, 4, 8);
+                }
+            }
+            already_printed = true;
             break;
 
         case MENU_ROGER:

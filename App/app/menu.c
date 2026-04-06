@@ -185,6 +185,9 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_PONMSG) - 1;
             break;
+        case MENU_WELMSG:
+            *pMax = 0;
+            break;
 
         case MENU_R_DCS:
         case MENU_T_DCS:
@@ -801,6 +804,17 @@ void MENU_AcceptSetting(void)
         case MENU_PONMSG:
             gEeprom.POWER_ON_DISPLAY_MODE = gSubMenuSelection;
             break;
+        case MENU_WELMSG:
+        {
+            for (int i = 14; i >= 0; i--) {
+                if (edit[i] != ' ' && edit[i] != '_' && edit[i] != 0x00) {
+                    break;
+                }
+                edit[i] = 0;
+            }
+            SETTINGS_SaveWelcomeLine(0, edit);
+            return;
+        }
 
         case MENU_ROGER:
             gEeprom.ROGER = gSubMenuSelection;
@@ -1287,6 +1301,9 @@ void MENU_ShowCurrentSetting(void)
         case MENU_PONMSG:
             gSubMenuSelection = gEeprom.POWER_ON_DISPLAY_MODE;
             break;
+        case MENU_WELMSG:
+            gSubMenuSelection = 0;
+            break;
 
         case MENU_ROGER:
             gSubMenuSelection = gEeprom.ROGER;
@@ -1476,7 +1493,7 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
-    if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && edit_index >= 0)
+    if ((UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME || UI_MENU_GetCurrentMenuId() == MENU_WELMSG) && edit_index >= 0)
     {   // currently editing the channel name
 
         if (edit_index < 10)
@@ -1742,14 +1759,20 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
         return;
     }
 
-    if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME)
+    if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME || UI_MENU_GetCurrentMenuId() == MENU_WELMSG)
     {
         if (edit_index < 0)
         {   // enter channel name edit mode
-            if (!RADIO_CheckValidChannel(gSubMenuSelection, false, 0))
-                return;
+            if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME) {
+                if (!RADIO_CheckValidChannel(gSubMenuSelection, false, 0))
+                    return;
 
-            SETTINGS_FetchChannelName(edit, gSubMenuSelection);
+                SETTINGS_FetchChannelName(edit, gSubMenuSelection);
+            }
+            else if (UI_MENU_GetCurrentMenuId() == MENU_WELMSG) {
+                SETTINGS_FetchWelcomeLine(0, edit, 16);
+            }
+
 
             // pad the channel name out with '_'
             edit_index = strlen(edit);
@@ -1902,11 +1925,11 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
         Direction = -Direction;
     }
 
-    if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && gIsInSubMenu && edit_index >= 0)
+    if ((UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME || UI_MENU_GetCurrentMenuId() == MENU_WELMSG) && gIsInSubMenu && edit_index >= 0)
     {   // change the character
         if (bKeyPressed && edit_index < 10 && Direction != 0)
         {
-            const char   unwanted[] = "$%&!\"':;?^`|{}";
+            const char   unwanted[] = "$%&\"':;^`|{}";
             char         c          = edit[edit_index] + Direction;
             unsigned int i          = 0;
             while (i < sizeof(unwanted) && c >= 32 && c <= 126)
@@ -2065,7 +2088,7 @@ void MENU_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             MENU_Key_STAR(bKeyPressed, bKeyHeld);
             break;
         case KEY_F:
-            if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && edit_index >= 0)
+            if ((UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME || UI_MENU_GetCurrentMenuId() == MENU_WELMSG) && edit_index >= 0)
             {   // currently editing the channel name
                 if (!bKeyHeld && bKeyPressed)
                 {

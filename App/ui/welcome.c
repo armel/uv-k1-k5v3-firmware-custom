@@ -166,13 +166,9 @@ void UI_DisplayWelcome(void)
         }
         else if(gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_MESSAGE)
         {
-            if(strlen(WelcomeString0) == 0)
+            if(strlen(WelcomeString0) == 0 && strlen(WelcomeString1) == 0)
             {
                 strcpy(WelcomeString0, "WELCOME");
-            }
-
-            if(strlen(WelcomeString1) == 0)
-            {
                 strcpy(WelcomeString1, "BIENVENUE");
             }
         }

@@ -56,7 +56,6 @@
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "driver/gpio.h"
-#include "bsp/dp32g030/gpio.h"
 #include "ui/helper.h"
 #include "ui/ui.h"
 
