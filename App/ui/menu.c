@@ -1199,7 +1199,7 @@ void UI_DisplayMenu(void)
                         UI_PrintStringSmallNormal("CW", 114, 0, 0);
                     } else {
                         strcpy(String, "USB");
-                        UI_PrintStringSmallNormal("USB", 108, 0, 0);
+                        UI_PrintStringSmallNormal("USB", 107, 0, 0);
                     }
                 }
                 else {

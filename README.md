@@ -31,9 +31,9 @@ Anyway, have fun.
 > _FR - CE FIRMWARE N'A PAS DE VÉRITABLE CERVEAU. VEUILLEZ UTILISER LE VÔTRE. Utilisez ce firmware à vos risques et périls. Il n'y a absolument aucune garantie qu'il fonctionnera d'une manière ou d'une autre sur votre (vos) radio(s), il peut même bousiller votre (vos) radio(s), dans ce cas, vous devrez acheter une autre radio. Quoi qu'il en soit, amusez-vous bien._
 
 > [!NOTE]
-> EN - About Chirp, as many others firmwares, you need to use a dedicated driver available on [this repository](https://github.com/armel/uv-k5-chirp-driver). 
+> EN - About CHIRP, as with many other firmwares, you need to use a dedicated driver. The matching CHIRP driver is now bundled with each release of this repository, so you can download the firmware and its driver together from the [Releases page](https://github.com/armel/uv-k1-k5v3-firmware-custom/releases).
 >
-> _FR - A propos de Chirp, comme beaucoup d'autres firmwares, vous devez utiliser un pilote dédié disponible sur [ce dépôt](https://github.com/armel/uv-k5-chirp-driver)._
+> _FR - A propos de CHIRP, comme pour beaucoup d'autres firmwares, vous devez utiliser un pilote dédié. Le driver CHIRP correspondant est désormais fourni avec chaque release de ce dépôt, ce qui permet de récupérer ensemble le firmware et son pilote depuis la page des [Releases](https://github.com/armel/uv-k1-k5v3-firmware-custom/releases)._
 
 > [!CAUTION]
 > EN - I recommend to backup your calibration data with [uvtools2](https://armel.github.io/uvtools2/) just after flashing this firmware. It's a good reflex to have. 
@@ -57,12 +57,15 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
 ## Main features and improvements from F4HWN:
 
-* several firmware versions:
-    * Bandscope (with spectrum analyzer made by Fagci),
-    * Broadcast (with commercial FM radio support),
-    * Basic (with spectrum analyzer and commercial FM radios support, but without certain functions such as Vox, Aircopy, etc.),
-    * RescueOps (specifically designed for first responders: firefighters, sea rescue, mountain rescue),
-    * Game (with a small breakout game),
+* Fusion is now the reference edition of the project:
+    * all-in-one firmware for UV-K1 and UV-K5 V3,
+    * spectrum analyzer made by Fagci,
+    * commercial FM radio support,
+    * Vox and Aircopy support,
+    * screenshots and K5Viewer support,
+    * advanced RX audio profiles and Audio Scope,
+    * first-responder oriented options,
+    * small breakout game,
 * improve default power settings level: 
     * Low1 to Low5 (<~20mW, ~125mW, ~250mW, ~500mW, ~1W), 
     * Mid ~2W, 
@@ -92,6 +95,8 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * improve keyboard frequency input,
     * add percent and gauge to Air Copy,
     * improve audio bar,
+    * add backlight fading,
+    * add Audio Scope on TX,
     * and more...
 * new menu entries and changes:
     * add SetPwr menu to set User power (<20mW, 125mW, 250mW, 500mW, 1W, 2W or 5W),
@@ -103,10 +108,12 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * add SetMet menu to set s-meter style (Classic or Tiny),
     * add SetLck menu to set what is locked (Keys or Keys + PTT),
     * add SetGUI menu to set font size on the VFO baseline (Classic or Tiny),
+    * add SetRxA menu to select RX audio profiles,
     * add TXLock menu to open TX on channel,
     * add SetTmr menu to set RX and TX timers (Off or On),
     * add SetOff menu to set the delay before the transceiver goes into deep sleep (Off or 1 minute to 2 hours),
     * add SetNFM menu to set Narrow width (12.5kHz or 6.25kHz),
+    * add SetVol menu to adjust RX audio volume,
     * rename BatVol menu (52/63) to SysInf, which displays the firmware version in addition to the battery status,
     * improve PonMsg menu,
     * improve BackLt menu,
@@ -116,6 +123,7 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * add HAM CA F Lock band (for Canadian zone),
     * add PMR 446 F Lock band,
     * add FRS/GMRS/MURS F Lock band,
+    * add SetNav hidden menu to select the navigation layout according to the radio model,
     * remove blink and SOS functionality, 
     * remove AM Fix menu (AM Fix is ENABLED by default),
     * add support of 3500mAh battery,
@@ -124,18 +132,16 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * change font and bitmaps,
     * move USB icon to left of battery information,
     * add RX and TX timers,
-* improve lists and scan lists options:
-    * add new list 3,
-    * add new list 0 (channel without list...),
-    * add new scan lists options,
-        * scan list 0 (all channels without list),
-        * scan list 1,
-        * scan list 2,
-        * scan list 3,
-        * scan lists [1, 2, 3],
-        * scan all (all channels with or without list),
-    * add scan list shortcuts,
-* add resume mode on startup (scan, bandscope and broadcast FM),
+* improve channel scanning:
+    * support up to 24 scan lists,
+    * each memory channel can be assigned to `OFF`, to one list (`01` to `24`), or to `ALL`,
+    * `ALL` scans every channel except those set to `OFF`,
+    * named scan lists are shown in the UI and status bar when available,
+    * if the selected scan list is empty or invalid, the firmware automatically jumps to the next valid one,
+* add resume mode on startup (scan, spectrum analyzer and FM radio),
+* improve VFO persistence and restore behavior:
+    * save the Squelch level adjusted with F + UP or F + DOWN,
+    * restore the full VFO state on long press of EXIT,
 * new actions:
     * RX MODE,
     * MAIN ONLY,
@@ -143,23 +149,25 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * WIDE NARROW,
     * 1750Hz,
     * MUTE,
-    * POWER HIGH (RescueOps),
-    * REMOVE OFFSET (RescueOps),
+    * POWER HIGH,
+    * REMOVE OFFSET,
 * new key combinations:
     * add the F + UP or F + DOWN key combination to dynamically change the Squelch level,
     * add the F + F1 or F + F2 key combination to dynamically change the Step,
     * add F + 8 to quickly switch backlight between BLMin and BLMax on demand (this bypass BackLt strategy),
     * add F + 9 to return to BackLt strategy,
-    * add long press on MENU, in * SCAN mode, to temporarily exclude a memory channel,
-    * add short press on [0, 1, 2, 3, 4 or 5], in * SCAN mode, to dynamically change scan list.
+    * add long press on MENU, in * SCAN mode, to exclude the current memory channel,
+    * add direct scan list selection while scanning with two digits (`00` = `ALL`, `01` to `24` = scan list).
 * many fix:
     * squelch, 
     * s-meter,
     * DTMF overlaying, 
-    * scan list 2 ignored, 
     * scan range limit,
     * clean display on startup,
     * no more PWM noise,
+    * K5Viewer/serial key handling,
+    * spectrum freeze on USB-C unplug,
+    * Audio Scope behavior in OnePush mode and after DTMF/1750,
     * and more...
 * enabled AIR COPY
 * disabled ENABLE_DTMF_CALLING,
@@ -167,7 +175,7 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 * remove 200Tx, 350Tx and 500Tx,
 * unlock TX on all bands needs only to be repeat 3 times,
 * code refactoring and many memory optimization,
-* displays the live screen of the Quansheng K5 on your computer via a USB-to-Serial cable,
+* stream the live screen of the Quansheng K5 to K5Viewer and capture screenshots over a USB-to-Serial cable,
 * and more...
 
 ## Main features from Egzumer:
@@ -203,7 +211,7 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
  ## Manual
 
-Up to date manual is available in the [Wiki section](https://github.com/armel/uv-k5-firmware-custom/wiki)
+Up to date manual is available in the [Wiki section](https://github.com/armel/uv-k1-k5v3-firmware-custom/wiki)
 
 ## Radio performance
 
@@ -211,21 +219,21 @@ Please note that the Quansheng UV-Kx radios are not professional quality transce
 performance is strictly limited. The RX front end has no track-tuned band pass filtering
 at all, and so are wide band/wide open to any and all signals over a large frequency range.
 
-Using the radio in high intensity RF environments will most likely make reception anything but
-easy (AM mode will suffer far more than FM ever will), the receiver simply doesn't have a
-great dynamic range, which results in distorted AM audio with stronger RX'ed signals.
-There is nothing more anyone can do in firmware/software to improve that, once the RX gain
-adjustment I do (AM fix) reaches the hardwares limit, your AM RX audio will be all but
-non-existent (just like Quansheng's firmware).
-On the other hand, FM RX audio will/should be fine.
+Using the radio in high intensity RF environments will most likely make reception difficult,
+especially in AM mode. The receiver simply does not have a great dynamic range, so stronger
+signals can easily cause distortion, desensitization and poor AM audio.
+This is fundamentally a hardware limitation: firmware can improve behavior at the margins, but
+it cannot overcome the front-end design of the radio.
+In practice, AM reception will degrade first and most severely, while FM reception is generally
+more tolerant and should remain more usable.
 
 But, they are nice toys for the price, fun to play with.
 
 ## Compiling and Building from Docker
 
-This project provides a Docker-based build system to compile all firmware editions for the UV-K1 and UV-K5 V3. Everything is handled through the `compile-with-docker.sh` helper script.
+This project provides a Docker-based build system to compile the Fusion firmware for the UV-K1 and UV-K5 V3. Everything is handled through the `compile-with-docker.sh` helper script.
 
-All build outputs are generated inside the `build/<Preset>` directory, according to the CMake presets defined in `CMakePresets.json`.
+The documented build output is generated inside `build/Fusion`, using the CMake presets defined in `CMakePresets.json`.
 
 ### Prerequisites
 
@@ -238,40 +246,25 @@ The script `compile-with-docker.sh` performs the following actions:
 
 1. Builds the Docker image (`uvk1-uvk5v3`) if it does not already exist.
 2. Removes any previous `build` directory to ensure a clean configuration.
-3. Runs CMake using the selected preset inside the Docker container.
-4. Builds the firmware and outputs `.elf`, `.bin` and `.hex` files for the chosen edition.
+3. Runs CMake using the `Fusion` preset inside the Docker container.
+4. Builds the firmware and outputs `.elf`, `.bin` and `.hex` files.
 
 ### Usage
 
 ```bash
-./compile-with-docker.sh <Preset> [extra CMake options]
+./compile-with-docker.sh Fusion [extra CMake options]
 ```
 
-### Available Presets
+### Documented Preset
 
-- **Custom**
-- **Bandscope**
-- **Broadcast**
-- **Basic**
-- **RescueOps**
-- **Game**
 - **Fusion**
-- **All** (builds all editions sequentially)
 
 ### Examples
 
-Build a single edition:
+Build Fusion:
 
 ```bash
 ./compile-with-docker.sh Fusion
-./compile-with-docker.sh Bandscope
-./compile-with-docker.sh Broadcast
-```
-
-Build everything:
-
-```bash
-./compile-with-docker.sh All
 ```
 
 ### Passing Additional CMake Options
@@ -282,15 +275,14 @@ These are forwarded directly to `cmake --preset` inside the container.
 Examples:
 
 ```bash
-./compile-with-docker.sh Bandscope -DENABLE_SPECTRUM=ON
-./compile-with-docker.sh Broadcast -DENABLE_FEAT_F4HWN_GAME=ON -DENABLE_NOAA=ON
-./compile-with-docker.sh Bandscope -DSQL_TONE=600
+./compile-with-docker.sh Fusion -DENABLE_SPECTRUM=ON
+./compile-with-docker.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON -DENABLE_NOAA=ON
+./compile-with-docker.sh Fusion -DSQL_TONE=600
 ```
 
 ### Notes
 
 - The first run may take a few minutes while Docker builds the base image.
-- Running with `All` will build every firmware variant in sequence.
 - Each build runs inside Docker, so your host environment remains clean.
 
 ## Flashing the Firmware with UVTools2
@@ -342,6 +334,7 @@ Click `Restore Calibration Data` and wait until the process fully completes.
 Many thanks to various people:
 
 * [Muzkr](https://github.com/muzkr)
+* [Mrkusypl](https://github.com/mrkusypl)
 * [Andrej](https://github.com/Tunas1337)
 * [Egzumer](https://github.com/egzumer)
 * [OneOfEleven](https://github.com/OneOfEleven)
