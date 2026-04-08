@@ -839,7 +839,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
     #else
         Frequency = gRxVfo->pRX->Frequency;
     #endif
-    BK4819_SetFrequency(Frequency);
+    BK4819_SetFrequency(Frequency, 0);
 
     BK4819_SetupSquelch(
         gRxVfo->SquelchOpenRSSIThresh,    gRxVfo->SquelchCloseRSSIThresh,
@@ -1048,7 +1048,7 @@ void RADIO_SetTxParameters(void)
             break;
     }
 
-    BK4819_SetFrequency(gCurrentVfo->pTX->Frequency);
+    BK4819_SetFrequency(gCurrentVfo->pTX->Frequency, 0);
 
     // TX compressor
     BK4819_SetCompander((gRxVfo->Modulation == MODULATION_FM && (gRxVfo->Compander == 1 || gRxVfo->Compander >= 3)) ? gRxVfo->Compander : 0);
