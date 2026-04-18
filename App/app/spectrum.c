@@ -101,6 +101,20 @@ static uint8_t  peakHoldAge[64];      // Shared decay timer (1 per 2 columns)
 // call (saves 1 SPI read per step = fewer SPI bus events = less SPI-induced audio interference).
 static uint16_t scanReg30 = 0;
 
+// Bidirectional sweep: true = left→right (fStart→fEnd), false = right→left.
+static bool scanForward = true;
+
+// Incremental display: one framebuffer page sent per tick instead of a full
+// BlitFullScreen burst.
+static uint8_t renderPage = 0;
+
+// Decoupled render timer: Render() fires every RENDER_PERIOD_TICKS ticks
+// regardless of step count, keeping it above the ~9 Hz flutter-fusion
+// threshold that would cause an audible "tac" if tied to the sweep rate.
+static uint16_t renderTimer = 0;
+#define RENDER_PERIOD_TICKS 20
+
+
 // EMA-smoothed RSSI for STILL display only (peak.rssi stays raw for trigger)
 static uint16_t rssiSmoothed = 0;
 
@@ -550,13 +564,22 @@ static void ResetScanStats()
     scanInfo.fPeak = 0;
 }
 
-static void InitScan()
+// Resets scan position and stats without touching the radio — safe to call
+// on every sweep restart because scanReg30 and the RF filter path remain
+// valid as long as the scan range hasn't changed.
+static void InitScanPosition()
 {
     ResetScanStats();
     scanInfo.scanStep = GetScanStep();
     scanInfo.measurementsCount = GetStepsCount();
     scanInfo.i = 0;
     scanInfo.f = GetFStart();
+    scanForward = true;
+}
+
+static void InitScan()
+{
+    InitScanPosition();
 
     // Cache the band-select LNA and REG_30 for the upcoming sweep.
     // SetFScan() will use these cached values, saving 3 SPI ops per step.
@@ -717,12 +740,21 @@ static void UpdateDbMax(bool inc)
 
 static void UpdateRssiTriggerLevel(bool inc)
 {
-    if (inc)
-        settings.rssiTriggerLevel += 2;
+    if (inc && isListening && IsPeakOverLevel())
+    {
+        // One-press escape: jump threshold above the active carrier without
+        // clamping — the interferer may exceed dbMax so ClampRssiTriggerLevel
+        // would silently prevent the escape.
+        settings.rssiTriggerLevel = peak.rssi + 8;
+    }
     else
-        settings.rssiTriggerLevel -= 2;
-
-    ClampRssiTriggerLevel();
+    {
+        if (inc)
+            settings.rssiTriggerLevel += 2;
+        else
+            settings.rssiTriggerLevel -= 2;
+        ClampRssiTriggerLevel();
+    }
 
     redrawScreen = true;
     redrawStatus = true;
@@ -1726,7 +1758,7 @@ static void Render()
         break;
     }
 
-    ST7565_BlitFullScreen();
+    // Display blit is done incrementally (one page per tick) — see Tick().
 }
 
 static bool HandleUserInput()
@@ -1783,20 +1815,51 @@ static void Scan()
 static void NextScanStep()
 {
     ++peak.t;
-    ++scanInfo.i;
-    scanInfo.f += scanInfo.scanStep;
+    if (scanForward) {
+        ++scanInfo.i;
+        scanInfo.f += scanInfo.scanStep;
+    } else {
+        --scanInfo.i;
+        scanInfo.f -= scanInfo.scanStep;
+    }
 }
 
 static void UpdateScan()
 {
     Scan();
 
-    if (scanInfo.i < scanInfo.measurementsCount - 1)
+    bool atEnd = scanForward ? (scanInfo.i >= scanInfo.measurementsCount - 1)
+                             : (scanInfo.i <= 1);
+
+    if (!atEnd)
     {
         NextScanStep();
         return;
     }
 
+    // End of half-sweep: unlock keypad; Render() fires on its own timer.
+    preventKeypress = false;
+
+    UpdatePeakInfo();
+    if (IsPeakOverLevel())
+    {
+        ToggleRX(true);
+        TuneToPeak();
+        return;
+    }
+
+    if (scanForward)
+    {
+        // End of forward half-sweep: reverse direction.
+        // Advance one step immediately so the backward sweep starts at count-2,
+        // not count-1 — avoids scanning the same endpoint twice in a row,
+        // which would produce a double SPI burst ("ta-tac" audio artifact).
+        scanForward = false;
+        NextScanStep();
+        return;
+    }
+
+    // End of backward half-sweep: full round trip done.
     if (! (scanInfo.measurementsCount >> 7)) // if (scanInfo.measurementsCount < 128)
         memset(&rssiHistory[scanInfo.measurementsCount], 0,
                sizeof(rssiHistory) - scanInfo.measurementsCount * sizeof(rssiHistory[0]));
@@ -1812,17 +1875,6 @@ static void UpdateScan()
         if (newMax > 10)
             newMax = 10;
         settings.dbMax = newMax;
-    }
-
-    redrawScreen = true;
-    preventKeypress = false;
-
-    UpdatePeakInfo();
-    if (IsPeakOverLevel())
-    {
-        ToggleRX(true);
-        TuneToPeak();
-        return;
     }
 
     newScanStart = true;
@@ -1958,7 +2010,7 @@ static void Tick()
     }
     if (newScanStart)
     {
-        InitScan();
+        InitScanPosition();
         newScanStart = false;
     }
     if (isListening && currentState != FREQ_INPUT)
@@ -1982,7 +2034,11 @@ static void Tick()
         redrawStatus = false;
         statuslineUpdateTimer = 0;
     }
-    if (redrawScreen)
+    // Render at a fixed rate (RENDER_PERIOD_TICKS) independent of step count,
+    // so the CPU burst from Render() never falls below the ~9 Hz flutter-fusion
+    // threshold regardless of how many steps the scan uses.  redrawScreen can
+    // still force an immediate repaint (key presses, settings changes, etc.).
+    if (redrawScreen || ++renderTimer >= RENDER_PERIOD_TICKS)
     {
         Render();
         // For screenshot
@@ -1990,7 +2046,13 @@ static void Tick()
             SCREENSHOT_Update(false);
         #endif
         redrawScreen = false;
+        renderTimer = 0;
     }
+
+    // Send one framebuffer page to the display per tick (~47 Hz full refresh).
+    ST7565_BlitLine(renderPage);
+    if (++renderPage >= FRAME_LINES)
+        renderPage = 0;
 }
 
 void APP_RunSpectrum()
