@@ -1655,20 +1655,16 @@ static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
             if (bKeyHeld)
                 return; // release after a long press, keep editing
 
-            /* Backlight related menus set full brightness. Set it back to the configured value,
-               just in case we are exiting from one of them. */
-            BACKLIGHT_TurnOn();
+            if (edit_index == 0)
+                goto Skip;
 
-            gAskForConfirmation = 0;
-            gIsInSubMenu        = false;
-            gInputBoxIndex      = 0;
-            gFlagRefreshSetting = true;
+            if (edit_index > 0)
+            {   // step back one character while editing the channel name
+                edit_index--;
+                gAskForConfirmation = 0;
+                gRequestDisplayScreen = DISPLAY_MENU;
+            }
 
-            #ifdef ENABLE_VOICE
-                gAnotherVoiceID = VOICE_ID_CANCEL;
-            #endif
-
-            gRequestDisplayScreen = DISPLAY_MENU;
             return;
         }
 
@@ -1678,16 +1674,22 @@ static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
             return;
         }
 
+Skip:
+
         /* Backlight related menus set full brightness. Set it back to the configured value,
            just in case we are editing from one of them. */
         BACKLIGHT_TurnOn();
 
-        if (edit_index > 0)
-        {   // step back one character while editing the channel name
-            edit_index--;
-            gAskForConfirmation = 0;
-            gRequestDisplayScreen = DISPLAY_MENU;
-        }
+        gAskForConfirmation = 0;
+        gIsInSubMenu        = false;
+        gInputBoxIndex      = 0;
+        gFlagRefreshSetting = true;
+
+        #ifdef ENABLE_VOICE
+            gAnotherVoiceID = VOICE_ID_CANCEL;
+        #endif
+
+        gRequestDisplayScreen = DISPLAY_MENU;
 
         return;
     }
@@ -1699,29 +1701,22 @@ static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 
     if (!gCssBackgroundScan)
     {
-        /* Backlight related menus set full brightness. Set it back to the configured value,
-           just in case we are exiting from one of them. */
-        BACKLIGHT_TurnOn();
-
         if (gIsInSubMenu)
         {
             if (gInputBoxIndex == 0 || UI_MENU_GetCurrentMenuId() != MENU_OFFSET)
             {
-                gAskForConfirmation = 0;
-                gIsInSubMenu        = false;
-                gInputBoxIndex      = 0;
-                gFlagRefreshSetting = true;
-
-                #ifdef ENABLE_VOICE
-                    gAnotherVoiceID = VOICE_ID_CANCEL;
-                #endif
+                goto Skip;
             }
             else
+            {
+                /* Backlight related menus set full brightness. Set it back to the configured value,
+                   just in case we are exiting from one of them. */
+                BACKLIGHT_TurnOn();
+
                 gInputBox[--gInputBoxIndex] = 10;
+                gRequestDisplayScreen = DISPLAY_MENU;
+            }
 
-            // ***********************
-
-            gRequestDisplayScreen = DISPLAY_MENU;
             return;
         }
 

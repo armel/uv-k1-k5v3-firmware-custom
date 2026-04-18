@@ -130,6 +130,18 @@ const int8_t LNAsOptions[] = {-19, -16, -11, 0};
 const int8_t LNAOptions[] = {-24, -19, -14, -9, -6, -4, -2, 0};
 const int8_t VGAOptions[] = {-33, -27, -21, -15, -9, -6, -3, 0};
 //const char *BPFOptions[] = {"8.46", "7.25", "6.35", "5.64", "5.08", "4.62", "4.23"};
+
+typedef struct {
+    const int8_t *options;
+    uint8_t count;
+} MenuOptions;
+
+static const MenuOptions regOptions[] = {
+    {NULL, 0},             // NULL
+    {LNAsOptions, 4},      // LNAs
+    {LNAOptions, 8},       // LNA
+    {VGAOptions, 8}        // VGA
+};
 #endif
 
 uint16_t statuslineUpdateTimer = 0;
@@ -1288,9 +1300,13 @@ static void ShowChannelName(uint32_t f)
 }
 #endif
 
+static void FormatFrequency(uint32_t freq, char *buffer) {
+    sprintf(buffer, "%u.%05u", freq / 100000, freq % 100000);
+}
+
 static void DrawF(uint32_t f)
 {
-    sprintf(String, "%u.%05u", f / 100000, f % 100000);
+    FormatFrequency(f, String);
     UI_PrintStringSmallNormal(String, 8, 127, 0);
 
     sprintf(String, "%3s", gModulationStr[settings.modulationType]);
@@ -1333,14 +1349,14 @@ static void DrawNums()
     }
     else
     {
-        sprintf(String, "%u.%05u", GetFStart() / 100000, GetFStart() % 100000);
+        FormatFrequency(GetFStart(), String);
         GUI_DisplaySmallest(String, 0, 49, false, true);
 
         sprintf(String, "\x7F%u.%02uk", settings.frequencyChangeStep / 100,
                 settings.frequencyChangeStep % 100);
         GUI_DisplaySmallest(String, 48, 49, false, true);
 
-        sprintf(String, "%u.%05u", GetFEnd() / 100000, GetFEnd() % 100000);
+        FormatFrequency(GetFEnd(), String);
         GUI_DisplaySmallest(String, 93, 49, false, true);
     }
 }
@@ -1683,6 +1699,9 @@ static void RenderStill()
                             menuState != idx);
 
 #ifdef ENABLE_FEAT_F4HWN_SPECTRUM
+        sprintf(String, "%ddB", regOptions[idx].options[GetRegMenuValue(idx)]);
+
+        /*
         if(idx == 1)
         {
             sprintf(String, "%ddB", LNAsOptions[GetRegMenuValue(idx)]);
@@ -1695,7 +1714,6 @@ static void RenderStill()
         {
             sprintf(String, "%ddB", VGAOptions[GetRegMenuValue(idx)]);
         }
-        /*
         else if(idx == 4)
         {
             sprintf(String, "%skHz", BPFOptions[(GetRegMenuValue(idx) / 0x2aaa)]);
