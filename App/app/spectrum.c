@@ -114,6 +114,8 @@ static uint8_t renderPage = 0;
 static uint16_t renderTimer = 0;
 #define RENDER_PERIOD_TICKS 20
 
+// Disabling automatic DbMax and squelch trigger settings
+static bool manualSetFlag = false;
 
 // EMA-smoothed RSSI for STILL display only (peak.rssi stays raw for trigger)
 static uint16_t rssiSmoothed = 0;
@@ -649,6 +651,9 @@ static void UpdateScanInfo()
 
 static void AutoTriggerLevel()
 {
+    if (manualSetFlag)
+        return;
+
     // Track the NOISE FLOOR (rssiMin = quietest bin in the sweep), not the
     // signal peak (rssiMax).  A squelch belongs just above the noise, so any
     // real signal that clears the floor opens RX.  Using rssiMax would push
@@ -765,8 +770,12 @@ static void UpdateRssiTriggerLevel(bool inc)
             settings.rssiTriggerLevel += 2;
         else
             settings.rssiTriggerLevel -= 2;
-        ClampRssiTriggerLevel();
     }
+
+    if (settings.rssiTriggerLevel > dbm2rssi(settings.dbMax))
+        UpdateDbMax(true);
+    else
+        ClampRssiTriggerLevel();
 
     redrawScreen = true;
     redrawStatus = true;
@@ -1260,11 +1269,11 @@ static void DrawStatus()
 {
 #ifdef SPECTRUM_EXTRA_VALUES
     sprintf(String, "%d/%d%s P:%d T:%d", settings.dbMin, settings.dbMax,
-            manualDbMaxTimer ? "M" : "",
+            manualSetFlag ? "M" : (manualDbMaxTimer ? "*" : ""),
             Rssi2DBm(peak.rssi), Rssi2DBm(settings.rssiTriggerLevel));
 #else
     sprintf(String, "%d/%d%s", settings.dbMin, settings.dbMax,
-            manualDbMaxTimer ? "M" : "");
+            manualSetFlag ? "M" : (manualDbMaxTimer ? "*" : ""));
 #endif
     GUI_DisplaySmallest(String, 0, 1, true, true);
 
@@ -1454,39 +1463,55 @@ static void DrawArrow(uint8_t x)
     }
 }
 
-static void OnKeyDown(uint8_t key)
-{
-    bool nav = gEeprom.SET_NAV;
-    bool isTrue = false;
+static bool GetDirection(KEY_Code_t key) {
+    return (key == KEY_UP) ? !gEeprom.SET_NAV : gEeprom.SET_NAV;
+}
+
+static bool OnKeyDownCommon(uint8_t key) {
+    bool isTrue = (key == KEY_3 || key == KEY_1 || key == KEY_2 || key == KEY_STAR);
 
     switch (key)
     {
     case KEY_3:
-        isTrue = true;
-        [[fallthrough]];
     case KEY_9:
         UpdateDbMax(isTrue);
-        break;
+        return false;
+    case KEY_STAR:
+    case KEY_F:
+        UpdateRssiTriggerLevel(isTrue);
+        return false;
+    case KEY_0:
+        ToggleModulation();
+        return false;
+    case KEY_6:
+        ToggleListeningBW();
+        return false;
+    case KEY_SIDE2:
+        ToggleBacklight();
+        return false;
+    }
+    return true;
+}
+
+static void OnKeyDown(uint8_t key) {
+    bool isTrue = (key == KEY_1 || key == KEY_2);
+
+    switch (key)
+    {
     case KEY_1:
-        isTrue = true;
-        [[fallthrough]];
     case KEY_7:
         UpdateScanStep(isTrue);
         break;
     case KEY_2:
-        isTrue = true;
-        [[fallthrough]];
     case KEY_8:
         UpdateFreqChangeStep(isTrue);
         break;
     case KEY_UP:
-        nav = !nav;
-        [[fallthrough]];
     case KEY_DOWN:
 #ifdef ENABLE_SCAN_RANGES
         if (!gScanRangeStart) {
 #endif
-        UpdateCurrentFreq(!nav);
+        UpdateCurrentFreq(GetDirection(key));
 #ifdef ENABLE_SCAN_RANGES
         }
 #endif
@@ -1494,23 +1519,11 @@ static void OnKeyDown(uint8_t key)
     case KEY_SIDE1:
         Blacklist();
         break;
-    case KEY_STAR:
-        isTrue = true;
-        [[fallthrough]];
-    case KEY_F:
-        UpdateRssiTriggerLevel(isTrue);
-        break;
     case KEY_5:
 #ifdef ENABLE_SCAN_RANGES
         if (!gScanRangeStart)
 #endif
             FreqInput();
-        break;
-    case KEY_0:
-        ToggleModulation();
-        break;
-    case KEY_6:
-        ToggleListeningBW();
         break;
     case KEY_4:
 #ifdef ENABLE_SCAN_RANGES
@@ -1518,14 +1531,13 @@ static void OnKeyDown(uint8_t key)
 #endif
             ToggleStepsCount();
         break;
-    case KEY_SIDE2:
-        ToggleBacklight();
-        break;
     case KEY_PTT:
         SetState(STILL);
         TuneToPeak();
         break;
     case KEY_MENU:
+        manualSetFlag = !manualSetFlag;
+        redrawStatus = true;
         break;
     case KEY_EXIT:
         if (menuState)
@@ -1547,7 +1559,7 @@ static void OnKeyDown(uint8_t key)
     }
 }
 
-static void OnKeyDownFreqInput(uint8_t key)
+static void OnKeyDownFreqInput(KEY_Code_t key)
 {
     switch (key)
     {
@@ -1583,54 +1595,22 @@ static void OnKeyDownFreqInput(uint8_t key)
     }
 }
 
-void OnKeyDownStill(KEY_Code_t key)
-{
-    bool nav = gEeprom.SET_NAV;
-    bool isTrue = false;
-
+static void OnKeyDownStill(KEY_Code_t key) {
     switch (key)
     {
-    case KEY_3:
-        isTrue = true;
-        [[fallthrough]];
-    case KEY_9:
-        UpdateDbMax(isTrue);
-        break;
     case KEY_UP:
-        nav = !nav;
-        [[fallthrough]];
     case KEY_DOWN:
         if (menuState) {
-            SetRegMenuValue(menuState, !nav);
+            SetRegMenuValue(menuState, GetDirection(key));
             break;
         }
-        UpdateCurrentFreqStill(!nav);
-        break;
-    case KEY_STAR:
-        isTrue = true;
-        [[fallthrough]];
-    case KEY_F:
-        UpdateRssiTriggerLevel(isTrue);
+        UpdateCurrentFreqStill(GetDirection(key));
         break;
     case KEY_5:
         FreqInput();
         break;
-    case KEY_0:
-        ToggleModulation();
-        break;
-    case KEY_6:
-        ToggleListeningBW();
-        break;
     case KEY_SIDE1:
         monitorMode = !monitorMode;
-        break;
-    case KEY_SIDE2:
-        ToggleBacklight();
-        break;
-    case KEY_PTT:
-        // TODO: start transmit
-        /* BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true); */
         break;
     case KEY_MENU:
         menuState = (menuState == ARRAY_SIZE(registerSpecs) - 1) ? 1 : menuState + 1;
@@ -1805,17 +1785,14 @@ static bool HandleUserInput()
 
     if (kbd.counter == 3 || kbd.counter == 16)
     {
-        switch (currentState)
-        {
-        case SPECTRUM:
-            OnKeyDown(kbd.current);
-            break;
-        case FREQ_INPUT:
+        if (currentState == FREQ_INPUT)
             OnKeyDownFreqInput(kbd.current);
-            break;
-        case STILL:
-            OnKeyDownStill(kbd.current);
-            break;
+
+        else if (OnKeyDownCommon(kbd.current)){
+            if (currentState == SPECTRUM)
+                OnKeyDown(kbd.current);
+            else if (currentState == STILL)
+                OnKeyDownStill(kbd.current);
         }
     }
 
@@ -1892,7 +1869,7 @@ static void UpdateScan()
     if (manualDbMaxTimer > 0) {
         if (--manualDbMaxTimer == 0)
             redrawStatus = true;
-    } else {
+    } else if (!manualSetFlag) {
         int newMax = Rssi2DBm(scanInfo.rssiMax) + 5;
         if (newMax < settings.dbMin + 10)
             newMax = settings.dbMin + 10;
