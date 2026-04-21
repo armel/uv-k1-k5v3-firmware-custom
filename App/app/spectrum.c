@@ -644,8 +644,10 @@ static void UpdateScanInfo()
     if (scanInfo.rssi < scanInfo.rssiMin)
     {
         scanInfo.rssiMin = scanInfo.rssi;
-        settings.dbMin = Rssi2DBm(scanInfo.rssiMin);
-        redrawStatus = true;
+        if (!manualSetFlag) {
+            settings.dbMin = Rssi2DBm(scanInfo.rssiMin);
+            redrawStatus = true;
+        }
     }
 }
 
@@ -770,12 +772,12 @@ static void UpdateRssiTriggerLevel(bool inc)
             settings.rssiTriggerLevel += 2;
         else
             settings.rssiTriggerLevel -= 2;
-    }
 
-    if (settings.rssiTriggerLevel > dbm2rssi(settings.dbMax))
-        UpdateDbMax(true);
-    else
-        ClampRssiTriggerLevel();
+        if (settings.rssiTriggerLevel > dbm2rssi(settings.dbMax))
+            UpdateDbMax(true);
+        else
+            ClampRssiTriggerLevel();
+    }
 
     redrawScreen = true;
     redrawStatus = true;
@@ -1269,11 +1271,11 @@ static void DrawStatus()
 {
 #ifdef SPECTRUM_EXTRA_VALUES
     sprintf(String, "%d/%d%s P:%d T:%d", settings.dbMin, settings.dbMax,
-            manualSetFlag ? "M" : (manualDbMaxTimer ? "*" : ""),
+            manualSetFlag ? "M" : (manualDbMaxTimer ? "T" : ""),
             Rssi2DBm(peak.rssi), Rssi2DBm(settings.rssiTriggerLevel));
 #else
     sprintf(String, "%d/%d%s", settings.dbMin, settings.dbMax,
-            manualSetFlag ? "M" : (manualDbMaxTimer ? "*" : ""));
+            manualSetFlag ? "M" : (manualDbMaxTimer ? "T" : ""));
 #endif
     GUI_DisplaySmallest(String, 0, 1, true, true);
 
@@ -1467,30 +1469,31 @@ static bool GetDirection(KEY_Code_t key) {
     return (key == KEY_UP) ? !gEeprom.SET_NAV : gEeprom.SET_NAV;
 }
 
+// Returns true if the key was handled (stop state-specific processing).
 static bool OnKeyDownCommon(uint8_t key) {
-    bool isTrue = (key == KEY_3 || key == KEY_1 || key == KEY_2 || key == KEY_STAR);
+    bool isTrue = (key == KEY_3 || key == KEY_STAR);
 
     switch (key)
     {
     case KEY_3:
     case KEY_9:
         UpdateDbMax(isTrue);
-        return false;
+        return true;
     case KEY_STAR:
     case KEY_F:
         UpdateRssiTriggerLevel(isTrue);
-        return false;
+        return true;
     case KEY_0:
         ToggleModulation();
-        return false;
+        return true;
     case KEY_6:
         ToggleListeningBW();
-        return false;
+        return true;
     case KEY_SIDE2:
         ToggleBacklight();
-        return false;
+        return true;
     }
-    return true;
+    return false;
 }
 
 static void OnKeyDown(uint8_t key) {
@@ -1788,7 +1791,7 @@ static bool HandleUserInput()
         if (currentState == FREQ_INPUT)
             OnKeyDownFreqInput(kbd.current);
 
-        else if (OnKeyDownCommon(kbd.current)){
+        else if (!OnKeyDownCommon(kbd.current)) {
             if (currentState == SPECTRUM)
                 OnKeyDown(kbd.current);
             else if (currentState == STILL)
@@ -2119,6 +2122,7 @@ void APP_RunSpectrum()
     memset(peakHoldAge, 0,              sizeof(peakHoldAge));
     rssiSmoothed    = 0;
     manualDbMaxTimer = 0;
+    manualSetFlag    = false;
 
     isInitialized = true;
 
