@@ -646,8 +646,9 @@ static void UpdateScanInfo()
     {
         scanInfo.rssiMin = scanInfo.rssi;
         settings.dbMin = Rssi2DBm(scanInfo.rssiMin);
-        if (settings.dbMin > settings.dbMax - 10)
-            settings.dbMin = settings.dbMax - 10;
+        int dbMax = settings.dbMax - 10;
+        if (settings.dbMin > dbMax)
+            settings.dbMin = dbMax;
         redrawStatus = true;
     }
 }
@@ -676,18 +677,15 @@ static void AutoTriggerLevel()
 
     // Adaptive slew: follow noise floor changes with rate limiting.
     // Faster convergence when the gap is large (e.g. after filter BW change).
-    int16_t diff = (int16_t)target - (int16_t)settings.rssiTriggerLevel;
+    int16_t diff  = (int16_t)target - (int16_t)settings.rssiTriggerLevel;
+    bool diffSign = diff < 0;
+
+    diff = my_abs(diff);
 
     if (diff > 4)
     {
         int16_t step = (diff > 12) ? 4 : ((diff > 6) ? 2 : 1);
-        settings.rssiTriggerLevel += step;
-    }
-    else if (diff < -4)
-    {
-        int16_t absDiff = -diff;
-        int16_t step = (absDiff > 12) ? 4 : ((absDiff > 6) ? 2 : 1);
-        settings.rssiTriggerLevel -= step;
+        settings.rssiTriggerLevel += diffSign ? -step : step;
     }
     // Dead zone ±4: hold steady to avoid jitter near target
 }
@@ -731,10 +729,11 @@ static void SetRssiHistory(uint16_t idx, uint16_t rssi)
         return;
     }
 
+    uint16_t prev = rssiHistory[slot];
+
 #ifdef ENABLE_SCAN_RANGES
     if (scanInfo.measurementsCount > ARRAY_SIZE(rssiHistory))
     {
-        uint16_t prev = rssiHistory[slot];
         if (prev == RSSI_MAX_VALUE)
             return;
         // For large ranges: keep fast attack, soften decay to reduce flicker.
@@ -746,7 +745,6 @@ static void SetRssiHistory(uint16_t idx, uint16_t rssi)
     }
 #endif
     // Attack/decay: instant rise, fast fall for stable display
-    uint16_t prev = rssiHistory[slot];
     if (rssi >= prev) {
         rssiHistory[slot] = rssi;              // Attack: instant
     } else {
@@ -1124,26 +1122,33 @@ static void CalcCrest(const uint8_t *yArr, uint8_t x,
     *crestTop = y0;
     *crestBot = y0;
 
-    if (x > 0)
-    {
-        uint8_t n = yArr[x - 1];
-        if (n != SPECTRUM_TOPY_SKIP && n <= DrawingEndY)
-        {
-            uint8_t mid = (y0 + n + 1) >> 1;
-            if (mid < *crestTop) *crestTop = mid;
-            if (mid > *crestBot) *crestBot = mid;
-        }
+    bool goBack = true;
+    uint8_t n = 0;
+
+    if (x > 0) {
+        n = yArr[x - 1];
+        goto Start;
     }
-    if (x + 1 < 128)
-    {
-        uint8_t n = yArr[x + 1];
-        if (n != SPECTRUM_TOPY_SKIP && n <= DrawingEndY)
-        {
-            uint8_t mid = (y0 + n + 1) >> 1;
-            if (mid < *crestTop) *crestTop = mid;
-            if (mid > *crestBot) *crestBot = mid;
-        }
+
+Back:
+    goBack = false;
+
+    if (x + 1 < 128) {
+        n = yArr[x + 1];
+        goto Start;
     }
+
+    return;
+
+Start:
+    if (n != SPECTRUM_TOPY_SKIP && n <= DrawingEndY) {
+        uint8_t mid = (y0 + n + 1) >> 1;
+        if (mid < *crestTop) *crestTop = mid;
+        if (mid > *crestBot) *crestBot = mid;
+    }
+
+    if (goBack)
+        goto Back;
 }
 
 // Draw the spectrum curve (solid crest + checkerboard body) and the peak hold
@@ -1398,15 +1403,10 @@ static void DrawNums()
     if (currentState == SPECTRUM)
     {
 #ifdef ENABLE_SCAN_RANGES
-        if (gScanRangeStart)
-        {
-            sprintf(String, "%ux", GetStepsCountDisplay());
-        }
-        else
+        sprintf(String, "%ux", gScanRangeStart ? GetStepsCountDisplay() : GetStepsCount());
+#else
+        sprintf(String, "%ux", GetStepsCount());
 #endif
-        {
-            sprintf(String, "%ux", GetStepsCount());
-        }
         GUI_DisplaySmallest(String, 0, 1, false, true);
         sprintf(String, "%u.%02uk", GetScanStep() / 100, GetScanStep() % 100);
         GUI_DisplaySmallest(String, 0, 7, false, true);
@@ -1905,8 +1905,9 @@ static void UpdateScan()
             redrawStatus = true;
     } else if (!manualSetFlag) {
         int newMax = Rssi2DBm(scanInfo.rssiMax) + 5;
-        if (newMax < settings.dbMin + 10)
-            newMax = settings.dbMin + 10;
+        int dbMin = settings.dbMin + 10;
+        if (newMax < dbMin)
+            newMax = dbMin;
         if (newMax > 10)
             newMax = 10;
         settings.dbMax = newMax;
