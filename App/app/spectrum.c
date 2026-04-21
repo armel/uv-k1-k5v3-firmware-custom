@@ -623,7 +623,8 @@ static void RelaunchScan()
     ResetPeak();
     ToggleRX(false);
 #ifdef SPECTRUM_AUTOMATIC_SQUELCH
-    settings.rssiTriggerLevel = RSSI_MAX_VALUE;
+    if (!manualSetFlag)
+        settings.rssiTriggerLevel = RSSI_MAX_VALUE;
 #endif
     preventKeypress = true;
     scanInfo.rssiMin = RSSI_MAX_VALUE;
@@ -796,9 +797,6 @@ static void UpdateScanStep(bool inc)
     }
 
     settings.frequencyChangeStep = GetBW() >> 1;
-    // Reset squelch trigger so AutoTriggerLevel() recalibrates on next sweep.
-    // The filter BW changes with the step, so the old level is no longer valid.
-    settings.rssiTriggerLevel = RSSI_MAX_VALUE;
     RelaunchScan();
     ResetBlacklist();
     redrawScreen = true;
@@ -1540,6 +1538,8 @@ static void OnKeyDown(uint8_t key) {
         break;
     case KEY_MENU:
         manualSetFlag = !manualSetFlag;
+        if (!manualSetFlag)
+            settings.rssiTriggerLevel = RSSI_MAX_VALUE;
         redrawStatus = true;
         break;
     case KEY_EXIT:
