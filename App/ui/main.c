@@ -197,8 +197,24 @@ static bool ScanProgress_IsForward(void)
 static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, bool memory_mode)
 {
     const bool forward = ScanProgress_IsForward();
-    const uint8_t gauge_left = 40;
-    const uint8_t gauge_right = 122;
+
+    uint8_t gauge_left = 25;
+
+    if (total >= 100000) {
+        if (total >= 10000000) {
+            gauge_left = (total >= 100000000) ? 81 : 73;
+        } else {
+            gauge_left = (total >= 1000000)   ? 65 : 57;
+        }
+    } else {
+        if (total >= 1000) {
+            gauge_left = (total >= 10000)     ? 49 : 41;
+        } else {
+            gauge_left = (total >= 100)       ? 33 : 25;
+        }
+    }
+
+    const uint8_t gauge_right = 126;
     const uint8_t fill_start = gauge_left + 2;
     const uint8_t fill_end = gauge_right - 2;
     const uint8_t fill_cols = fill_end - fill_start + 1;
