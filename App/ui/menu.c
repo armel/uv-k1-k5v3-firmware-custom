@@ -525,6 +525,63 @@ char    edit_original[17]; // a copy of the text before editing so that we can e
 char    edit[17];
 int     edit_index;
 
+static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t line, const bool center_in_area, const uint8_t area_x1, const uint8_t area_x2)
+{
+    const size_t length = strlen(text);
+    const size_t char_pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
+    const size_t text_width = length * char_pitch;
+    const size_t capsule_span = text_width + 1u; // matches UI_PrintStringSmallNormalInverse x_end computation
+    uint8_t text_x;
+
+    if (length == 0 || line == 0 || line >= FRAME_LINES) {
+        return;
+    }
+
+    if (center_in_area && area_x2 > area_x1 + 2u) {
+        const uint8_t min_x = area_x1 + 1u;
+        uint8_t max_x;
+        const uint8_t area_width = area_x2 - area_x1 + 1u;
+
+        if (capsule_span >= area_width) {
+            text_x = min_x;
+        } else {
+            text_x = (uint8_t)(area_x1 + ((area_width - capsule_span) / 2u));
+        }
+
+        if (area_x2 > capsule_span) {
+            max_x = (uint8_t)(area_x2 - capsule_span);
+        } else {
+            max_x = min_x;
+        }
+
+        if (max_x < min_x) {
+            max_x = min_x;
+        }
+        if (text_x < min_x) {
+            text_x = min_x;
+        } else if (text_x > max_x) {
+            text_x = max_x;
+        }
+    } else {
+        if (capsule_span >= (LCD_WIDTH - 3u)) {
+            text_x = 1u;
+        } else {
+            const uint8_t global_shift_right = 1u;
+            const uint8_t base_text_x = (uint8_t)(LCD_WIDTH - capsule_span - 3u);
+            const uint8_t max_text_x  = (uint8_t)(LCD_WIDTH - capsule_span - 1u);
+            const uint16_t shifted_x = (uint16_t)base_text_x + global_shift_right;
+
+            if (shifted_x > max_text_x) {
+                text_x = max_text_x;
+            } else {
+                text_x = (uint8_t)shifted_x;
+            }
+        }
+    }
+
+    UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
+}
+
 void UI_DisplayMenu(void)
 {
     const unsigned int menu_list_width = 6; // max no. of characters on the menu list (left side)
@@ -532,6 +589,7 @@ void UI_DisplayMenu(void)
     const unsigned int menu_item_x2    = LCD_WIDTH - 1;
     unsigned int       i;
     char               String[64];  // bigger cuz we can now do multi-line in one string (use '\n' char)
+    char               top_right_badge[16];
 
 #ifdef ENABLE_DTMF_CALLING
     char               Contact[16];
@@ -630,6 +688,7 @@ void UI_DisplayMenu(void)
     // **************
 
     memset(String, 0, sizeof(String));
+    memset(top_right_badge, 0, sizeof(top_right_badge));
 
     bool already_printed = false;
 
@@ -1192,15 +1251,15 @@ void UI_DisplayMenu(void)
             case MENU_SET_AUD:
                 if(gTxVfo->Modulation == MODULATION_AM) {
                     strcpy(String, gSubMenu_SET_AUD_AM[gSubMenuSelection]);
-                    UI_PrintStringSmallNormal("AM", 114, 0, 0);
+                    strcpy(top_right_badge, "AM");
                 }
                 else if (gTxVfo->Modulation == MODULATION_USB) {
                     strcpy(String, "USB");
-                    UI_PrintStringSmallNormal("USB", 107, 0, 0);
+                    strcpy(top_right_badge, "USB");
                 }
                 else {
                     strcpy(String, gSubMenu_SET_AUD_FM[gSubMenuSelection]);
-                    UI_PrintStringSmallNormal("FM", 114, 0, 0);
+                    strcpy(top_right_badge, "FM");
                 }
                 break;
         #endif
@@ -1352,31 +1411,24 @@ void UI_DisplayMenu(void)
         || UI_MENU_GetCurrentMenuId() == MENU_D_LIST
 #endif
     ) {
-        uint8_t text_x = 107;
-
         if (UI_MENU_GetCurrentMenuId() == MENU_R_CTCS ||
             UI_MENU_GetCurrentMenuId() == MENU_T_CTCS) {
             const uint8_t approved_index =
                 (gSubMenuSelection > 0) ? DCS_GetCtcssApprovedIndex(gSubMenuSelection - 1) : 0xFF;
 
             if (gSubMenuSelection == 0)
-                sprintf(String, "00 (00)");
+                sprintf(top_right_badge, "00/00");
             else if (approved_index != 0xFF)
-                sprintf(String, "%02u (%02u)", (unsigned)gSubMenuSelection, approved_index + 1);
+                sprintf(top_right_badge, "%02u/%02u", (unsigned)gSubMenuSelection, approved_index + 1);
             else
-                sprintf(String, "%02u (--)", (unsigned)gSubMenuSelection);
-
-            {
-                const uint8_t char_spacing = ARRAY_SIZE(gFontSmall[0]) + 1;
-                const size_t text_width = strlen(String) * char_spacing;
-
-                text_x = (text_width < LCD_WIDTH) ? (uint8_t)(LCD_WIDTH - text_width) : 0;
-            }
+                sprintf(top_right_badge, "%02u/--", (unsigned)gSubMenuSelection);
         } else {
-            sprintf(String, "%03d", gSubMenuSelection);
+            sprintf(top_right_badge, "%03d", gSubMenuSelection);
         }
+    }
 
-        UI_PrintStringSmallNormal(String, text_x, 0, 0);
+    if (top_right_badge[0] != '\0') {
+        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, 1, true, menu_item_x1, menu_item_x2);
     }
 
     if ((UI_MENU_GetCurrentMenuId() == MENU_RESET    ||
