@@ -194,26 +194,11 @@ static bool ScanProgress_IsForward(void)
     return gScanStateDir != SCAN_REV;
 }
 
-static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, bool memory_mode)
+static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode)
 {
     const bool forward = ScanProgress_IsForward();
 
-    uint8_t gauge_left = 25;
-
-    if (total >= 100000) {
-        if (total >= 10000000) {
-            gauge_left = (total >= 100000000) ? 81 : 73;
-        } else {
-            gauge_left = (total >= 1000000)   ? 65 : 57;
-        }
-    } else {
-        if (total >= 1000) {
-            gauge_left = (total >= 10000)     ? 49 : 41;
-        } else {
-            gauge_left = (total >= 100)       ? 33 : 25;
-        }
-    }
-
+    const uint8_t gauge_left = width * 8 + 9;
     const uint8_t gauge_right = 126;
     const uint8_t fill_start = gauge_left + 2;
     const uint8_t fill_end = gauge_right - 2;
@@ -265,10 +250,8 @@ static uint8_t ScanProgress_DecimalDigits(uint32_t value)
     return digits;
 }
 
-static void ScanProgress_FormatIndex(char *out, size_t out_size, uint32_t current_index, uint32_t total)
+static void ScanProgress_FormatIndex(char *out, size_t out_size, uint32_t current_index, uint32_t total, uint8_t width)
 {
-    const uint8_t width = ScanProgress_DecimalDigits(total);
-
     snprintf(out, out_size, "%0*u/%u",
              width, (unsigned int)current_index,
              (unsigned int)total);
@@ -378,7 +361,9 @@ static bool UI_DrawScanProgress(void)
 #endif
     }
 
-    ScanProgress_FormatIndex(text, sizeof(text), current_index, total);
+    const uint8_t width = ScanProgress_DecimalDigits(total);
+
+    ScanProgress_FormatIndex(text, sizeof(text), current_index, total, width);
 
 #ifdef ENABLE_FEAT_F4HWN
     line = isMainOnly() ? 5 : 3;
@@ -388,7 +373,7 @@ static bool UI_DrawScanProgress(void)
     UI_PrintStringSmallNormal(text, 2, 0, line);
 #endif
 
-    ScanProgress_DrawGaugeLine(line, current_index, total, show_memory);
+    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory);
 
     return true;
 }
