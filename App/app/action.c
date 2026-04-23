@@ -660,26 +660,25 @@ void ACTION_Mute(void)
         BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, gMute ? 0x0A10 : 0x0A1F);
     #endif
     gEeprom.VOLUME_GAIN = gMute ? 0 : gEeprom.VOLUME_GAIN_BACKUP;
-    BK4819_WriteRegister(BK4819_REG_48,
-        (11u << 12)                |  // ??? .. 0 ~ 15, doesn't seem to make any difference
-        (0u << 10)                 |  // AF Rx Gain-1
-        (gEeprom.VOLUME_GAIN << 4) |  // AF Rx Gain-2
-        (gEeprom.DAC_GAIN << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
+    BK4819_SetRxAudioGain();
 
     gUpdateStatus = true;
 }
 
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+void ACTION_ToggleVfoSetting(bool *setting) {
+    *setting = !(*setting);
+    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+}
+
 void ACTION_Power_High(void)
 {
-    gPowerHigh = !gPowerHigh;
-    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+    ACTION_ToggleVfoSetting(&gPowerHigh);
 }
 
 void ACTION_Remove_Offset(void)
 {
-    gRemoveOffset = !gRemoveOffset;
-    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+    ACTION_ToggleVfoSetting(&gRemoveOffset);
 }
 #endif
 #endif

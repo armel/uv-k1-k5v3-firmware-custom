@@ -70,64 +70,45 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
     // Audio impression: fuller bass, more direct sound, while still keeping the 3 kHz top-end limit.
 
     static void AUDIO_ApplyFMProfile(uint8_t profile)
-    {
-        switch (profile)
-        {
-            default:
-            case 0: // FLAT
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x3200);
-                break;
+    {   //  | 0x54 || 0x55 |
+        static const uint16_t fm_profiles[][2] = {
+            {0x9009, 0x3200}, // 0: FLAT
+            {0x9009, 0x33A9}, // 1: CLEAN
+            {0x9009, 0x3600}, // 2: MID
+            {0x8546, 0x3AF0}, // 3: BOOST
+            {0x8566, 0x3D00}  // 4: MAX
+        };
 
-            case 1: // CLEAN
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x33A9);
-                break;
+        if (profile >= ARRAY_SIZE(fm_profiles))
+            profile = 0;
 
-            case 2: // MID
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x3600);
-                break;
-
-            case 3: // BOOST
-                BK4819_WriteRegister(0x54, 0x8546);
-                BK4819_WriteRegister(0x55, 0x3AF0);
-                break;
-
-            case 4: // MAX
-                BK4819_WriteRegister(0x54, 0x8566);
-                BK4819_WriteRegister(0x55, 0x3D00);
-                break;
-        }
+        BK4819_WriteRegister(0x54, fm_profiles[profile][0]);
+        BK4819_WriteRegister(0x55, fm_profiles[profile][1]);
     }
 
     static void AUDIO_ApplyAMProfile(uint8_t profile)
-    {
-        switch (profile)
-        {
-            default:
-            case 0: // SHARP (ALPHA test profile) - Narrow IF filter (REG54 bits[14:8]=0, bits[7:0]=9), low IF gain (REG55 bits[11:8]=1, ref=169)
-                    // Selective and crisp, best adjacent channel rejection, may sound harsh on strong signals
-                BK4819_WriteRegister(0x2b, 0x0300);
-                BK4819_WriteRegister(0x2f, 0x9990);
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x31A9);
-                break;
-            case 1: // STOCK - Narrow IF filter (REG54 bits[14:8]=0, bits[7:0]=9), moderate IF gain (REG55 bits[11:8]=4, ref=180)
-                    // Selective filter with balanced gain, punchy and detailed, good compromise between rejection and sensitivity
-                BK4819_WriteRegister(0x2b, 0x0500);
-                BK4819_WriteRegister(0x2f, 0x9990);
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x31A9);
-                break;
-            case 2: // OPEN (BRAVO test profile) - Medium-wide IF filter (REG54 bits[14:8]=8, bits[7:0]=70), high IF gain (REG55 bits[11:8]=8, ref=192)
-                    // Wide and pleasant, better sensitivity on weak signals, may struggle with adjacent channel interference
-                BK4819_WriteRegister(0x2b, 0x0300);
-                BK4819_WriteRegister(0x2f, 0x9990);
-                BK4819_WriteRegister(0x54, 0x8846);
-                BK4819_WriteRegister(0x55, 0x38C0);
-                break;
-        }
+    {   //  | 0x2b || 0x2f || 0x54 || 0x55 |
+        static const uint16_t am_profiles[][4] = {
+            // SHARP (ALPHA test profile) - Narrow IF filter (REG54 bits[14:8]=0, bits[7:0]=9), low IF gain (REG55 bits[11:8]=1, ref=169)
+            // Selective and crisp, best adjacent channel rejection, may sound harsh on strong signals
+            {0x0300, 0x9990, 0x9009, 0x31A9},
+
+            // STOCK - Narrow IF filter (REG54 bits[14:8]=0, bits[7:0]=9), moderate IF gain (REG55 bits[11:8]=4, ref=180)
+            // Selective filter with balanced gain, punchy and detailed, good compromise between rejection and sensitivity
+            {0x0500, 0x9990, 0x9009, 0x31A9},
+
+            // OPEN (BRAVO test profile) - Medium-wide IF filter (REG54 bits[14:8]=8, bits[7:0]=70), high IF gain (REG55 bits[11:8]=8, ref=192)
+            // Wide and pleasant, better sensitivity on weak signals, may struggle with adjacent channel interference
+            {0x0300, 0x9990, 0x8846, 0x38C0}
+        };
+
+        if (profile >= ARRAY_SIZE(am_profiles))
+            profile = 0;
+
+        BK4819_WriteRegister(0x2b, am_profiles[profile][0]);
+        BK4819_WriteRegister(0x2f, am_profiles[profile][1]);
+        BK4819_WriteRegister(0x54, am_profiles[profile][2]);
+        BK4819_WriteRegister(0x55, am_profiles[profile][3]);
     }
 
     static void AUDIO_ApplyUSBProfile(void)
@@ -859,12 +840,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
 
     // AF RX Gain and DAC
     //BK4819_WriteRegister(BK4819_REG_48, 0xB3A8);  // 1011 00 111010 1000
-    BK4819_WriteRegister(BK4819_REG_48,
-        (11u << 12)                 |     // ??? .. 0 ~ 15, doesn't seem to make any difference
-        ( 0u << 10)                 |     // AF Rx Gain-1
-        (gEeprom.VOLUME_GAIN << 4) |     // AF Rx Gain-2
-        (gEeprom.DAC_GAIN    << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
-
+    BK4819_SetRxAudioGain();
 
     uint16_t InterruptMask = BK4819_REG_3F_SQUELCH_FOUND | BK4819_REG_3F_SQUELCH_LOST;
 
@@ -1094,26 +1070,25 @@ void RADIO_SetTxParameters(void)
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
     #ifdef ENABLE_BYP_RAW_DEMODULATORS
-    // BYP on BK4829 uses full audio bypass profile.
-    if (modulation == MODULATION_BYP) {
-        BK4819_EnterBypass();
+    if (modulation == MODULATION_BYP || modulation == MODULATION_RAW) {
+        uint16_t reg_3d_val = 0x0000;
+
+        if (modulation == MODULATION_BYP) {
+            // BYP on BK4829 uses full audio bypass profile.
+            BK4819_EnterBypass();
+            reg_3d_val = 0x2AAB;
+        } else {
+            // RAW on BK4829 uses RX-only filter bypass profile.
+            BK4819_EnterRaw();
+            // reg_3d_val = 0x0000;
+        }
+
         BK4819_SetRegValue(afDacGainRegSpec, 0xF);
-        BK4819_WriteRegister(BK4819_REG_3D, 0x2AAB);
+        BK4819_WriteRegister(BK4819_REG_3D, reg_3d_val);
         RADIO_SetupAGC(false, false);
         return;
     }
 
-    // RAW on BK4829 uses RX-only filter bypass profile.
-    if (modulation == MODULATION_RAW) {
-        BK4819_EnterRaw();
-        BK4819_SetRegValue(afDacGainRegSpec, 0xF);
-        BK4819_WriteRegister(BK4819_REG_3D, 0x0000);
-        RADIO_SetupAGC(false, false);
-        return;
-    }
-    #endif
-
-    #ifdef ENABLE_BYP_RAW_DEMODULATORS
     // Ensure we always leave bypass / raw mode before applying normal modulation settings.
     BK4819_ExitBypass();
     #endif

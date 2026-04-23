@@ -1287,11 +1287,7 @@ void UI_DisplayMenu(void)
                     //#endif
                 }
                 // gEeprom.VOLUME_GAIN = gSubMenuSelection;
-                BK4819_WriteRegister(BK4819_REG_48,
-                    (11u << 12)                |     // ??? .. 0 ~ 15, doesn't seem to make any difference
-                    ( 0u << 10)                |     // AF Rx Gain-1
-                    (gEeprom.VOLUME_GAIN << 4) |     // AF Rx Gain-2
-                    (gEeprom.DAC_GAIN    << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
+                BK4819_SetRxAudioGain();
                 break;
         #endif
 

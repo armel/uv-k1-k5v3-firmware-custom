@@ -1432,24 +1432,15 @@ void BK4819_GenTail(uint8_t Tail)
     //                          freq(Hz) * 20.64888 for XTAL 13M/26M or
     //                          freq(Hz)*20.97152 for XTAL 12.8M/19.2M/25.6M/38.4M
 
-    switch (Tail)
-    {
-        case 0: // 134.4Hz CTCSS Tail
-            BK4819_WriteRegister(BK4819_REG_52, 0x828F);   // 1 00 0 001010 001111
-            break;
-        case 1: // 120° phase shift
-            BK4819_WriteRegister(BK4819_REG_52, 0xA28F);   // 1 01 0 001010 001111
-            break;
-        case 2: // 180° phase shift
-            BK4819_WriteRegister(BK4819_REG_52, 0xC28F);   // 1 10 0 001010 001111
-            break;
-        case 3: // 240° phase shift
-            BK4819_WriteRegister(BK4819_REG_52, 0xE28F);   // 1 11 0 001010 001111
-            break;
-        case 4: // 55Hz tone freq
-            BK4819_WriteRegister(BK4819_REG_07, 0x046f);   // 0 00 0 010001 101111
-            break;
-    }
+    if (Tail <= 3)
+        // 0: 134.4Hz CTCSS Tail
+        // 1: 120° phase shift
+        // 2: 180° phase shift
+        // 3: 240° phase shift
+        BK4819_WriteRegister(BK4819_REG_52, 0x028F | (Tail << 13));
+    else if (Tail == 4)
+        // 4: 55Hz tone freq
+        BK4819_WriteRegister(BK4819_REG_07, 0x046F);
 }
 
 void BK4819_PlayCDCSSTail(void)
@@ -1531,6 +1522,14 @@ uint8_t BK4819_GetAfTxRx(void)
     return BK4819_ReadRegister(BK4819_REG_6F) & 0x003F;
 }
 
+void BK4819_SetRxAudioGain(void) {
+    BK4819_WriteRegister(BK4819_REG_48,
+        (11u << 12)                |     // ??? .. 0 ~ 15, doesn't seem to make any difference
+        ( 0u << 10)                |     // AF Rx Gain-1
+        (gEeprom.VOLUME_GAIN << 4) |     // AF Rx Gain-2
+        (gEeprom.DAC_GAIN    << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
+}
+
 bool BK4819_GetFrequencyScanResult(uint32_t *pFrequency)
 {
     const uint16_t High     = BK4819_ReadRegister(BK4819_REG_0D);
@@ -1566,7 +1565,7 @@ BK4819_CssScanResult_t BK4819_GetCxCSSScanResult(uint32_t *pCdcssFreq, uint16_t 
     return BK4819_CSS_RESULT_NOT_FOUND;
 }
 
-void BK4819_DisableFrequencyScan(void)
+void BK4819_SetFrequencyScan(bool enable)
 {
     // REG_32
     //
@@ -1582,32 +1581,10 @@ void BK4819_DisableFrequencyScan(void)
     //         1 = enable
     //         0 = disable
     //
-    BK4819_WriteRegister(BK4819_REG_32, // 0x0244);    // 00 0000100100010 0
+    BK4819_WriteRegister(BK4819_REG_32,
         (  0u << 14) |          // 0 frequency scan Time
         (290u <<  1) |          // ???
-        (  0u <<  0));          // 0 frequency scan enable
-}
-
-void BK4819_EnableFrequencyScan(void)
-{
-    // REG_32
-    //
-    // <15:14> 0 frequency scan time
-    //         0 = 0.2 sec
-    //         1 = 0.4 sec
-    //         2 = 0.8 sec
-    //         3 = 1.6 sec
-    //
-    // <13:1>  ???
-    //
-    // <0>     0 frequency scan enable
-    //         1 = enable
-    //         0 = disable
-    //
-    BK4819_WriteRegister(BK4819_REG_32, // 0x0245);   // 00 0000100100010 1
-        (  0u << 14) |          // 0 frequency scan time
-        (290u <<  1) |          // ???
-        (  1u <<  0));          // 1 frequency scan enable
+        (enable ? 1u : 0u));    // frequency scan (1: enable | 0: disable)
 }
 
 void BK4819_SetScanFrequency(uint32_t Frequency)
@@ -1671,7 +1648,7 @@ void BK4819_Disable(void)
 
 void BK4819_StopScan(void)
 {
-    BK4819_DisableFrequencyScan();
+    BK4819_SetFrequencyScan(false);
     BK4819_Disable();
 }
 
