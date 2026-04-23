@@ -104,6 +104,14 @@ static uint16_t scanReg30 = 0;
 // Bidirectional sweep: true = left→right (fStart→fEnd), false = right→left.
 static bool scanForward = true;
 
+// Optional interlaced progression for large scans (>128 steps).
+// 1 = enabled, 0 = disabled.
+#ifndef SPECTRUM_INTERLACE_LARGE_SWEEPS
+#define SPECTRUM_INTERLACE_LARGE_SWEEPS 1
+#endif
+static uint16_t interlaceStride = 1;
+static uint16_t interlacePhase = 0;
+
 // Incremental display: one framebuffer page sent per tick instead of a full
 // BlitFullScreen burst.
 static uint8_t renderPage = 0;
@@ -589,6 +597,16 @@ static void InitScanPosition()
     scanInfo.i = 0;
     scanInfo.f = GetFStart();
     scanForward = true;
+#if SPECTRUM_INTERLACE_LARGE_SWEEPS
+    interlacePhase = 0;
+    interlaceStride = 1;
+    if (scanInfo.measurementsCount > ARRAY_SIZE(rssiHistory))
+    {
+        interlaceStride =
+            (scanInfo.measurementsCount + ARRAY_SIZE(rssiHistory) - 1) /
+            ARRAY_SIZE(rssiHistory);
+    }
+#endif
 }
 
 static void InitScan()
@@ -1859,9 +1877,99 @@ static void NextScanStep()
     }
 }
 
+static bool UseInterlacedSweep()
+{
+#if SPECTRUM_INTERLACE_LARGE_SWEEPS
+    return scanInfo.measurementsCount > ARRAY_SIZE(rssiHistory) &&
+           interlaceStride > 1;
+#else
+    return false;
+#endif
+}
+
+static bool NextScanStepInterlaced()
+{
+    uint16_t next = scanInfo.i + interlaceStride;
+
+    if (next < scanInfo.measurementsCount)
+    {
+        scanInfo.i = next;
+        scanInfo.f += (uint32_t)interlaceStride * scanInfo.scanStep;
+        return false;
+    }
+
+    for (uint16_t phase = interlacePhase + 1; phase < interlaceStride; ++phase)
+    {
+        if (phase < scanInfo.measurementsCount)
+        {
+            interlacePhase = phase;
+            scanInfo.i = phase;
+            scanInfo.f = GetFStart() + (uint32_t)phase * scanInfo.scanStep;
+            return false;
+        }
+    }
+
+    interlacePhase = 0;
+    return true;
+}
+
+static void FinalizeCompletedSweep()
+{
+    if (! (scanInfo.measurementsCount >> 7)) // if (scanInfo.measurementsCount < 128)
+        memset(&rssiHistory[scanInfo.measurementsCount], 0,
+               sizeof(rssiHistory) - scanInfo.measurementsCount * sizeof(rssiHistory[0]));
+
+    // Auto-adjust dbMax unless the user has overridden it manually.
+    if (manualDbMaxTimer > 0) {
+        if (--manualDbMaxTimer == 0)
+            redrawStatus = true;
+    } else if (!manualSetFlag) {
+        int newMax = Rssi2DBm(scanInfo.rssiMax) + 5;
+        int dbMin = settings.dbMin + 10;
+        if (newMax < dbMin)
+            newMax = dbMin;
+        if (newMax > 10)
+            newMax = 10;
+        settings.dbMax = newMax;
+    }
+
+    newScanStart = true;
+}
+
 static void UpdateScan()
 {
     Scan();
+
+#if SPECTRUM_INTERLACE_LARGE_SWEEPS
+    if (UseInterlacedSweep())
+    {
+        bool atEnd = (scanInfo.i + interlaceStride >= scanInfo.measurementsCount);
+
+        if (!atEnd)
+        {
+            ++peak.t;
+            (void)NextScanStepInterlaced();
+            return;
+        }
+
+        preventKeypress = false;
+
+        UpdatePeakInfo();
+        if (IsPeakOverLevel())
+        {
+            ToggleRX(true);
+            TuneToPeak();
+            return;
+        }
+
+        ++peak.t;
+        if (!NextScanStepInterlaced())
+            return;
+
+        FinalizeCompletedSweep();
+        return;
+    }
+#endif
 
     bool atEnd = scanForward ? (scanInfo.i >= scanInfo.measurementsCount - 1)
                              : (scanInfo.i <= 1);
@@ -1895,25 +2003,7 @@ static void UpdateScan()
     }
 
     // End of backward half-sweep: full round trip done.
-    if (! (scanInfo.measurementsCount >> 7)) // if (scanInfo.measurementsCount < 128)
-        memset(&rssiHistory[scanInfo.measurementsCount], 0,
-               sizeof(rssiHistory) - scanInfo.measurementsCount * sizeof(rssiHistory[0]));
-
-    // Auto-adjust dbMax unless the user has overridden it manually.
-    if (manualDbMaxTimer > 0) {
-        if (--manualDbMaxTimer == 0)
-            redrawStatus = true;
-    } else if (!manualSetFlag) {
-        int newMax = Rssi2DBm(scanInfo.rssiMax) + 5;
-        int dbMin = settings.dbMin + 10;
-        if (newMax < dbMin)
-            newMax = dbMin;
-        if (newMax > 10)
-            newMax = 10;
-        settings.dbMax = newMax;
-    }
-
-    newScanStart = true;
+    FinalizeCompletedSweep();
 }
 
 static void UpdateStill()

@@ -39,6 +39,16 @@ static const uint16_t FSK_RogerTable[7] = {0xF1A2, 0x7446, 0x61A4, 0x6544, 0x4E8
 
 static uint16_t gBK4819_GpioOutState;
 
+#define SHORT_DELAY()                                                          \
+  __asm volatile("nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n")
+
 bool gRxIdleMode;
 
 static inline void CS_Assert()
@@ -197,21 +207,24 @@ static uint16_t BK4819_ReadU16(void)
     uint16_t     Value;
 
     SDA_SetDir(false);
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
     Value = 0;
     for (i = 0; i < 16; i++)
     {
         Value <<= 1;
         Value |= SDA_ReadInput();
         SCL_Set();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Reset();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
     }
     SDA_SetDir(true);
 
     return Value;
 }
+
+static uint16_t reg_30_cache = 0xFFFF;
+static uint16_t reg_47_cache = 0xFFFF;
 
 uint16_t BK4819_ReadRegister(BK4819_REGISTER_t Register)
 {
@@ -219,41 +232,53 @@ uint16_t BK4819_ReadRegister(BK4819_REGISTER_t Register)
 
     CS_Release();
     SCL_Reset();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     CS_Assert();
     BK4819_WriteU8(Register | 0x80);
     Value = BK4819_ReadU16();
     CS_Release();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     SCL_Set();
     SDA_Set();
+
+    if (Register == BK4819_REG_30)
+        reg_30_cache = Value;
+    else if (Register == BK4819_REG_47)
+        reg_47_cache = Value;
 
     return Value;
 }
 
 void BK4819_WriteRegister(BK4819_REGISTER_t Register, uint16_t Data)
 {
+    if (Register == BK4819_REG_30)
+    {
+        if (Data == reg_30_cache)
+            return;
+        reg_30_cache = Data;
+    }
+    else if (Register == BK4819_REG_47)
+    {
+        if (Data == reg_47_cache)
+            return;
+        reg_47_cache = Data;
+    }
+
     CS_Release();
     SCL_Reset();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     CS_Assert();
     BK4819_WriteU8(Register);
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     BK4819_WriteU16(Data);
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     CS_Release();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     SCL_Set();
     SDA_Set();
@@ -271,14 +296,14 @@ void BK4819_WriteU8(uint8_t Data)
         else
             SDA_Set();
 
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Set();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
 
         Data <<= 1;
 
         SCL_Reset();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
     }
 }
 
@@ -294,14 +319,14 @@ void BK4819_WriteU16(uint16_t Data)
         else
             SDA_Set();
 
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Set();
 
         Data <<= 1;
 
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Reset();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
     }
 }
 
