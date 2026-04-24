@@ -568,7 +568,7 @@ uint16_t GetRssi()
     uint8_t guard = 50;
     while (guard-- && (BK4819_ReadRegister(0x63) & 0xFF) >= 200)
     {
-        SYSTICK_DelayUs(10);
+        SYSTICK_DelayUs(1);
     }
     // Discard first read (AGC may still be transitioning), keep second
     BK4819_GetRSSI();
@@ -1499,31 +1499,21 @@ static void BuildSpectrumTopY(uint8_t *topY, uint8_t bars)
     }
 }
 
+static void BuildCurrentSpectrumTopY(uint8_t *topY)
+{
 #ifdef ENABLE_FEAT_F4HWN
-    static void DrawSpectrum()
-    {
-        uint16_t steps = GetStepsCount();
-        // max bars at 128 to correctly draw larger numbers of samples
-        uint8_t bars = (steps > 128) ? 128 : steps;
-
-        uint8_t topY[128];
-        BuildSpectrumTopY(topY, bars);
-        SmoothTopY(topY);
-        DrawSpectrumCurve(topY);
-    }
+    uint16_t steps = GetStepsCount();
+    // max bars at 128 to correctly draw larger numbers of samples
+    uint8_t bars = (steps > 128) ? 128 : steps;
 #else
-    static void DrawSpectrum()
-    {
-        uint8_t bars = 128 >> settings.stepsCount;
-        if (bars == 0)
-            bars = 1;
-
-        uint8_t topY[128];
-        BuildSpectrumTopY(topY, bars);
-        SmoothTopY(topY);
-        DrawSpectrumCurve(topY);
-    }
+    uint8_t bars = 128 >> settings.stepsCount;
+    if (bars == 0)
+        bars = 1;
 #endif
+
+    BuildSpectrumTopY(topY, bars);
+    SmoothTopY(topY);
+}
 
 static void DrawStatus()
 {
@@ -1681,13 +1671,51 @@ static void DrawNums()
     }
 }
 
-static void DrawRssiTriggerLevel()
+static bool SpectrumColumnAtOrAboveY(const uint8_t *topY, uint8_t x, uint8_t y)
+{
+    int8_t start = (x > 0) ? -1 : 0;
+    int8_t end = (x < 127) ? 1 : 0;
+
+    for (int8_t dx = start; dx <= end; dx++)
+    {
+        uint8_t n = x + dx;
+        if (topY[n] != SPECTRUM_TOPY_SKIP && topY[n] <= y + 1)
+            return true;
+        if (peakHoldY[n] != PEAK_HOLD_INIT && peakHoldY[n] <= y + 1)
+            return true;
+    }
+
+    return false;
+}
+
+static uint8_t GetScanStepTextWidth()
+{
+    uint16_t whole = GetScanStep() / 100;
+    uint8_t digits = 1;
+
+    while (whole >= 10)
+    {
+        whole /= 10;
+        digits++;
+    }
+
+    return (digits + 4) * 4; // "%u.%02uk", 4 px advance per char
+}
+
+static void DrawRssiTriggerLevel(const uint8_t *topY)
 {
     if (settings.rssiTriggerLevel == RSSI_MAX_VALUE || monitorMode)
         return;
+    uint8_t scanStepTextWidth = GetScanStepTextWidth();
     uint8_t y = Rssi2Y(settings.rssiTriggerLevel);
     for (uint8_t x = 0; x < 128; x += 2)
     {
+        if (SpectrumColumnAtOrAboveY(topY, x, y))
+            continue;
+        if (y <= 12 && (x < scanStepTextWidth + 2 || x >= 114))
+            continue;
+        if (gFrameBuffer[y / 8][x] & (1 << (y % 8)))
+            continue;
         PutPixel(x, y, true);
     }
 }
@@ -1931,13 +1959,15 @@ static void RenderSpectrum()
 {
     uint16_t steps = GetStepsCount();
     uint8_t arrowX = (steps > 1) ? (uint8_t)(128u * peak.i / (steps - 1)) : 0;
+    uint8_t topY[128];
 
+    BuildCurrentSpectrumTopY(topY);
     DrawTicks();
     DrawArrow(arrowX);
-    DrawSpectrum();
-    DrawRssiTriggerLevel();
+    DrawSpectrumCurve(topY);
     DrawF(peak.f);
     DrawNums();
+    DrawRssiTriggerLevel(topY);
 }
 
 static void RenderStill()
