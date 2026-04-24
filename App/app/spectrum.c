@@ -1737,7 +1737,7 @@ static void DrawArrow(uint8_t x)
 }
 
 static bool GetDirection(KEY_Code_t key) {
-    return (key == KEY_UP) ? !gEeprom.SET_NAV : gEeprom.SET_NAV;
+    return (key == KEY_UP) ? gEeprom.SET_NAV : !gEeprom.SET_NAV;
 }
 
 // Returns true if the key was handled (stop state-specific processing).
