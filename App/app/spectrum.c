@@ -1547,7 +1547,8 @@ static void DrawStatus()
     else
     {
         // In AUTO, keep mode/profile display only (no current/trigger pair).
-        sprintf(String, "A:%s", autoSensitivityLabel[autoSensitivity]);
+        sprintf(String, "A:%s %c", autoSensitivityLabel[autoSensitivity],
+                scanForward ? '>' : '<');
         GUI_DisplaySmallest(String, 0, 1, true, true);
     }
 
