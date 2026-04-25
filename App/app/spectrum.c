@@ -870,12 +870,27 @@ static void RequestAutoTriggerRecalibration()
     }
 }
 
+static void RearmRuntimeState()
+{
+    settings.dbMin = -128;
+    settings.dbMax = -97;
+    memset(rssiHistory, 0, sizeof(rssiHistory));
+    memset(peakHoldY,   PEAK_HOLD_INIT, sizeof(peakHoldY));
+    memset(peakHoldAge, 0,              sizeof(peakHoldAge));
+    rssiSmoothed = 0;
+    manualDbMaxTimer = 0;
+    
+    RelaunchScan();
+
+    redrawScreen = true;
+    redrawStatus = true;
+}
+
 // Reset spectrum runtime/config to defaults while keeping current frequency
 // context (center/range). Persist only fields that are normally saved.
 static void ResetSpectrumToDefaults()
 {
     manualSetFlag = false;
-    manualDbMaxTimer = 0;
     autoSensitivity = AUTO_SENS_NORMAL;
     monitorMode = false;
     menuState = 0;
@@ -887,8 +902,6 @@ static void ResetSpectrumToDefaults()
     settings.modulationType = gTxVfo->Modulation;
     settings.rssiTriggerLevel = RSSI_MAX_VALUE;
     autoNoiseFloor = RSSI_MAX_VALUE;
-    settings.dbMin = -128;
-    settings.dbMax = -97;
 
     // Keep frequency/range unchanged; recompute move step from fresh scan params.
     settings.frequencyChangeStep = GetBW() >> 1;
@@ -896,23 +909,16 @@ static void ResetSpectrumToDefaults()
     RADIO_SetModulation(settings.modulationType);
     BK4819_SetFilterBandwidth(settings.listenBw, false);
 
-    memset(rssiHistory, 0, sizeof(rssiHistory));
-    memset(peakHoldY,   PEAK_HOLD_INIT, sizeof(peakHoldY));
-    memset(peakHoldAge, 0,              sizeof(peakHoldAge));
-    rssiSmoothed = 0;
     listenLowCount = 0;
     listenPrevRssi = RSSI_MAX_VALUE;
     scanStartFromLeft = true;
 
-    RelaunchScan();
+    RearmRuntimeState();
     ResetBlacklist();
 
 #ifdef ENABLE_FEAT_F4HWN_SPECTRUM
     SaveSettings();
 #endif
-
-    redrawScreen = true;
-    redrawStatus = true;
 }
 
 // Update things by keypress
@@ -1100,18 +1106,9 @@ static void ToggleModulation()
     // previous history/levels can draw a persistent horizontal wall.
     if (!manualSetFlag)
         settings.rssiTriggerLevel = RSSI_MAX_VALUE;
-    settings.dbMin = -128;
-    settings.dbMax = -97;
-    manualDbMaxTimer = 0;
-    rssiSmoothed = 0;
-    memset(rssiHistory, 0, sizeof(rssiHistory));
-    memset(peakHoldY,   PEAK_HOLD_INIT, sizeof(peakHoldY));
-    memset(peakHoldAge, 0,              sizeof(peakHoldAge));
 
-    RelaunchScan();
+    RearmRuntimeState();
     ResetBlacklist();
-    redrawScreen = true;
-    redrawStatus = true;
 }
 
 static void ToggleListeningBW()
@@ -1519,28 +1516,29 @@ static void DrawStatus()
 {
     if (manualSetFlag)
     {
-        bool curInvalid = IsRssiHistoryInvalid(scanInfo.rssi);
-        bool trigInvalid =
-            monitorMode || settings.rssiTriggerLevel == RSSI_MAX_VALUE;
+        char curStr[6];
+        char trigStr[6];
 
-        if (curInvalid && trigInvalid)
-            sprintf(String, "M --/--");
-        else if (curInvalid)
-            sprintf(String, "M --/%d", Rssi2DBm(settings.rssiTriggerLevel));
-        else if (trigInvalid)
-            sprintf(String, "M %d/--", Rssi2DBm(scanInfo.rssi));
+        if (IsRssiHistoryInvalid(scanInfo.rssi))
+            sprintf(curStr, "--");
         else
-            sprintf(String, "M %d/%d", Rssi2DBm(scanInfo.rssi),
-                    Rssi2DBm(settings.rssiTriggerLevel));
-        GUI_DisplaySmallest(String, 0, 1, true, true);
+            sprintf(curStr, "%d", Rssi2DBm(scanInfo.rssi));
+
+        if (monitorMode || settings.rssiTriggerLevel == RSSI_MAX_VALUE)
+            sprintf(trigStr, "--");
+        else
+            sprintf(trigStr, "%d", Rssi2DBm(settings.rssiTriggerLevel));
+
+        sprintf(String, "M %s/%s", curStr, trigStr);
     }
     else
     {
         // In AUTO, keep mode/profile display only (no current/trigger pair).
         sprintf(String, "A:%s %c", autoSensitivityLabel[autoSensitivity],
                 scanForward ? '>' : '<');
-        GUI_DisplaySmallest(String, 0, 1, true, true);
     }
+    
+    GUI_DisplaySmallest(String, 0, 1, true, true);
 
     BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryCheckCounter++ % 4],
                              &gBatteryCurrent);
@@ -2557,8 +2555,6 @@ void APP_RunSpectrum()
     BackupRegisters();
 
     isListening = true; // to turn off RX later
-    redrawStatus = true;
-    redrawScreen = true;
     newScanStart = true;
     scanStartFromLeft = true;
 
@@ -2575,17 +2571,9 @@ void APP_RunSpectrum()
     // Persisted settings are step/count/listenBW only; trigger and dB window
     // are runtime values and should not carry over between sessions.
     manualSetFlag = false;
-    manualDbMaxTimer = 0;
     settings.rssiTriggerLevel = RSSI_MAX_VALUE;
-    settings.dbMin = -128;
-    settings.dbMax = -97;
 
-    RelaunchScan();
-
-    memset(rssiHistory, 0, sizeof(rssiHistory));
-    memset(peakHoldY,   PEAK_HOLD_INIT, sizeof(peakHoldY));
-    memset(peakHoldAge, 0,              sizeof(peakHoldAge));
-    rssiSmoothed    = 0;
+    RearmRuntimeState();
 
     isInitialized = true;
 
