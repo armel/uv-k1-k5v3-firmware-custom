@@ -74,6 +74,14 @@ static uint8_t  gScanProgressMemoryMap[SCAN_PROGRESS_MR_CHANNEL_BYTES];
 static uint8_t  gScanProgressMemoryExcludeOrdinalMap[SCAN_PROGRESS_MR_CHANNEL_BYTES];
 static bool     gScanProgressPrevResetVfosFlag;
 static bool     gScanProgressForceRebuild;
+static uint16_t gScanProgressLastMemoryIndex;
+static uint8_t  gScanProgressPriorityState;
+#define SCAN_PROGRESS_PRIORITY_LABEL_MASK 0x03u
+#define SCAN_PROGRESS_PRIORITY_SEEN_SHIFT 2
+#define SCAN_PROGRESS_PRIORITY_SEEN_MASK  0x1cu
+#define SCAN_PROGRESS_PRIORITY_HOLD_SHIFT 5
+#define SCAN_PROGRESS_PRIORITY_HOLD_MASK  0xe0u
+#define SCAN_PROGRESS_PRIORITY_HOLD_FRAMES 6
 #endif
 
 const char *VfoStateStr[] = {
@@ -93,6 +101,8 @@ static void ScanProgress_ResetSession(void)
     gScanProgressMemoryTotal   = 0;
     gScanProgressPrevResetVfosFlag = false;
     gScanProgressForceRebuild = false;
+    gScanProgressLastMemoryIndex = 0;
+    gScanProgressPriorityState = 0;
 }
 
 void UI_MAIN_NotifyScanProgressDataChanged(void)
@@ -194,11 +204,11 @@ static bool ScanProgress_IsForward(void)
     return gScanStateDir != SCAN_REV;
 }
 
-static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode)
+static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode, uint8_t extra_left_offset)
 {
     const bool forward = ScanProgress_IsForward();
 
-    const uint8_t gauge_left = width * 8 + 9;
+    const uint8_t gauge_left = (uint8_t)(width * 8 + 9 + extra_left_offset);
     const uint8_t gauge_right = 126;
     const uint8_t fill_start = gauge_left + 2;
     const uint8_t fill_end = gauge_right - 2;
@@ -257,6 +267,43 @@ static void ScanProgress_FormatIndex(char *out, size_t out_size, uint32_t curren
              (unsigned int)total);
 }
 
+static uint8_t ScanProgress_NextPriorityLabel(uint8_t current_label, uint8_t state_mask)
+{
+    for (uint8_t i = 0; i < 3; i++) {
+        current_label++;
+        if (current_label > 2)
+            current_label = 0;
+
+        if ((state_mask & (1u << current_label)) != 0)
+            return current_label;
+    }
+
+    return 0;
+}
+
+static uint8_t ScanProgress_GetPriorityLabel(void)
+{
+    return gScanProgressPriorityState & SCAN_PROGRESS_PRIORITY_LABEL_MASK;
+}
+
+static uint8_t ScanProgress_GetPrioritySeenMask(void)
+{
+    return (gScanProgressPriorityState & SCAN_PROGRESS_PRIORITY_SEEN_MASK) >> SCAN_PROGRESS_PRIORITY_SEEN_SHIFT;
+}
+
+static uint8_t ScanProgress_GetPriorityHoldFrames(void)
+{
+    return (gScanProgressPriorityState & SCAN_PROGRESS_PRIORITY_HOLD_MASK) >> SCAN_PROGRESS_PRIORITY_HOLD_SHIFT;
+}
+
+static void ScanProgress_SetPriorityFields(uint8_t label, uint8_t seen_mask, uint8_t hold_frames)
+{
+    gScanProgressPriorityState =
+        (uint8_t)(label & SCAN_PROGRESS_PRIORITY_LABEL_MASK) |
+        (uint8_t)((seen_mask << SCAN_PROGRESS_PRIORITY_SEEN_SHIFT) & SCAN_PROGRESS_PRIORITY_SEEN_MASK) |
+        (uint8_t)((hold_frames << SCAN_PROGRESS_PRIORITY_HOLD_SHIFT) & SCAN_PROGRESS_PRIORITY_HOLD_MASK);
+}
+
 static bool ScanProgress_BuildRangeIndex(uint32_t *current_index_out, uint32_t *total_out)
 {
 #ifdef ENABLE_SCAN_RANGES
@@ -295,6 +342,8 @@ static bool UI_DrawScanProgress(void)
 {
     bool show_memory = IS_MR_CHANNEL(gNextMrChannel);
     bool show_range = false;
+    uint8_t priority_now = 0;
+    const char *priority_label = "  ";
     char text[24];
     uint8_t line;
     uint32_t current_index = 1;
@@ -326,14 +375,29 @@ static bool UI_DrawScanProgress(void)
             gScanProgressSessionScanList     = scan_list;
             ScanProgress_RebuildMemoryMap(scan_list);
             gScanProgressForceRebuild = false;
+            gScanProgressLastMemoryIndex = 0;
         }
 
         if (gScanProgressMemoryTotal == 0)
             return false;
 
         current_index = ScanProgress_GetMemoryOrdinal(gRxVfo->CHANNEL_SAVE);
-        if (current_index == 0)
-            current_index = 1;
+        if (current_index == 0) {
+            // Channel not in scan map (e.g. priority channel hop while SCAN_LIST_ENABLED).
+            // Keep the last known index so the gauge does not reset.
+            current_index = gScanProgressLastMemoryIndex ? gScanProgressLastMemoryIndex : 1;
+
+            if (gEeprom.SCAN_LIST_ENABLED) {
+                if (gEeprom.SCANLIST_PRIORITY_CH[0] < MR_CHANNELS_MAX &&
+                    gRxVfo->CHANNEL_SAVE == gEeprom.SCANLIST_PRIORITY_CH[0])
+                    priority_now = 1;
+                else if (gEeprom.SCANLIST_PRIORITY_CH[1] < MR_CHANNELS_MAX &&
+                         gRxVfo->CHANNEL_SAVE == gEeprom.SCANLIST_PRIORITY_CH[1])
+                    priority_now = 2;
+            }
+        } else {
+            gScanProgressLastMemoryIndex = current_index;
+        }
         total = gScanProgressMemoryTotal;
     } else {
 #ifdef ENABLE_SCAN_RANGES
@@ -361,19 +425,50 @@ static bool UI_DrawScanProgress(void)
 #endif
     }
 
+    uint8_t priority_state_label = ScanProgress_GetPriorityLabel();
+    uint8_t priority_state_seen_mask = ScanProgress_GetPrioritySeenMask();
+    uint8_t priority_state_hold_frames = ScanProgress_GetPriorityHoldFrames();
+
+    priority_state_seen_mask |= (uint8_t)(1u << priority_now);
+
+    if (priority_state_hold_frames > 0)
+        priority_state_hold_frames--;
+
+    if (priority_state_hold_frames == 0) {
+        priority_state_label = ScanProgress_NextPriorityLabel(priority_state_label,
+                                                              priority_state_seen_mask);
+        priority_state_seen_mask = 0;
+        priority_state_hold_frames = SCAN_PROGRESS_PRIORITY_HOLD_FRAMES;
+    }
+
+    ScanProgress_SetPriorityFields(priority_state_label, priority_state_seen_mask, priority_state_hold_frames);
+
+    if (priority_state_label != 0)
+        priority_label = (priority_state_label == 1) ? "P1" : "P2";
+
     const uint8_t width = ScanProgress_DecimalDigits(total);
 
     ScanProgress_FormatIndex(text, sizeof(text), current_index, total, width);
 
+    uint8_t extra_offset = 0;
+
 #ifdef ENABLE_FEAT_F4HWN
     line = isMainOnly() ? 5 : 3;
-    GUI_DisplaySmallest(text, 2, isMainOnly() ? 41 : 25, false, true);
+    const uint8_t text_y = isMainOnly() ? 41 : 25;
+    GUI_DisplaySmallest(text, 2, text_y, false, true);
+
+    const uint8_t priority_x = (uint8_t)(width * 8 + 11);
+    for (uint8_t x = 0; x < 7; x++)
+        for (uint8_t y = 0; y < 6; y++)
+            PutPixel(priority_x + x, text_y + y, false);
+    GUI_DisplaySmallest(priority_label, priority_x, text_y, false, true);
+    extra_offset = 11;
 #else
     line = 3;
     UI_PrintStringSmallNormal(text, 2, 0, line);
 #endif
 
-    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory);
+    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory, extra_offset);
 
     return true;
 }
