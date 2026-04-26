@@ -213,37 +213,13 @@ void Main(void)
         if (gEeprom.POWER_ON_DISPLAY_MODE != POWER_ON_DISPLAY_MODE_NONE)
 #endif
         {   // 2.55 second boot-up screen
-#ifdef ENABLE_FEAT_F4HWN_QRCODE
-            bool qr_view = false;
-#endif
             while (boot_counter_10ms > 0)
             {
-#ifdef ENABLE_FEAT_F4HWN_QRCODE
-                // Freeze the 2.5s auto-exit timer while the user is reading the QR
-                if (qr_view)
-                    boot_counter_10ms = 250;
-#endif
-                KEY_Code_t key = KEYBOARD_Poll();
-                if (key == KEY_INVALID)
-                    continue;
-
-#ifdef ENABLE_FEAT_F4HWN_QRCODE
-                if (key == KEY_MENU)
-                {   // Toggle between welcome and fullscreen QR
-                    qr_view = !qr_view;
-                    if (qr_view)
-                        UI_DisplayWelcomeQR();
-                    else
-                        UI_DisplayWelcome();
-                    boot_counter_10ms = 250;
-                    while (KEYBOARD_Poll() == KEY_MENU) ;  // wait for release
-                    SYSTEM_DelayMs(20);
-                    continue;
+                if (KEYBOARD_Poll() != KEY_INVALID)
+                {   // halt boot beeps
+                    boot_counter_10ms = 0;
+                    break;
                 }
-#endif
-                // Any other key halts boot beeps and exits
-                boot_counter_10ms = 0;
-                break;
             }
             RADIO_SetupRegisters(true);
         }

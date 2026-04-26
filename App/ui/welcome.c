@@ -115,6 +115,15 @@ static inline uint16_t pct_x100(uint32_t used, uint32_t total)
 {
     return (uint16_t)((used * 10000u) / total); // 7559 => 75.59%
 }
+
+void UI_GetMemPercents(uint16_t *flash_pct_x100, uint16_t *ram_pct_x100)
+{
+    uint32_t ram_used   = 0;
+    uint32_t flash_used = 0;
+    build_usage(&ram_used, &flash_used);
+    if (flash_pct_x100) *flash_pct_x100 = pct_x100(flash_used, FLASH_SIZE_BYTES);
+    if (ram_pct_x100)   *ram_pct_x100   = pct_x100(ram_used,   RAM_SIZE_BYTES);
+}
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_QRCODE
@@ -146,80 +155,11 @@ static void QR_Draw(const uint8_t *bitmap, uint8_t size, uint8_t origin_x, uint8
     }
 }
 
-// Tiny-font capsule label drawn entirely inside the status line, mirroring the
-// scan-list name pill (see status.c). Body uses 0x7F (bits 0..6 = 7 px tall),
-// caps use 0x3E (bits 1..5 = 5 px tall) for rounded corners.
-// Caller passes glyph_x = first glyph column. Capsule width = len*4 + 3 px.
-static void DrawStatusCapsule(const char *text, uint8_t glyph_x)
+void UI_DrawQRCode(bool wiki, uint8_t origin_x, uint8_t origin_y)
 {
-    const uint8_t len = (uint8_t)strlen(text);
-    if (len == 0) return;
-
-    GUI_DisplaySmallest(text, glyph_x, 1, true, true);
-
-    const uint8_t left_cap  = (uint8_t)(glyph_x - 2u);
-    const uint8_t body_x0   = (uint8_t)(glyph_x - 1u);
-    const uint8_t body_x1   = (uint8_t)(glyph_x + (uint16_t)len * 4u - 1u);
-    const uint8_t right_cap = (uint8_t)(glyph_x + (uint16_t)len * 4u);
-
-    gStatusLine[left_cap] ^= 0x3E;
-    for (uint8_t x = body_x0; x <= body_x1; x++) {
-        gStatusLine[x] ^= 0x7F;
-    }
-    gStatusLine[right_cap] ^= 0x3E;
-}
-
-void UI_DisplayWelcomeQR(void)
-{
-    memset(gStatusLine, 0, sizeof(gStatusLine));
-#if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
-    ST7565_ContrastAndInv();
-#endif
-    UI_DisplayClear();
-
-    // Capsule labels in the status line, same style as the scan-list name pill.
-    // Capsule width = 4*4 + 3 = 19 px → centered above each 33-px QR.
-    // glyph_x = QR_x + (33-19)/2 + 2 = QR_x + 9.
-    DrawStatusCapsule("CODE", 23);   //  4 + 9
-    DrawStatusCapsule("WIKI", 90);  // 91 + 9
-
-    // Two QR codes (V4, 33x33) side by side, just below the status line.
-    // Left  → repo : x=4..36,  y=8..40
-    // Right → wiki : x=91..123, y=8..40
-    QR_Draw((const uint8_t *)BITMAP_QR_GitHub,      33, 14, 12);
-    QR_Draw((const uint8_t *)BITMAP_QR_GitHub_Wiki, 33, 81, 12);
-
-    // "Open Source Firmware" tiny font at fb_y=42 → physical y=50..55,
-    // just above the MEM line (which is at physical y=58..63).
-    GUI_DisplaySmallest("OPEN SOURCE FIRMWARE", 24, 42, false, true);
-
-#ifdef ENABLE_FEAT_F4HWN_MEM
-    // FLASH + SRAM combined on the very bottom row, 3x5 tiny font (physical y=58..63).
-    {
-        char mem_line[32];
-        uint32_t ram_used   = 0;
-        uint32_t flash_used = 0;
-        build_usage(&ram_used, &flash_used);
-
-        const uint16_t ram_pct   = pct_x100(ram_used,   RAM_SIZE_BYTES);
-        const uint16_t flash_pct = pct_x100(flash_used, FLASH_SIZE_BYTES);
-
-        sprintf(mem_line, "FLASH %u.%02u %% - SRAM  %u.%02u %%",
-                (unsigned)(flash_pct / 100), (unsigned)(flash_pct % 100),
-                (unsigned)(ram_pct   / 100), (unsigned)(ram_pct   % 100));
-
-        // 3x5 font, 4 px stride: 29 chars × 4 = 116 px → x=6 centers it.
-        // y=50 in framebuffer coords = physical y=58.
-        GUI_DisplaySmallest(mem_line, 6, 50, false, true);
-    }
-#endif
-
-    ST7565_BlitStatusLine();
-    ST7565_BlitFullScreen();
-
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        SCREENSHOT_Update(true);
-    #endif
+    QR_Draw(wiki ? (const uint8_t *)BITMAP_QR_GitHub_Wiki
+                 : (const uint8_t *)BITMAP_QR_GitHub,
+            33, origin_x, origin_y);
 }
 #endif
 

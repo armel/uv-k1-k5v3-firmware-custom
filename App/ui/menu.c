@@ -41,6 +41,7 @@
 #include "inputbox.h"
 #include "menu.h"
 #include "ui.h"
+#include "welcome.h"
 
 
 const t_menu_item MenuList[] =
@@ -1129,18 +1130,69 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_ROGER[gSubMenuSelection]);
             break;
 
-        case MENU_VOL:
+        case MENU_VOL: {
+            // SysInf is paginated. Pages appear in this order, only when their
+            // feature flag is enabled — so indices compact automatically:
+            //   0          → identity                (always)
+            //   next       → Flash / SRAM usage      (ENABLE_FEAT_F4HWN_MEM)
+            //   next, +1   → CODE / WIKI QR codes    (ENABLE_FEAT_F4HWN_QRCODE)
+            // The post-incremented `p` walks through every enabled page slot.
+            const uint8_t page = (uint8_t)gSubMenuSelection;
+            uint8_t       p    = 0;
+
+            if (page == p++) {
+                // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
-            sprintf(String, "%s\n%s",
-                AUTHOR_STRING_2,
-                VERSION_STRING_2
-            );
+                sprintf(String, "%s\n%s", AUTHOR_STRING_2, VERSION_STRING_2);
 #else
-            sprintf(String, "%u.%02uV\n%u%%",
-                gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
-                BATTERY_VoltsToPercent(gBatteryVoltageAverage));
+                sprintf(String, "%u.%02uV\n%u%%",
+                    gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
+                    BATTERY_VoltsToPercent(gBatteryVoltageAverage));
+#endif
+                break;
+            }
+#ifdef ENABLE_FEAT_F4HWN_MEM
+            if (page == p++) {
+                uint16_t flash_pct = 0;
+                uint16_t ram_pct   = 0;
+                UI_GetMemPercents(&flash_pct, &ram_pct);
+
+                char val[16];
+
+                // MEMORY title capsule (6 chars → 45 px wide) centered in right zone, fb line 1.
+                UI_PrintStringSmallNormalInverse("MEMORY", 67, 0, 1);
+
+                // Flash + SRAM values stacked below, normal small font, with a fb-line of breathing space.
+                sprintf(val, "FLASH %u.%01u%%",
+                        (unsigned)(flash_pct / 100), (unsigned)((flash_pct % 100) / 10));
+                UI_PrintStringSmallNormal(val, 49, 127, 3);
+
+                sprintf(val, "SRAM  %u.%01u%%",
+                        (unsigned)(ram_pct / 100), (unsigned)((ram_pct % 100) / 10));
+                UI_PrintStringSmallNormal(val, 49, 127, 5);
+
+                already_printed = true;
+                break;
+            }
+#endif
+#ifdef ENABLE_FEAT_F4HWN_QRCODE
+            // Right zone: x=49..127 (79 px). QR centered at x=72..104.
+            // Capsule label above QR (small-font Inverse style at fb line 1).
+            if (page == p++) {
+                UI_PrintStringSmallNormalInverse("CODE", 74, 0, 1);
+                UI_DrawQRCode(false, 72, 28);
+                already_printed = true;
+                break;
+            }
+            if (page == p++) {
+                UI_PrintStringSmallNormalInverse("WIKI", 74, 0, 1);
+                UI_DrawQRCode(true, 72, 28);
+                already_printed = true;
+                break;
+            }
 #endif
             break;
+        }
 
         case MENU_RESET:
             strcpy(String, gSubMenu_RESET[gSubMenuSelection]);
@@ -1364,8 +1416,8 @@ void UI_DisplayMenu(void)
 
             y = (small ? 3 : 2) - (lines / 2); 
 
-            // only for SysInf
-            if(UI_MENU_GetCurrentMenuId() == MENU_VOL)
+            // only for SysInf, page 0 (identity); other pages own their layout
+            if(UI_MENU_GetCurrentMenuId() == MENU_VOL && gSubMenuSelection == 0)
             {
                 sprintf(edit, "%u.%02uV %u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
