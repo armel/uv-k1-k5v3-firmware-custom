@@ -1145,7 +1145,8 @@ void UI_DisplayMenu(void)
             if (page == p++) {
                 // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
-                sprintf(String, "%s\n%s\n%s", AUTHOR_STRING_2, Edition, VERSION_STRING_2);
+                sprintf(String, "%s\n%s", AUTHOR_STRING_2, VERSION_STRING_2);
+                UI_PrintStringSmallNormal(Edition, 54, 127, 6);
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
