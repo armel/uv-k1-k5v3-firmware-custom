@@ -1132,18 +1132,19 @@ void UI_DisplayMenu(void)
 
         case MENU_VOL: {
             // SysInf is paginated. Pages appear in this order, only when their
-            // feature flag is enabled — so indices compact automatically:
-            //   0          → identity                (always)
-            //   next       → Flash / SRAM usage      (ENABLE_FEAT_F4HWN_MEM)
-            //   next, +1   → CODE / WIKI QR codes    (ENABLE_FEAT_F4HWN_QRCODE)
-            // The post-incremented `p` walks through every enabled page slot.
+            // feature flag is enabled:
+            //   0          -> identity
+            //   next       -> Battery                 (ENABLE_FEAT_F4HWN)
+            //   next       -> Flash / SRAM usage      (ENABLE_FEAT_F4HWN_MEM)
+            //   next, +1   -> CODE / WIKI QR codes    (ENABLE_FEAT_F4HWN_QRCODE)
+            // In non-F4HWN builds, page 0 keeps the old battery-voltage display.
             const uint8_t page = (uint8_t)gSubMenuSelection;
             uint8_t       p    = 0;
 
             if (page == p++) {
                 // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
-                sprintf(String, "%s\n%s", AUTHOR_STRING_2, VERSION_STRING_2);
+                sprintf(String, "%s\n%s", AUTHOR_STRING_2, Edition);
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
@@ -1151,6 +1152,23 @@ void UI_DisplayMenu(void)
 #endif
                 break;
             }
+#ifdef ENABLE_FEAT_F4HWN
+            if (page == p++) {
+                char val[16];
+
+                UI_PrintStringSmallNormalInverse("BATTERY", 63, 0, 1);
+
+                sprintf(val, "%u.%02uV %u%%",
+                    gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
+                    BATTERY_VoltsToPercent(gBatteryVoltageAverage));
+                UI_PrintStringSmallNormal(val, 49, 127, 3);
+
+                UI_PrintStringSmallNormal(gSubMenu_BATTYP[gEeprom.BATTERY_TYPE], 49, 127, 5);
+
+                already_printed = true;
+                break;
+            }
+#endif
 #ifdef ENABLE_FEAT_F4HWN_MEM
             if (page == p++) {
                 uint16_t flash_pct = 0;
@@ -1415,21 +1433,14 @@ void UI_DisplayMenu(void)
 
             y = (small ? 3 : 2) - (lines / 2); 
 
-            // only for SysInf, page 0 (identity); other pages own their layout
+            // Page 0 gets a fixed vertical position; other SysInf pages own their layout.
             if(UI_MENU_GetCurrentMenuId() == MENU_VOL && gSubMenuSelection == 0)
             {
-                sprintf(edit, "%u.%02uV %u%%",
-                    gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
-                    BATTERY_VoltsToPercent(gBatteryVoltageAverage)
-                );
-
-                UI_PrintStringSmallNormal(edit, 54, 127, 1);
-
                 #ifdef ENABLE_FEAT_F4HWN
-                    UI_PrintStringSmallNormal(Edition, 54, 127, 6);
+                    UI_PrintStringSmallNormal(VERSION_STRING_2, 54, 127, 6);
                 #endif
 
-                y = 2;
+                y = 1;
             }
 
             // draw the text lines

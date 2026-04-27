@@ -458,9 +458,15 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 #endif
 
         case MENU_VOL: {
-            // SysInf paginates: page 0 = identity, +1 if F4HWN_MEM (Flash/SRAM),
+            // SysInf paginates: 
+            // page 0 = identity, 
+            // page 1 = battery,
+            // +1 if F4HWN_MEM (Flash/SRAM), 
             // +2 if F4HWN_QRCODE (Code QR + Wiki QR).
             int32_t vol_max = 0;
+            #ifdef ENABLE_FEAT_F4HWN
+                vol_max += 1;
+            #endif
             #ifdef ENABLE_FEAT_F4HWN_MEM
                 vol_max += 1;
             #endif
