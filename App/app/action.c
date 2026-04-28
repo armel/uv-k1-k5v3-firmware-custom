@@ -343,22 +343,14 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             break;
     }
 
-    if (!bKeyHeld && bKeyPressed) // button pushed
-    {
+    if (bKeyHeld != bKeyPressed) { // button pushed or released after hold 
+                                   // (!bKeyHeld && bKeyPressed) or (bKeyHeld && !bKeyPressed)
         return;
     }
 
-    // held or released beyond this point
+    // held or released after short press
 
-    if(!(bKeyHeld && !bKeyPressed)) // don't beep on released after hold
-        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-
-    if (bKeyHeld && !bKeyPressed) // button released after hold
-    {
-        return;
-    }
-
-    // held or released after short press beyond this point
+    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
     
 #ifdef ENABLE_FMRADIO
     if (gFmRadioMode) { // do not run these actions in FM radio mode

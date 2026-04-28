@@ -2088,7 +2088,8 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             }
         }
 #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-        else if ((!bKeyHeld && bKeyPressed) || (gAlarmState == ALARM_STATE_TX1750 && bKeyHeld && !bKeyPressed)) {
+        // else if ((!bKeyHeld && bKeyPressed) || (gAlarmState == ALARM_STATE_TX1750 && bKeyHeld && !bKeyPressed)) {
+        else if ((bKeyHeld != bKeyPressed) && (gAlarmState == ALARM_STATE_TX1750 || bKeyPressed)) {
             ALARM_Off();
 
             if (gEeprom.REPEATER_TAIL_TONE_ELIMINATION == 0)

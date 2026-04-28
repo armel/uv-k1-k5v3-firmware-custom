@@ -1507,6 +1507,13 @@ static const char* const char_map[10] = {
     "wxyz9"                         // KEY_9
 };
 
+static bool MENU_IsEditingName() {
+    return !gCssBackgroundScan
+        && UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME
+        && gIsInSubMenu
+        && edit_index >= 0;
+}
+
 static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
     uint8_t  Offset;
@@ -1708,12 +1715,7 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
 static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
-    const bool editing_name = !gCssBackgroundScan
-        && UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME
-        && gIsInSubMenu
-        && edit_index >= 0;
-
-    if (editing_name)
+    if (MENU_IsEditingName())
     {
         if (!bKeyPressed)
         {
@@ -1813,9 +1815,9 @@ Skip:
 
 static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 {
-    if (bKeyHeld || !bKeyPressed)
+    if (!bKeyPressed || (bKeyHeld && (!MENU_IsEditingName() || gAskForConfirmation)))
         return;
-
+    
     gBeepToPlay           = BEEP_1KHZ_60MS_OPTIONAL;
     gRequestDisplayScreen = DISPLAY_MENU;
 
@@ -1884,8 +1886,12 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
         {   // editing the channel name characters
             edit_last_key = 255;
 
-            if (++edit_index < 10)
-                return; // next char
+            if (bKeyHeld) {
+                edit_index = 10;
+            }
+            else if (++edit_index < 10) {
+                return;
+            }
 
             // exit
             gFlagAcceptSetting  = false;
@@ -2013,22 +2019,17 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     uint16_t Channel;
     bool    bCheckScanList;
 
+    if (!bKeyPressed)
+        return;
+
+    if (!bKeyHeld) {
+        gInputBoxIndex = 0;
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+    }
+
     if (!gEeprom.SET_NAV && gIsInSubMenu) {
         Direction = -Direction;
     }
-
-    if (!bKeyHeld)
-    {
-        if (!bKeyPressed)
-            return;
-
-        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-
-        gInputBoxIndex = 0;
-    }
-    else
-    if (!bKeyPressed)
-        return;
 
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && gIsInSubMenu && edit_index >= 0)
     {   // change the character
