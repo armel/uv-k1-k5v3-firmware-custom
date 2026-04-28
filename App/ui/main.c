@@ -920,6 +920,7 @@ void DisplayRSSIBar(const bool now)
         overS9dBm  = (uint8_t)MIN(rssi_dBm - (-93), 40);
         overS9Bars = overS9dBm / 10;
     }
+    const int16_t display_rssi_dBm = (rssi_dBm > -53) ? -53 : rssi_dBm;
 #else
     const int16_t s0_dBm   = -gEeprom.S0_LEVEL;                  // S0 .. base level
     const int16_t rssi_dBm =
@@ -938,12 +939,12 @@ void DisplayRSSIBar(const bool now)
 #ifdef ENABLE_FEAT_F4HWN
     if (gSetting_set_gui)
     {
-        sprintf(str, "%3d", rssi_dBm);
+        sprintf(str, "%3d", display_rssi_dBm);
         UI_PrintStringSmallNormal(str, LCD_WIDTH + 8, 0, line - 1);
     }
     else
     {
-        sprintf(str, "% 4d %s", rssi_dBm, "dBm");
+        sprintf(str, "% 4d %s", display_rssi_dBm, "dBm");
         if(isMainOnly())
             GUI_DisplaySmallest(str, 2, 41, false, true);
         else
