@@ -2037,7 +2037,7 @@ void UI_DisplayMain(void)
         const bool rx = FUNCTION_IsRx();
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
-        if (gScanStateDir != SCAN_OFF && UI_DrawScanProgress())
+        if (!rx && gScanStateDir != SCAN_OFF && UI_DrawScanProgress())
         {
             center_line = CENTER_LINE_SCAN_PROGRESS;
         }
