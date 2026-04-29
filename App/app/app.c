@@ -1560,7 +1560,7 @@ void APP_TimeSlice500ms(void)
             {
                 if (gDTMF_RX_live[0] != 0)
                 {
-                    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+                    DTMF_clear_input_box_memory();
                     gUpdateDisplay   = true;
                 }
             }
@@ -1908,7 +1908,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         if (Key == KEY_EXIT && bKeyHeld) { // exit key held pressed
             // clear the live DTMF decoder
             if (gDTMF_RX_live[0] != 0) {
-                memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+                DTMF_clear_input_box_memory();
                 gDTMF_RX_live_timeout = 0;
                 gUpdateDisplay        = true;
             }

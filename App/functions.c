@@ -151,7 +151,7 @@ void FUNCTION_Transmit()
 
     // clear the DTMF RX live decoder buffer
     gDTMF_RX_live_timeout = 0;
-    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+    DTMF_clear_input_box_memory();
 
 #if defined(ENABLE_FMRADIO)
     if (gFmRadioMode)
