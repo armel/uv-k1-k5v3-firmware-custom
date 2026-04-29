@@ -212,7 +212,7 @@ void ACTION_Scan(bool bRestart)
     DTMF_clear_RX();
 #endif
     gDTMF_RX_live_timeout = 0;
-    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+    DTMF_clear_input_box_memory();
 
     RADIO_SelectVfos();
 

@@ -49,7 +49,6 @@ typedef struct {
     uint8_t y;       // y
     uint8_t w;       // width
     uint8_t h;       // height
-    uint8_t s;       // style
     bool destroy;    // active, if true, check this button, else bypass
 } Brick;
 

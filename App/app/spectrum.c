@@ -1574,6 +1574,11 @@ static void ShowChannelName(uint32_t f)
     static uint32_t channelF = 0;
     static char channelName[12]; 
 
+    // Channel name starts at x=43 (fixed), leaving room for the dBm
+    // string on the left (max ~40 px) and battery indicator at x=116.
+    // Clear first so a shorter name doesn't leave stale pixels.
+    memset(&gStatusLine[43], 0, 116 - 43);
+
     if (isListening)
     {
         if (f != channelF) {
@@ -1593,18 +1598,8 @@ static void ShowChannelName(uint32_t f)
             }
         }
         if (channelName[0] != 0) {
-            // Channel name starts at x=43 (fixed), leaving room for the dBm
-            // string on the left (max ~40 px) and battery indicator at x=116.
-            // Clear first so a shorter name doesn't leave stale pixels.
-            memset(&gStatusLine[43], 0, 116 - 43);
             UI_PrintStringSmallBufferNormal(channelName, gStatusLine + 43);
-        } else {
-            memset(&gStatusLine[43], 0, 116 - 43);
         }
-    }
-    else
-    {
-        memset(&gStatusLine[43], 0, 116 - 43);
     }
 
     ST7565_BlitStatusLine();
@@ -1948,7 +1943,7 @@ static void RenderFreqInput() { UI_PrintString(freqInputString, 2, 127, 0, 8); }
 
 static void RenderStatus()
 {
-    memset(gStatusLine, 0, sizeof(gStatusLine));
+    UI_StatusClear();
     DrawStatus();
     ST7565_BlitStatusLine();
 }
