@@ -1504,11 +1504,11 @@ void UI_DisplayMenu(void)
             (gSubMenuSelection > 0) ? DCS_GetDcsApprovedIndex(gSubMenuSelection - 1) : 0xFF;
 
         if (gSubMenuSelection == 0)
-            sprintf(top_right_badge, "000/000");
+            sprintf(top_right_badge, "000/00");
         else if (approved_index != 0xFF)
-            sprintf(top_right_badge, "%03u/%03u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
+            sprintf(top_right_badge, "%03u/%02u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
         else
-            sprintf(top_right_badge, "%03u/---", (unsigned)gSubMenuSelection);
+            sprintf(top_right_badge, "%03u/--", (unsigned)gSubMenuSelection);
     }
 
 #ifdef ENABLE_DTMF_CALLING
