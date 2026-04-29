@@ -1499,9 +1499,22 @@ void UI_DisplayMenu(void)
             if (gSubMenuSelection == 0)
                 sprintf(top_right_badge, "00/00");
             else if (approved_index != 0xFF)
-                sprintf(top_right_badge, "%02u/%02u", (unsigned)gSubMenuSelection, approved_index + 1);
+                sprintf(top_right_badge, "%02u/%02u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
             else
                 sprintf(top_right_badge, "%02u/--", (unsigned)gSubMenuSelection);
+        } else if (UI_MENU_GetCurrentMenuId() == MENU_R_DCS ||
+                   UI_MENU_GetCurrentMenuId() == MENU_T_DCS) {
+            const bool is_normal_dcs =
+                gSubMenuSelection > 0 && gSubMenuSelection <= ARRAY_SIZE(DCS_Options);
+            const uint8_t approved_index =
+                is_normal_dcs ? DCS_GetDcsApprovedIndex(gSubMenuSelection - 1) : 0xFF;
+
+            if (gSubMenuSelection == 0)
+                sprintf(top_right_badge, "000/000");
+            else if (approved_index != 0xFF)
+                sprintf(top_right_badge, "%03u/%03u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
+            else
+                sprintf(top_right_badge, "%03u/---", (unsigned)gSubMenuSelection);
         } else {
             sprintf(top_right_badge, "%03d", gSubMenuSelection);
         }

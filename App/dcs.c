@@ -48,6 +48,13 @@ const uint16_t DCS_Options[104] = {
     0x01C3, 0x01CA, 0x01D3, 0x01D9, 0x01DA, 0x01DC, 0x01E3, 0x01EC,
 };
 
+// Indices in DCS_Options for the 21 non-PMR446 DCS codes.
+static const uint8_t DCS_ExtraIdx[21] = {
+     5,  9, 19, 25, 34, 36, 41, 43, 44, 48,
+    50, 54, 56, 60, 71, 72, 73, 74, 75, 82,
+    83
+};
+
 static uint32_t DCS_CalculateGolay(uint32_t CodeWord)
 {
     unsigned int i;
@@ -127,6 +134,33 @@ uint8_t DCS_GetCtcssApprovedIndex(uint8_t Option)
     for (i = 0; i < ARRAY_SIZE(CTCSS_Options); i++) {
         const bool is_extra = extra_pos < ARRAY_SIZE(CTCSS_ExtraIdx) &&
                               i == CTCSS_ExtraIdx[extra_pos];
+
+        if (is_extra) {
+            extra_pos++;
+            continue;
+        }
+
+        if (i == Option)
+            return approved_index;
+
+        approved_index++;
+    }
+
+    return 0xFF;
+}
+
+uint8_t DCS_GetDcsApprovedIndex(uint8_t Option)
+{
+    unsigned int i;
+    unsigned int extra_pos = 0;
+    uint8_t approved_index = 0;
+
+    if (Option >= ARRAY_SIZE(DCS_Options))
+        return 0xFF;
+
+    for (i = 0; i < ARRAY_SIZE(DCS_Options); i++) {
+        const bool is_extra = extra_pos < ARRAY_SIZE(DCS_ExtraIdx) &&
+                              i == DCS_ExtraIdx[extra_pos];
 
         if (is_extra) {
             extra_pos++;
