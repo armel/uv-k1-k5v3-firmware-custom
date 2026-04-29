@@ -1506,7 +1506,7 @@ void UI_DisplayMenu(void)
         if (gSubMenuSelection == 0)
             sprintf(top_right_badge, "000/000");
         else if (approved_index != 0xFF)
-            sprintf(top_right_badge, "%03u/%03u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 39);
+            sprintf(top_right_badge, "%03u/%03u", (unsigned)gSubMenuSelection, (unsigned)approved_index + 1);
         else
             sprintf(top_right_badge, "%03u/---", (unsigned)gSubMenuSelection);
     }
