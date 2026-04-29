@@ -14,6 +14,7 @@
  *     limitations under the License.
  */
 
+#include <stddef.h>
 #include "dcs.h"
 #include "misc.h"
 
@@ -122,18 +123,18 @@ uint8_t DCS_GetCtcssCode(int Code)
     return Result;
 }
 
-uint8_t DCS_GetCtcssApprovedIndex(uint8_t Option)
+static uint8_t DCS_GetApprovedIndex(uint8_t Option, size_t options_size, size_t extraidx_size, const uint8_t *extraidx)
 {
     unsigned int i;
     unsigned int extra_pos = 0;
     uint8_t approved_index = 0;
 
-    if (Option >= ARRAY_SIZE(CTCSS_Options))
+    if (Option >= options_size)
         return 0xFF;
 
-    for (i = 0; i < ARRAY_SIZE(CTCSS_Options); i++) {
-        const bool is_extra = extra_pos < ARRAY_SIZE(CTCSS_ExtraIdx) &&
-                              i == CTCSS_ExtraIdx[extra_pos];
+    for (i = 0; i < options_size; i++) {
+        const bool is_extra = extra_pos < extraidx_size &&
+                              i == extraidx[extra_pos];
 
         if (is_extra) {
             extra_pos++;
@@ -149,29 +150,12 @@ uint8_t DCS_GetCtcssApprovedIndex(uint8_t Option)
     return 0xFF;
 }
 
+uint8_t DCS_GetCtcssApprovedIndex(uint8_t Option)
+{
+    return DCS_GetApprovedIndex(Option, ARRAY_SIZE(CTCSS_Options), ARRAY_SIZE(CTCSS_ExtraIdx), CTCSS_ExtraIdx);
+}
+
 uint8_t DCS_GetDcsApprovedIndex(uint8_t Option)
 {
-    unsigned int i;
-    unsigned int extra_pos = 0;
-    uint8_t approved_index = 0;
-
-    if (Option >= ARRAY_SIZE(DCS_Options))
-        return 0xFF;
-
-    for (i = 0; i < ARRAY_SIZE(DCS_Options); i++) {
-        const bool is_extra = extra_pos < ARRAY_SIZE(DCS_ExtraIdx) &&
-                              i == DCS_ExtraIdx[extra_pos];
-
-        if (is_extra) {
-            extra_pos++;
-            continue;
-        }
-
-        if (i == Option)
-            return approved_index;
-
-        approved_index++;
-    }
-
-    return 0xFF;
+    return DCS_GetApprovedIndex(Option, ARRAY_SIZE(DCS_Options), ARRAY_SIZE(DCS_ExtraIdx), DCS_ExtraIdx);
 }
