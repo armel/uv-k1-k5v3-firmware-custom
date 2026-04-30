@@ -59,8 +59,9 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // MR FM * 128 Bytes (0x003000)             0x00A028 -> 0x00A0A8
                                                 // Settings * 80 Bytes (0x007000)           0x00A0A8 -> 0x00A0F8
                                                 // Settings * 56 Bytes (0x008000)           0x00A0F8 -> 0x00A130
-                                                // Settings Scanlist * 8 Bytes (0x009000)   0x00A130 -> 0x00A140
-                                                // Settings AES * 16 Bytes (0x00A000)       0x00A140 -> 0x00A150
+                                                // Settings Scanlist * 8 Bytes (0x009000)   0x00A130 -> 0x00A138
+                                                // Settings AES * 16 Bytes (0x00A000)       0x00A138 -> 0x00A148
+                                                // Settings Spectrum * 8 Bytes              0x00A148 -> 0x00A150
                                                 // Settings * 8 Bytes (0x00B000)            0x00A150 -> 0x00A158
                                                 // Settings F4HWN * 8 Bytes (0x00C000)      0x00A158 -> 0x00A160
                                                 // Settings Version * 16 Bytes              0x00A160 -> 0x00A170

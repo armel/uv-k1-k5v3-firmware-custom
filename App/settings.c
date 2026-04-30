@@ -495,10 +495,6 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gSetting_set_off = (Data[4] >> 1) > 120 ? 60 : (Data[4] >> 1); 
 #endif
 
-        // Warning
-        // Be aware, Data[3] is use by Spectrum
-        // Warning
-
         // And set special session settings for actions
         gSetting_set_ptt_session = gSetting_set_ptt;
         gEeprom.KEY_LOCK_PTT = gSetting_set_lck;

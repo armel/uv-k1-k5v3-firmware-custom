@@ -209,32 +209,56 @@ uint16_t statuslineUpdateTimer = 0;
 #ifdef ENABLE_FEAT_F4HWN_SPECTRUM
 static void LoadSettings()
 {
-    uint8_t Data[8] = {0};
-    PY25Q16_ReadBuffer(0x00A158, Data, sizeof(Data));
+    uint8_t Data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    PY25Q16_ReadBuffer(0x00A148, Data, sizeof(Data));
 
-    settings.scanStepIndex = ((Data[3] & 0xF0) >> 4);
+    // Data[0]: scanStepIndex (7:4), stepsCount (3:2), listenBw (1:0)
+    settings.scanStepIndex = (Data[0] >> 4) & 0x0F;
     if (settings.scanStepIndex > 14)
         settings.scanStepIndex = S_STEP_25_0kHz;
 
-    settings.stepsCount = ((Data[3] & 0x0F) & 0b1100) >> 2;
+    settings.stepsCount = (Data[0] >> 2) & 0x03;
     if (settings.stepsCount > 3)
         settings.stepsCount = STEPS_64;
 
-    settings.listenBw = ((Data[3] & 0x0F) & 0b0011);
+    settings.listenBw = Data[0] & 0x03;
     if (settings.listenBw > 2)
         settings.listenBw = BK4819_FILTER_BW_WIDE;
 
+    // Data[1]: manualSetFlag (0), autoSensitivity (2:1)
+    manualSetFlag = Data[1] & 0x01;
+    autoSensitivity = (Data[1] >> 1) & 0x03;
+    if (autoSensitivity >= AUTO_SENS_N_ELEM)
+        autoSensitivity = AUTO_SENS_NORMAL;
+
+    // Data[2]: dbMax encoded as (dbMax + 130) / 5
+    if (Data[2] <= 28)
+        settings.dbMax = (int)Data[2] * 5 - 130;
+
+    // Data[3]: rssiTriggerLevel as uint8_t (0xFF = auto)
+    settings.rssiTriggerLevel = (Data[3] == 0xFF) ? RSSI_MAX_VALUE : Data[3];
+
+    // Data[4] ~ Data[7] are free (for the moment...)
 }
 
 static void SaveSettings()
 {
     uint8_t Data[8] = {0};
-    PY25Q16_ReadBuffer(0x00A158, Data, sizeof(Data));
+    PY25Q16_ReadBuffer(0x00A148, Data, sizeof(Data));
 
-    Data[3] = (settings.scanStepIndex << 4) | (settings.stepsCount << 2) | settings.listenBw;
+    // Data[0]: scanStepIndex (7:4), stepsCount (3:2), listenBw (1:0)
+    Data[0] = (settings.scanStepIndex << 4) | (settings.stepsCount << 2) | settings.listenBw;
 
+    // Data[1]: manualSetFlag (0), autoSensitivity (2:1)
+    Data[1] = (manualSetFlag & 0x01) | ((autoSensitivity & 0x03) << 1);
 
-    PY25Q16_WriteBuffer(0x00A158, Data, sizeof(Data), false);
+    // Data[2]: dbMax encoded as (dbMax + 130) / 5
+    Data[2] = (uint8_t)((settings.dbMax + 130) / 5);
+
+    // Data[3]: rssiTriggerLevel as uint8_t (0xFF = auto)
+    Data[3] = (settings.rssiTriggerLevel == RSSI_MAX_VALUE) ? 0xFF : (uint8_t)settings.rssiTriggerLevel;
+
+    PY25Q16_WriteBuffer(0x00A148, Data, sizeof(Data), false);
 }
 #endif
 
@@ -2565,8 +2589,8 @@ void APP_RunSpectrum()
     // Reset dynamic spectrum state on every entry.
     // Persisted settings are step/count/listenBW only; trigger and dB window
     // are runtime values and should not carry over between sessions.
-    manualSetFlag = false;
-    settings.rssiTriggerLevel = RSSI_MAX_VALUE;
+    // manualSetFlag = false;
+    // settings.rssiTriggerLevel = RSSI_MAX_VALUE;
 
     RearmRuntimeState();
 
