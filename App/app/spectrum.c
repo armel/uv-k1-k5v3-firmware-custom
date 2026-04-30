@@ -59,6 +59,7 @@ bool newScanStart = true;
 bool preventKeypress = true;
 bool audioState = true;
 bool lockAGC = false;
+bool isChMode = false;
 
 State currentState = SPECTRUM, previousState = SPECTRUM;
 
@@ -174,6 +175,11 @@ KEY_Code_t freqInputArr[10];
 char freqInputString[11];
 
 uint8_t menuState = 0;
+uint8_t currentSL = 0;
+uint8_t countSLchannels = 0;
+uint16_t firstChannel = 0, lastChannel = 0;
+uint16_t currentSLchannel = 0;
+FREQUENCY_Band_t slBand = 0;
 uint16_t listenT = 0;
 
 RegisterSpec registerSpecs[] = {
@@ -254,7 +260,7 @@ static uint8_t DBm2S(int dbm)
 
 static int Rssi2DBm(uint16_t rssi)
 {
-    return (rssi / 2) - 160 + dBmCorrTable[gRxVfo->Band];
+    return (rssi / 2) - 160 + dBmCorrTable[isChMode? slBand : gRxVfo->Band];
 }
 
 static uint16_t GetRegMenuValue(uint8_t st)
@@ -497,7 +503,7 @@ static void ResetPeak()
     }
 #endif
 
-bool IsCenterMode() { return settings.scanStepIndex < S_STEP_2_5kHz; }
+bool IsCenterMode() { return settings.scanStepIndex < S_STEP_2_5kHz && !isChMode; }
 // scan step in 0.01khz
 uint16_t GetScanStep() { return scanStepValues[settings.scanStepIndex]; }
 
@@ -511,7 +517,7 @@ uint16_t GetStepsCount()
         return (range / step) + 1;  // +1 to include up limit
     }
 #endif
-    return 128 >> settings.stepsCount;
+    return isChMode? scanInfo.measurementsCount : 128 >> settings.stepsCount;
 }
 
 #ifdef ENABLE_SCAN_RANGES
@@ -528,6 +534,12 @@ static uint16_t GetStepsCountDisplay()
 uint32_t GetBW() { return GetStepsCount() * GetScanStep(); }
 uint32_t GetFStart()
 {
+    if (isChMode)
+    {
+        uint32_t ret, base = firstChannel * 16;
+        PY25Q16_ReadBuffer(base, &ret, sizeof(ret));
+        return ret;
+    }
     return IsCenterMode() ? currentFreq - (GetBW() >> 1) : currentFreq;
 }
 
@@ -539,6 +551,12 @@ uint32_t GetFEnd()
         return gScanRangeStop;
     }
 #endif
+    if (isChMode)
+    {
+        uint32_t ret, base = lastChannel * 16;
+        PY25Q16_ReadBuffer(base, &ret, sizeof(ret));
+        return ret;
+    }
     return currentFreq + GetBW();
 }
 
@@ -636,6 +654,28 @@ static void ToggleRX(bool on)
     }
 }
 
+void getScanlistInfo(uint8_t scanlist, uint8_t recursive, bool inc)
+{
+    if(!recursive)
+        return;
+    firstChannel = RADIO_FindNextChannel(0, 1, true, scanlist);
+    lastChannel = RADIO_FindNextChannel(0xFFFF, -1, true, scanlist);
+    uint16_t channel = firstChannel;
+    countSLchannels = 0;
+    do
+        channel = RADIO_FindNextChannel(channel + 1, 1, true, scanlist);
+    while (++countSLchannels && channel != firstChannel);
+    if(firstChannel == 0xFFFF)
+        getScanlistInfo(inc? (scanlist >= MR_CHANNELS_LIST ? 1 : scanlist + 1) : (scanlist <= 1? MR_CHANNELS_LIST : scanlist - 1), recursive - 1, inc);
+    else 
+    {
+        currentSL = scanlist;
+        uint32_t base = firstChannel * 16;
+        PY25Q16_ReadBuffer(base, &initialFreq, sizeof(initialFreq));
+        slBand = FREQUENCY_GetBand(initialFreq);
+    }
+}
+
 // Scan info
 
 static void ResetScanStats()
@@ -680,6 +720,12 @@ static void InitScanPosition()
         scanInfo.f = GetFStart();
         scanForward = true;
     }
+    if (isChMode)
+    {
+        currentSLchannel = scanForward? firstChannel:lastChannel;
+        scanInfo.measurementsCount = countSLchannels;
+    }
+    
     scanReturnPending = scanInfo.measurementsCount > 1;
 }
 
@@ -925,7 +971,7 @@ static void ResetSpectrumToDefaults()
 
 static uint16_t dbm2rssi(int dBm)
 {
-    return (dBm + 160 - dBmCorrTable[gRxVfo->Band]) * 2;
+    return (dBm + 160 - dBmCorrTable[isChMode? slBand : gRxVfo->Band]) * 2;
 }
 
 static void ClampRssiTriggerLevel()
@@ -1638,12 +1684,25 @@ static void DrawNums()
         sprintf(String, "%ux", GetStepsCount());
 #endif
         GUI_DisplaySmallest(String, 0, 1, false, true);
-        sprintf(String, "%u.%02uk", GetScanStep() / 100, GetScanStep() % 100);
+        if(isChMode) 
+        {
+            const char *name = gListName[currentSL - 1]; // from App/ui/status.c
+            bool nameValid = (name[0] != '\0' && name[0] != '\xff' && name[0] != ' ');
+            if (!nameValid) 
+                sprintf(String, "List %02d", currentSL);
+            else sprintf(String, "List %.3s", name);
+        }
+        else sprintf(String, "%u.%02uk", GetScanStep() / 100, GetScanStep() % 100);
         GUI_DisplaySmallest(String, 0, 7, false, true);
 
     }
 
-    if (IsCenterMode())
+    if (isChMode)
+    {
+        sprintf(String, "Channel mode");
+        GUI_DisplaySmallest(String, 40, 49, false, true);
+    }
+    else if (IsCenterMode())
     {
         sprintf(String, "%u.%05u \x7F%u.%02uk", currentFreq / 100000,
                 currentFreq % 100000, settings.frequencyChangeStep / 100,
@@ -1715,6 +1774,8 @@ static void DrawRssiTriggerLevel(const uint8_t *topY)
 
 static void DrawTicks()
 {
+    if(isChMode)
+        return;
     uint32_t f = GetFStart();
     uint32_t span = GetFEnd() - GetFStart();
     uint32_t step = span / 128;
@@ -1802,7 +1863,15 @@ static void OnKeyDown(uint8_t key) {
         break;
     case KEY_2:
     case KEY_8:
-        UpdateFreqChangeStep(isTrue);
+        if(isChMode)
+        {
+            isTrue? getScanlistInfo(currentSL >= MR_CHANNELS_LIST? 1 : currentSL + 1, MR_CHANNELS_LIST + 1, true) :
+                    getScanlistInfo(currentSL <= 1? MR_CHANNELS_LIST : currentSL - 1, MR_CHANNELS_LIST + 1, false);
+            RelaunchScan();
+            ResetBlacklist();
+            redrawScreen = true;
+        }
+        else UpdateFreqChangeStep(isTrue);
         break;
     case KEY_UP:
     case KEY_DOWN:
@@ -1813,7 +1882,7 @@ static void OnKeyDown(uint8_t key) {
             break;
         }
 #ifdef ENABLE_SCAN_RANGES
-        if (!gScanRangeStart) {
+        if (!gScanRangeStart && !isChMode) {
 #endif
         UpdateCurrentFreq(GetDirection(key));
 #ifdef ENABLE_SCAN_RANGES
@@ -1825,13 +1894,13 @@ static void OnKeyDown(uint8_t key) {
         break;
     case KEY_5:
 #ifdef ENABLE_SCAN_RANGES
-        if (!gScanRangeStart)
+        if (!gScanRangeStart && !isChMode)
 #endif
             FreqInput();
         break;
     case KEY_4:
 #ifdef ENABLE_SCAN_RANGES
-        if (!gScanRangeStart)
+        if (!gScanRangeStart && !isChMode)
 #endif
             ToggleStepsCount();
         break;
@@ -2167,10 +2236,22 @@ static void NextScanStep()
     ++peak.t;
     if (scanForward) {
         ++scanInfo.i;
-        scanInfo.f += scanInfo.scanStep;
+        if (isChMode)
+        {
+            currentSLchannel = RADIO_FindNextChannel(currentSLchannel + 1, 1, true, currentSL);
+            uint32_t base = currentSLchannel * 16;
+            PY25Q16_ReadBuffer(base, &scanInfo.f, sizeof(scanInfo.f));
+        }
+        else scanInfo.f += scanInfo.scanStep;
     } else {
         --scanInfo.i;
-        scanInfo.f -= scanInfo.scanStep;
+        if (isChMode)
+        {
+            currentSLchannel = RADIO_FindNextChannel(currentSLchannel - 1, -1, true, currentSL);
+            uint32_t base = currentSLchannel * 16;
+            PY25Q16_ReadBuffer(base, &scanInfo.f, sizeof(scanInfo.f));
+        }
+        else scanInfo.f -= scanInfo.scanStep;
     }
 }
 
@@ -2188,7 +2269,14 @@ static bool NextScanStepInterlaced()
     if (next < scanInfo.measurementsCount)
     {
         scanInfo.i = next;
-        scanInfo.f += (uint32_t)interlaceStride * scanInfo.scanStep;
+        if (isChMode)
+        {
+            for (uint16_t i = 0; i < interlaceStride; i++)
+                currentSLchannel = RADIO_FindNextChannel(currentSLchannel + 1, 1, true, currentSL);
+            uint32_t base = currentSLchannel * 16;
+            PY25Q16_ReadBuffer(base, &scanInfo.f, sizeof(scanInfo.f));
+        }
+        else scanInfo.f += (uint32_t)interlaceStride * scanInfo.scanStep;
         return false;
     }
 
@@ -2198,7 +2286,14 @@ static bool NextScanStepInterlaced()
         {
             interlacePhase = phase;
             scanInfo.i = phase;
-            scanInfo.f = GetFStart() + (uint32_t)phase * scanInfo.scanStep;
+            if (isChMode)
+            {
+                for (uint16_t i = 0; i < phase; i++)
+                    currentSLchannel = RADIO_FindNextChannel(currentSLchannel + 1, 1, true, currentSL);
+                uint32_t base = currentSLchannel * 16;
+                PY25Q16_ReadBuffer(base, &scanInfo.f, sizeof(scanInfo.f));
+            }
+            else scanInfo.f = GetFStart() + (uint32_t)phase * scanInfo.scanStep;
             return false;
         }
     }
@@ -2521,9 +2616,17 @@ void APP_RunSpectrum()
 #ifdef ENABLE_FEAT_F4HWN_SPECTRUM
     LoadSettings();
 #endif
+    isChMode = false;
+    countSLchannels = 0;
+    currentSL = MIN(gTxVfo->SCANLIST_PARTICIPATION, MR_CHANNELS_LIST);
+    if(IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE) && currentSL)
+    {
+        isChMode = true;
+        getScanlistInfo(currentSL, MR_CHANNELS_LIST + 1, true);
+    }
     // set the current frequency in the middle of the display
 #ifdef ENABLE_SCAN_RANGES
-    if (gScanRangeStart)
+    else if (gScanRangeStart)
     {
         currentFreq = initialFreq = gScanRangeStart;
         // Keep saved spectrum step/count in scan-range mode.
