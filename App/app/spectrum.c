@@ -642,7 +642,11 @@ static void ToggleRX(bool on)
     if (on)
     {
         listenLowCount = 0;
-        listenPrevRssi = RSSI_MAX_VALUE;
+        // Seed with the RSSI that opened the squelch so the very first measure
+        // can already detect an abrupt drop (quick-PTT case where the operator
+        // released before listen was actually engaged).
+        // listenPrevRssi = RSSI_MAX_VALUE; // previous behavior
+        listenPrevRssi = peak.rssi;
     #ifdef ENABLE_FEAT_F4HWN_SPECTRUM
         listenT = 25;
         BK4819_WriteRegister(0x43, listenBWRegValues[settings.listenBw]);
