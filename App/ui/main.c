@@ -1351,8 +1351,8 @@ void UI_DisplayMain(void)
                                 strcpy(String, "AIR");
                             #endif
                         }
-                        else if (gRxVfo->Modulation == MODULATION_USB) {
-                            strcpy(String, "USB");
+                        else if (gRxVfo->Modulation == MODULATION_USB || gRxVfo->Modulation == MODULATION_CW) {
+                            strcpy(String, gRxVfo->Modulation == MODULATION_CW ? "CW" : "USB");
                         }
                         else {
                             #ifdef ENABLE_FEAT_F4HWN_AUDIO
