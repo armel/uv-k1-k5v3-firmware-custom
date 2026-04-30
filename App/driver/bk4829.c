@@ -28,6 +28,8 @@
 #include "driver/system.h"
 #include "driver/systick.h"
 
+#include "dsp/vernier.h"
+
 #define PIN_CSN GPIO_MAKE_PIN(GPIOF, LL_GPIO_PIN_9)
 #define PIN_SCL GPIO_MAKE_PIN(GPIOB, LL_GPIO_PIN_8)
 #define PIN_SDA GPIO_MAKE_PIN(GPIOB, LL_GPIO_PIN_9)
@@ -746,10 +748,96 @@ void BK4819_SetupPowerAmplifier(const uint8_t bias, const uint32_t frequency)
     BK4819_WriteRegister(BK4819_REG_36, (bias << 8) | (enable << 7) | (gain << 0));
 }
 
-void BK4819_SetFrequency(uint32_t Frequency)
+#define VERNIER_LUT_SIZE 20U
+
+typedef struct {
+    uint32_t freq;
+    int8_t   delta_dhz;
+    uint8_t  age;
+    uint32_t pll_freq;
+    uint16_t reg3b;
+} VernierLutEntry_t;
+
+static VernierLutEntry_t sVernierLut[VERNIER_LUT_SIZE];
+static uint8_t           sLutCount;
+
+static void WritePllAndTrim(uint32_t pll_freq, uint16_t reg3b)
 {
-    BK4819_WriteRegister(BK4819_REG_38, (Frequency >>  0) & 0xFFFF);
-    BK4819_WriteRegister(BK4819_REG_39, (Frequency >> 16) & 0xFFFF);
+    BK4819_WriteRegister(BK4819_REG_38, (pll_freq >>  0) & 0xFFFF);
+    BK4819_WriteRegister(BK4819_REG_39, (pll_freq >> 16) & 0xFFFF);
+    BK4819_WriteRegister(BK4819_REG_3B, reg3b);
+
+    uint16_t reg30 = BK4819_ReadRegister(BK4819_REG_30);
+    BK4819_WriteRegister(BK4819_REG_30, 0);
+    BK4819_WriteRegister(BK4819_REG_30, reg30);
+}
+
+void BK4819_SetFrequency(uint32_t Frequency, int8_t delta_dhz)
+{
+    if (delta_dhz == 0) {
+        BK4819_WriteRegister(BK4819_REG_38, (Frequency >>  0) & 0xFFFF);
+        BK4819_WriteRegister(BK4819_REG_39, (Frequency >> 16) & 0xFFFF);
+        BK4819_WriteRegister(BK4819_REG_3B, (uint16_t)(22656 + gEeprom.BK4819_XTAL_FREQ_LOW));
+        return;
+    }
+
+    for (uint8_t i = 0; i < sLutCount; i++) {
+        if (sVernierLut[i].freq == Frequency && sVernierLut[i].delta_dhz == delta_dhz) {
+            for (uint8_t j = 0; j < sLutCount; j++)
+                sVernierLut[j].age++;
+            sVernierLut[i].age = 0;
+            WritePllAndTrim(sVernierLut[i].pll_freq, sVernierLut[i].reg3b);
+            return;
+        }
+    }
+
+    int32_t fine_mhz = (int32_t)delta_dhz * 100;
+    int     negative = fine_mhz < 0;
+    if (negative)
+        fine_mhz = -fine_mhz;
+
+    uint32_t alpha = VERNIER_ComputeAlpha(Frequency * 10U);
+    VernierResult_t v = VERNIER_Solve(fine_mhz, alpha);
+
+    const uint16_t base3b = (uint16_t)(22656 + gEeprom.BK4819_XTAL_FREQ_LOW);
+    uint32_t       pll_freq;
+    uint16_t       reg3b;
+
+    if (!negative) {
+        pll_freq = (Frequency > v.pll_comp) ? (Frequency - v.pll_comp) : 0U;
+        reg3b    = (uint16_t)(((uint32_t)base3b >= (uint32_t)v.xtal_trim)
+                                  ? ((uint32_t)base3b - (uint32_t)v.xtal_trim)
+                                  : 0U);
+    } else {
+        pll_freq = Frequency + (uint32_t)v.pll_comp;
+        reg3b    = (uint16_t)((uint32_t)base3b + (uint32_t)v.xtal_trim);
+    }
+
+    uint8_t slot;
+    if (sLutCount < VERNIER_LUT_SIZE) {
+        for (uint8_t j = 0; j < sLutCount; j++)
+            sVernierLut[j].age++;
+        slot = sLutCount;
+        sLutCount++;
+    } else {
+        slot = 0;
+        for (uint8_t i = 1; i < VERNIER_LUT_SIZE; i++) {
+            if (sVernierLut[i].age > sVernierLut[slot].age)
+                slot = i;
+        }
+        for (uint8_t j = 0; j < VERNIER_LUT_SIZE; j++) {
+            if (j != slot)
+                sVernierLut[j].age++;
+        }
+    }
+
+    sVernierLut[slot].freq = Frequency;
+    sVernierLut[slot].delta_dhz = delta_dhz;
+    sVernierLut[slot].pll_freq = pll_freq;
+    sVernierLut[slot].reg3b = reg3b;
+    sVernierLut[slot].age = 0;
+
+    WritePllAndTrim(pll_freq, reg3b);
 }
 
 void BK4819_SetupSquelch(
@@ -1614,7 +1702,7 @@ void BK4819_SetFrequencyScan(bool enable)
 
 void BK4819_SetScanFrequency(uint32_t Frequency)
 {
-    BK4819_SetFrequency(Frequency);
+    BK4819_SetFrequency(Frequency, 0);
 
     // REG_51
     //
