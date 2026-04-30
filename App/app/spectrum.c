@@ -1683,8 +1683,20 @@ static void DrawNums()
         FormatFrequency(GetFStart(), String);
         GUI_DisplaySmallest(String, 0, 49, false, true);
 
-        sprintf(String, "\x7F%u.%02uk", settings.frequencyChangeStep / 100,
-                settings.frequencyChangeStep % 100);
+#ifdef ENABLE_SCAN_RANGES
+        if (gScanRangeStart)
+        {
+            // Scan-range mode: UP/DOWN are blocked, frequencyChangeStep is unused.
+            // Show the visible bandwidth instead, which is meaningful here.
+            uint32_t bw = gScanRangeStop - gScanRangeStart;
+            sprintf(String, "%u.%02uk", bw / 100, bw % 100);
+        }
+        else
+#endif
+        {
+            sprintf(String, "\x7F%u.%02uk", settings.frequencyChangeStep / 100,
+                    settings.frequencyChangeStep % 100);
+        }
         GUI_DisplaySmallest(String, 48, 49, false, true);
 
         FormatFrequency(GetFEnd(), String);
