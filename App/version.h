@@ -24,4 +24,7 @@ extern const char UART_Version[];
 
 #ifdef ENABLE_FEAT_F4HWN
 extern const char Edition[];
+extern const char BuildDate[];
+extern const char BuildTime[];
+extern const char BuildCommit[];
 #endif

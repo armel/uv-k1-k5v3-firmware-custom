@@ -233,6 +233,7 @@ extern int32_t           gSubMenuSelection;
 extern char              edit_original[17];
 extern char              edit[17];
 extern int               edit_index;
+extern bool              edit_is_uppercase;
 
 void UI_DisplayMenu(void);
 int UI_MENU_GetCurrentMenuId();

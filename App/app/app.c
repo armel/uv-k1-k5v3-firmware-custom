@@ -557,11 +557,7 @@ void APP_StartListening(FUNCTION_Type_t function)
         gUpdateStatus    = true;
     }
 
-    BK4819_WriteRegister(BK4819_REG_48,
-        (11u << 12)                |     // ??? .. 0 to 15, doesn't seem to make any difference
-        ( 0u << 10)                |     // AF Rx Gain-1
-        (gEeprom.VOLUME_GAIN << 4) |     // AF Rx Gain-2
-        (gEeprom.DAC_GAIN    << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
+    BK4819_SetRxAudioGain();
 
 #ifdef ENABLE_VOICE
     if (gVoiceWriteIndex == 0)       // AM/FM RX mode will be set when the voice has finished
@@ -816,6 +812,22 @@ void APP_EndTransmission(void)
     }
 }
 
+void APP_HandleEndTransmission(void) {
+    if (gFlagEndTransmission) {
+        FUNCTION_Select(FUNCTION_FOREGROUND);
+    }
+    else {
+        APP_EndTransmission();
+
+        if (gEeprom.REPEATER_TAIL_TONE_ELIMINATION == 0)
+            FUNCTION_Select(FUNCTION_FOREGROUND);
+        else
+            gRTTECountdown_10ms = gEeprom.REPEATER_TAIL_TONE_ELIMINATION * 10;
+    }
+
+    gFlagEndTransmission = false;
+}
+
 #ifdef ENABLE_VOX
 static void HandleVox(void)
 {
@@ -851,24 +863,10 @@ static void HandleVox(void)
             gVOX_NoiseDetected = false;
 
         if (gCurrentFunction == FUNCTION_TRANSMIT && !gPttIsPressed && !gVOX_NoiseDetected) {
-            if (gFlagEndTransmission) {
-                //if (gCurrentFunction != FUNCTION_FOREGROUND)
-                    FUNCTION_Select(FUNCTION_FOREGROUND);
-            }
-            else {
-                APP_EndTransmission();
-
-                if (gEeprom.REPEATER_TAIL_TONE_ELIMINATION == 0) {
-                    //if (gCurrentFunction != FUNCTION_FOREGROUND)
-                        FUNCTION_Select(FUNCTION_FOREGROUND);
-                }
-                else
-                    gRTTECountdown_10ms = gEeprom.REPEATER_TAIL_TONE_ELIMINATION * 10;
-            }
+            APP_HandleEndTransmission();
 
             gUpdateStatus        = true;
             gUpdateDisplay       = true;
-            gFlagEndTransmission = false;
         }
         return;
     }
@@ -1533,7 +1531,11 @@ void APP_TimeSlice500ms(void)
         if (--gKeyInputCountdown == 0)
         {
 
-            if (IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE) && (gInputBoxIndex > 0 && gInputBoxIndex < 4) && (!gFmRadioMode))
+            if (IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE) && (gInputBoxIndex > 0 && gInputBoxIndex < 4)
+#ifdef ENABLE_FMRADIO
+                && (!gFmRadioMode)
+#endif
+                )
             {
                 channelMoveSwitch();
 
@@ -1942,12 +1944,10 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     bool lowBatPopup = gLowBattery && !gLowBatteryConfirmed &&  gScreenToDisplay == DISPLAY_MAIN;
 
 #ifdef ENABLE_FEAT_F4HWN // Disable PTT if KEY_LOCK
-    bool lck_condition = false;
+    bool lck_condition = (gEeprom.KEY_LOCK || lowBatPopup) && gCurrentFunction != FUNCTION_TRANSMIT;
 
-    if(gSetting_set_lck)
-        lck_condition = (gEeprom.KEY_LOCK || lowBatPopup) && gCurrentFunction != FUNCTION_TRANSMIT;
-    else
-        lck_condition = (gEeprom.KEY_LOCK || lowBatPopup) && gCurrentFunction != FUNCTION_TRANSMIT && Key != KEY_PTT;
+    if(!gSetting_set_lck)
+        lck_condition = lck_condition && Key != KEY_PTT;
 
     if (lck_condition)
 #else

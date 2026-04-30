@@ -78,6 +78,7 @@ endif()
 target_compile_definitions(App INTERFACE 
     "AUTHOR_STRING=\"${AUTHOR_STRING}\""
     "VERSION_STRING=\"${VERSION_STRING}\""
+    "BUILD_COMMIT=\"${BUILD_COMMIT}\""
 )
 
 if(NOT SQL_TONE)
@@ -194,6 +195,7 @@ enable_feature(ENABLE_FEAT_F4HWN_RESUME_STATE)
 enable_feature(ENABLE_FEAT_F4HWN_NARROWER)
 enable_feature(ENABLE_FEAT_F4HWN_INV)
 enable_feature(ENABLE_FEAT_F4HWN_CTR)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_PROGRESS)
 enable_feature(ENABLE_FEAT_F4HWN_RESCUE_OPS)
 enable_feature(ENABLE_FEAT_F4HWN_VOL)
 enable_feature(ENABLE_FEAT_F4HWN_AUDIO)
@@ -203,6 +205,7 @@ enable_feature(ENABLE_FEAT_F4HWN_GMRS_FRS_MURS)
 enable_feature(ENABLE_FEAT_F4HWN_CA)
 enable_feature(ENABLE_FEAT_F4HWN_DEBUG)
 enable_feature(ENABLE_FEAT_F4HWN_MEM)
+enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
 
 # ---- DEBUGGING ----
 

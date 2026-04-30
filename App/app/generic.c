@@ -91,7 +91,7 @@ void GENERIC_Key_F(bool bKeyPressed, bool bKeyHeld)
             return;
         }
 #endif
-        gBeepToPlay     = BEEP_440HZ_500MS;
+        gBeepToPlay     = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         gPttWasReleased = true;
     }
 }
@@ -103,20 +103,8 @@ void GENERIC_Key_PTT(bool bKeyPressed)
     if (!bKeyPressed || SerialConfigInProgress())
     {   // PTT released
         if (gCurrentFunction == FUNCTION_TRANSMIT) {    
-            // we are transmitting .. stop
-            if (gFlagEndTransmission) {
-                FUNCTION_Select(FUNCTION_FOREGROUND);
-            }
-            else {
-                APP_EndTransmission();
+            APP_HandleEndTransmission();
 
-                if (gEeprom.REPEATER_TAIL_TONE_ELIMINATION == 0)
-                    FUNCTION_Select(FUNCTION_FOREGROUND);
-                else
-                    gRTTECountdown_10ms = gEeprom.REPEATER_TAIL_TONE_ELIMINATION * 10;
-            }
-
-            gFlagEndTransmission = false;
 #ifdef ENABLE_VOX
             gVOX_NoiseDetected = false;
 #endif

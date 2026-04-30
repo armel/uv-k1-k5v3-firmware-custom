@@ -457,6 +457,28 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
         #endif
 #endif
 
+        case MENU_VOL: {
+            // SysInf paginates: 
+            // page 0 = identity, 
+            // page 1 = build date/time,
+            // page 2 = battery,
+            // +1 if F4HWN_MEM (Flash/SRAM), 
+            // +2 if F4HWN_QRCODE (Code QR + Wiki QR).
+            int32_t vol_max = 0;
+            #ifdef ENABLE_FEAT_F4HWN
+                vol_max += 2;
+            #endif
+            #ifdef ENABLE_FEAT_F4HWN_MEM
+                vol_max += 1;
+            #endif
+            #ifdef ENABLE_FEAT_F4HWN_QRCODE
+                vol_max += 2;
+            #endif
+            if (vol_max == 0) return -1;
+            *pMax = vol_max;
+            break;
+        }
+
         default:
             return -1;
     }
@@ -594,7 +616,7 @@ void MENU_AcceptSetting(void)
 
         case MENU_MEM_NAME:
             for (int i = 9; i >= 0; i--) {
-                if (edit[i] != ' ' && edit[i] != '_' && edit[i] != 0x00 && edit[i] != 0xff)
+                if (edit[i] != ' ' && edit[i] != 0x00 && edit[i] != 0xff)
                     break;
                 edit[i] = ' ';
             }
@@ -1028,6 +1050,11 @@ void MENU_ShowCurrentSetting(void)
     {
         case MENU_SQL:
             gSubMenuSelection = gEeprom.SQUELCH_LEVEL;
+            break;
+
+        case MENU_VOL:
+            // SysInf is paginated; always start on page 0 (identity).
+            gSubMenuSelection = 0;
             break;
 
         case MENU_STEP:
@@ -1464,6 +1491,22 @@ void MENU_ShowCurrentSetting(void)
     }
 }
 
+static KEY_Code_t edit_last_key = 255;
+static uint8_t edit_char_index = 0;
+
+static const char* const char_map[10] = {
+    " 0",                           // KEY_0
+    ".,-()@/\\+=*#<>[]~1",          // KEY_1
+    "abc2",                         // KEY_2
+    "def3",                         // KEY_3
+    "ghi4",                         // KEY_4
+    "jkl5",                         // KEY_5
+    "mno6",                         // KEY_6
+    "pqrs7",                        // KEY_7
+    "tuv8",                         // KEY_8
+    "wxyz9"                         // KEY_9
+};
+
 static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
     uint8_t  Offset;
@@ -1471,32 +1514,54 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     int32_t  Max;
     uint16_t Value = 0;
 
-    if (bKeyHeld || !bKeyPressed)
+    if (!bKeyPressed)
         return;
 
     gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && edit_index >= 0)
     {   // currently editing the channel name
+        if (edit_index >= 10)
+            return;
 
-        if (edit_index < 10)
+        uint8_t key_idx = Key - KEY_0;
+
+        if (bKeyHeld)
         {
-            if (Key <= KEY_9)
+            edit[edit_index] = '0' + key_idx;
+            edit_last_key = 255;
+            
+            gRequestDisplayScreen = DISPLAY_MENU;
+            return;
+        }
+
+        if (Key != edit_last_key)
+        {
+            edit_last_key = Key;
+            edit_char_index = 0;
+        }
+        else
+        {
+            edit_char_index++;
+            if (char_map[key_idx][edit_char_index] == '\0')
             {
-                edit[edit_index] = '0' + Key - KEY_0;
-
-                if (++edit_index >= 10)
-                {   // exit edit
-                    gFlagAcceptSetting  = false;
-                    gAskForConfirmation = 1;
-                }
-
-                gRequestDisplayScreen = DISPLAY_MENU;
+                edit_char_index = 0;
             }
         }
 
+        char c = char_map[key_idx][edit_char_index];
+        if (edit_is_uppercase && c >= 'a' && c <= 'z')
+        {
+            c -= 32;
+        }
+        edit[edit_index] = c;
+
+        gRequestDisplayScreen = DISPLAY_MENU;
         return;
     }
+
+    if (bKeyHeld)
+        return;
 
     INPUTBOX_Append(Key);
 
@@ -1586,7 +1651,7 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         gInputBoxIndex = 0;
 
         //Value = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
-        Value = ((gInputBox[0] * 1000) + (gInputBox[1] * 100) + (gInputBox[2] * 10) + gInputBox[3]) - 1;
+        Value = (((gInputBox[0] * 10 + gInputBox[1]) * 10 + gInputBox[2]) * 10 + gInputBox[3]) - 1;
 
         if (IS_MR_CHANNEL(Value))
         {
@@ -1643,6 +1708,58 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
 static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
+    const bool editing_name = !gCssBackgroundScan
+        && UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME
+        && gIsInSubMenu
+        && edit_index >= 0;
+
+    if (editing_name)
+    {
+        if (!bKeyPressed)
+        {
+            if (bKeyHeld)
+                return; // release after a long press, keep editing
+
+            if (edit_index == 0)
+                goto Skip;
+
+            if (edit_index > 0)
+            {   // step back one character while editing the channel name
+                edit_index--;
+                edit_last_key = 255;
+                gAskForConfirmation = 0;
+                gRequestDisplayScreen = DISPLAY_MENU;
+            }
+
+            return;
+        }
+
+        if (!bKeyHeld)
+        {   // wait to see if the user wants a short exit or a long backspace
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+            return;
+        }
+
+Skip:
+
+        /* Backlight related menus set full brightness. Set it back to the configured value,
+           just in case we are editing from one of them. */
+        BACKLIGHT_TurnOn();
+
+        gAskForConfirmation = 0;
+        gIsInSubMenu        = false;
+        gInputBoxIndex      = 0;
+        gFlagRefreshSetting = true;
+
+        #ifdef ENABLE_VOICE
+            gAnotherVoiceID = VOICE_ID_CANCEL;
+        #endif
+
+        gRequestDisplayScreen = DISPLAY_MENU;
+
+        return;
+    }
+
     if (bKeyHeld || !bKeyPressed)
         return;
 
@@ -1650,29 +1767,22 @@ static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 
     if (!gCssBackgroundScan)
     {
-        /* Backlight related menus set full brightness. Set it back to the configured value,
-           just in case we are exiting from one of them. */
-        BACKLIGHT_TurnOn();
-
         if (gIsInSubMenu)
         {
             if (gInputBoxIndex == 0 || UI_MENU_GetCurrentMenuId() != MENU_OFFSET)
             {
-                gAskForConfirmation = 0;
-                gIsInSubMenu        = false;
-                gInputBoxIndex      = 0;
-                gFlagRefreshSetting = true;
-
-                #ifdef ENABLE_VOICE
-                    gAnotherVoiceID = VOICE_ID_CANCEL;
-                #endif
+                goto Skip;
             }
             else
+            {
+                /* Backlight related menus set full brightness. Set it back to the configured value,
+                   just in case we are exiting from one of them. */
+                BACKLIGHT_TurnOn();
+
                 gInputBox[--gInputBoxIndex] = 10;
+                gRequestDisplayScreen = DISPLAY_MENU;
+            }
 
-            // ***********************
-
-            gRequestDisplayScreen = DISPLAY_MENU;
             return;
         }
 
@@ -1751,12 +1861,18 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 
             SETTINGS_FetchChannelName(edit, gSubMenuSelection);
 
-            // pad the channel name out with '_'
-            edit_index = strlen(edit);
-            while (edit_index < 10)
-                edit[edit_index++] = '_';
-            edit[edit_index] = 0;
+            // pad the channel name out with ' '
+            size_t len = strlen(edit);
+            if (len < 10)
+            {
+                memset(edit + len, ' ', 10 - len);
+                edit[10] = '\0';
+            }
+
             edit_index = 0;  // 'edit_index' is going to be used as the cursor position
+            edit_last_key = 255;
+            edit_char_index = 0;
+            edit_is_uppercase = false;
 
             // make a copy so we can test for change when exiting the menu item
             memcpy(edit_original, edit, sizeof(edit_original));
@@ -1766,6 +1882,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
         else
         if (edit_index >= 0 && edit_index < 10)
         {   // editing the channel name characters
+            edit_last_key = 255;
 
             if (++edit_index < 10)
                 return; // next char
@@ -1844,7 +1961,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 
 static void MENU_Key_STAR(const bool bKeyPressed, const bool bKeyHeld)
 {
-    if (bKeyHeld || !bKeyPressed)
+    if (!bKeyPressed)
         return;
 
     gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
@@ -1854,19 +1971,17 @@ static void MENU_Key_STAR(const bool bKeyPressed, const bool bKeyHeld)
 
         if (edit_index < 10)
         {
-            edit[edit_index] = '-';
-
-            if (++edit_index >= 10)
-            {   // exit edit
-                gFlagAcceptSetting  = false;
-                gAskForConfirmation = 1;
-            }
+            edit[edit_index] = !bKeyHeld ? '-' : '*';
+            edit_last_key = 255;
 
             gRequestDisplayScreen = DISPLAY_MENU;
         }
 
         return;
     }
+
+    if (bKeyHeld)
+        return;
 
     RADIO_SelectVfos();
 
@@ -1902,28 +2017,6 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
         Direction = -Direction;
     }
 
-    if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && gIsInSubMenu && edit_index >= 0)
-    {   // change the character
-        if (bKeyPressed && edit_index < 10 && Direction != 0)
-        {
-            const char   unwanted[] = "$%&!\"':;?^`|{}";
-            char         c          = edit[edit_index] + Direction;
-            unsigned int i          = 0;
-            while (i < sizeof(unwanted) && c >= 32 && c <= 126)
-            {
-                if (c == unwanted[i++])
-                {   // choose next character
-                    c += Direction;
-                    i = 0;
-                }
-            }
-            edit[edit_index] = (c < 32) ? 126 : (c > 126) ? 32 : c;
-
-            gRequestDisplayScreen = DISPLAY_MENU;
-        }
-        return;
-    }
-
     if (!bKeyHeld)
     {
         if (!bKeyPressed)
@@ -1936,6 +2029,29 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     else
     if (!bKeyPressed)
         return;
+
+    if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && gIsInSubMenu && edit_index >= 0)
+    {   // change the character
+        if (edit_index < 10 && Direction != 0)
+        {
+            const char   unwanted[] = "$%&!\"':;?^`|{}_";
+            char         c          = edit[edit_index] + Direction;
+            unsigned int i          = 0;
+            while (i < sizeof(unwanted) && c >= 32 && c <= 126)
+            {
+                if (c == unwanted[i++])
+                {   // choose next character
+                    c += Direction;
+                    i = 0;
+                }
+            }
+            edit[edit_index] = (c < 32) ? 126 : (c > 126) ? 32 : c;
+            edit_last_key = 255;
+
+            gRequestDisplayScreen = DISPLAY_MENU;
+        }
+        return;
+    }
 
     if (SCANNER_IsScanning()) {
         return;
@@ -2067,19 +2183,20 @@ void MENU_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         case KEY_F:
             if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && edit_index >= 0)
             {   // currently editing the channel name
-                if (!bKeyHeld && bKeyPressed)
+                if (!bKeyPressed)
+                    break;
+
+                gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+
+                if (edit_index < 10)
                 {
-                    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-                    if (edit_index < 10)
-                    {
-                        edit[edit_index] = ' ';
-                        if (++edit_index >= 10)
-                        {   // exit edit
-                            gFlagAcceptSetting  = false;
-                            gAskForConfirmation = 1;
-                        }
-                        gRequestDisplayScreen = DISPLAY_MENU;
-                    }
+                    if (bKeyHeld)
+                        edit[edit_index] = '#';
+
+                    edit_is_uppercase = !edit_is_uppercase;
+                    edit_last_key = 255;
+
+                    gRequestDisplayScreen = DISPLAY_MENU;
                 }
                 break;
             }

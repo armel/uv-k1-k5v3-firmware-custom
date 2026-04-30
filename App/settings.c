@@ -30,6 +30,23 @@
 
 EEPROM_Config_t gEeprom = { 0 };
 
+// Load a DTMF code from EEPROM, falling back to default_val if invalid.
+static void SETTINGS_LoadEepromDtmf(uint32_t addr, char *dest, size_t size, const char *default_val)
+{
+    uint8_t buf[16];
+
+    if (size > sizeof(buf))
+        size = sizeof(buf);
+
+    PY25Q16_ReadBuffer(addr, buf, size);
+
+    if (DTMF_ValidateCodes((char *)buf, size)) {
+        memcpy(dest, buf, size);
+    } else {
+        strcpy(dest, default_val);
+    }
+}
+
 void SETTINGS_InitEEPROM(void)
 {
     uint8_t Data[16] = {0};
@@ -218,9 +235,12 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 
         gEeprom.FM_Band = fmCfg.band;
         //gEeprom.FM_Space = fmCfg.space;
+
+        uint16_t freqLoLimit = BK1080_GetFreqLoLimit(gEeprom.FM_Band);
+
         gEeprom.FM_SelectedFrequency = 
-            (fmCfg.selFreq >= BK1080_GetFreqLoLimit(gEeprom.FM_Band) && fmCfg.selFreq <= BK1080_GetFreqHiLimit(gEeprom.FM_Band)) ? 
-                fmCfg.selFreq : BK1080_GetFreqLoLimit(gEeprom.FM_Band);
+            (fmCfg.selFreq >= freqLoLimit && fmCfg.selFreq <= BK1080_GetFreqHiLimit(gEeprom.FM_Band)) ? 
+                fmCfg.selFreq : freqLoLimit;
             
         gEeprom.FM_SelectedChannel = fmCfg.selChn;
         gEeprom.FM_IsMrMode        = fmCfg.isMrMode;
@@ -294,51 +314,25 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     PY25Q16_ReadBuffer(0x00A0A8 + 0x48, Data, 8);
     gEeprom.DTMF_CODE_PERSIST_TIME  = (Data[0] < 101) ? Data[0] * 10 : 100;
     gEeprom.DTMF_CODE_INTERVAL_TIME = (Data[1] < 101) ? Data[1] * 10 : 100;
+
 #ifdef ENABLE_DTMF_CALLING
     gEeprom.PERMIT_REMOTE_KILL      = (Data[2] <   2) ? Data[2] : true;
 
     // 0EE0..0EE7
-
-    PY25Q16_ReadBuffer(0x00A0F8, Data, sizeof(gEeprom.ANI_DTMF_ID));
-    if (DTMF_ValidateCodes((char *)Data, sizeof(gEeprom.ANI_DTMF_ID))) {
-        memcpy(gEeprom.ANI_DTMF_ID, Data, sizeof(gEeprom.ANI_DTMF_ID));
-    } else {
-        strcpy(gEeprom.ANI_DTMF_ID, "123");
-    }
-
+    SETTINGS_LoadEepromDtmf(0x00A0F8, gEeprom.ANI_DTMF_ID, sizeof(gEeprom.ANI_DTMF_ID), "123");
 
     // 0EE8..0EEF
-    PY25Q16_ReadBuffer(0x00A0F8 + 0x8, Data, sizeof(gEeprom.KILL_CODE));
-    if (DTMF_ValidateCodes((char *)Data, sizeof(gEeprom.KILL_CODE))) {
-        memcpy(gEeprom.KILL_CODE, Data, sizeof(gEeprom.KILL_CODE));
-    } else {
-        strcpy(gEeprom.KILL_CODE, "ABCD9");
-    }
+    SETTINGS_LoadEepromDtmf(0x00A0F8 + 0x08, gEeprom.KILL_CODE, sizeof(gEeprom.KILL_CODE), "ABCD9");
 
     // 0EF0..0EF7
-    PY25Q16_ReadBuffer(0x00A0F8 + 0x10, Data, sizeof(gEeprom.REVIVE_CODE));
-    if (DTMF_ValidateCodes((char *)Data, sizeof(gEeprom.REVIVE_CODE))) {
-        memcpy(gEeprom.REVIVE_CODE, Data, sizeof(gEeprom.REVIVE_CODE));
-    } else {
-        strcpy(gEeprom.REVIVE_CODE, "9DCBA");
-    }
+    SETTINGS_LoadEepromDtmf(0x00A0F8 + 0x10, gEeprom.REVIVE_CODE, sizeof(gEeprom.REVIVE_CODE), "9DCBA");
 #endif
 
     // 0EF8..0F07
-    PY25Q16_ReadBuffer(0x00A0F8 + 0x18, Data, sizeof(gEeprom.DTMF_UP_CODE));
-    if (DTMF_ValidateCodes((char *)Data, sizeof(gEeprom.DTMF_UP_CODE))) {
-        memcpy(gEeprom.DTMF_UP_CODE, Data, sizeof(gEeprom.DTMF_UP_CODE));
-    } else {
-        strcpy(gEeprom.DTMF_UP_CODE, "12345");
-    }
+    SETTINGS_LoadEepromDtmf(0x00A0F8 + 0x18, gEeprom.DTMF_UP_CODE, sizeof(gEeprom.DTMF_UP_CODE), "12345");
 
     // 0F08..0F17
-    PY25Q16_ReadBuffer(0x00A0F8 + 0x28, Data, sizeof(gEeprom.DTMF_DOWN_CODE));
-    if (DTMF_ValidateCodes((char *)Data, sizeof(gEeprom.DTMF_DOWN_CODE))) {
-        memcpy(gEeprom.DTMF_DOWN_CODE, Data, sizeof(gEeprom.DTMF_DOWN_CODE));
-    } else {
-        strcpy(gEeprom.DTMF_DOWN_CODE, "54321");
-    }
+    SETTINGS_LoadEepromDtmf(0x00A0F8 + 0x28, gEeprom.DTMF_DOWN_CODE, sizeof(gEeprom.DTMF_DOWN_CODE), "54321");
 
     // 0F18..0F1F
     PY25Q16_ReadBuffer(0x00A130, Data, 8);

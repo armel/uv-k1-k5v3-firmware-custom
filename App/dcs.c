@@ -26,6 +26,12 @@ const uint16_t CTCSS_Options[50] = {
     2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541
 };
 
+// Indices in CTCSS_Options for the 12 non-homologated tones.
+static const uint8_t CTCSS_ExtraIdx[12] = {
+     1, 26, 28, 30, 32, 34, 36, 38, 39, 41,
+    45, 49
+};
+
 const uint16_t DCS_Options[104] = {
     0x0013, 0x0015, 0x0016, 0x0019, 0x001A, 0x001E, 0x0023, 0x0027,
     0x0029, 0x002B, 0x002C, 0x0035, 0x0039, 0x003A, 0x003B, 0x003C,
@@ -107,4 +113,31 @@ uint8_t DCS_GetCtcssCode(int Code)
     }
 
     return Result;
+}
+
+uint8_t DCS_GetCtcssApprovedIndex(uint8_t Option)
+{
+    unsigned int i;
+    unsigned int extra_pos = 0;
+    uint8_t approved_index = 0;
+
+    if (Option >= ARRAY_SIZE(CTCSS_Options))
+        return 0xFF;
+
+    for (i = 0; i < ARRAY_SIZE(CTCSS_Options); i++) {
+        const bool is_extra = extra_pos < ARRAY_SIZE(CTCSS_ExtraIdx) &&
+                              i == CTCSS_ExtraIdx[extra_pos];
+
+        if (is_extra) {
+            extra_pos++;
+            continue;
+        }
+
+        if (i == Option)
+            return approved_index;
+
+        approved_index++;
+    }
+
+    return 0xFF;
 }

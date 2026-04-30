@@ -347,9 +347,9 @@ static void CMD_0514(uint32_t Port, const uint8_t *pBuffer)
 #endif
 
     gSerialConfigCountDown_500ms = 12; // 6 sec
-    
-    // turn the LCD backlight off
-    BACKLIGHT_TurnOff();
+
+    if (gEeprom.BACKLIGHT_TIME < 61) // backlight is set to be always on
+        BACKLIGHT_TurnOff();         // turn the LCD backlight off
 
     SendVersion(Port);
 }
@@ -593,8 +593,8 @@ static void CMD_052F(uint32_t Port, const uint8_t *pBuffer)
     }
 #endif
 
-    // turn the LCD backlight off
-    BACKLIGHT_TurnOff();
+    if (gEeprom.BACKLIGHT_TIME < 61) // backlight is set to be always on
+        BACKLIGHT_TurnOff();         // turn the LCD backlight off
 
     SendVersion(Port);
 }

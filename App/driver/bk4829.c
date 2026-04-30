@@ -39,6 +39,16 @@ static const uint16_t FSK_RogerTable[7] = {0xF1A2, 0x7446, 0x61A4, 0x6544, 0x4E8
 
 static uint16_t gBK4819_GpioOutState;
 
+#define SHORT_DELAY()                                                          \
+  __asm volatile("nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n"                               \
+                 "nop\n nop\n nop\n nop\n nop\n")
+
 bool gRxIdleMode;
 
 static inline void CS_Assert()
@@ -197,21 +207,24 @@ static uint16_t BK4819_ReadU16(void)
     uint16_t     Value;
 
     SDA_SetDir(false);
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
     Value = 0;
     for (i = 0; i < 16; i++)
     {
         Value <<= 1;
         Value |= SDA_ReadInput();
         SCL_Set();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Reset();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
     }
     SDA_SetDir(true);
 
     return Value;
 }
+
+static uint16_t reg_30_cache = 0xFFFF;
+static uint16_t reg_47_cache = 0xFFFF;
 
 uint16_t BK4819_ReadRegister(BK4819_REGISTER_t Register)
 {
@@ -219,41 +232,53 @@ uint16_t BK4819_ReadRegister(BK4819_REGISTER_t Register)
 
     CS_Release();
     SCL_Reset();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     CS_Assert();
     BK4819_WriteU8(Register | 0x80);
     Value = BK4819_ReadU16();
     CS_Release();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     SCL_Set();
     SDA_Set();
+
+    if (Register == BK4819_REG_30)
+        reg_30_cache = Value;
+    else if (Register == BK4819_REG_47)
+        reg_47_cache = Value;
 
     return Value;
 }
 
 void BK4819_WriteRegister(BK4819_REGISTER_t Register, uint16_t Data)
 {
+    if (Register == BK4819_REG_30)
+    {
+        if (Data == reg_30_cache)
+            return;
+        reg_30_cache = Data;
+    }
+    else if (Register == BK4819_REG_47)
+    {
+        if (Data == reg_47_cache)
+            return;
+        reg_47_cache = Data;
+    }
+
     CS_Release();
     SCL_Reset();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     CS_Assert();
     BK4819_WriteU8(Register);
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     BK4819_WriteU16(Data);
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     CS_Release();
-
-    SYSTICK_DelayUs(1);
+    SHORT_DELAY();
 
     SCL_Set();
     SDA_Set();
@@ -271,14 +296,14 @@ void BK4819_WriteU8(uint8_t Data)
         else
             SDA_Set();
 
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Set();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
 
         Data <<= 1;
 
         SCL_Reset();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
     }
 }
 
@@ -294,14 +319,14 @@ void BK4819_WriteU16(uint16_t Data)
         else
             SDA_Set();
 
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Set();
 
         Data <<= 1;
 
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
         SCL_Reset();
-        SYSTICK_DelayUs(1);
+        SHORT_DELAY();
     }
 }
 
@@ -1432,24 +1457,15 @@ void BK4819_GenTail(uint8_t Tail)
     //                          freq(Hz) * 20.64888 for XTAL 13M/26M or
     //                          freq(Hz)*20.97152 for XTAL 12.8M/19.2M/25.6M/38.4M
 
-    switch (Tail)
-    {
-        case 0: // 134.4Hz CTCSS Tail
-            BK4819_WriteRegister(BK4819_REG_52, 0x828F);   // 1 00 0 001010 001111
-            break;
-        case 1: // 120° phase shift
-            BK4819_WriteRegister(BK4819_REG_52, 0xA28F);   // 1 01 0 001010 001111
-            break;
-        case 2: // 180° phase shift
-            BK4819_WriteRegister(BK4819_REG_52, 0xC28F);   // 1 10 0 001010 001111
-            break;
-        case 3: // 240° phase shift
-            BK4819_WriteRegister(BK4819_REG_52, 0xE28F);   // 1 11 0 001010 001111
-            break;
-        case 4: // 55Hz tone freq
-            BK4819_WriteRegister(BK4819_REG_07, 0x046f);   // 0 00 0 010001 101111
-            break;
-    }
+    if (Tail <= 3)
+        // 0: 134.4Hz CTCSS Tail
+        // 1: 120° phase shift
+        // 2: 180° phase shift
+        // 3: 240° phase shift
+        BK4819_WriteRegister(BK4819_REG_52, 0x028F | (Tail << 13));
+    else if (Tail == 4)
+        // 4: 55Hz tone freq
+        BK4819_WriteRegister(BK4819_REG_07, 0x046F);
 }
 
 void BK4819_PlayCDCSSTail(void)
@@ -1531,6 +1547,14 @@ uint8_t BK4819_GetAfTxRx(void)
     return BK4819_ReadRegister(BK4819_REG_6F) & 0x003F;
 }
 
+void BK4819_SetRxAudioGain(void) {
+    BK4819_WriteRegister(BK4819_REG_48,
+        (11u << 12)                |     // ??? .. 0 ~ 15, doesn't seem to make any difference
+        ( 0u << 10)                |     // AF Rx Gain-1
+        (gEeprom.VOLUME_GAIN << 4) |     // AF Rx Gain-2
+        (gEeprom.DAC_GAIN    << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
+}
+
 bool BK4819_GetFrequencyScanResult(uint32_t *pFrequency)
 {
     const uint16_t High     = BK4819_ReadRegister(BK4819_REG_0D);
@@ -1566,7 +1590,7 @@ BK4819_CssScanResult_t BK4819_GetCxCSSScanResult(uint32_t *pCdcssFreq, uint16_t 
     return BK4819_CSS_RESULT_NOT_FOUND;
 }
 
-void BK4819_DisableFrequencyScan(void)
+void BK4819_SetFrequencyScan(bool enable)
 {
     // REG_32
     //
@@ -1582,32 +1606,10 @@ void BK4819_DisableFrequencyScan(void)
     //         1 = enable
     //         0 = disable
     //
-    BK4819_WriteRegister(BK4819_REG_32, // 0x0244);    // 00 0000100100010 0
+    BK4819_WriteRegister(BK4819_REG_32,
         (  0u << 14) |          // 0 frequency scan Time
         (290u <<  1) |          // ???
-        (  0u <<  0));          // 0 frequency scan enable
-}
-
-void BK4819_EnableFrequencyScan(void)
-{
-    // REG_32
-    //
-    // <15:14> 0 frequency scan time
-    //         0 = 0.2 sec
-    //         1 = 0.4 sec
-    //         2 = 0.8 sec
-    //         3 = 1.6 sec
-    //
-    // <13:1>  ???
-    //
-    // <0>     0 frequency scan enable
-    //         1 = enable
-    //         0 = disable
-    //
-    BK4819_WriteRegister(BK4819_REG_32, // 0x0245);   // 00 0000100100010 1
-        (  0u << 14) |          // 0 frequency scan time
-        (290u <<  1) |          // ???
-        (  1u <<  0));          // 1 frequency scan enable
+        (enable ? 1u : 0u));    // frequency scan (1: enable | 0: disable)
 }
 
 void BK4819_SetScanFrequency(uint32_t Frequency)
@@ -1671,7 +1673,7 @@ void BK4819_Disable(void)
 
 void BK4819_StopScan(void)
 {
-    BK4819_DisableFrequencyScan();
+    BK4819_SetFrequencyScan(false);
     BK4819_Disable();
 }
 

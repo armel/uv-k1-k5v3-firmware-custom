@@ -44,6 +44,7 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/main.h"
 #include "ui/ui.h"
 #include <stdlib.h>
 
@@ -305,9 +306,9 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                         gSquelchLevelOriginal =  gEeprom.SQUELCH_LEVEL;
 
                     if (isKeyUp) {
-                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1 : 9;
+                        if (gEeprom.SQUELCH_LEVEL < 9) gEeprom.SQUELCH_LEVEL++;
                     } else {
-                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1 : 0;
+                        if (gEeprom.SQUELCH_LEVEL > 0) gEeprom.SQUELCH_LEVEL--;
                     }
                     gVfoConfigureMode = VFO_CONFIGURE;
                 }
@@ -555,10 +556,10 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
             
-            gKeyInputCountdown = (gInputBoxIndex >= totalDigits) ? (key_input_timeout_500ms / 16) : (key_input_timeout_500ms / 3);
+            gKeyInputCountdown = key_input_timeout_500ms / (gInputBoxIndex >= totalDigits ? 16 : 3);
 
             if (gInputBoxIndex > totalDigits) {
-                gInputBoxIndex =  totalDigits;
+                gInputBoxIndex = totalDigits;
 
                 return;
             }
@@ -569,11 +570,8 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             // convert to int
             uint32_t inputFreq = StrToUL(inputStr);
 
-            // how many zero to add
-            uint8_t zerosToAdd = totalDigits - inputLength;
-
             // add missing zero
-            for (uint8_t i = 0; i < zerosToAdd; i++) {
+            for (uint8_t i = 0; i < totalDigits - inputLength; i++) {
                 inputFreq *= 10;
             }
 
@@ -767,6 +765,7 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
                     att->exclude = true;
 
                     MR_SaveChannelAttributesToFlash(lastFoundFrqOrChan, att);
+                    UI_MAIN_NotifyScanProgressDataChanged();
 
                     gVfoConfigureMode = VFO_CONFIGURE;
                     gFlagResetVfos    = true;
@@ -941,12 +940,12 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
     uint16_t Channel = gEeprom.ScreenChannel[gEeprom.TX_VFO];
 
-    if (bKeyHeld || !bKeyPressed) { // key held or released
-        if (gInputBoxIndex > 0) {
-            gInputBoxIndex = 0;
-            gHasVfoBackup = false;
-        }
+    if (gInputBoxIndex > 0) {
+        gInputBoxIndex = 0;
+        gHasVfoBackup = false;
+    }
 
+    if (bKeyHeld || !bKeyPressed) { // key held or released
         if (!bKeyPressed) {
             if (!bKeyHeld || IS_FREQ_CHANNEL(Channel))
                 return;

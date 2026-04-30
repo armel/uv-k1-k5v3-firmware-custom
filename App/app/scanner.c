@@ -62,7 +62,7 @@ static void SCANNER_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             gInputBoxIndex = 0;
 
             // uint16_t chan = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
-            uint16_t chan = ((gInputBox[0] * 1000) + (gInputBox[1] * 100) + (gInputBox[2] * 10) + gInputBox[3]) - 1;
+            uint16_t chan = (((gInputBox[0] * 10 + gInputBox[1]) * 10 + gInputBox[2]) * 10 + gInputBox[3]) - 1;
             if (IS_MR_CHANNEL(chan)) {
 #ifdef ENABLE_VOICE
                 gAnotherVoiceID = (VOICE_ID_t)Key;
@@ -345,7 +345,7 @@ void SCANNER_Start(bool singleFreq)
         gScanFrequency = 0xFFFFFFFF;
 
         BK4819_PickRXFilterPathBasedOnFrequency(gScanFrequency);
-        BK4819_EnableFrequencyScan();
+        BK4819_SetFrequencyScan(true);
 
         gUpdateStatus = true;
     }
@@ -418,10 +418,10 @@ void SCANNER_TimeSlice10ms(void)
             else
                 scanHitCount = 0;
 
-            BK4819_DisableFrequencyScan();
+            BK4819_SetFrequencyScan(false);
 
             if (scanHitCount < 3) {
-                BK4819_EnableFrequencyScan();
+                BK4819_SetFrequencyScan(true);
             }
             else {
                 BK4819_SetScanFrequency(gScanFrequency);

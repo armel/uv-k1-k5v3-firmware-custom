@@ -42,7 +42,8 @@
 #include <stdint.h>
 #include <string.h>
 
-static const uint8_t DrawingEndY = 40;
+static const uint8_t DrawingEndY  = 40;
+static const uint8_t DrawingTopY  =  8;  // Reserve top 8px for frequency display (gFrameBuffer[0])
 
 static const uint8_t U8RssiMap[] = {
     121,
@@ -78,29 +79,35 @@ static const uint16_t scanStepValues[] = {
 static const uint16_t scanStepBWRegValues[] = {
     //     RX  RXw TX  BW
     // 0b0 000 000 001 01 1000
-    // 1
+    // 1    (S_STEP_0_01kHz, index 0)
     0b0000000001011000, // 6.25
-    // 10
+    // 10   (S_STEP_0_1kHz,  index 1)
     0b0000000001011000, // 6.25
-    // 50
+    // 50   (S_STEP_0_5kHz,  index 2)
     0b0000000001011000, // 6.25
-    // 100
+    // 100  (S_STEP_1_0kHz,  index 3)
     0b0000000001011000, // 6.25
-    // 250
+    // 250  (S_STEP_2_5kHz,  index 4)
     0b0000000001011000, // 6.25
-    // 500
+    // 500  (S_STEP_5_0kHz,  index 5)
     0b0010010001011000, // 6.25
-    // 625
+    // 625  (S_STEP_6_25kHz, index 6)
     0b0100100001011000, // 6.25
-    // 833
+    // 833  (S_STEP_8_33kHz, index 7)
     0b0110110001001000, // 6.25
-    // 1000
+    // 1000 (S_STEP_10_0kHz, index 8)
     0b0110110001001000, // 6.25
-    // 1250
+    // 1250 (S_STEP_12_5kHz, index 9)
     0b0111111100001000, // 6.25
-    // 2500
+    // 1500 (S_STEP_15_0kHz, index 10)
     0b0011011000101000, // 25
-    // 10000
+    // 2000 (S_STEP_20_0kHz, index 11)
+    0b0011011000101000, // 25
+    // 2500 (S_STEP_25_0kHz, index 12)
+    0b0011011000101000, // 25
+    // 5000 (S_STEP_50_0kHz, index 13)
+    0b0011011000101000, // 25
+    // 10000 (S_STEP_100_0kHz, index 14)
     0b0011011000101000, // 25
 };
 
