@@ -70,11 +70,9 @@ void reset(void)
 // PlayBeep
 void playBeep(uint16_t tone)
 {
-    BK4819_PlayTone(tone, true);    // 500 Hz ON
     AUDIO_AudioPathOn();
-    BK4819_ExitTxMute();
-    SYSTEM_DelayMs(100);
-    BK4819_EnterTxMute();
+    BK4819_PrepareToPlayTone(true);
+    BK4819_PlayToneRaw(tone, 100);
     AUDIO_AudioPathOff();
 }
 
