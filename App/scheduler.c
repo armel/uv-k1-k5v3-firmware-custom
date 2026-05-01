@@ -98,6 +98,37 @@ void SysTick_Handler(void)
         if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT)
             DECREMENT_AND_TRIGGER(gScanPauseDelayIn_10ms, gScheduleScanListen);
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    // Scan stall watchdog: if the scan-resume countdown has expired
+    // (gScanPauseDelayIn_10ms == 0) but no resume was actually scheduled
+    // (gScheduleScanListen == false) and no real reception is happening
+    // (squelch closed -> green LED off, not in RX/TX/MONITOR), the scan
+    // loop is stuck. Force a resume after this many 10ms ticks. The
+    // gScanPauseDelayIn_10ms == 0 guard ensures we never override the
+    // user-configured ScnRev (SCAN_RESUME_MODE) pause: while that pause
+    // is decrementing, the watchdog stays asleep.
+    #define SCAN_FAST_STALL_WATCHDOG_10ms  25   // 250 ms
+    static uint16_t scanFastStallCounter;
+
+    if (gScanStateDir != SCAN_OFF
+        && gScanPauseDelayIn_10ms == 0
+        && !gScheduleScanListen
+        && !g_SquelchLost
+        && gCurrentFunction != FUNCTION_RECEIVE
+        && gCurrentFunction != FUNCTION_TRANSMIT
+        && gCurrentFunction != FUNCTION_MONITOR)
+    {
+        if (++scanFastStallCounter >= SCAN_FAST_STALL_WATCHDOG_10ms) {
+            scanFastStallCounter = 0;
+            gScheduleScanListen  = true;
+        }
+    }
+    else
+    {
+        scanFastStallCounter = 0;
+    }
+#endif
+
     DECREMENT_AND_TRIGGER(gTailNoteEliminationCountdown_10ms, gFlagTailNoteEliminationComplete);
 
 #ifdef ENABLE_VOICE

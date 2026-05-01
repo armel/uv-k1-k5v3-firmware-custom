@@ -1,6 +1,9 @@
 
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+#include "driver/systick.h"
+#endif
 #include "functions.h"
 #include "misc.h"
 #include "settings.h"
@@ -37,10 +40,260 @@ uint8_t             initialCROSS_BAND_RX_TX;
 static void NextFreqChannel(void);
 static void NextMemChannel(void);
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+#define SCAN_FAST_PRECHECK_STEPS    6
+#define SCAN_FAST_RSSI_MARGIN       16
+#define SCAN_FAST_SQUELCH_MARGIN     8
+#define SCAN_FAST_FINE_STEP_LIMIT   250
+#define SCAN_FAST_FINE_REFINE_SPAN 1000
+#define SCAN_FAST_FINE_REFINE_MAX    80
+#define SCAN_FAST_FINE_RSSI_DROP      8
+#define SCAN_FAST_RSSI_MAX          65535u
+// Settle loop guard: at most this many 1us waits while the BK4819 glitch
+// indicator stays above SCAN_FAST_GLITCH_THRESHOLD. Caps the worst-case
+// settling time per step at ~50us before we read the RSSI anyway.
+#define SCAN_FAST_GLITCH_GUARD_MAX  50
+#define SCAN_FAST_GLITCH_THRESHOLD  200
+// HF/VHF boundary in Hz: BK4819_PickRXFilterPathBasedOnFrequency() switches
+// the front-end filter path here, so we only re-run that (relatively
+// expensive) call when we actually cross the boundary.
+#define SCAN_FAST_HF_VHF_BOUNDARY_HZ 28000000u
+
+typedef enum {
+    SCAN_FAST_DISABLED,
+    SCAN_FAST_QUIET_BATCH,
+    SCAN_FAST_CANDIDATE
+} scan_fast_result_t;
+
+static uint16_t scanFastReg30;
+static uint16_t scanFastNoiseFloor   = SCAN_FAST_RSSI_MAX;
+static uint32_t scanFastPrevFrequency;
+static bool     scanFastLastFullTuneCandidate;
+
+static void ScanFastResetState(void)
+{
+    // Called on every scan (re)start, after a reception, and on each
+    // wraparound to the start of the channel list / range. The noise
+    // floor is re-warmed up from current conditions instead of carrying
+    // stale calibration into a later sweep.
+    scanFastNoiseFloor            = SCAN_FAST_RSSI_MAX;
+    scanFastPrevFrequency         = 0;
+    scanFastLastFullTuneCandidate = false;
+}
+
+static uint16_t ScanFastReadRssi(void)
+{
+    uint8_t guard = SCAN_FAST_GLITCH_GUARD_MAX;
+    while (guard-- && BK4819_GetGlitchIndicator() >= SCAN_FAST_GLITCH_THRESHOLD)
+    {
+        SYSTICK_DelayUs(1);
+    }
+
+    // Discard first read: after fast tuning the RSSI/AGC value may still be stale.
+    BK4819_GetRSSI();
+    return BK4819_GetRSSI();
+}
+
+static void ScanFastTune(uint32_t frequency)
+{
+    if (scanFastPrevFrequency == 0 ||
+        ((frequency < SCAN_FAST_HF_VHF_BOUNDARY_HZ) !=
+         (scanFastPrevFrequency < SCAN_FAST_HF_VHF_BOUNDARY_HZ)))
+    {
+        BK4819_PickRXFilterPathBasedOnFrequency(frequency);
+    }
+
+    scanFastPrevFrequency = frequency;
+    BK4819_SetFrequency(frequency);
+    BK4819_WriteRegister(BK4819_REG_30, 0);
+    BK4819_WriteRegister(BK4819_REG_30, scanFastReg30);
+}
+
+static bool ScanFastIsCandidate(uint16_t rssi)
+{
+    if (scanFastNoiseFloor == SCAN_FAST_RSSI_MAX)
+    {
+        scanFastNoiseFloor = rssi;
+        return false;
+    }
+
+    const uint16_t noiseTrigger =
+        (scanFastNoiseFloor > SCAN_FAST_RSSI_MAX - SCAN_FAST_RSSI_MARGIN)
+            ? SCAN_FAST_RSSI_MAX
+            : (uint16_t)(scanFastNoiseFloor + SCAN_FAST_RSSI_MARGIN);
+    const uint16_t squelchTrigger =
+        (gRxVfo->SquelchOpenRSSIThresh > SCAN_FAST_SQUELCH_MARGIN)
+            ? (uint16_t)(gRxVfo->SquelchOpenRSSIThresh - SCAN_FAST_SQUELCH_MARGIN)
+            : 0;
+
+    if (rssi >= noiseTrigger && rssi >= squelchTrigger)
+        return true;
+
+    if (rssi < scanFastNoiseFloor)
+        scanFastNoiseFloor = rssi;
+    else
+        scanFastNoiseFloor = (uint16_t)((7u * scanFastNoiseFloor + rssi + 4u) >> 3);
+
+    return false;
+}
+#endif
+
+#if defined(ENABLE_FEAT_F4HWN_SCAN_FASTER) && defined(ENABLE_SCAN_RANGES)
+static void ScanRangeFastRefineCandidate(uint16_t firstRssi)
+{
+    const uint16_t step = gRxVfo->StepFrequency;
+    if (step == 0 || step >= SCAN_FAST_FINE_STEP_LIMIT)
+        return;
+
+    uint16_t maxSteps = SCAN_FAST_FINE_REFINE_SPAN / step;
+    if (maxSteps == 0)
+        maxSteps = 1;
+    if (maxSteps > SCAN_FAST_FINE_REFINE_MAX)
+        maxSteps = SCAN_FAST_FINE_REFINE_MAX;
+
+    uint16_t bestRssi = firstRssi;
+    uint32_t bestFrequency = gRxVfo->freq_config_RX.Frequency;
+    uint8_t fallingSteps = 0;
+
+    for (uint16_t i = 0; i < maxSteps; ++i)
+    {
+        const uint32_t prevRxFrequency = gRxVfo->pRX->Frequency;
+
+        gRxVfo->freq_config_RX.Frequency =
+            APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        RADIO_ApplyOffset(gRxVfo);
+
+        const uint32_t freq = gRxVfo->pRX->Frequency;
+        if ((gScanStateDir > 0 && freq < prevRxFrequency) ||
+            (gScanStateDir < 0 && freq > prevRxFrequency))
+        {
+            break;
+        }
+
+        ScanFastTune(freq);
+
+        const uint16_t rssi = ScanFastReadRssi();
+        if (rssi > bestRssi)
+        {
+            bestRssi = rssi;
+            bestFrequency = gRxVfo->freq_config_RX.Frequency;
+            fallingSteps = 0;
+        }
+        else if (bestRssi > rssi && bestRssi - rssi >= SCAN_FAST_FINE_RSSI_DROP)
+        {
+            if (++fallingSteps >= 3)
+                break;
+        }
+    }
+
+    gRxVfo->freq_config_RX.Frequency = bestFrequency;
+    RADIO_ApplyOffset(gRxVfo);
+    ScanFastTune(gRxVfo->pRX->Frequency);
+}
+
+static scan_fast_result_t ScanRangeFastPrecheck(void)
+{
+    if (!gScanRangeStart)
+        return SCAN_FAST_DISABLED;
+
+    if (gRxVfo->SquelchOpenRSSIThresh == 0)
+        return SCAN_FAST_DISABLED;
+
+    // Mute AF DAC during the precheck sweep: avoids audio glitches and
+    // saves a few uA on each silent step. The bit is restored on the real
+    // tune by RADIO_SetupRegisters() in NextFreqChannel().
+    scanFastReg30 = BK4819_ReadRegister(BK4819_REG_30) & ~BK4819_REG_30_MASK_ENABLE_AF_DAC;
+
+    for (uint8_t i = 0; i < SCAN_FAST_PRECHECK_STEPS; ++i)
+    {
+        gRxVfo->freq_config_RX.Frequency =
+            APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        RADIO_ApplyOffset(gRxVfo);
+
+        const uint32_t freq = gRxVfo->pRX->Frequency;
+
+        // Detect wraparound: scanning forward but the new freq is lower
+        // than the previous one (or scanning backward but it's higher)
+        // means the range has wrapped from stop back to start. Reset the
+        // noise floor so the new pass re-warms up from current conditions.
+        if (scanFastPrevFrequency != 0 &&
+            ((gScanStateDir > 0 && freq < scanFastPrevFrequency) ||
+             (gScanStateDir < 0 && freq > scanFastPrevFrequency)))
+        {
+            ScanFastResetState();
+        }
+
+        ScanFastTune(freq);
+
+        const uint16_t rssi = ScanFastReadRssi();
+        if (ScanFastIsCandidate(rssi))
+        {
+            ScanRangeFastRefineCandidate(rssi);
+            return SCAN_FAST_CANDIDATE;
+        }
+    }
+
+    return SCAN_FAST_QUIET_BATCH;
+}
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+static bool MemChannelFastPrecheck(uint16_t channel)
+{
+    if (gRxVfo->SquelchOpenRSSIThresh == 0)
+    {
+        scanFastLastFullTuneCandidate = false;
+        return true;
+    }
+
+    const uint32_t frequency = SETTINGS_FetchChannelFrequency(channel);
+    if (frequency == 0 || frequency == 0xFFFFFFFF)
+    {
+        scanFastLastFullTuneCandidate = false;
+        return true;
+    }
+
+    // Mute AF DAC for the same reason as in ScanRangeFastPrecheck().
+    scanFastReg30 = BK4819_ReadRegister(BK4819_REG_30) & ~BK4819_REG_30_MASK_ENABLE_AF_DAC;
+    ScanFastTune(frequency);
+
+    if (ScanFastIsCandidate(ScanFastReadRssi()))
+    {
+        scanFastLastFullTuneCandidate = true;
+        return true;  // signal detected: let the full tune path follow
+    }
+
+    // No signal here: still mirror the probed frequency in the VFO so the
+    // status line (channel name + frequency) keeps in sync as we skip.
+    // RADIO_ConfigureChannel() will overwrite these values cleanly when a
+    // candidate is eventually retained.
+    scanFastLastFullTuneCandidate = false;
+    gRxVfo->freq_config_RX.Frequency = frequency;
+    return false;
+}
+
+static void AdvanceMemScanList(const bool enabled)
+{
+    if (enabled)
+        if (++currentScanList >= SCAN_NEXT_NUM)
+            currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
+}
+
+static void SetMemScanProgressChannel(uint16_t channel)
+{
+    gEeprom.MrChannel[    gEeprom.RX_VFO] = channel;
+    gEeprom.ScreenChannel[gEeprom.RX_VFO] = channel;
+    gRxVfo->CHANNEL_SAVE = channel;
+}
+#endif
+
 #if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)
     void CHFRSCANNER_ScanRange(void) {
         gScanRangeStart = gScanRangeStart ? 0 : gTxVfo->pRX->Frequency;
         gScanRangeStop = gEeprom.VfoInfo[!gEeprom.TX_VFO].freq_config_RX.Frequency;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        ScanFastResetState();
+#endif
         if(gScanRangeStart > gScanRangeStop)
             SWAP(gScanRangeStart, gScanRangeStop);
     }
@@ -59,6 +312,9 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
     gNextMrChannel   = gRxVfo->CHANNEL_SAVE;
     currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
     gScanStateDir    = scan_direction;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    ScanFastResetState();
+#endif
 
     if (IS_MR_CHANNEL(gNextMrChannel))
     {   
@@ -119,6 +375,15 @@ void CHFRSCANNER_ContinueScanning(void)
 
 void CHFRSCANNER_ContinueScanning(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    if (scanFastLastFullTuneCandidate &&
+        gCurrentFunction != FUNCTION_INCOMING &&
+        !g_SquelchLost)
+    {
+        ScanFastResetState();
+    }
+#endif
+
     if (gCurrentFunction == FUNCTION_INCOMING &&
         (IS_FREQ_CHANNEL(gNextMrChannel) || gCurrentCodeType == CODE_TYPE_OFF))
     {
@@ -136,6 +401,15 @@ void CHFRSCANNER_ContinueScanning(void)
 
 void CHFRSCANNER_Found(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    // After a real reception the BK4819 AGC has shifted, biasing the next
+    // few RSSI readings high. Reset the precheck state so it warms up from
+    // the current noise floor instead of carrying stale calibration into
+    // the post-reception scan, which otherwise turns nearly every channel
+    // into a CANDIDATE and erases the speed gain.
+    ScanFastResetState();
+#endif
+
     if (gEeprom.SCAN_RESUME_MODE > 80) {
         if (!gScanPauseMode) {
             gScanPauseDelayIn_10ms = scan_pause_delay_in_5_10ms * (gEeprom.SCAN_RESUME_MODE - 80) * 5;
@@ -243,11 +517,38 @@ static void NextFreqChannel(void)
 {
 #ifdef ENABLE_SCAN_RANGES
     if(gScanRangeStart) {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        const scan_fast_result_t fastResult = ScanRangeFastPrecheck();
+
+        if (fastResult == SCAN_FAST_QUIET_BATCH)
+        {
+            scanFastLastFullTuneCandidate = false;
+            gScanPauseDelayIn_10ms = 1;
+            gUpdateDisplay = true;
+            return;
+        }
+
+        if (fastResult == SCAN_FAST_DISABLED)
+        {
+            scanFastLastFullTuneCandidate = false;
+            gRxVfo->freq_config_RX.Frequency = APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        }
+        else
+        {
+            scanFastLastFullTuneCandidate = true;
+        }
+#else
         gRxVfo->freq_config_RX.Frequency = APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+#endif
     }
     else
 #endif
+    {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        scanFastLastFullTuneCandidate = false;
+#endif
         gRxVfo->freq_config_RX.Frequency = APP_SetFrequencyByStep(gRxVfo, gScanStateDir);
+    }
 
     RADIO_ApplyOffset(gRxVfo);
     RADIO_ConfigureSquelchAndOutputPower(gRxVfo);
@@ -348,23 +649,47 @@ static void NextMemChannel(void)
     }
 
     if (!enabled || chan == 0xFFFF)
-    {       
+    {
         chan = RADIO_FindNextChannel(gNextMrChannel + gScanStateDir, gScanStateDir, true, gEeprom.SCAN_LIST_DEFAULT);
         if (chan == 0xFFFF)
-        {   // no valid channel found
+        {   // no valid channel found -> wrapping back to the first channel
             chan = MR_CHANNEL_FIRST;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+            // Wraparound: re-warm the precheck noise floor on the new pass
+            // so it tracks current RF conditions instead of an EMA that
+            // accumulated drift over the previous full sweep.
+            ScanFastResetState();
+#endif
         }
-        
+
         gNextMrChannel = chan;
 
         //sprintf(str, "----> Chan %d\n", chan + 1);
         //LogUart(str);
     }
 
-    if (gNextMrChannel != prev_chan)
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    SetMemScanProgressChannel(gNextMrChannel);
+
+    if (!MemChannelFastPrecheck(gNextMrChannel))
     {
+        gScanPauseDelayIn_10ms = 1;
+        gUpdateDisplay = true;
+        AdvanceMemScanList(enabled);
+        return;
+    }
+#endif
+
+    if (gNextMrChannel != prev_chan
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        || scanFastLastFullTuneCandidate
+#endif
+    )
+    {
+#ifndef ENABLE_FEAT_F4HWN_SCAN_FASTER
         gEeprom.MrChannel[    gEeprom.RX_VFO] = gNextMrChannel;
         gEeprom.ScreenChannel[gEeprom.RX_VFO] = gNextMrChannel;
+#endif
 
         RADIO_ConfigureChannel(gEeprom.RX_VFO, VFO_CONFIGURE_RELOAD);
         RADIO_SetupRegisters(true);
@@ -378,7 +703,11 @@ static void NextMemChannel(void)
     gScanPauseDelayIn_10ms = scan_pause_delay_in_3_10ms;
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    AdvanceMemScanList(enabled);
+#else
     if (enabled)
         if (++currentScanList >= SCAN_NEXT_NUM)
             currentScanList = SCAN_NEXT_CHAN_SCANLIST1;  // back round we go
+#endif
 }
