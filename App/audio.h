@@ -22,6 +22,13 @@
 
 #include "driver/gpio.h"
 
+enum {
+    BEEP_TONE = 0,
+    BEEP_DURATION,
+    BEEP_REPEATS
+};
+
+
 enum BEEP_Type_t
 {
     BEEP_NONE = 0,
@@ -37,7 +44,7 @@ enum BEEP_Type_t
     BEEP_500HZ_30MS,
     BEEP_600HZ_30MS,
 #endif
-    BEEP_880HZ_60MS_DOUBLE_BEEP
+    BEEP_880HZ_60MS_TRIPLE_BEEP
 };
 
 typedef enum BEEP_Type_t BEEP_Type_t;

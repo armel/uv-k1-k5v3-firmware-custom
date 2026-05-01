@@ -1031,7 +1031,7 @@ void BK4819_EnableDTMF(void)
         (15u       << BK4819_REG_24_SHIFT_MAX_SYMBOLS));     // 0 ~ 15
 }
 
-void BK4819_PlayTone(uint16_t Frequency, bool bTuningGainSwitch)
+void BK4819_PrepareToPlayTone(bool bTuningGainSwitch)
 {
     uint16_t ToneConfig = BK4819_REG_70_ENABLE_TONE1;
 
@@ -1046,8 +1046,21 @@ void BK4819_PlayTone(uint16_t Frequency, bool bTuningGainSwitch)
 
     BK4819_WriteRegister(BK4819_REG_30, 0);
     BK4819_WriteRegister(BK4819_REG_30, BK4819_REG_30_ENABLE_AF_DAC | BK4819_REG_30_ENABLE_DISC_MODE | BK4819_REG_30_ENABLE_TX_DSP);
+}
+
+void BK4819_PlayTone(uint16_t Frequency, bool bTuningGainSwitch)
+{
+    BK4819_PrepareToPlayTone(bTuningGainSwitch);
 
     BK4819_WriteRegister(BK4819_REG_71, scale_freq(Frequency));
+}
+
+void BK4819_PlayToneRaw(const unsigned int tone_Hz, const unsigned int delay) {
+    BK4819_WriteRegister(BK4819_REG_71, scale_freq(tone_Hz));
+
+    BK4819_ExitTxMute();
+    SYSTEM_DelayMs(delay);
+    BK4819_EnterTxMute();
 }
 
 // level 0 ~ 127
@@ -1069,11 +1082,7 @@ void BK4819_PlaySingleTone(const unsigned int tone_Hz, const unsigned int delay,
     BK4819_EnableTXLink();
     SYSTEM_DelayMs(50);
 
-    BK4819_WriteRegister(BK4819_REG_71, scale_freq(tone_Hz));
-
-    BK4819_ExitTxMute();
-    SYSTEM_DelayMs(delay);
-    BK4819_EnterTxMute();
+    BK4819_PlayToneRaw(tone_Hz, delay);
 
     if (play_speaker)
     {
@@ -1767,17 +1776,8 @@ static void BK4819_PlayRogerNormal(void)
     BK4819_EnableTXLink();
     SYSTEM_DelayMs(50);
 
-    BK4819_WriteRegister(BK4819_REG_71, scale_freq(tone1_Hz));
-
-    BK4819_ExitTxMute();
-    SYSTEM_DelayMs(80);
-    BK4819_EnterTxMute();
-
-    BK4819_WriteRegister(BK4819_REG_71, scale_freq(tone2_Hz));
-
-    BK4819_ExitTxMute();
-    SYSTEM_DelayMs(80);
-    BK4819_EnterTxMute();
+    BK4819_PlayToneRaw(tone1_Hz, 80);
+    BK4819_PlayToneRaw(tone2_Hz, 80);
 
     BK4819_WriteRegister(BK4819_REG_70, 0x0000);
     BK4819_WriteRegister(BK4819_REG_30, 0xC1FE);   // 1 1 0000 0 1 1111 1 1 1 0
