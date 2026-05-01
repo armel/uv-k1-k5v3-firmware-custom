@@ -33,22 +33,21 @@
 #include "settings.h"
 #include "ui/ui.h"
 
-static const uint16_t BEEP_Classic_array[][3] = {
-//   Tone    Duration    Repeats
-    {0,      0,          0      }, // BEEP_NONE
-    {1000,   60,         1      }, // BEEP_1KHZ_60MS_OPTIONAL
-    {500,    60,         2      }, // BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL
+static const uint16_t BEEP_Classic_array[][3] = { /* Tone    Duration    Repeats  */                                     
+    [BEEP_NONE]                                   = {0,      0,          0      },
+    [BEEP_1KHZ_60MS_OPTIONAL]                     = {1000,   60,         1      },
+    [BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL]        = {500,    60,         2      },
 #ifdef ENABLE_DTMF_CALLING
-    {880,    200,        1      }, // BEEP_880HZ_200MS
-    {880,    500,        1      }, // BEEP_880HZ_500MS
+    [BEEP_880HZ_200MS]                            = {880,    200,        1      },
+    [BEEP_880HZ_500MS]                            = {880,    500,        1      },
 #endif
-    {500,    60,         2      }, // BEEP_500HZ_60MS_DOUBLE_BEEP
+    [BEEP_500HZ_60MS_DOUBLE_BEEP]                 = {500,    60,         2      },
 #ifdef ENABLE_FEAT_F4HWN
-    {400,    30,         1      }, // BEEP_400HZ_30MS
-    {500,    30,         1      }, // BEEP_500HZ_30MS
-    {600,    30,         1      }, // BEEP_600HZ_30MS
+    [BEEP_400HZ_30MS]                             = {400,    30,         1      },
+    [BEEP_500HZ_30MS]                             = {500,    30,         1      },
+    [BEEP_600HZ_30MS]                             = {600,    30,         1      },
 #endif
-    {880,    60,         3      }  // BEEP_880HZ_60MS_TRIPLE_BEEP
+    [BEEP_880HZ_60MS_TRIPLE_BEEP]                 = {880,    60,         3      }
 };
 
 BEEP_Type_t gBeepToPlay = BEEP_NONE;
@@ -67,6 +66,9 @@ void AUDIO_PlayBeep(BEEP_Type_t Beep)
         return;
 
     if (gCurrentFunction == FUNCTION_MONITOR)
+        return;
+
+    if (Beep >= ARRAY_SIZE(BEEP_Classic_array))
         return;
 
 #ifdef ENABLE_FMRADIO
@@ -90,11 +92,13 @@ void AUDIO_PlayBeep(BEEP_Type_t Beep)
     }
 #endif
 
+    BK4819_PrepareToPlayTone(true);
+
+    SYSTEM_DelayMs(2);
+
     AUDIO_AudioPathOn();
 
     SYSTEM_DelayMs(60);
-
-    BK4819_PrepareToPlayTone(true);
 
     for (uint8_t i = 0; i < BEEP_Classic_array[Beep][BEEP_REPEATS]; i++) {
         BK4819_PlayToneRaw( BEEP_Classic_array[Beep][BEEP_TONE], 
