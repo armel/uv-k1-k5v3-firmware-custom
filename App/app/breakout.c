@@ -70,8 +70,8 @@ void reset(void)
 // PlayBeep
 void playBeep(uint16_t tone)
 {
-    AUDIO_AudioPathOn();
     BK4819_PrepareToPlayTone(true);
+    AUDIO_AudioPathOn();
     BK4819_PlayToneRaw(tone, 100);
     AUDIO_AudioPathOff();
 }
