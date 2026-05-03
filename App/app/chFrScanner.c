@@ -1,4 +1,6 @@
 
+#include <stddef.h>
+
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "audio.h"
@@ -61,6 +63,8 @@ static void CHFRSCANNER_AbortActiveReception(void)
 #define SCAN_FAST_PRECHECK_STEPS    6
 #define SCAN_FAST_RSSI_MARGIN       16
 #define SCAN_FAST_SQUELCH_MARGIN     8
+#define SCAN_FAST_WEAK_MARGIN        8
+#define SCAN_FAST_RECHECK_DELAY_US 350
 #define SCAN_FAST_FINE_STEP_LIMIT   250
 #define SCAN_FAST_FINE_REFINE_SPAN 1000
 #define SCAN_FAST_FINE_REFINE_MAX    80
@@ -86,6 +90,8 @@ static uint16_t scanFastReg30;
 static uint16_t scanFastNoiseFloor   = SCAN_FAST_RSSI_MAX;
 static uint32_t scanFastPrevFrequency;
 static bool     scanFastLastFullTuneCandidate;
+static VFO_Info_t scanFastDisplayVfo;
+static bool       scanFastDisplayVfoValid;
 
 static void ScanFastResetState(void)
 {
@@ -96,6 +102,7 @@ static void ScanFastResetState(void)
     scanFastNoiseFloor            = SCAN_FAST_RSSI_MAX;
     scanFastPrevFrequency         = 0;
     scanFastLastFullTuneCandidate = false;
+    scanFastDisplayVfoValid       = false;
 }
 
 static void ScanFastResetNoiseFloor(void)
@@ -131,25 +138,133 @@ static void ScanFastTune(uint32_t frequency)
     BK4819_WriteRegister(BK4819_REG_30, scanFastReg30);
 }
 
-static bool ScanFastIsCandidate(uint16_t rssi)
+const VFO_Info_t *CHFRSCANNER_GetScanDisplayVfo(void)
 {
-    if (scanFastNoiseFloor == SCAN_FAST_RSSI_MAX)
+    if (!scanFastDisplayVfoValid || gScanStateDir == SCAN_OFF || FUNCTION_IsRx())
+        return NULL;
+
+    return &scanFastDisplayVfo;
+}
+
+static bool ScanFastUpdateDisplayVfo(uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation)
+{
+    ChannelScanDisplayInfo_t info;
+
+    if (!SETTINGS_FetchChannelScanDisplayInfo(channel, &info))
     {
-        scanFastNoiseFloor = rssi;
+        scanFastDisplayVfoValid = false;
         return false;
     }
 
-    const uint16_t noiseTrigger =
-        (scanFastNoiseFloor > SCAN_FAST_RSSI_MAX - SCAN_FAST_RSSI_MARGIN)
-            ? SCAN_FAST_RSSI_MAX
-            : (uint16_t)(scanFastNoiseFloor + SCAN_FAST_RSSI_MARGIN);
-    const uint16_t squelchTrigger =
-        (gRxVfo->SquelchOpenRSSIThresh > SCAN_FAST_SQUELCH_MARGIN)
-            ? (uint16_t)(gRxVfo->SquelchOpenRSSIThresh - SCAN_FAST_SQUELCH_MARGIN)
-            : 0;
+    scanFastDisplayVfo = gEeprom.VfoInfo[gEeprom.RX_VFO];
 
-    if (rssi >= noiseTrigger && rssi >= squelchTrigger)
+    scanFastDisplayVfo.CHANNEL_SAVE = channel;
+    scanFastDisplayVfo.freq_config_RX = info.rx;
+    scanFastDisplayVfo.freq_config_TX = info.tx;
+    scanFastDisplayVfo.TX_OFFSET_FREQUENCY = info.offset;
+    scanFastDisplayVfo.StepFrequency = info.stepFrequency;
+    scanFastDisplayVfo.STEP_SETTING = info.stepSetting;
+    scanFastDisplayVfo.Modulation = info.modulation;
+    scanFastDisplayVfo.TX_OFFSET_FREQUENCY_DIRECTION = info.txOffsetFrequencyDirection;
+    scanFastDisplayVfo.OUTPUT_POWER = info.outputPower;
+    scanFastDisplayVfo.FrequencyReverse = info.frequencyReverse;
+    scanFastDisplayVfo.CHANNEL_BANDWIDTH = info.channelBandwidth;
+    scanFastDisplayVfo.BUSY_CHANNEL_LOCK = info.busyChannelLock;
+    scanFastDisplayVfo.TX_LOCK = info.txLock;
+#ifdef ENABLE_DTMF_CALLING
+    scanFastDisplayVfo.DTMF_DECODING_ENABLE = info.dtmfDecodingEnable;
+#endif
+    scanFastDisplayVfo.DTMF_PTT_ID_TX_MODE = info.dtmfPttIdTxMode;
+
+    if (!scanFastDisplayVfo.FrequencyReverse)
+    {
+        scanFastDisplayVfo.pRX = &scanFastDisplayVfo.freq_config_RX;
+        scanFastDisplayVfo.pTX = &scanFastDisplayVfo.freq_config_TX;
+    }
+    else
+    {
+        scanFastDisplayVfo.pRX = &scanFastDisplayVfo.freq_config_TX;
+        scanFastDisplayVfo.pTX = &scanFastDisplayVfo.freq_config_RX;
+    }
+
+    scanFastDisplayVfoValid = true;
+
+    if (frequency)
+        *frequency = info.rx.Frequency;
+    if (modulation)
+        *modulation = info.modulation;
+
+    return true;
+}
+
+static uint16_t ScanFastSaturatingAdd(uint16_t value, uint16_t add)
+{
+    return (value > SCAN_FAST_RSSI_MAX - add) ? SCAN_FAST_RSSI_MAX : (uint16_t)(value + add);
+}
+
+static uint16_t ScanFastSaturatingSub(uint16_t value, uint16_t sub)
+{
+    return (value > sub) ? (uint16_t)(value - sub) : 0;
+}
+
+static uint16_t ScanFastGetNoiseTrigger(void)
+{
+    return ScanFastSaturatingAdd(scanFastNoiseFloor, SCAN_FAST_RSSI_MARGIN);
+}
+
+static uint16_t ScanFastGetSquelchTrigger(void)
+{
+    return ScanFastSaturatingSub(gRxVfo->SquelchOpenRSSIThresh, SCAN_FAST_SQUELCH_MARGIN);
+}
+
+static bool ScanFastIsNearCandidate(uint16_t rssi)
+{
+    const uint16_t rssiWithMargin  = ScanFastSaturatingAdd(rssi, SCAN_FAST_WEAK_MARGIN);
+    const uint16_t squelchTrigger  = ScanFastGetSquelchTrigger();
+
+    if (scanFastNoiseFloor == SCAN_FAST_RSSI_MAX)
+        return gRxVfo->SquelchOpenRSSIThresh > 0 &&
+               rssiWithMargin >= gRxVfo->SquelchOpenRSSIThresh;
+
+    return rssiWithMargin >= ScanFastGetNoiseTrigger() &&
+           rssiWithMargin >= squelchTrigger;
+}
+
+static uint16_t ScanFastReadCandidateRssi(void)
+{
+    uint16_t rssi = ScanFastReadRssi();
+
+    if (ScanFastIsNearCandidate(rssi))
+    {
+        SYSTICK_DelayUs(SCAN_FAST_RECHECK_DELAY_US);
+
+        const uint16_t retryRssi = ScanFastReadRssi();
+        if (retryRssi > rssi)
+            rssi = retryRssi;
+    }
+
+    return rssi;
+}
+
+static bool ScanFastIsCandidate(uint16_t rssi)
+{
+    const uint16_t squelchTrigger = ScanFastGetSquelchTrigger();
+
+    if (scanFastNoiseFloor == SCAN_FAST_RSSI_MAX)
+    {
+        scanFastNoiseFloor = rssi;
+        return gRxVfo->SquelchOpenRSSIThresh > 0 &&
+               rssi >= gRxVfo->SquelchOpenRSSIThresh;
+    }
+
+    const uint16_t noiseTrigger   = ScanFastGetNoiseTrigger();
+    const uint16_t rssiWithMargin = ScanFastSaturatingAdd(rssi, SCAN_FAST_WEAK_MARGIN);
+
+    if ((rssi >= noiseTrigger && rssi >= squelchTrigger) ||
+        (rssiWithMargin >= noiseTrigger && rssiWithMargin >= squelchTrigger))
+    {
         return true;
+    }
 
     if (rssi < scanFastNoiseFloor)
         scanFastNoiseFloor = rssi;
@@ -284,7 +399,7 @@ static scan_fast_result_t ScanRangeFastPrecheck(void)
 
         ScanFastTune(freq);
 
-        const uint16_t rssi = ScanFastReadRssi();
+        const uint16_t rssi = ScanFastReadCandidateRssi();
         if (ScanFastIsCandidate(rssi))
         {
             ScanRangeFastRefineCandidate(rssi);
@@ -308,7 +423,7 @@ static bool MemChannelFastPrecheck(uint16_t channel)
         return true;
     }
 
-    if (!SETTINGS_FetchChannelScanInfo(channel, &frequency, &modulation))
+    if (!ScanFastUpdateDisplayVfo(channel, &frequency, &modulation))
     {
         scanFastLastFullTuneCandidate = false;
         return true;
@@ -320,7 +435,7 @@ static bool MemChannelFastPrecheck(uint16_t channel)
     scanFastReg30 = BK4819_ReadRegister(BK4819_REG_30) & ~BK4819_REG_30_MASK_ENABLE_AF_DAC;
     ScanFastTune(frequency);
 
-    if (ScanFastIsCandidate(ScanFastReadRssi()))
+    if (ScanFastIsCandidate(ScanFastReadCandidateRssi()))
     {
         scanFastLastFullTuneCandidate = true;
         return true;  // signal detected: let the full tune path follow
@@ -419,7 +534,9 @@ void CHFRSCANNER_ManualResume(const int8_t scan_direction)
 {
     CHFRSCANNER_Start(false, scan_direction);
 
-    gScanPauseDelayIn_10ms = 1;
+    gScanPauseDelayIn_10ms = (gRxVfo->SquelchOpenRSSIThresh == 0)
+        ? scan_pause_delay_in_3_10ms
+        : 1;
     gScheduleScanListen    = false;
 }
 

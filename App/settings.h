@@ -307,10 +307,30 @@ typedef struct {
 
 extern EEPROM_Config_t gEeprom;
 
+typedef struct {
+    FREQ_Config_t    rx;
+    FREQ_Config_t    tx;
+    uint32_t         offset;
+    uint16_t         stepFrequency;
+    STEP_Setting_t   stepSetting;
+    ModulationMode_t modulation;
+    uint8_t          txOffsetFrequencyDirection;
+    uint8_t          outputPower;
+    bool             frequencyReverse;
+    uint8_t          channelBandwidth;
+    uint8_t          busyChannelLock;
+    uint8_t          txLock;
+#ifdef ENABLE_DTMF_CALLING
+    uint8_t          dtmfDecodingEnable;
+#endif
+    PTT_ID_t         dtmfPttIdTxMode;
+} ChannelScanDisplayInfo_t;
+
 void     SETTINGS_InitEEPROM(void);
 void     SETTINGS_LoadCalibration(void);
 uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel);
 bool     SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation);
+bool     SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDisplayInfo_t *info);
 void     SETTINGS_FetchChannelName(char *s, const uint16_t channel);
 void     SETTINGS_FactoryReset(bool bIsAll);
 #ifdef ENABLE_FMRADIO

@@ -604,6 +604,99 @@ bool SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, 
     return info.frequency != 0 && info.frequency != 0xFFFFFFFF;
 }
 
+bool SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDisplayInfo_t *info)
+{
+    if (info == NULL)
+        return false;
+
+    struct
+    {
+        uint32_t frequency;
+        uint32_t offset;
+        uint8_t  data[8];
+    } __attribute__((packed)) raw;
+
+    PY25Q16_ReadBuffer(channel * 16, &raw, sizeof(raw));
+
+    if (raw.frequency == 0 || raw.frequency == 0xFFFFFFFF)
+        return false;
+
+    memset(info, 0, sizeof(*info));
+
+    info->rx.Frequency = raw.frequency;
+    info->tx.Frequency = raw.frequency;
+    info->offset       = (raw.offset >= _1GHz_in_KHz) ? (_1GHz_in_KHz / 100) : raw.offset;
+
+    info->rx.CodeType = (raw.data[2] >> 0) & 0x0F;
+    info->tx.CodeType = (raw.data[2] >> 4) & 0x0F;
+    RADIO_ValidateAndSetCode(&info->rx, raw.data[0]);
+    RADIO_ValidateAndSetCode(&info->tx, raw.data[1]);
+
+    uint8_t tmp = raw.data[3] & 0x0F;
+    if (tmp > TX_OFFSET_FREQUENCY_DIRECTION_SUB)
+        tmp = TX_OFFSET_FREQUENCY_DIRECTION_OFF;
+    info->txOffsetFrequencyDirection = tmp;
+
+    tmp = raw.data[3] >> 4;
+    if (tmp >= MODULATION_UKNOWN)
+        tmp = MODULATION_FM;
+    info->modulation = (ModulationMode_t)tmp;
+
+    tmp = raw.data[6];
+    if (tmp >= STEP_N_ELEM)
+        tmp = STEP_12_5kHz;
+    info->stepSetting   = (STEP_Setting_t)tmp;
+    info->stepFrequency = gStepFrequencyTable[tmp];
+
+    if (raw.data[4] == 0xFF)
+    {
+        info->frequencyReverse = false;
+        info->channelBandwidth = BANDWIDTH_WIDE;
+        info->outputPower      = OUTPUT_POWER_LOW1;
+        info->busyChannelLock  = false;
+        info->txLock           = true;
+    }
+    else
+    {
+        const uint8_t d4 = raw.data[4];
+        info->frequencyReverse = !!((d4 >> 0) & 1u);
+        info->channelBandwidth = !!((d4 >> 1) & 1u);
+        info->outputPower      =   ((d4 >> 2) & 7u);
+        info->busyChannelLock  = !!((d4 >> 5) & 1u);
+        info->txLock           = !!((d4 >> 6) & 1u);
+    }
+
+    switch (info->txOffsetFrequencyDirection)
+    {
+        case TX_OFFSET_FREQUENCY_DIRECTION_ADD:
+            info->tx.Frequency = raw.frequency + info->offset;
+            break;
+        case TX_OFFSET_FREQUENCY_DIRECTION_SUB:
+            info->tx.Frequency = raw.frequency - info->offset;
+            break;
+        default:
+            break;
+    }
+
+    if (raw.data[5] == 0xFF)
+    {
+#ifdef ENABLE_DTMF_CALLING
+        info->dtmfDecodingEnable = false;
+#endif
+        info->dtmfPttIdTxMode = PTT_ID_OFF;
+    }
+    else
+    {
+#ifdef ENABLE_DTMF_CALLING
+        info->dtmfDecodingEnable = (raw.data[5] >> 0) & 1u;
+#endif
+        const uint8_t pttId = (raw.data[5] >> 1) & 7u;
+        info->dtmfPttIdTxMode = pttId < ARRAY_SIZE(gSubMenu_PTT_ID) ? pttId : PTT_ID_OFF;
+    }
+
+    return true;
+}
+
 void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
 {
     if (s == NULL)

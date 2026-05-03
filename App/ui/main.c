@@ -1748,6 +1748,11 @@ void UI_DisplayMain(void)
 
         String[0] = '\0';
         const VFO_Info_t *vfoInfo = &gEeprom.VfoInfo[vfo_num];
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        const VFO_Info_t *scanDisplayVfo = CHFRSCANNER_GetScanDisplayVfo();
+        if (vfo_num == gEeprom.RX_VFO && scanDisplayVfo != NULL)
+            vfoInfo = scanDisplayVfo;
+#endif
 
         // show the modulation symbol
         const char * s = "";
@@ -1937,10 +1942,12 @@ void UI_DisplayMain(void)
 #endif
 
 #if ENABLE_FEAT_F4HWN
+        const uint8_t displayBandwidth = vfoInfo->CHANNEL_BANDWIDTH;
+
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
             bool narrower = 0;
 
-            if(vfoInfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
+            if(displayBandwidth == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
             {
                 narrower = 1;
             }
@@ -1948,23 +1955,23 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N", "N+"};
-                UI_PrintStringSmallNormal(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH + narrower], LCD_WIDTH + 80, 0, line + 1);
+                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth + narrower], LCD_WIDTH + 80, 0, line + 1);
             }
             else
             {
                 const char *bandWidthNames[] = {"WIDE", "NAR", "NAR+"};
-                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH + narrower], 91, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(bandWidthNames[displayBandwidth + narrower], 91, line == 0 ? 17 : 49, false, true);
             }
         #else
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N"};
-                UI_PrintStringSmallNormal(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH], LCD_WIDTH + 80, 0, line + 1);
+                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth], LCD_WIDTH + 80, 0, line + 1);
             }
             else
             {
                 const char *bandWidthNames[] = {"WIDE", "NAR"};
-                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH], 91, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(bandWidthNames[displayBandwidth], 91, line == 0 ? 17 : 49, false, true);
             }
         #endif
 #else
