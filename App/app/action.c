@@ -243,9 +243,7 @@ void ACTION_Scan(bool bRestart)
         #endif
 
         // jump to the next channel
-        CHFRSCANNER_Start(false, gScanStateDir);
-        gScanPauseDelayIn_10ms = 1;
-        gScheduleScanListen    = false;
+        CHFRSCANNER_ManualResume(gScanStateDir);
     } else {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
         if(gScanRangeStart == 0) // No ScanRange

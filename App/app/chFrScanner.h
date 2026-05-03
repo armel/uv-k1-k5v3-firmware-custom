@@ -18,6 +18,7 @@ extern uint32_t          gScanRangeStop;
 void CHFRSCANNER_Found(void);
 void CHFRSCANNER_Stop(void);
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction);
+void CHFRSCANNER_ManualResume(const int8_t scan_direction);
 void CHFRSCANNER_ContinueScanning(void);
 
 #if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)

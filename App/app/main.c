@@ -1010,9 +1010,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     }
 
     // jump to the next channel
-    CHFRSCANNER_Start(false, Direction);
-    gScanPauseDelayIn_10ms = 1;
-    gScheduleScanListen = false;
+    CHFRSCANNER_ManualResume(Direction);
 
     gPttWasReleased = true;
 }

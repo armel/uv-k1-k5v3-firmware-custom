@@ -349,6 +349,26 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
     gScanPauseMode         = false;
 }
 
+void CHFRSCANNER_ManualResume(const int8_t scan_direction)
+{
+    if (FUNCTION_IsRx())
+    {
+        // Abort the current reception before a user-forced scan step, otherwise
+        // HandleReceive() can re-apply the carrier resume delay on the next tick.
+        gMonitor         = false;
+        gRxReceptionMode = RX_MODE_NONE;
+        gScanPauseMode   = false;
+
+        FUNCTION_Init();
+        FUNCTION_Select(FUNCTION_FOREGROUND);
+    }
+
+    CHFRSCANNER_Start(false, scan_direction);
+
+    gScanPauseDelayIn_10ms = 1;
+    gScheduleScanListen    = false;
+}
+
 /*
 void CHFRSCANNER_ContinueScanning(void)
 {
@@ -380,7 +400,10 @@ void CHFRSCANNER_ContinueScanning(void)
         gCurrentFunction != FUNCTION_INCOMING &&
         !g_SquelchLost)
     {
-        ScanFastResetState();
+        // A rejected full-tune candidate is just a false RSSI hit. Keep the
+        // learned floor; resetting here can make the next channel blind when
+        // it is the real signal, especially while scanning down.
+        scanFastLastFullTuneCandidate = false;
     }
 #endif
 
