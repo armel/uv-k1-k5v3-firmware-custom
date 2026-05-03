@@ -1,12 +1,14 @@
 
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#include "audio.h"
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
 #include "driver/systick.h"
 #endif
 #include "functions.h"
 #include "misc.h"
 #include "settings.h"
+#include "ui/main.h"
 //#include "debugging.h"
 
 int8_t            gScanStateDir;
@@ -39,6 +41,21 @@ uint8_t             initialCROSS_BAND_RX_TX;
 
 static void NextFreqChannel(void);
 static void NextMemChannel(void);
+
+static void CHFRSCANNER_AbortActiveReception(void)
+{
+    if (!FUNCTION_IsRx())
+        return;
+
+    AUDIO_AudioPathOff();
+    gEnableSpeaker   = false;
+    gMonitor         = false;
+    gRxReceptionMode = RX_MODE_NONE;
+    gScanPauseMode   = false;
+
+    FUNCTION_Init();
+    FUNCTION_Select(FUNCTION_FOREGROUND);
+}
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
 #define SCAN_FAST_PRECHECK_STEPS    6
@@ -135,6 +152,34 @@ static bool ScanFastIsCandidate(uint16_t rssi)
         scanFastNoiseFloor = (uint16_t)((7u * scanFastNoiseFloor + rssi + 4u) >> 3);
 
     return false;
+}
+
+static void ScanFastApplyChannelShape(ModulationMode_t modulation)
+{
+    const bool modulationChanged = gRxVfo->Modulation != modulation;
+    const bool bandwidthChanged  = gRxVfo->CHANNEL_BANDWIDTH != BANDWIDTH_WIDE;
+
+    if (!modulationChanged && !bandwidthChanged)
+        return;
+
+    gRxVfo->Modulation         = modulation;
+    gRxVfo->CHANNEL_BANDWIDTH  = BANDWIDTH_WIDE;
+
+    if (modulationChanged)
+        RADIO_SetModulation(modulation);
+
+    if (modulation == MODULATION_AM)
+    {
+        BK4819_SetFilterBandwidth(RADIO_GetAMFilterBandwidth(gRxVfo), true);
+    }
+    else
+    {
+#ifdef ENABLE_AM_FIX
+        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, true);
+#else
+        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, false);
+#endif
+    }
 }
 #endif
 
@@ -240,18 +285,22 @@ static scan_fast_result_t ScanRangeFastPrecheck(void)
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
 static bool MemChannelFastPrecheck(uint16_t channel)
 {
+    uint32_t frequency;
+    ModulationMode_t modulation;
+
     if (gRxVfo->SquelchOpenRSSIThresh == 0)
     {
         scanFastLastFullTuneCandidate = false;
         return true;
     }
 
-    const uint32_t frequency = SETTINGS_FetchChannelFrequency(channel);
-    if (frequency == 0 || frequency == 0xFFFFFFFF)
+    if (!SETTINGS_FetchChannelScanInfo(channel, &frequency, &modulation))
     {
         scanFastLastFullTuneCandidate = false;
         return true;
     }
+
+    ScanFastApplyChannelShape(modulation);
 
     // Mute AF DAC for the same reason as in ScanRangeFastPrecheck().
     scanFastReg30 = BK4819_ReadRegister(BK4819_REG_30) & ~BK4819_REG_30_MASK_ENABLE_AF_DAC;
@@ -308,6 +357,7 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
     }
     
     RADIO_SelectVfos();
+    CHFRSCANNER_AbortActiveReception();
 
     gNextMrChannel   = gRxVfo->CHANNEL_SAVE;
     currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
@@ -321,6 +371,8 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
 
         if(!RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT)) {
             RADIO_NextValidList(1);
+            UI_MAIN_NotifyScanProgressDataChanged();
+            gUpdateStatus = true;
         }
 
         // channel mode
@@ -351,18 +403,6 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
 
 void CHFRSCANNER_ManualResume(const int8_t scan_direction)
 {
-    if (FUNCTION_IsRx())
-    {
-        // Abort the current reception before a user-forced scan step, otherwise
-        // HandleReceive() can re-apply the carrier resume delay on the next tick.
-        gMonitor         = false;
-        gRxReceptionMode = RX_MODE_NONE;
-        gScanPauseMode   = false;
-
-        FUNCTION_Init();
-        FUNCTION_Select(FUNCTION_FOREGROUND);
-    }
-
     CHFRSCANNER_Start(false, scan_direction);
 
     gScanPauseDelayIn_10ms = 1;
@@ -673,6 +713,7 @@ static void NextMemChannel(void)
 
     if (!enabled || chan == 0xFFFF)
     {
+        const uint16_t searchStart = gNextMrChannel;
         chan = RADIO_FindNextChannel(gNextMrChannel + gScanStateDir, gScanStateDir, true, gEeprom.SCAN_LIST_DEFAULT);
         if (chan == 0xFFFF)
         {   // no valid channel found -> wrapping back to the first channel
@@ -684,6 +725,16 @@ static void NextMemChannel(void)
             ScanFastResetState();
 #endif
         }
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        else if ((gScanStateDir > 0 && chan < searchStart) ||
+                 (gScanStateDir < 0 && chan > searchStart))
+        {
+            // RADIO_FindNextChannel() wraps internally, so 0xFFFF is not
+            // returned on a normal full-sweep wrap. Detect that transition
+            // here and restart the RSSI floor learning for the new pass.
+            ScanFastResetState();
+        }
+#endif
 
         gNextMrChannel = chan;
 

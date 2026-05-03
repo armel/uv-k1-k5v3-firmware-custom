@@ -40,6 +40,7 @@
 #include "misc.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/main.h"
 #include "ui/ui.h"
 #ifdef ENABLE_REGA
     #include "app/rega.h"
@@ -237,6 +238,8 @@ void ACTION_Scan(bool bRestart)
 
         // channel mode. Keep scanning but toggle between scan lists
         RADIO_NextValidList(1);
+        UI_MAIN_NotifyScanProgressDataChanged();
+        gUpdateStatus = true;
 
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
             SETTINGS_WriteCurrentState();

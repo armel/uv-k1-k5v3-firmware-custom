@@ -579,6 +579,31 @@ uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel)
     return info.frequency;
 }
 
+bool SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation)
+{
+    struct
+    {
+        uint32_t frequency;
+        uint32_t offset;
+        uint8_t  settings[4];
+    } __attribute__((packed)) info;
+
+    PY25Q16_ReadBuffer(channel * 16, &info, sizeof(info));
+
+    if (frequency)
+        *frequency = info.frequency;
+
+    if (modulation)
+    {
+        uint8_t mode = info.settings[3] >> 4;
+        if (mode >= MODULATION_UKNOWN)
+            mode = MODULATION_FM;
+        *modulation = (ModulationMode_t)mode;
+    }
+
+    return info.frequency != 0 && info.frequency != 0xFFFFFFFF;
+}
+
 void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
 {
     if (s == NULL)
