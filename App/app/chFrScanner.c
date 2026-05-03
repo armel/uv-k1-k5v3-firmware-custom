@@ -98,6 +98,11 @@ static void ScanFastResetState(void)
     scanFastLastFullTuneCandidate = false;
 }
 
+static void ScanFastResetNoiseFloor(void)
+{
+    scanFastNoiseFloor = SCAN_FAST_RSSI_MAX;
+}
+
 static uint16_t ScanFastReadRssi(void)
 {
     uint8_t guard = SCAN_FAST_GLITCH_GUARD_MAX;
@@ -179,6 +184,15 @@ static void ScanFastApplyChannelShape(ModulationMode_t modulation)
 #else
         BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, false);
 #endif
+    }
+
+    if (modulationChanged)
+    {
+        // AM and FM use different demod/AGC profiles, so their RSSI
+        // baselines are not directly comparable. Relearn the floor after
+        // crossing that boundary instead of treating the next FM block as
+        // a wall of candidates.
+        ScanFastResetNoiseFloor();
     }
 }
 #endif
