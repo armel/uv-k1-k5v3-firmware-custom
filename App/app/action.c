@@ -239,7 +239,6 @@ void ACTION_Scan(bool bRestart)
         // channel mode. Keep scanning but toggle between scan lists
         RADIO_NextValidList(1);
         UI_MAIN_NotifyScanProgressDataChanged();
-        gUpdateStatus = true;
 
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
             SETTINGS_WriteCurrentState();
