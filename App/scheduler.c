@@ -110,7 +110,8 @@ void SysTick_Handler(void)
     #define SCAN_FAST_STALL_WATCHDOG_10ms  25   // 250 ms
     static uint16_t scanFastStallCounter;
 
-    if (gScanStateDir != SCAN_OFF
+    if (gSetting_set_scn
+        && gScanStateDir != SCAN_OFF
         && gScanPauseDelayIn_10ms == 0
         && !gScheduleScanListen
         && !g_SquelchLost

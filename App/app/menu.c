@@ -426,6 +426,12 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_SET_MET) - 1;
             break;
+        #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        case MENU_SET_SCN:
+            //*pMin = 0;
+            *pMax = ARRAY_SIZE(gSubMenu_SET_SCN) - 1;
+            break;
+        #endif
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
         case MENU_SET_AUD:
             //*pMin = 0;
@@ -989,6 +995,11 @@ void MENU_AcceptSetting(void)
         case MENU_SET_GUI:
             gSetting_set_gui = gSubMenuSelection;
             break;
+        #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        case MENU_SET_SCN:
+            gSetting_set_scn = gSubMenuSelection;
+            break;
+        #endif
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
         case MENU_SET_AUD:
             if(gTxVfo->Modulation == MODULATION_AM)
@@ -1453,6 +1464,11 @@ void MENU_ShowCurrentSetting(void)
         case MENU_SET_GUI:
             gSubMenuSelection = gSetting_set_gui;
             break;
+        #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        case MENU_SET_SCN:
+            gSubMenuSelection = gSetting_set_scn;
+            break;
+        #endif
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
         case MENU_SET_AUD:
             if(gTxVfo->Modulation == MODULATION_AM)

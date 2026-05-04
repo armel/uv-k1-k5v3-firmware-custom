@@ -168,6 +168,9 @@ const t_menu_item MenuList[] =
 #ifdef ENABLE_NOAA
     {"SetNWR",      MENU_NOAA_S    },
 #endif
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    {"SetScn",      MENU_SET_SCN       },
+#endif
 #endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
@@ -413,6 +416,14 @@ const char gSubMenu_SCRAMBLER[][7] =
         "TINY",
         "CLASSIC"
     };
+
+    #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        const char gSubMenu_SET_SCN[][7] =
+        {
+            "NORMAL",
+            "FAST"
+        };
+    #endif
 
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         const char gSubMenu_SET_AUD_FM[][6] =
@@ -1349,6 +1360,12 @@ void UI_DisplayMenu(void)
         case MENU_SET_GUI:
             strcpy(String, gSubMenu_SET_MET[gSubMenuSelection]); // Same as SET_MET
             break;
+
+        #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+            case MENU_SET_SCN:
+                strcpy(String, gSubMenu_SET_SCN[gSubMenuSelection]);
+                break;
+        #endif
 
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
             case MENU_SET_AUD:

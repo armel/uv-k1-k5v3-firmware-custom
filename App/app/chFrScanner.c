@@ -63,6 +63,13 @@ static void NextMemChannel(void);
 static void ScanFastResetState(void);
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+static bool ScanFastEnabled(void)
+{
+    return gSetting_set_scn;
+}
+#endif
+
 #ifdef ENABLE_SCAN_RANGES
 static void ScanRangeSkipClear(void)
 {
@@ -273,7 +280,7 @@ static void ScanFastTune(uint32_t frequency)
 
 const VFO_Info_t *CHFRSCANNER_GetScanDisplayVfo(void)
 {
-    if (!scanFastDisplayVfoValid || gScanStateDir == SCAN_OFF || FUNCTION_IsRx())
+    if (!ScanFastEnabled() || !scanFastDisplayVfoValid || gScanStateDir == SCAN_OFF || FUNCTION_IsRx())
         return NULL;
 
     return &scanFastDisplayVfo;
@@ -850,24 +857,32 @@ static void NextFreqChannel(void)
 #ifdef ENABLE_SCAN_RANGES
     if(gScanRangeStart) {
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
-        const scan_fast_result_t fastResult = ScanRangeFastPrecheck();
-
-        if (fastResult == SCAN_FAST_QUIET_BATCH)
+        if (ScanFastEnabled())
         {
-            scanFastLastFullTuneCandidate = false;
-            gScanPauseDelayIn_10ms = 1;
-            gUpdateDisplay = true;
-            return;
-        }
+            const scan_fast_result_t fastResult = ScanRangeFastPrecheck();
 
-        if (fastResult == SCAN_FAST_DISABLED)
-        {
-            scanFastLastFullTuneCandidate = false;
-            gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
+            if (fastResult == SCAN_FAST_QUIET_BATCH)
+            {
+                scanFastLastFullTuneCandidate = false;
+                gScanPauseDelayIn_10ms = 1;
+                gUpdateDisplay = true;
+                return;
+            }
+
+            if (fastResult == SCAN_FAST_DISABLED)
+            {
+                scanFastLastFullTuneCandidate = false;
+                gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
+            }
+            else
+            {
+                scanFastLastFullTuneCandidate = true;
+            }
         }
         else
         {
-            scanFastLastFullTuneCandidate = true;
+            scanFastLastFullTuneCandidate = false;
+            gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
         }
 #else
         gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
@@ -1014,7 +1029,7 @@ static void NextMemChannel(void)
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
     SetMemScanProgressChannel(gNextMrChannel);
 
-    if (!MemChannelFastPrecheck(gNextMrChannel))
+    if (ScanFastEnabled() && !MemChannelFastPrecheck(gNextMrChannel))
     {
         gScanPauseDelayIn_10ms = 1;
         gUpdateDisplay = true;
