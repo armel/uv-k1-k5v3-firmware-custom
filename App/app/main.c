@@ -762,11 +762,25 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
         if (bKeyPressed) { // long press MENU key
 
             #ifdef ENABLE_FEAT_F4HWN
-            // Exclude channel
+            // Exclude current scan entry
             if(gScanStateDir != SCAN_OFF)
             {
                 if(FUNCTION_IsRx() || gScanPauseDelayIn_10ms > 9)
                 {
+#ifdef ENABLE_SCAN_RANGES
+                    if(gScanRangeStart && !IS_MR_CHANNEL(gNextMrChannel))
+                    {
+                        if(CHFRSCANNER_ExcludeCurrentScanRange())
+                        {
+                            UI_MAIN_NotifyScanProgressDataChanged();
+                            lastFoundFrqOrChan = lastFoundFrqOrChanOld;
+                            CHFRSCANNER_ContinueScanning();
+                        }
+
+                        return;
+                    }
+#endif
+
                     ChannelAttributes_t *att = MR_GetChannelAttributes(lastFoundFrqOrChan);
                     att->exclude = true;
 

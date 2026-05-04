@@ -221,7 +221,7 @@ static bool ScanProgress_BucketHasExcludedOrdinal(uint32_t first_ordinal, uint32
     return false;
 }
 
-static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode, uint8_t extra_left_offset)
+static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode, bool range_mode, uint8_t extra_left_offset)
 {
     const bool forward = ScanProgress_IsForward();
 
@@ -260,6 +260,10 @@ static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uin
 
         if (memory_mode)
             excluded = ScanProgress_BucketHasExcludedOrdinal(first_ordinal, last_ordinal);
+#ifdef ENABLE_SCAN_RANGES
+        else if (range_mode)
+            excluded = CHFRSCANNER_HasScanRangeExcludedOrdinal(first_ordinal, last_ordinal);
+#endif
 
         if (processed && !excluded) {
             pixel = 0x2d;
@@ -502,7 +506,7 @@ static bool UI_DrawScanProgress(void)
     UI_PrintStringSmallNormal(text, 2, 0, line);
 #endif
 
-    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory, extra_offset);
+    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory, show_range, extra_offset);
 
     return true;
 }

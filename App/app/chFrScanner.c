@@ -20,6 +20,22 @@ bool              gScanPauseMode;
 #ifdef ENABLE_SCAN_RANGES
 uint32_t          gScanRangeStart;
 uint32_t          gScanRangeStop;
+
+#define SCAN_RANGE_SKIP_MAX 32
+#if (SCAN_RANGE_SKIP_MAX & (SCAN_RANGE_SKIP_MAX - 1)) != 0
+    #error SCAN_RANGE_SKIP_MAX must be a power of two
+#endif
+
+typedef struct {
+    uint16_t sample[SCAN_RANGE_SKIP_MAX];
+    uint32_t start;
+    uint32_t stop;
+    uint16_t step;
+    uint8_t  count;
+    uint8_t  next;
+} ScanRangeSkipList_t;
+
+static ScanRangeSkipList_t scanRangeSkip;
 #endif
 
 typedef enum {
@@ -43,6 +59,123 @@ uint8_t             initialCROSS_BAND_RX_TX;
 
 static void NextFreqChannel(void);
 static void NextMemChannel(void);
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+static void ScanFastResetState(void);
+#endif
+
+#ifdef ENABLE_SCAN_RANGES
+static void ScanRangeSkipClear(void)
+{
+    scanRangeSkip.count = 0;
+    scanRangeSkip.next = 0;
+}
+
+static void ScanRangeSkipSync(void)
+{
+    const uint16_t step = gRxVfo->StepFrequency;
+
+    if (scanRangeSkip.start == gScanRangeStart &&
+        scanRangeSkip.stop == gScanRangeStop &&
+        scanRangeSkip.step == step)
+    {
+        return;
+    }
+
+    ScanRangeSkipClear();
+    scanRangeSkip.start = gScanRangeStart;
+    scanRangeSkip.stop  = gScanRangeStop;
+    scanRangeSkip.step  = step;
+}
+
+static uint16_t ScanRangeSkipSampleForFrequency(uint32_t frequency)
+{
+    const uint16_t step = gRxVfo->StepFrequency;
+    if (!gScanRangeStart || step == 0 || frequency < gScanRangeStart || frequency > gScanRangeStop)
+        return 0;
+
+    const uint32_t sample = (frequency - gScanRangeStart) / step;
+    if (sample >= 0xFFFFu)
+        return 0;
+
+    return (uint16_t)(sample + 1);
+}
+
+static bool ScanRangeSkipContainsFrequency(uint32_t frequency)
+{
+    const uint16_t sample = ScanRangeSkipSampleForFrequency(frequency);
+    if (sample == 0)
+        return false;
+
+    for (uint8_t i = 0; i < scanRangeSkip.count; ++i)
+        if (scanRangeSkip.sample[i] == sample)
+            return true;
+
+    return false;
+}
+
+static uint32_t ScanRangeNextFrequency(void)
+{
+    uint32_t frequency;
+    uint8_t guard = SCAN_RANGE_SKIP_MAX + 1;
+
+    ScanRangeSkipSync();
+
+    do
+    {
+        frequency = APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        gRxVfo->freq_config_RX.Frequency = frequency;
+    } while (--guard && ScanRangeSkipContainsFrequency(frequency));
+
+    return frequency;
+}
+
+bool CHFRSCANNER_ExcludeCurrentScanRange(void)
+{
+    ScanRangeSkipSync();
+
+    uint16_t sample = ScanRangeSkipSampleForFrequency(lastFoundFrqOrChan);
+    if (sample == 0)
+        sample = ScanRangeSkipSampleForFrequency(gRxVfo->freq_config_RX.Frequency);
+
+    if (sample == 0)
+        return false;
+
+    for (uint8_t i = 0; i < scanRangeSkip.count; ++i)
+        if (scanRangeSkip.sample[i] == sample)
+            return true;
+
+    scanRangeSkip.sample[scanRangeSkip.next] = sample;
+    scanRangeSkip.next = (scanRangeSkip.next + 1) & (SCAN_RANGE_SKIP_MAX - 1);
+    if (scanRangeSkip.count < SCAN_RANGE_SKIP_MAX)
+        scanRangeSkip.count++;
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    ScanFastResetState();
+#endif
+
+    return true;
+}
+
+bool CHFRSCANNER_HasScanRangeExcludedOrdinal(uint32_t first_ordinal, uint32_t last_ordinal)
+{
+    if (first_ordinal == 0)
+        first_ordinal = 1;
+    if (last_ordinal < first_ordinal)
+        return false;
+    if (first_ordinal > 0xFFFFu)
+        return false;
+    if (last_ordinal > 0xFFFFu)
+        last_ordinal = 0xFFFFu;
+
+    for (uint8_t i = 0; i < scanRangeSkip.count; ++i) {
+        const uint16_t sample = scanRangeSkip.sample[i];
+        if (sample >= first_ordinal && sample <= last_ordinal)
+            return true;
+    }
+
+    return false;
+}
+#endif
 
 static void CHFRSCANNER_AbortActiveReception(void)
 {
@@ -333,8 +466,7 @@ static void ScanRangeFastRefineCandidate(uint16_t firstRssi)
     {
         const uint32_t prevRxFrequency = gRxVfo->pRX->Frequency;
 
-        gRxVfo->freq_config_RX.Frequency =
-            APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
         RADIO_ApplyOffset(gRxVfo);
 
         const uint32_t freq = gRxVfo->pRX->Frequency;
@@ -380,8 +512,7 @@ static scan_fast_result_t ScanRangeFastPrecheck(void)
 
     for (uint8_t i = 0; i < SCAN_FAST_PRECHECK_STEPS; ++i)
     {
-        gRxVfo->freq_config_RX.Frequency =
-            APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
         RADIO_ApplyOffset(gRxVfo);
 
         const uint32_t freq = gRxVfo->pRX->Frequency;
@@ -467,13 +598,20 @@ static void SetMemScanProgressChannel(uint16_t channel)
 
 #if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)
     void CHFRSCANNER_ScanRange(void) {
-        gScanRangeStart = gScanRangeStart ? 0 : gTxVfo->pRX->Frequency;
+        if (gScanRangeStart) {
+            gScanRangeStart = 0;
+            return;
+        }
+
+        gScanRangeStart = gTxVfo->pRX->Frequency;
         gScanRangeStop = gEeprom.VfoInfo[!gEeprom.TX_VFO].freq_config_RX.Frequency;
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
         ScanFastResetState();
 #endif
         if(gScanRangeStart > gScanRangeStop)
             SWAP(gScanRangeStart, gScanRangeStop);
+
+        ScanRangeSkipSync();
     }
 #endif
 
@@ -725,14 +863,14 @@ static void NextFreqChannel(void)
         if (fastResult == SCAN_FAST_DISABLED)
         {
             scanFastLastFullTuneCandidate = false;
-            gRxVfo->freq_config_RX.Frequency = APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+            gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
         }
         else
         {
             scanFastLastFullTuneCandidate = true;
         }
 #else
-        gRxVfo->freq_config_RX.Frequency = APP_SetFreqByStepAndLimits(gRxVfo, gScanStateDir, gScanRangeStart, gScanRangeStop);
+        gRxVfo->freq_config_RX.Frequency = ScanRangeNextFrequency();
 #endif
     }
     else

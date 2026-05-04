@@ -15,6 +15,8 @@ extern bool              gScanPauseMode;
 #ifdef ENABLE_SCAN_RANGES
 extern uint32_t          gScanRangeStart;
 extern uint32_t          gScanRangeStop;
+bool CHFRSCANNER_ExcludeCurrentScanRange(void);
+bool CHFRSCANNER_HasScanRangeExcludedOrdinal(uint32_t first_ordinal, uint32_t last_ordinal);
 #endif
 
 void CHFRSCANNER_Found(void);
