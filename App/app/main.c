@@ -301,7 +301,6 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
                 if (gScanStateDir != SCAN_OFF) {
                     RADIO_NextValidList(isKeyUp ? 1 : -1);
                     UI_MAIN_NotifyScanProgressDataChanged();
-                    gUpdateStatus = true;
                 } else {
                     // Adjust squelch: UP increments, DOWN decrements
                     if (gSquelchLevelOriginal == 10)
@@ -485,7 +484,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             {
                 gEeprom.SCAN_LIST_DEFAULT = MR_CHANNELS_LIST + 1;
                 UI_MAIN_NotifyScanProgressDataChanged();
-                gUpdateStatus = true;
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
             #endif
@@ -505,7 +503,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                     RADIO_NextValidList(1);
                 }
                 UI_MAIN_NotifyScanProgressDataChanged();
-                gUpdateStatus = true;
 
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();

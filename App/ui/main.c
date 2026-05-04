@@ -108,6 +108,7 @@ static void ScanProgress_ResetSession(void)
 void UI_MAIN_NotifyScanProgressDataChanged(void)
 {
     gScanProgressForceRebuild = true;
+    gUpdateStatus = true;
 }
 
 static inline void ScanProgress_SetBit(uint8_t *map, uint16_t ch)
@@ -1302,14 +1303,6 @@ void UI_DisplayMain(void)
 
         uint32_t frequency = gEeprom.VfoInfo[vfo_num].pRX->Frequency;
 
-        if(TX_freq_check(frequency) != 0 && gEeprom.VfoInfo[vfo_num].TX_LOCK == true && !FUNCTION_IsRx())
-        {
-            if(isMainOnly())
-                memcpy(p_line0 + 25, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
-            else
-                memcpy(p_line0 + 25, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
-        }
-
         if (gCurrentFunction == FUNCTION_TRANSMIT)
         {   // transmitting
 
@@ -1391,6 +1384,12 @@ void UI_DisplayMain(void)
                     RxBlinkLed = 2;
             }
 #endif
+        }
+
+        if(TX_freq_check(frequency) != 0 && gEeprom.VfoInfo[vfo_num].TX_LOCK == true)
+        {
+            if (!FUNCTION_IsRx() || RxOnVfofrequency != frequency)
+                memcpy(p_line0 + 25, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
         }
 
         if (IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num]))
