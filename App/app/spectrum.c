@@ -1525,7 +1525,11 @@ static void BuildCurrentSpectrumTopY(uint8_t *topY)
 #endif
 
     BuildSpectrumTopY(topY, bars);
-    SmoothTopY(topY);
+    // Skip cosmetic smoothing in manual mode so the rendered curve matches
+    // the raw RSSI used by the squelch detector — narrow peaks must visibly
+    // cross the trigger line when the radio opens the squelch.
+    if (!manualSetFlag)
+        SmoothTopY(topY);
 }
 
 static void DrawStatus()
