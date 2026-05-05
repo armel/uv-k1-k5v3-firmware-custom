@@ -228,7 +228,7 @@ void BATTERY_TimeSlice500ms(void)
 
     if (lowBatteryCountdown < lowBatteryPeriod) {
         if (lowBatteryCountdown == lowBatteryPeriod-1 && !gChargingWithTypeC && !gLowBatteryConfirmed) {
-            AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP);
+            AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
         }
         return;
     }
@@ -241,7 +241,7 @@ void BATTERY_TimeSlice500ms(void)
 
     // not on charge
     if (!gLowBatteryConfirmed) {
-        AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP);
+        AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
 #ifdef ENABLE_VOICE
         AUDIO_SetVoiceID(0, VOICE_ID_LOW_VOLTAGE);
 #endif

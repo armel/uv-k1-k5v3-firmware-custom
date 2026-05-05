@@ -72,34 +72,7 @@ uint16_t      gBeamCopiedChannel = 0xFFFFu;
 uint8_t       gBeamRxWordCount;
 bool          gBeamActive;
 
-static VFO_Info_t gBeamBackupVfo;
 static VFO_Info_t gBeamRadioVfo;
-static uint16_t   gBeamBackupScreenChannel;
-static uint8_t    gBeamVfoIndex;
-static uint8_t    gBeamBackupRxVfoIndex;
-static bool       gBeamHasBackup;
-
-static void BEAM_SaveBackup(void)
-{
-    gBeamVfoIndex = gEeprom.TX_VFO;
-    memcpy(&gBeamBackupVfo, &gEeprom.VfoInfo[gBeamVfoIndex], sizeof(gBeamBackupVfo));
-    gBeamBackupScreenChannel = gEeprom.ScreenChannel[gBeamVfoIndex];
-    gBeamBackupRxVfoIndex = gEeprom.RX_VFO;
-    gBeamHasBackup = true;
-}
-
-static void BEAM_RestoreBackup(void)
-{
-    if (!gBeamHasBackup)
-        return;
-
-    memcpy(&gEeprom.VfoInfo[gBeamVfoIndex], &gBeamBackupVfo, sizeof(gBeamBackupVfo));
-    gEeprom.ScreenChannel[gBeamVfoIndex] = gBeamBackupScreenChannel;
-    gEeprom.RX_VFO = gBeamBackupRxVfoIndex;
-    RADIO_SelectVfos();
-    RADIO_SetupRegisters(true);
-    gBeamHasBackup = false;
-}
 
 static void BEAM_SetRadioToBeamFrequency(void)
 {
@@ -118,58 +91,46 @@ static void BEAM_SetRadioToBeamFrequency(void)
     BK4819_ResetFSK();
 }
 
-static void BEAM_CopyNameFromActiveVfo(char *name)
+static void BEAM_SendPacket(void)
 {
-    memset(name, 0, 16);
-
-    if (IS_MR_CHANNEL(gBeamBackupVfo.CHANNEL_SAVE)) {
-        SETTINGS_FetchChannelName(name, gBeamBackupVfo.CHANNEL_SAVE);
-    } else {
-        memcpy(name, gBeamBackupVfo.Name, sizeof(gBeamBackupVfo.Name));
-    }
-}
-
-static void BEAM_FillPayload(BEAM_Payload_t *payload)
-{
-    memset(payload, 0, sizeof(*payload));
+    memset(g_FSK_Buffer, 0, sizeof(g_FSK_Buffer));
+    g_FSK_Buffer[0] = 0xABCDu;
+    
+    BEAM_Payload_t * const payload = (BEAM_Payload_t *)&g_FSK_Buffer[2];
+    
+    const VFO_Info_t *vfo = &gEeprom.VfoInfo[gEeprom.TX_VFO];
 
     payload->magic = BEAM_PACKET_MAGIC;
     payload->version = BEAM_PACKET_VERSION;
-    payload->rx_frequency = gBeamBackupVfo.freq_config_RX.Frequency;
-    payload->tx_offset_frequency = gBeamBackupVfo.TX_OFFSET_FREQUENCY;
-    payload->rx_code = gBeamBackupVfo.freq_config_RX.Code;
-    payload->tx_code = gBeamBackupVfo.freq_config_TX.Code;
-    payload->rx_codetype = gBeamBackupVfo.freq_config_RX.CodeType;
-    payload->tx_codetype = gBeamBackupVfo.freq_config_TX.CodeType;
-    payload->modulation = gBeamBackupVfo.Modulation;
-    payload->tx_offset_direction = gBeamBackupVfo.TX_OFFSET_FREQUENCY_DIRECTION;
-    payload->tx_lock = gBeamBackupVfo.TX_LOCK;
-    payload->busy_channel_lock = gBeamBackupVfo.BUSY_CHANNEL_LOCK;
-    payload->output_power = gBeamBackupVfo.OUTPUT_POWER;
-    payload->channel_bandwidth = gBeamBackupVfo.CHANNEL_BANDWIDTH;
-    payload->frequency_reverse = gBeamBackupVfo.FrequencyReverse;
-    payload->dtmf_ptt_id_mode = gBeamBackupVfo.DTMF_PTT_ID_TX_MODE;
+    payload->rx_frequency = vfo->freq_config_RX.Frequency;
+    payload->tx_offset_frequency = vfo->TX_OFFSET_FREQUENCY;
+    payload->rx_code = vfo->freq_config_RX.Code;
+    payload->tx_code = vfo->freq_config_TX.Code;
+    payload->rx_codetype = vfo->freq_config_RX.CodeType;
+    payload->tx_codetype = vfo->freq_config_TX.CodeType;
+    payload->modulation = vfo->Modulation;
+    payload->tx_offset_direction = vfo->TX_OFFSET_FREQUENCY_DIRECTION;
+    payload->tx_lock = vfo->TX_LOCK;
+    payload->busy_channel_lock = vfo->BUSY_CHANNEL_LOCK;
+    payload->output_power = vfo->OUTPUT_POWER;
+    payload->channel_bandwidth = vfo->CHANNEL_BANDWIDTH;
+    payload->frequency_reverse = vfo->FrequencyReverse;
+    payload->dtmf_ptt_id_mode = vfo->DTMF_PTT_ID_TX_MODE;
 #ifdef ENABLE_DTMF_CALLING
-    payload->dtmf_decoding_enable = gBeamBackupVfo.DTMF_DECODING_ENABLE;
+    payload->dtmf_decoding_enable = vfo->DTMF_DECODING_ENABLE;
 #endif
-    payload->step_setting = gBeamBackupVfo.STEP_SETTING;
-    payload->scrambling_type = gBeamBackupVfo.SCRAMBLING_TYPE;
-    payload->band = gBeamBackupVfo.Band;
-    payload->scanlist = gBeamBackupVfo.SCANLIST_PARTICIPATION;
-    payload->compander = gBeamBackupVfo.Compander;
+    payload->step_setting = vfo->STEP_SETTING;
+    payload->scrambling_type = vfo->SCRAMBLING_TYPE;
+    payload->band = vfo->Band;
+    payload->scanlist = vfo->SCANLIST_PARTICIPATION;
+    payload->compander = vfo->Compander;
 
-    BEAM_CopyNameFromActiveVfo(payload->name);
-}
+    if (IS_MR_CHANNEL(vfo->CHANNEL_SAVE)) {
+        SETTINGS_FetchChannelName(payload->name, vfo->CHANNEL_SAVE);
+    } else {
+        memcpy(payload->name, vfo->Name, sizeof(vfo->Name));
+    }
 
-static void BEAM_SendPacket(void)
-{
-    BEAM_Payload_t payload;
-
-    BEAM_FillPayload(&payload);
-
-    memset(g_FSK_Buffer, 0, sizeof(g_FSK_Buffer));
-    g_FSK_Buffer[0] = 0xABCDu;
-    memcpy(&g_FSK_Buffer[2], &payload, sizeof(payload));
     g_FSK_Buffer[34] = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
     g_FSK_Buffer[35] = 0xDCBAu;
 
@@ -193,29 +154,22 @@ static void BEAM_SendPacket(void)
     gUpdateDisplay = true;
 }
 
-static uint16_t BEAM_FindFirstFreeChannel(void)
+static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
 {
-    for (uint16_t channel = MR_CHANNEL_FIRST; IS_MR_CHANNEL(channel); channel++) {
-        if (!RADIO_CheckValidChannel(channel, false, 0))
-            return channel;
+    uint16_t channel = 0xFFFFu;
+    
+    for (uint16_t c = MR_CHANNEL_FIRST; IS_MR_CHANNEL(c); c++) {
+        if (!RADIO_CheckValidChannel(c, false, 0)) {
+            channel = c;
+            break;
+        }
     }
-
-    return 0xFFFFu;
-}
-
-static bool BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
-{
-    uint16_t channel = BEAM_FindFirstFreeChannel();
-    char name[16];
 
     if (channel == 0xFFFFu) {
         gBeamStatus = BEAM_STATUS_RX_FULL;
         gUpdateDisplay = true;
-        return false;
+        return;
     }
-
-    memcpy(name, payload->name, sizeof(name));
-    name[sizeof(name) - 1] = 0;
 
     VFO_Info_t vfo;
     RADIO_InitInfo(&vfo, channel, payload->rx_frequency);
@@ -243,17 +197,21 @@ static bool BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
     vfo.Band = payload->band;
     vfo.SCANLIST_PARTICIPATION = payload->scanlist;
     vfo.Compander = payload->compander;
-    memcpy(vfo.Name, name, sizeof(vfo.Name));
+    
+    memcpy(vfo.Name, payload->name, sizeof(vfo.Name));
+    vfo.Name[sizeof(vfo.Name) - 1] = '\0';
+    
     RADIO_ApplyOffset(&vfo);
     RADIO_ConfigureSquelchAndOutputPower(&vfo);
 
-    SETTINGS_SaveChannel(channel, gBeamVfoIndex, &vfo, 3);
-    SETTINGS_SaveChannelName(channel, name);
+    SETTINGS_SaveChannel(channel, gEeprom.TX_VFO, &vfo, 3);
+    SETTINGS_SaveChannelName(channel, vfo.Name);
 
     gBeamCopiedChannel = channel;
     gBeamStatus = BEAM_STATUS_RX_SAVED;
     gUpdateDisplay = true;
-    return true;
+    BACKLIGHT_TurnOn();
+    return;
 }
 
 static void BEAM_KeyMenu(void)
@@ -276,33 +234,26 @@ static void BEAM_KeyExit(void)
     BK4819_ResetFSK();
 
     if (gBeamMode == BEAM_MODE_RX && gBeamCopiedChannel != 0xFFFFu) {
-        gEeprom.MrChannel[gBeamVfoIndex] = gBeamCopiedChannel;
-        gEeprom.ScreenChannel[gBeamVfoIndex] = gBeamCopiedChannel;
-        RADIO_ConfigureChannel(gBeamVfoIndex, VFO_CONFIGURE_RELOAD);
-        RADIO_SelectVfos();
-        RADIO_SetupRegisters(true);
-        gBeamHasBackup = false;
-    } else {
-        BEAM_RestoreBackup();
+        gEeprom.MrChannel[gEeprom.TX_VFO] = gBeamCopiedChannel;
+        gEeprom.ScreenChannel[gEeprom.TX_VFO] = gBeamCopiedChannel;
+        RADIO_ConfigureChannel(gEeprom.TX_VFO, VFO_CONFIGURE_RELOAD);
     }
+    
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
 
     GUI_SelectNextDisplay(DISPLAY_MAIN);
-    gRequestDisplayScreen = DISPLAY_MAIN;
     gBeamActive = false;
-    gUpdateDisplay = true;
 }
 
 void ACTION_Beam(void)
 {
-    BEAM_SaveBackup();
     gBeamMode = BEAM_MODE_TX;
     gBeamStatus = BEAM_STATUS_READY;
     gBeamCopiedChannel = 0xFFFFu;
     gBeamRxWordCount = 0;
     gBeamActive = true;
     GUI_SelectNextDisplay(DISPLAY_MAIN);
-    gRequestDisplayScreen = DISPLAY_MAIN;
-    gUpdateDisplay = true;
 }
 
 void BEAM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
@@ -316,7 +267,7 @@ void BEAM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     switch (Key) {
     case KEY_UP:
     case KEY_DOWN:
-        gBeamMode = (gBeamMode == BEAM_MODE_TX) ? BEAM_MODE_RX : BEAM_MODE_TX;
+        gBeamMode ^= 1; // (gBeamMode == BEAM_MODE_TX) ? BEAM_MODE_RX : BEAM_MODE_TX
         gBeamStatus = BEAM_STATUS_READY;
         gBeamRxWordCount = 0;
         break;
@@ -355,13 +306,12 @@ void BEAM_StorePacket(void)
     if (g_FSK_Buffer[34] != CRC_Calculate(&g_FSK_Buffer[1], 2 + 64))
         goto error;
 
-    BEAM_Payload_t payload;
-    memcpy(&payload, &g_FSK_Buffer[2], sizeof(payload));
+    BEAM_Payload_t * const payload = (BEAM_Payload_t *)&g_FSK_Buffer[2];
 
-    if (payload.magic != BEAM_PACKET_MAGIC || payload.version != BEAM_PACKET_VERSION)
+    if (payload->magic != BEAM_PACKET_MAGIC || payload->version != BEAM_PACKET_VERSION)
         goto error;
 
-    BEAM_SavePayloadToFirstFreeChannel(&payload);
+    BEAM_SavePayloadToFirstFreeChannel(payload);
     BK4819_ResetFSK();
     return;
 
@@ -369,6 +319,7 @@ error:
     gBeamStatus = BEAM_STATUS_ERROR;
     gBeamRxWordCount = 0;
     gUpdateDisplay = true;
+    BACKLIGHT_TurnOn();
 }
 
 #endif // ENABLE_FEAT_F4HWN_BEAM

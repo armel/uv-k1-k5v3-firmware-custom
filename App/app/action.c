@@ -381,6 +381,9 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             case ACTION_OPT_REMOVE_OFFSET:
         #endif
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_BEAM
+            case ACTION_OPT_BEAM:
+    #endif
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
 
