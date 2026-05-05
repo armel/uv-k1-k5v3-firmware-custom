@@ -27,6 +27,11 @@
 #include "driver/gpio.h"
 #include "driver/system.h"
 #include "driver/systick.h"
+#if defined(ENABLE_AIRCOPY) || defined(ENABLE_UART) || defined(ENABLE_USB)
+    #include "driver/eeprom.h"
+#else
+    #include "driver/py25q16.h"
+#endif
 
 
 #define PIN_CSN GPIO_MAKE_PIN(GPIOF, LL_GPIO_PIN_9)
@@ -1755,6 +1760,183 @@ static void BK4819_PlayRogerNormal(void)
     BK4819_WriteRegister(BK4819_REG_30, 0xC1FE);   // 1 1 0000 0 1 1111 1 1 1 0
 }
 
+static void BK4819_PlayRogerCallLn2CW(void)
+{
+    const uint8_t  cw_wpm      = 100u;
+    const uint16_t dot_ms      = (uint16_t)(1200u / cw_wpm);
+    const uint16_t dash_ms     = (uint16_t)(3u * dot_ms);
+    const uint16_t intra_ms    = dot_ms;
+    const uint16_t char_ms     = (uint16_t)(3u * dot_ms);
+    const uint16_t word_ms     = (uint16_t)(7u * dot_ms);
+    #if defined(ENABLE_AIRCOPY) || defined(ENABLE_UART) || defined(ENABLE_USB)
+        const uint16_t eep_line1   = 0x0EB0;
+        const uint16_t eep_line2   = 0x0EC0;
+    #else
+        const uint32_t line1_addr  = 0x007020;
+        const uint32_t line2_addr  = 0x007030;
+    #endif
+    const uint8_t  line_len    = 16u;
+
+    char welcome1[17];
+    char welcome2[17];
+    uint8_t i;
+
+    #if defined(ENABLE_AIRCOPY) || defined(ENABLE_UART) || defined(ENABLE_USB)
+        EEPROM_ReadBuffer(eep_line1, (uint8_t *)welcome1, line_len);
+        EEPROM_ReadBuffer(eep_line2, (uint8_t *)welcome2, line_len);
+    #else
+        PY25Q16_ReadBuffer(line1_addr, (uint8_t *)welcome1, line_len);
+        PY25Q16_ReadBuffer(line2_addr, (uint8_t *)welcome2, line_len);
+    #endif
+
+    welcome1[line_len] = '\0';
+    welcome2[line_len] = '\0';
+
+    for (i = 0; i < line_len; i++) {
+        if ((unsigned char)welcome1[i] < 0x20 || (unsigned char)welcome1[i] > 0x7E) {
+            welcome1[i] = ' ';
+        }
+        if ((unsigned char)welcome2[i] < 0x20 || (unsigned char)welcome2[i] > 0x7E) {
+            welcome2[i] = ' ';
+        }
+    }
+
+    for (i = line_len; i > 0; i--) {
+        if (welcome1[i - 1] == ' ') {
+            welcome1[i - 1] = '\0';
+        } else {
+            break;
+        }
+    }
+    for (i = line_len; i > 0; i--) {
+        if (welcome2[i - 1] == ' ') {
+            welcome2[i - 1] = '\0';
+        } else {
+            break;
+        }
+    }
+
+    {
+        uint8_t start = 0;
+        while (start < line_len && welcome1[start] == ' ') {
+            start++;
+        }
+
+        if (start > 0) {
+            uint8_t dst = 0;
+            while (welcome1[start] != '\0') {
+                welcome1[dst++] = welcome1[start++];
+            }
+            welcome1[dst] = '\0';
+        }
+    }
+
+    {
+        uint8_t start = 0;
+        while (start < line_len && welcome2[start] == ' ') {
+            start++;
+        }
+
+        if (start > 0) {
+            uint8_t dst = 0;
+            while (welcome2[start] != '\0') {
+                welcome2[dst++] = welcome2[start++];
+            }
+            welcome2[dst] = '\0';
+        }
+    }
+
+    const char *callsign = (welcome2[0] != '\0') ? welcome2 : welcome1;
+    if (callsign == NULL || callsign[0] == '\0') {
+        return;
+    }
+
+    typedef struct {
+        char        ch;
+        const char *pattern;
+    } MORSE_CHAR;
+
+    static const MORSE_CHAR morse_table[] = {
+        { 'A', ".-"      }, { 'B', "-..."    }, { 'C', "-.-."    }, { 'D', "-.."     },
+        { 'E', "."       }, { 'F', "..-."    }, { 'G', "--."     }, { 'H', "...."    },
+        { 'I', ".."      }, { 'J', ".---"    }, { 'K', "-.-"     }, { 'L', ".-.."    },
+        { 'M', "--"      }, { 'N', "-."      }, { 'O', "---"     }, { 'P', ".--."    },
+        { 'Q', "--.-"    }, { 'R', ".-."     }, { 'S', "..."     }, { 'T', "-"       },
+        { 'U', "..-"     }, { 'V', "...-"    }, { 'W', ".--"     }, { 'X', "-..-"    },
+        { 'Y', "-.--"    }, { 'Z', "--.."    },
+
+        { '0', "-----"   }, { '1', ".----"   }, { '2', "..---"   }, { '3', "...--"   },
+        { '4', "....-"   }, { '5', "....."   }, { '6', "-...."   }, { '7', "--..."   },
+        { '8', "---.."   }, { '9', "----."   },
+
+        { '/', "-..-."   }, { '?', "..--.."  }, { '=', "-...-"   }, { '+', ".-.-."   },
+    };
+    const uint8_t morse_table_size = sizeof(morse_table) / sizeof(morse_table[0]);
+
+    const uint32_t tone_Hz = 1540;
+    const uint16_t tone_reg70_value =
+        BK4819_REG_70_ENABLE_TONE1 |
+        (66u << BK4819_REG_70_SHIFT_TONE1_TUNING_GAIN);
+
+    BK4819_EnterTxMute();
+    BK4819_SetAF(BK4819_AF_MUTE);
+
+    BK4819_EnableTXLink();
+    SYSTEM_DelayMs(10);
+
+    BK4819_WriteRegister(BK4819_REG_71, scale_freq(tone_Hz));
+
+    BK4819_ExitTxMute();
+
+    const char *p = callsign;
+    while (*p != '\0') {
+        char c = *p++;
+
+        if (c == ' ') {
+            SYSTEM_DelayMs(word_ms);
+            continue;
+        }
+
+        if (c >= 'a' && c <= 'z') {
+            c -= 32;
+        }
+
+        const char *pattern = NULL;
+        for (i = 0; i < morse_table_size; i++) {
+            if (morse_table[i].ch == c) {
+                pattern = morse_table[i].pattern;
+                break;
+            }
+        }
+        if (pattern == NULL) {
+            continue;
+        }
+
+        const char *s = pattern;
+        while (*s != '\0') {
+            uint16_t on_ms = (*s == '.') ? dot_ms : dash_ms;
+
+            BK4819_WriteRegister(BK4819_REG_70, tone_reg70_value);
+            SYSTEM_DelayMs(on_ms);
+
+            BK4819_WriteRegister(BK4819_REG_70, 0x0000);
+
+            if (*(s + 1) != '\0') {
+                SYSTEM_DelayMs(intra_ms);
+            }
+
+            ++s;
+        }
+
+        SYSTEM_DelayMs(char_ms);
+    }
+
+    BK4819_EnterTxMute();
+    BK4819_WriteRegister(BK4819_REG_70, 0x0000);
+
+    BK4819_WriteRegister(BK4819_REG_30, 0xC1FE);   // 1 1 0000 0 1 1111 1 1 1 0
+}
+
 
 void BK4819_PlayRogerMDC(void)
 {
@@ -1810,6 +1992,8 @@ void BK4819_PlayRoger(void)
         BK4819_PlayRogerNormal();
     } else if (gEeprom.ROGER == ROGER_MODE_MDC) {
         BK4819_PlayRogerMDC();
+    } else if (gEeprom.ROGER == ROGER_MODE_CALL_LN2_CW) {
+        BK4819_PlayRogerCallLn2CW();
     }
 }
 
