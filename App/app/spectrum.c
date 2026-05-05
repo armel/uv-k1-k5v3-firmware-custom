@@ -462,8 +462,6 @@ static void SetFScan(uint32_t f)
 
 // Spectrum related
 
-bool IsPeakOverLevel() { return peak.rssi >= settings.rssiTriggerLevel; }
-
 static bool IsPeakOverOpenLevel()
 {
     uint16_t openLevel = settings.rssiTriggerLevel;
@@ -994,25 +992,15 @@ static void UpdateAutoSensitivity(bool inc)
 
 static void UpdateRssiTriggerLevel(bool inc)
 {
-    if (inc && isListening && IsPeakOverLevel())
-    {
-        // One-press escape: jump threshold above the active carrier without
-        // clamping — the interferer may exceed dbMax so ClampRssiTriggerLevel
-        // would silently prevent the escape.
-        settings.rssiTriggerLevel = peak.rssi + 8;
-    }
+    if (inc)
+        settings.rssiTriggerLevel += 2;
     else
-    {
-        if (inc)
-            settings.rssiTriggerLevel += 2;
-        else
-            settings.rssiTriggerLevel -= 2;
+        settings.rssiTriggerLevel -= 2;
 
-        if (settings.rssiTriggerLevel > dbm2rssi(settings.dbMax))
-            UpdateDbMax(true);
-        else
-            ClampRssiTriggerLevel();
-    }
+    if (settings.rssiTriggerLevel > dbm2rssi(settings.dbMax))
+        UpdateDbMax(true);
+    else
+        ClampRssiTriggerLevel();
 
     redrawScreen = true;
     redrawStatus = true;
