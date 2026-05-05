@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "radio.h"
+
 // scan direction, if not equal SCAN_OFF indicates 
 // that we are in a process of scanning channels/frequencies
 extern int8_t            gScanStateDir;
@@ -13,12 +15,22 @@ extern bool              gScanPauseMode;
 #ifdef ENABLE_SCAN_RANGES
 extern uint32_t          gScanRangeStart;
 extern uint32_t          gScanRangeStop;
+bool CHFRSCANNER_ExcludeCurrentScanRange(void);
+bool CHFRSCANNER_HasScanRangeExcludedOrdinal(uint32_t first_ordinal, uint32_t last_ordinal);
 #endif
 
 void CHFRSCANNER_Found(void);
 void CHFRSCANNER_Stop(void);
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction);
+void CHFRSCANNER_ManualResume(const int8_t scan_direction);
 void CHFRSCANNER_ContinueScanning(void);
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+const VFO_Info_t *CHFRSCANNER_GetScanDisplayVfo(void);
+#endif
+
+#if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)
+    void CHFRSCANNER_ScanRange(void);
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN
     extern uint32_t lastFoundFrqOrChan;

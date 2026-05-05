@@ -20,9 +20,6 @@
 
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
 #include "driver/keyboard.h"
-// Packet types for serial key injection (K5Viewer → radio)
-#define VCP_TYPE_KEY       0x03
-#define VCP_TYPE_KEY_LONG  0x04
 #endif
 
 uint8_t VCP_RxBuf[VCP_RX_BUF_SIZE];
@@ -63,25 +60,14 @@ bool VCP_ScreenshotPing(void)
     //   KEY_1  → 0x55 → KEY_2     (else IDLE)
     //   KEY_2  → 0x03 → KEY_3     (short press, else check long)
     //   KEY_2  → 0x04 → KEY_3L    (long press, else IDLE)
-    //   KEY_3  → <b>  → InjectKey(b), IDLE
-    //   KEY_3L → <b>  → InjectKeyLong(b), IDLE
+    //   KEY_3  → <b>  → KEYBOARD_InjectKey(b, false), IDLE
+    //   KEY_3L → <b>  → KEYBOARD_InjectKey(b, true), IDLE
 
-    typedef enum {
-        STATE_IDLE = 0,
-        STATE_KA_1,
-        STATE_KA_2,
-        STATE_KA_3,
-        STATE_KEY_1,
-        STATE_KEY_2,
-        STATE_KEY_3,
-        STATE_KEY_3L,
-    } ParseState_t;
-
-    static uint32_t     read_ptr = 0;
+    static uint8_t      read_ptr = 0;
     static ParseState_t state    = STATE_IDLE;
 
     bool     connected = false;
-    uint32_t write_ptr = VCP_RxBufPointer;  // snapshot once — ISR may update concurrently
+    uint8_t  write_ptr = VCP_RxBufPointer;  // snapshot once — ISR may update concurrently
 
     // Cap bytes processed per call to VCP_RX_BUF_SIZE.
     // Prevents unbounded loop if the ISR write pointer laps read_ptr
@@ -91,57 +77,14 @@ bool VCP_ScreenshotPing(void)
     while (read_ptr != write_ptr && processed < VCP_RX_BUF_SIZE)
     {
         uint8_t b = VCP_RxBuf[read_ptr];
+
         read_ptr++;
         if (read_ptr >= VCP_RX_BUF_SIZE)
             read_ptr = 0;
         processed++;
 
-        switch (state)
-        {
-            case STATE_IDLE:
-                if      (b == 0x55) state = STATE_KA_1;
-                else if (b == 0xAA) state = STATE_KEY_1;
-                break;
-
-            case STATE_KA_1:
-                state = (b == 0xAA) ? STATE_KA_2 : STATE_IDLE;
-                break;
-
-            case STATE_KA_2:
-                state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
-                break;
-
-            case STATE_KA_3:
-                if (b == 0x00) connected = true;
-                state = STATE_IDLE;
-                break;
-
-            case STATE_KEY_1:
-                state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;
-                break;
-
-            case STATE_KEY_2:
-                if      (b == VCP_TYPE_KEY)      state = STATE_KEY_3;
-                else if (b == VCP_TYPE_KEY_LONG) state = STATE_KEY_3L;
-                else                             state = STATE_IDLE;
-                break;
-
-            case STATE_KEY_3:
-                KEYBOARD_InjectKey(b);
-                connected = true;
-                state = STATE_IDLE;
-                break;
-
-            case STATE_KEY_3L:
-                KEYBOARD_InjectKeyLong(b);
-                connected = true;
-                state = STATE_IDLE;
-                break;
-
-            default:
-                state = STATE_IDLE;
-                break;
-        }
+        if(KEYBOARD_ProcessProtocolByte(&state, b))
+            connected = true;
     }
 
     return connected;

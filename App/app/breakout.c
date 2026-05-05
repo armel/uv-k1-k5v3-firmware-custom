@@ -25,9 +25,8 @@ static uint8_t blockAnim = 0;
 
 static bool isInitialized = false;
 bool isPaused = false;
-bool isBeep = false;
 
-uint8_t levelCountBreackout = 1;
+uint8_t levelCountBreakout = 1;
 
 uint16_t tone = 0;
 uint16_t score = 0;
@@ -42,115 +41,7 @@ Brick brick[BRICK_NUMBER];
 Racket racket;
 Ball ball;
 
-const uint8_t BITMAP_block[4][15] =
-{
-    {
-    0b00011110,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00011110,
-    },
-    {
-    0b00011110,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00011110,
-    },
-    {
-    0b00011110,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00011110,
-    },
-    {
-    0b00011110,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00110001,
-    0b00101001,
-    0b00100101,
-    0b00100011,
-    0b00011110,
-    }
-};
-
-const uint8_t BITMAP_blockOn[15] =
-{
-    0b00011110,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00111111,
-    0b00011110,
-};
-
-const uint8_t BITMAP_blockEmpty[15] =
-{
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-    0b00000000,
-};
+static const uint8_t BRICK_ANIM_PATTERNS[4] = {0b00110001, 0b00101001, 0b00100101, 0b00100011};
 
 // Initialise seed
 void srand_custom(uint32_t seed) {
@@ -172,18 +63,16 @@ int randInt(int min, int max) {
 void reset(void)
 {
     ballCount = BALL_NUMBER;
-    levelCountBreackout = 1;
+    levelCountBreakout = 1;
     score = 0;
 }
 
 // PlayBeep
 void playBeep(uint16_t tone)
 {
-    BK4819_PlayTone(tone, true);    // 500 Hz ON
+    BK4819_PrepareToPlayTone(true);
     AUDIO_AudioPathOn();
-    BK4819_ExitTxMute();
-    SYSTEM_DelayMs(100);
-    BK4819_EnterTxMute();
+    BK4819_PlayToneRaw(tone, 100);
     AUDIO_AudioPathOff();
 }
 
@@ -191,10 +80,10 @@ void playBeep(uint16_t tone)
 void drawScore()
 {
     // Clean status line
-    memset(gStatusLine,  0, sizeof(gStatusLine));
+    UI_StatusClear();
 
     // Level
-    sprintf(str, "Level %02u", levelCountBreackout);
+    sprintf(str, "Level %02u", levelCountBreakout);
     GUI_DisplaySmallest(str, 0, 1, true, true);
 
     // Ball
@@ -206,6 +95,12 @@ void drawScore()
     GUI_DisplaySmallest(str, 88, 1, true, true);
 }
 
+// Render the ball
+void renderBall(bool state) {
+    UI_DrawRectangleBuffer(gFrameBuffer, ball.x, ball.y, ball.x + ball.w - 1, ball.y + ball.h - 1, state);
+    UI_DrawLineBuffer(gFrameBuffer, ball.x - 1, ball.y + 1, ball.x + ball.w, ball.y + 1, state);
+}
+
 // Init ball
 void initBall() {
     ball.x  = 62;
@@ -215,21 +110,25 @@ void initBall() {
     ball.dx = 0;
     ball.dy = 1;
 
-    UI_DrawRectangleBuffer(gFrameBuffer, ball.x, ball.y, ball.x + ball.w -1, ball.y + ball.h - 1, true);
-    UI_DrawLineBuffer(gFrameBuffer, ball.x - 1, ball.y + 1, ball.x + ball.w, ball.y + 1, true);
+    renderBall(true);
+}
+
+// Calculate the direction of the bounced ball
+void directionBall(int16_t x, uint8_t w, int8_t num) {
+    ball.dx = map(x + w - ball.x, 0, w, num, -num);
+    ball.dy *= -1;
 }
 
 // Draw ball
 void drawBall() {
-    UI_DrawRectangleBuffer(gFrameBuffer, ball.x, ball.y, ball.x + ball.w -1, ball.y + ball.h -1, false);
-    UI_DrawLineBuffer(gFrameBuffer, ball.x - 1, ball.y + 1, ball.x + ball.w, ball.y + 1, false);
+    renderBall(false);
 
     ball.x += ball.dx;
     ball.y += ball.dy;
 
     if (ball.y <= 0)  // Up
     {
-        ball.dx = map(randInt(0, 7), 0, 7, 3, -3);
+        ball.dx = randInt(-3, 3);
         ball.dy = 1;
     }
     else if (ball.x <= 2)  // Left
@@ -243,9 +142,7 @@ void drawBall() {
     // And now Down...
     if (ball.y == 47) {
         if (ball.x + 1 >= racket.x && ball.x - 1 <= racket.x + racket.w) {
-            ball.dx = map(racket.x + racket.w - ball.x, 0, racket.w, 3, -3);
-            ball.dy *= -1;
-            isBeep = true;
+            directionBall(racket.x, racket.w, 3);
             tone = 400;
         }
     } 
@@ -253,7 +150,6 @@ void drawBall() {
         ballCount--;
         UI_DisplayClear();
         drawScore();
-        isBeep = true;
         tone = 800;
         if (ballCount < 0) {
             reset();
@@ -261,15 +157,13 @@ void drawBall() {
             drawWall();
 
             isPaused = true;
-            UI_PrintStringSmallBold("GAME", 32, 0, 4);
-            UI_PrintStringSmallBold("OVER", 66, 0, 4);
+            UI_PrintStringSmallBold("GAME OVER", 0, LCD_WIDTH - 1, 4);
         }
         initRacket();
         initBall();
     }
 
-    UI_DrawRectangleBuffer(gFrameBuffer, ball.x, ball.y, ball.x + ball.w -1, ball.y + ball.h - 1, true);
-    UI_DrawLineBuffer(gFrameBuffer, ball.x - 1, ball.y + 1, ball.x + ball.w, ball.y + 1, true);
+    renderBall(true);
 }
 
 // Init wall
@@ -289,7 +183,6 @@ void initWall() {
         brick[i].y       = -8 + 8 * k;
         brick[i].w       = 14;
         brick[i].h       = 5;
-        brick[i].s       = randInt(0, 3);
         brick[i].destroy = false;
 
         j++;
@@ -302,6 +195,11 @@ void drawWall() {
 
     for (i = 0; i < BRICK_NUMBER; i++) {
         if (brick[i].destroy == false) {
+            uint8_t *fb_ptr = gFrameBuffer[brick[i].y / 8] + brick[i].x;
+
+            fb_ptr[0] = 0b00011110;
+            fb_ptr[14] = 0b00011110;
+
             if ((ball.x + 1 >= brick[i].x &&
                  ball.x - 1 <= brick[i].x + brick[i].w) &&
                 ((ball.y + 1 >= brick[i].y && 
@@ -309,30 +207,35 @@ void drawWall() {
                 brick[i].destroy = true;
                 score++;
 
-                ball.dx = map(brick[i].x + brick[i].w - ball.x, 0, brick[i].w, 2, -2);
-                ball.dy *= -1;
+                directionBall(brick[i].x, brick[i].w, 2);
 
                 BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
-                memcpy(gFrameBuffer[brick[i].y / 8] + brick[i].x, BITMAP_blockOn, sizeof(BITMAP_blockOn));
+                memset(fb_ptr + 1, 0b00111111, 13);
                 ST7565_BlitLine(brick[i].y / 8);
                 playBeep(600);
-                memcpy(gFrameBuffer[brick[i].y / 8] + brick[i].x, BITMAP_blockEmpty, sizeof(BITMAP_blockEmpty));
+                memset(fb_ptr + 0, 0b00000000, 15);
                 ST7565_BlitLine(brick[i].y / 8);
                 BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
 
                 if (score % BRICK_NUMBER == 0) {
-                    levelCountBreackout++;
+                    levelCountBreakout++;
                     ballCount++;
                     initWall();
                     return;
                 }
-            }
-
-            if (brick[i].destroy == false) {
-                memcpy(gFrameBuffer[brick[i].y / 8] + brick[i].x, BITMAP_block[(brick[i].s + blockAnim)  % 4], sizeof(BITMAP_block[(brick[i].s + blockAnim)  % 4]));
+            } else {
+                for(uint8_t k = 0; k < 13; k++) {
+                    fb_ptr[k + 1] = BRICK_ANIM_PATTERNS[(blockAnim + k) % 4];
+                }
             }
         }
     }
+}
+
+// Render the racket shape
+void renderRacket(int x, bool state) {
+    UI_DrawRectangleBuffer(gFrameBuffer, x + 1, racket.y, x + racket.w - 2, racket.y + racket.h, state);
+    UI_DrawLineBuffer(gFrameBuffer, x, racket.y + 1, x + racket.w - 1, racket.y + 1, state);
 }
 
 // Init racket
@@ -343,18 +246,15 @@ void initRacket() {
     racket.h = 2;
     racket.p = racket.x;
 
-    UI_DrawRectangleBuffer(gFrameBuffer, racket.x + 1, racket.y, racket.x + racket.w - 2, racket.y + racket.h, true);
-    UI_DrawLineBuffer(gFrameBuffer, racket.x, racket.y + 1, racket.x + racket.w - 1, racket.y + 1, true);
+    renderRacket(racket.x, true);
 }
 
 // Draw racket
 void drawRacket() {
     if (racket.p != racket.x) {
-        UI_DrawRectangleBuffer(gFrameBuffer, racket.p + 1, racket.y, racket.p + racket.w - 2, racket.y + racket.h, false);
-        UI_DrawLineBuffer(gFrameBuffer, racket.p, racket.y + 1, racket.p + racket.w - 1, racket.y + 1, false);
+        renderRacket(racket.p, false);
         racket.p = racket.x;
-        UI_DrawRectangleBuffer(gFrameBuffer, racket.x + 1, racket.y, racket.x + racket.w - 2, racket.y + racket.h, true);
-        UI_DrawLineBuffer(gFrameBuffer, racket.x, racket.y + 1, racket.x + racket.w - 1, racket.y + 1, true);
+        renderRacket(racket.x, true);
     }
 }
 
@@ -382,7 +282,7 @@ static void OnKeyDown(uint8_t key)
         kbd.counter = 0;
         if(isPaused)
         {
-            UI_PrintStringSmallBold("PAUSE", 0, 128, 4);
+            UI_PrintStringSmallBold("PAUSE", 0, LCD_WIDTH - 1, 4);
         }
         break;
     case KEY_EXIT:
@@ -401,18 +301,6 @@ static void OnKeyDown(uint8_t key)
     }
 }
 
-
-// Key 
-static KEY_Code_t GetKey()
-{
-    KEY_Code_t btn = KEYBOARD_Poll();
-    if (btn == KEY_INVALID && GPIO_IsPttPressed())
-    {
-        btn = KEY_PTT;
-    }
-    return btn;
-}
-
 // HandleUserInput 
 static bool HandleUserInput()
 {
@@ -423,22 +311,18 @@ static bool HandleUserInput()
 #endif
 
     kbd.prev = kbd.current;
-    kbd.current = GetKey();
+    kbd.current = KEYBOARD_GetKey();
 
     if (kbd.current == KEY_INVALID)
         return true;
 
-    // Movement keys: dispatch on every tick while held
-    if (kbd.current == KEY_UP   || kbd.current == KEY_DOWN ||
-        kbd.current == KEY_4    || kbd.current == KEY_0)
-    {
-        OnKeyDown(kbd.current);
-        return true;
-    }
-
-    // Action keys (MENU, EXIT): dispatch only on rising edge
-    if (kbd.current != kbd.prev)
-    {
+    if (
+        // Movement keys: dispatch on every tick while held
+        (kbd.current == KEY_UP   || kbd.current == KEY_DOWN ||
+         kbd.current == KEY_4    || kbd.current == KEY_0)   ||
+        // Action keys (MENU, EXIT): dispatch only on rising edge
+        (kbd.current != kbd.prev)
+    ){
         OnKeyDown(kbd.current);
     }
 
@@ -453,62 +337,62 @@ static void Tick()
 
 // APP_RunBreakout
 void APP_RunBreakout(void) {
-        static uint8_t swap = 0;
+    static uint8_t swap = 0;
 
-        // Init seed
-        srand_custom(BK4819_ReadRegister(BK4819_REG_67) & 0x01FF * gBatteryVoltageAverage * gEeprom.VfoInfo[0].pRX->Frequency);
+    // Init seed
+    srand_custom(BK4819_ReadRegister(BK4819_REG_67) & 0x01FF * gBatteryVoltageAverage * gEeprom.VfoInfo[0].pRX->Frequency);
 
-        // Init led
-        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+    // Init led
+    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
 
-        // Finish the brightness fade if it is in progress
-        BACKLIGHT_UpdateTickless();
+    // Finish the brightness fade if it is in progress
+    BACKLIGHT_UpdateTickless();
 
-        // Init game
-        UI_DisplayClear();
-        reset();
-        initWall();
-        initRacket();
-        initBall();
-        memset(gStatusLine,  0, sizeof(gStatusLine));
-        isInitialized = true;
+    // Init game
+    UI_DisplayClear();
+    reset();
+    initWall();
+    initRacket();
+    initBall();
+    UI_StatusClear();
+    isInitialized = true;
 
-        while(isInitialized)
+    while(isInitialized)
+    {
+        Tick();
+        if(!isPaused)
         {
-            Tick();
-            if(!isPaused)
+            if(swap == 0)
             {
-                if(swap == 0)
-                {
-                    blockAnim = (blockAnim + 1) % 4;
-                }
-                
-                swap = (swap + 1) % 4;
-
-                drawScore();
-                drawWall();
-                drawRacket();
-                drawBall();
-                   
-                if(isBeep)
-                {
-                    playBeep(tone);
-                    isBeep = false;
-                }
-                else
-                {
-                    SYSTEM_DelayMs(40 - MIN(levelCountBreackout - 1, 20)); // Add more fun...
-                }
+                blockAnim = (blockAnim + 1) % 4;
             }
+            
+            swap = (swap + 1) % 4;
 
-            ST7565_BlitStatusLine();  // Blank status line
-            ST7565_BlitFullScreen();
-
-            #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-                if(isPaused || swap == 0)
-                {
-                    SCREENSHOT_Update(false);
-                }
-            #endif
+            drawScore();
+            drawWall();
+            drawRacket();
+            drawBall();
+                
+            if(tone != 0)
+            {
+                playBeep(tone);
+                tone = 0;
+            }
+            else
+            {
+                SYSTEM_DelayMs(40 - MIN(levelCountBreakout - 1, 20)); // Add more fun...
+            }
         }
+
+        ST7565_BlitStatusLine();  // Blank status line
+        ST7565_BlitFullScreen();
+
+        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+            if(isPaused || swap == 0)
+            {
+                SCREENSHOT_Update(false);
+            }
+        #endif
+    }
 }

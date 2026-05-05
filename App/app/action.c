@@ -40,9 +40,13 @@
 #include "misc.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/main.h"
 #include "ui/ui.h"
 #ifdef ENABLE_REGA
     #include "app/rega.h"
+#endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    #include "app/beam.h"
 #endif
 
 #if defined(ENABLE_FMRADIO)
@@ -131,6 +135,9 @@ void (*action_opt_table[])(void) = {
     [ACTION_OPT_REGA_ALARM] = &ACTION_RegaAlarm,
     [ACTION_OPT_REGA_TEST] = &ACTION_RegaTest,
 #endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    [ACTION_OPT_BEAM] = &ACTION_Beam,
+#endif
 };
 
 static_assert(ARRAY_SIZE(action_opt_table) == ACTION_OPT_LEN);
@@ -212,7 +219,7 @@ void ACTION_Scan(bool bRestart)
     DTMF_clear_RX();
 #endif
     gDTMF_RX_live_timeout = 0;
-    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+    DTMF_clear_input_box_memory();
 
     RADIO_SelectVfos();
 
@@ -237,15 +244,14 @@ void ACTION_Scan(bool bRestart)
 
         // channel mode. Keep scanning but toggle between scan lists
         RADIO_NextValidList(1);
+        UI_MAIN_NotifyScanProgressDataChanged();
 
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
             SETTINGS_WriteCurrentState();
         #endif
 
         // jump to the next channel
-        CHFRSCANNER_Start(false, gScanStateDir);
-        gScanPauseDelayIn_10ms = 1;
-        gScheduleScanListen    = false;
+        CHFRSCANNER_ManualResume(gScanStateDir);
     } else {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
         if(gScanRangeStart == 0) // No ScanRange
@@ -290,6 +296,8 @@ void ACTION_SwitchDemodul(void)
 
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
+    HideFKeyIcon();
+
     if (gScreenToDisplay == DISPLAY_MAIN && gDTMF_InputMode){
          // entering DTMF code
 
@@ -319,45 +327,70 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
-    enum ACTION_OPT_t funcShort = ACTION_OPT_NONE;
-    enum ACTION_OPT_t funcLong  = ACTION_OPT_NONE;
+    enum ACTION_OPT_t func = ACTION_OPT_NONE;
     switch(Key) {
         case KEY_SIDE1:
-            funcShort = gEeprom.KEY_1_SHORT_PRESS_ACTION;
-            funcLong  = gEeprom.KEY_1_LONG_PRESS_ACTION;
+            if (bKeyHeld)
+                func = gEeprom.KEY_1_LONG_PRESS_ACTION;
+            else
+                func = gEeprom.KEY_1_SHORT_PRESS_ACTION;
             break;
         case KEY_SIDE2:
-            funcShort = gEeprom.KEY_2_SHORT_PRESS_ACTION;
-            funcLong  = gEeprom.KEY_2_LONG_PRESS_ACTION;
+            if (bKeyHeld)
+                func = gEeprom.KEY_2_LONG_PRESS_ACTION;
+            else
+                func = gEeprom.KEY_2_SHORT_PRESS_ACTION;
             break;
         case KEY_MENU:
-            funcLong  = gEeprom.KEY_M_LONG_PRESS_ACTION;
+            if (bKeyHeld)
+                func = gEeprom.KEY_M_LONG_PRESS_ACTION;
             break;
         default:
             break;
     }
 
-    if (!bKeyHeld && bKeyPressed) // button pushed
-    {
+    if (bKeyHeld != bKeyPressed) { // button pushed or released after hold 
+                                   // (!bKeyHeld && bKeyPressed) or (bKeyHeld && !bKeyPressed)
         return;
     }
 
-    // held or released beyond this point
+    // held or released after short press
 
-    if(!(bKeyHeld && !bKeyPressed)) // don't beep on released after hold
-        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+    
+#ifdef ENABLE_FMRADIO
+    if (gFmRadioMode) { // do not run these actions in FM radio mode
+        switch (func) {
+            case ACTION_OPT_POWER:
+            case ACTION_OPT_MONITOR:
+            case ACTION_OPT_A_B:
+            case ACTION_OPT_VFO_MR:
+            case ACTION_OPT_SWITCH_DEMODUL:
+    #ifdef ENABLE_VOX
+            case ACTION_OPT_VOX:
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN
+            case ACTION_OPT_RXMODE:
+            case ACTION_OPT_MAINONLY:
+            case ACTION_OPT_WN:
+        #ifdef ENABLE_FEAT_F4HWN_AUDIO
+            case ACTION_OPT_RXA:
+        #endif
+        #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+            case ACTION_OPT_POWER_HIGH:
+            case ACTION_OPT_REMOVE_OFFSET:
+        #endif
+    #endif
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                return;
 
-    if (bKeyHeld || bKeyPressed) // held
-    {
-        funcShort = funcLong;
-
-        if (!bKeyPressed) //ignore release if held
-            return;
+            default:
+                break;
+        }
     }
+#endif
 
-    // held or released after short press beyond this point
-
-    action_opt_table[funcShort]();
+    action_opt_table[func]();
 }
 
 
@@ -537,7 +570,11 @@ void ACTION_MainOnly(void)
 #ifdef ENABLE_FEAT_F4HWN_AUDIO
 void ACTION_RxA(void)
 {
-    gSetting_set_audio = (gSetting_set_audio + 1) % 5;
+    if(gRxVfo->Modulation == MODULATION_AM)
+        gSetting_set_audio_am = (gSetting_set_audio_am + 1) % 3;
+    else if (gRxVfo->Modulation == MODULATION_FM)
+        gSetting_set_audio_fm = (gSetting_set_audio_fm + 1) % 5;
+
     RADIO_SetModulation(gRxVfo->Modulation);
 }
 #endif
@@ -545,64 +582,36 @@ void ACTION_RxA(void)
 void ACTION_Ptt(void)
 {
     gSetting_set_ptt_session = !gSetting_set_ptt_session;
+
+    ACTION_Update();
 }
 
 void ACTION_Wn(void)
 {
-    if (gRxVfo->Modulation == MODULATION_AM)
+    const bool isRx = FUNCTION_IsRx();
+    VFO_Info_t *pVfo = isRx ? gRxVfo : gTxVfo;
+
+    pVfo->CHANNEL_BANDWIDTH = !pVfo->CHANNEL_BANDWIDTH;
+
+    if (pVfo->Modulation == MODULATION_AM)
     {
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_AM, true);
+        BK4819_SetFilterBandwidth(RADIO_GetAMFilterBandwidth(pVfo), true);
         return;
     }
+
+    uint8_t bw = pVfo->CHANNEL_BANDWIDTH;
+
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
-        bool narrower = 0;
-        if (FUNCTION_IsRx())
+        if (isRx && bw == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
         {
-            gRxVfo->CHANNEL_BANDWIDTH = (gRxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            if(gRxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
-            {
-                narrower = 1;
-            }
-
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH + narrower, true);
-            #else
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH + narrower, false);
-            #endif
+            bw++; 
         }
-        else
-        {
-            gTxVfo->CHANNEL_BANDWIDTH = (gTxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            if(gTxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
-            {
-                narrower = 1;
-            }
+    #endif
 
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, true);
-            #else
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, false);
-            #endif
-        }
+    #ifdef ENABLE_AM_FIX
+        BK4819_SetFilterBandwidth(bw, true);
     #else
-        if (FUNCTION_IsRx())
-        {
-            gRxVfo->CHANNEL_BANDWIDTH = (gRxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH, true);
-            #else
-                BK4819_SetFilterBandwidth(gRxVfo->CHANNEL_BANDWIDTH, false);
-            #endif
-        }
-        else
-        {
-            gTxVfo->CHANNEL_BANDWIDTH = (gTxVfo->CHANNEL_BANDWIDTH == 0) ? 1: 0;
-            #ifdef ENABLE_AM_FIX
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, true);
-            #else
-                BK4819_SetFilterBandwidth(gTxVfo->CHANNEL_BANDWIDTH, false);
-            #endif
-        }
+        BK4819_SetFilterBandwidth(bw, false);
     #endif
 }
 
@@ -649,26 +658,25 @@ void ACTION_Mute(void)
         BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, gMute ? 0x0A10 : 0x0A1F);
     #endif
     gEeprom.VOLUME_GAIN = gMute ? 0 : gEeprom.VOLUME_GAIN_BACKUP;
-    BK4819_WriteRegister(BK4819_REG_48,
-        (11u << 12)                |  // ??? .. 0 ~ 15, doesn't seem to make any difference
-        (0u << 10)                 |  // AF Rx Gain-1
-        (gEeprom.VOLUME_GAIN << 4) |  // AF Rx Gain-2
-        (gEeprom.DAC_GAIN << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
+    BK4819_SetRxAudioGain();
 
     gUpdateStatus = true;
 }
 
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+void ACTION_ToggleVfoSetting(bool *setting) {
+    *setting = !(*setting);
+    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+}
+
 void ACTION_Power_High(void)
 {
-    gPowerHigh = !gPowerHigh;
-    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+    ACTION_ToggleVfoSetting(&gPowerHigh);
 }
 
 void ACTION_Remove_Offset(void)
 {
-    gRemoveOffset = !gRemoveOffset;
-    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
+    ACTION_ToggleVfoSetting(&gRemoveOffset);
 }
 #endif
 #endif

@@ -34,7 +34,7 @@ static void Render(void)
     unsigned int i;
     char         String[7];
 
-    memset(gStatusLine,  0, sizeof(gStatusLine));
+    UI_StatusClear();
     UI_DisplayClear();
 
     UI_PrintString("PASSWORD", 0, 127, 1, 10);
@@ -80,16 +80,7 @@ void UI_DisplayLock(void)
 
                     switch (Key)
                     {
-                        case KEY_0:
-                        case KEY_1:
-                        case KEY_2:
-                        case KEY_3:
-                        case KEY_4:
-                        case KEY_5:
-                        case KEY_6:
-                        case KEY_7:
-                        case KEY_8:
-                        case KEY_9:
+                        case KEY_0...KEY_9:
                             INPUTBOX_Append(Key - KEY_0);
 
                             if (gInputBoxIndex < 6)   // 6 frequency digits

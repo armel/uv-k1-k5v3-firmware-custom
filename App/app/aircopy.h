@@ -92,7 +92,7 @@ typedef enum {
 extern AIRCOPY_State_t gAircopyState;
 extern uint16_t        gAirCopyBlockNumber;
 extern uint16_t        gErrorsDuringAirCopy;
-extern uint8_t         gAirCopyIsSendMode;
+extern bool            gAirCopyIsSendMode;
 
 extern uint16_t        g_FSK_Buffer[36];
 
@@ -105,6 +105,10 @@ void AIRCOPY_StorePacket(void);
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 const AIRCOPY_TransferMap_t* AIRCOPY_GetCurrentMap(void);
+
+// XOR-obfuscate `count` words of g_FSK_Buffer starting at index 1.
+// Self-inverse: applying twice restores the original buffer.
+void AIRCOPY_Obfuscate(unsigned int count);
 
 #endif // ENABLE_AIRCOPY
 #endif // APP_AIRCOPY_H

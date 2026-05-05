@@ -25,9 +25,6 @@
 
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
 #include "driver/keyboard.h"
-// Packet types for serial key injection (K5Viewer → radio)
-#define UART_TYPE_KEY       0x03
-#define UART_TYPE_KEY_LONG  0x04
 #endif
 
 #define USARTx USART1
@@ -155,17 +152,6 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
 
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
     bool UART_IsCableConnected(void) {
-        typedef enum {
-            STATE_IDLE = 0,
-            STATE_KA_1,
-            STATE_KA_2,
-            STATE_KA_3,
-            STATE_KEY_1,
-            STATE_KEY_2,
-            STATE_KEY_3,
-            STATE_KEY_3L,
-        } ParseState_t;
-
         static uint8_t     read_ptr = 0;
         static ParseState_t state   = STATE_IDLE;
 
@@ -182,44 +168,8 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
             // read_ptr wraps naturally at 256 since it's uint8_t
             processed++;
 
-            switch (state)
-            {
-                case STATE_IDLE:
-                    if      (b == 0x55) state = STATE_KA_1;
-                    else if (b == 0xAA) state = STATE_KEY_1;
-                    break;
-                case STATE_KA_1:
-                    state = (b == 0xAA) ? STATE_KA_2 : STATE_IDLE;
-                    break;
-                case STATE_KA_2:
-                    state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
-                    break;
-                case STATE_KA_3:
-                    if (b == 0x00) connected = true;
-                    state = STATE_IDLE;
-                    break;
-                case STATE_KEY_1:
-                    state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;
-                    break;
-                case STATE_KEY_2:
-                    if      (b == UART_TYPE_KEY)      state = STATE_KEY_3;
-                    else if (b == UART_TYPE_KEY_LONG) state = STATE_KEY_3L;
-                    else                              state = STATE_IDLE;
-                    break;
-                case STATE_KEY_3:
-                    KEYBOARD_InjectKey(b);
-                    connected = true;
-                    state = STATE_IDLE;
-                    break;
-                case STATE_KEY_3L:
-                    KEYBOARD_InjectKeyLong(b);
-                    connected = true;
-                    state = STATE_IDLE;
-                    break;
-                default:
-                    state = STATE_IDLE;
-                    break;
-            }
+            if(KEYBOARD_ProcessProtocolByte(&state, b))
+                connected = true;
         }
 
         return connected;

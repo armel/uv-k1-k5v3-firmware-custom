@@ -42,3 +42,18 @@ const char* INPUTBOX_GetAscii()
     }
     return inputBoxAscii;
 }
+
+const char* INPUTBOX_GetAsciiAlignRight() {
+    int targetPos = 7;
+
+    for (int i = 7; i >= 0; i--) {
+        if (gInputBox[i] != 10) {
+            inputBoxAscii[targetPos--] = '0' + gInputBox[i];
+        }
+    }
+
+    while(targetPos >= 0)
+        inputBoxAscii[targetPos--] = '-';
+
+    return inputBoxAscii;
+}

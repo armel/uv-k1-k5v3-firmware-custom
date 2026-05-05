@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "dcs.h"
+#include "driver/bk4819.h"
 #include "frequencies.h"
 
 enum {
@@ -155,12 +156,14 @@ uint16_t RADIO_FindNextChannel(uint16_t ChNum, int8_t Direction, bool bCheckScan
 void     RADIO_InitInfo(VFO_Info_t *pInfo, const uint16_t ChannelSave, const uint32_t Frequency);
 void     RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure);
 void     RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo);
+void     RADIO_ValidateAndSetCode(FREQ_Config_t *pFreq_Config, uint8_t tmp);
 void     RADIO_ApplyOffset(VFO_Info_t *pInfo);
 void     RADIO_SelectVfos(void);
 void     RADIO_SetupRegisters(bool switchToForeground);
 #ifdef ENABLE_NOAA
     void RADIO_ConfigureNOAA(void);
 #endif
+BK4819_FilterBandwidth_t RADIO_GetAMFilterBandwidth(const VFO_Info_t *pVfo);
 void     RADIO_SetTxParameters(void);
 void     RADIO_SetupAGC(bool listeningAM, bool disable);
 void     RADIO_SetModulation(ModulationMode_t modulation);

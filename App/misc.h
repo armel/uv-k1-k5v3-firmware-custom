@@ -39,8 +39,6 @@
 #define FM_CHANNELS_MAX 48
 #define MR_CHANNELS_MAX 1024
 #define MR_CHANNELS_LIST 24
-#define MENU_ITEMS 69
-
 // CACHE-BASED OPTIMIZATION: Only keep active channels in RAM
 // Full array stays in EEPROM, cache holds ~10 most-used channels
 #define MR_CHANNELS_CACHE_SIZE 10
@@ -178,6 +176,10 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern bool              gWakeUp;
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    extern bool              gSetting_set_scn;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     extern uint8_t            gSetting_set_pwr;
     extern bool               gSetting_set_ptt;
@@ -189,7 +191,8 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern bool               gSetting_set_met;
     extern bool               gSetting_set_gui;
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
-        extern uint8_t            gSetting_set_audio;
+        extern uint8_t            gSetting_set_audio_fm;
+        extern uint8_t            gSetting_set_audio_am;
     #endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         extern bool               gSetting_set_nfm;
@@ -323,6 +326,8 @@ extern volatile bool         gTxTimeoutReached;
     #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
         extern volatile uint8_t  gUART_LockScreenshot; // lock screenshot if Chirp is used
         extern bool gUSB_ScreenshotEnabled;
+
+        bool SCREENSHOT_IsLocked(void);
     #endif
 #endif
 
@@ -366,6 +371,7 @@ extern AlarmState_t          gAlarmState;
 extern uint16_t              gMenuCountdown;
 extern bool                  gPttWasReleased;
 extern bool                  gPttWasPressed;
+extern bool                  gHasVfoBackup;
 extern bool                  gFlagReconfigureVfos;
 extern uint8_t               gVfoConfigureMode;
 extern bool                  gFlagResetVfos;
@@ -450,6 +456,7 @@ extern volatile uint8_t      boot_counter_10ms;
     extern bool                  gMute;
     extern uint8_t               gBacklightTimeOriginal;
     extern uint8_t               gBacklightBrightnessOld;
+    extern uint8_t               gSquelchLevelOriginal;
     extern uint8_t               gPttOnePushCounter;
     extern uint32_t              gBlinkCounter;
 

@@ -116,6 +116,10 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     bool          gWakeUp = false;
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    bool          gSetting_set_scn = 1;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     uint8_t       gSetting_set_pwr = 1;
     bool          gSetting_set_ptt = 0;
@@ -127,7 +131,8 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     bool          gSetting_set_met = 0;
     bool          gSetting_set_gui = 0;
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
-        uint8_t       gSetting_set_audio = 0;
+        uint8_t       gSetting_set_audio_fm = 0;
+        uint8_t       gSetting_set_audio_am = 0;
     #endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         bool          gSetting_set_nfm = 0;
@@ -242,6 +247,7 @@ volatile uint16_t gScanPauseDelayIn_10ms;
 uint16_t          gMenuCountdown;
 bool              gPttWasReleased;
 bool              gPttWasPressed;
+bool              gHasVfoBackup;
 uint8_t           gKeypadLocked;
 bool              gFlagReconfigureVfos;
 uint8_t           gVfoConfigureMode;
@@ -329,6 +335,7 @@ uint8_t           gIsLocked = 0xFF;
     bool          gMute = false;
     uint8_t       gBacklightTimeOriginal;
     uint8_t       gBacklightBrightnessOld;
+    uint8_t       gSquelchLevelOriginal = 10;
     uint8_t       gPttOnePushCounter = 0;
     uint32_t      gBlinkCounter = 0;
 
@@ -634,4 +641,16 @@ void MR_PrintCacheStats(void)
     //    cache_hits, cache_misses, MR_GetCacheHitRate());
 }
 
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+    bool SCREENSHOT_IsLocked(void) 
+    {
+        if (gUART_LockScreenshot > 0) {
+            gUART_LockScreenshot--;
+            return true;
+        }
+        
+        return false;
+    }
 #endif

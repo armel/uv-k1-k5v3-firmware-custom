@@ -36,30 +36,72 @@ bool       gWasFKeyPressed  = false;
 // Must exceed key_repeat_delay_10ms (40) to trigger ProcessKey(key, true, true).
 #define SERIAL_KEY_LONG_POLLS   45
 
+// Packet types for serial key injection (K5Viewer → radio)
+#define SERIAL_KEY_TYPE         0x03
+#define SERIAL_KEY_TYPE_LONG    0x04
+
 volatile KEY_Code_t gKeyFromSerial      = KEY_INVALID;
 static   uint8_t    gSerialKeyHoldCount = 0;
 static   uint8_t    gSerialKeyLong      = 0;  // 0 = short press, 1 = long press
 
-// Inject a short press from serial (UART or VCP).
+// Inject a short or long press from serial (UART or VCP).
 // KEY_PTT is explicitly blocked — PTT release cannot be guaranteed over serial.
-void KEYBOARD_InjectKey(uint8_t keyCode)
+static inline void KEYBOARD_InjectKey(uint8_t keyCode, bool keyLong)
 {
     if (keyCode < KEY_INVALID && keyCode != KEY_PTT) {
         gKeyFromSerial      = (KEY_Code_t)keyCode;
         gSerialKeyHoldCount = 0;
-        gSerialKeyLong      = 0;
+        gSerialKeyLong      = keyLong;
     }
 }
 
-// Inject a long press from serial (UART or VCP).
-// KEY_PTT is explicitly blocked — PTT release cannot be guaranteed over serial.
-void KEYBOARD_InjectKeyLong(uint8_t keyCode)
+bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b)
 {
-    if (keyCode < KEY_INVALID && keyCode != KEY_PTT) {
-        gKeyFromSerial      = (KEY_Code_t)keyCode;
-        gSerialKeyHoldCount = 0;
-        gSerialKeyLong      = 1;
+    bool connected = false;
+
+    switch (*state)
+    {
+        case STATE_IDLE:
+            if      (b == 0x55) *state = STATE_KA_1;
+            else if (b == 0xAA) *state = STATE_KEY_1;
+            break;
+            
+        case STATE_KA_1:
+            *state = (b == 0xAA) ? STATE_KA_2 : STATE_IDLE;
+            break;
+            
+        case STATE_KA_2:
+            *state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
+            break;
+            
+        case STATE_KA_3:
+            if (b == 0x00) connected = true;
+            *state = STATE_IDLE;
+            break;
+            
+        case STATE_KEY_1:
+            *state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;
+            break;
+            
+        case STATE_KEY_2:
+            if      (b == SERIAL_KEY_TYPE)      *state = STATE_KEY_3;
+            else if (b == SERIAL_KEY_TYPE_LONG) *state = STATE_KEY_3L;
+            else                                *state = STATE_IDLE;
+            break;
+            
+        case STATE_KEY_3:
+        case STATE_KEY_3L:
+            KEYBOARD_InjectKey(b, *state == STATE_KEY_3L);
+            connected = true;
+            *state = STATE_IDLE;
+            break;
+
+        default:
+            *state = STATE_IDLE;
+            break;
     }
+
+    return connected;
 }
 #endif
 
@@ -208,4 +250,19 @@ KEY_Code_t KEYBOARD_Poll(void)
     GPIO_SetOutputPin(PIN_COLS);
 
     return Key;
+}
+
+KEY_Code_t KEYBOARD_GetKey(void)
+{
+    KEY_Code_t btn = KEYBOARD_Poll();
+    if (btn == KEY_INVALID && GPIO_IsPttPressed())
+    {
+        btn = KEY_PTT;
+    }
+    return btn;
+}
+
+void HideFKeyIcon(void) {
+    gWasFKeyPressed       = false;
+    gUpdateStatus         = true;
 }

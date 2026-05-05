@@ -39,7 +39,7 @@ static const uint16_t Obfuscation[8] = { 0x6C16, 0xE614, 0x912E, 0x400D, 0x3521,
 AIRCOPY_State_t gAircopyState;
 uint16_t gAirCopyBlockNumber;
 uint16_t gErrorsDuringAirCopy;
-uint8_t gAirCopyIsSendMode;
+bool     gAirCopyIsSendMode;
 
 uint16_t g_FSK_Buffer[36];
 
@@ -172,6 +172,13 @@ static inline void AIRCOPY_CheckComplete(void)
     }
 }
 
+void AIRCOPY_Obfuscate(unsigned int count)
+{
+    for (unsigned int i = 0; i < count; i++) {
+        g_FSK_Buffer[i + 1] ^= Obfuscation[i % 8];
+    }
+}
+
 // ============================================================================
 // Send/Receive Functions
 // ============================================================================
@@ -223,9 +230,7 @@ bool AIRCOPY_SendMessage(void)
 
     g_FSK_Buffer[34] = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
 
-    for (unsigned int i = 0; i < 34; i++) {
-        g_FSK_Buffer[i + 1] ^= Obfuscation[i % 8];
-    }
+    AIRCOPY_Obfuscate(34);
 
     RADIO_SetTxParameters();
 
@@ -261,9 +266,7 @@ void AIRCOPY_StorePacket(void)
         return;
     }
 
-    for (unsigned int i = 0; i < 34; i++) {
-        g_FSK_Buffer[i + 1] ^= Obfuscation[i % 8];
-    }
+    AIRCOPY_Obfuscate(34);
 
     uint16_t Crc = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
     if (g_FSK_Buffer[34] != Crc) {
@@ -273,25 +276,9 @@ void AIRCOPY_StorePacket(void)
     }
 
     uint16_t Offset = g_FSK_Buffer[1];
-    const AIRCOPY_TransferMap_t *map = AIRCOPY_GetCurrentMap();
-
-    // Validate offset is in the map
-    bool validOffset = false;
-    for (uint16_t i = 0; i < map->num_segments; i++) {
-        if (Offset >= map->segments[i].start_offset && Offset < map->segments[i].end_offset) {
-            validOffset = true;
-            break;
-        }
-    }
-
-    if (!validOffset) {
-        gErrorsDuringAirCopy++;
-        AIRCOPY_CheckComplete();
-        return;
-    }
 
     const AIRCOPY_Segment_t *seg = AIRCOPY_FindSegmentForOffset(Offset);
-
+    
     if (seg == NULL) {
         gErrorsDuringAirCopy++;
         AIRCOPY_CheckComplete();
@@ -325,19 +312,26 @@ void AIRCOPY_StorePacket(void)
     AIRCOPY_CheckComplete();
 }
 
+static void AIRCOPY_InitTransfer(bool isSendMode)
+{
+    gAircopyStep = 1;
+    gFSKWriteIndex = 0;
+    gAirCopyBlockNumber = 0;
+    gInputBoxIndex = 0;
+    gAirCopyIsSendMode = isSendMode;
+
+    AIRCOPY_clear();
+    
+    gAircopyState = AIRCOPY_TRANSFER;
+}
+
 // ============================================================================
 // Key Processing
 // ============================================================================
 
-static void AIRCOPY_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
+static void AIRCOPY_Key_DIGITS(KEY_Code_t Key)
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     INPUTBOX_Append(Key);
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 
     if (gInputBoxIndex < 6) {
 #ifdef ENABLE_VOICE
@@ -373,64 +367,32 @@ static void AIRCOPY_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         BK4819_ResetFSK();
         return;
     }
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
-static void AIRCOPY_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
+static void AIRCOPY_Key_EXIT()
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     if (gInputBoxIndex == 0) {
-        gAircopyStep = 1;
-        gFSKWriteIndex = 0;
-        gAirCopyBlockNumber = 0;
-        gInputBoxIndex = 0;
+        AIRCOPY_InitTransfer(0); // Mode: Receive
         gErrorsDuringAirCopy = lErrorsDuringAirCopy = 0;
-        gAirCopyIsSendMode = 0;
-
-        AIRCOPY_clear();
 
         BK4819_PrepareFSKReceive();
-
-        gAircopyState = AIRCOPY_TRANSFER;
+        
     } else {
         gInputBox[--gInputBoxIndex] = 10;
     }
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
-static void AIRCOPY_Key_MENU(bool bKeyPressed, bool bKeyHeld)
+static void AIRCOPY_Key_MENU()
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
-    gAircopyStep = 1;
-    gFSKWriteIndex = 0;
-    gAirCopyBlockNumber = 0;
-    gInputBoxIndex = 0;
-    gAirCopyIsSendMode = 1;
+    AIRCOPY_InitTransfer(1); // Mode: Send
+    
     g_FSK_Buffer[0] = 0xABCD;
     g_FSK_Buffer[1] = 0;
     g_FSK_Buffer[35] = 0xDCBA;
-
-    AIRCOPY_clear();
-
-    GUI_DisplayScreen();
-
-    gAircopyState = AIRCOPY_TRANSFER;
 }
 
-static void AIRCOPY_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
+static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
 {
-    if (bKeyHeld || !bKeyPressed) {
-        return;
-    }
-
     if (!gEeprom.SET_NAV) {
         Direction = -Direction;
     }
@@ -444,29 +406,40 @@ static void AIRCOPY_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Directio
             gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + AIRCOPY_NUM_MAPS - 1) % AIRCOPY_NUM_MAPS;
             break;
     }
-
-    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
+    if (bKeyHeld || !bKeyPressed) {
+        return;
+    }
+
+    if (Key != KEY_PTT) {
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+    }
+
     switch (Key) {
     case KEY_0...KEY_9:
-        AIRCOPY_Key_DIGITS(Key, bKeyPressed, bKeyHeld);
+        AIRCOPY_Key_DIGITS(Key);
         break;
     case KEY_MENU:
-        AIRCOPY_Key_MENU(bKeyPressed, bKeyHeld);
+        AIRCOPY_Key_MENU();
         break;
     case KEY_EXIT:
-        AIRCOPY_Key_EXIT(bKeyPressed, bKeyHeld);
+        AIRCOPY_Key_EXIT();
         break;
     case KEY_UP:
     case KEY_DOWN:
-        AIRCOPY_Key_UP_DOWN(bKeyPressed, bKeyHeld, Key == KEY_UP ? 1 : -1);
+        AIRCOPY_Key_UP_DOWN(Key == KEY_UP ? 1 : -1);
+        break;
+    case KEY_PTT:
         break;
     default:
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         break;
     }
+
+    gRequestDisplayScreen = DISPLAY_AIRCOPY;
 }
 
 #endif

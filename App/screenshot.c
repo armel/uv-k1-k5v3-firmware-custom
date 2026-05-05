@@ -26,17 +26,19 @@
 // - No currentFrame or deltaFrame static buffers
 static uint8_t previousFrame[1024] = {0};
 static uint8_t forcedBlock = 0;
-static uint8_t keepAlive = 10;
-static bool    wasConnected = false;
+static uint8_t keepAlive = 3;
 
 void SCREENSHOT_ParseInput(void)
 {
+    if (SCREENSHOT_IsLocked())
+        return;
+
     if (UART_IsCableConnected()) {
-        keepAlive = 10;
+        keepAlive = 15;
         gUSB_ScreenshotEnabled = false;
     }
-    if (VCP_ScreenshotPing()) {
-        keepAlive = 10;
+    else if (VCP_ScreenshotPing()) {
+        keepAlive = 15;
         gUSB_ScreenshotEnabled = true;
     }
 }
@@ -50,6 +52,18 @@ static void SCREENSHOT_Send(const uint8_t *buf, uint16_t len)
     }
 }
 
+void SCREENSHOT_Line(uint8_t *src, uint8_t *dest, uint16_t *idx) {
+    for (uint8_t b = 0; b < 8; b++) {
+        for (uint8_t i = 0; i < 128; i += 8) {
+            uint8_t acc = 0;
+            for (uint8_t k = 0; k < 8; k++) {
+                if (src[i + k] & (1 << b)) acc |= (1 << k);
+            }
+            dest[(*idx)++] = gSetting_set_inv ? ~acc : acc;
+        }
+    }
+}
+
 void SCREENSHOT_Update(bool force)
 {
     // Build frame in a temporary stack buffer
@@ -58,21 +72,10 @@ void SCREENSHOT_Update(bool force)
     uint16_t index = 0;
     uint8_t acc = 0;
     uint8_t bitCount = 0;
+    static bool wasConnected = false;
 
-    if (gUART_LockScreenshot > 0) {
-        gUART_LockScreenshot--;
+    if (SCREENSHOT_IsLocked())
         return;
-    }
-
-    if (UART_IsCableConnected()) {
-        keepAlive = 10;
-        gUSB_ScreenshotEnabled = false;
-    }
-
-    if (VCP_ScreenshotPing()) {
-        keepAlive = 10;
-        gUSB_ScreenshotEnabled = true;
-    }
 
     if (keepAlive > 0) {
         if (--keepAlive == 0) {
@@ -92,31 +95,11 @@ void SCREENSHOT_Update(bool force)
 
     // ==== BUILD FRAME ONCE ====
     // Status line: 8 bit layers × 128 columns
-    for (uint8_t b = 0; b < 8; b++) {
-        for (uint8_t i = 0; i < 128; i++) {
-            uint8_t bit = (gStatusLine[i] >> b) & 0x01;
-            acc |= (bit << bitCount++);
-            if (bitCount == 8) {
-                frameBuffer[index++] = acc;
-                acc = 0;
-                bitCount = 0;
-            }
-        }
-    }
+    SCREENSHOT_Line(gStatusLine, frameBuffer, &index);
 
     // Frame buffer: 7 lines × 8 bit layers × 128 columns
     for (uint8_t l = 0; l < 7; l++) {
-        for (uint8_t b = 0; b < 8; b++) {
-            for (uint8_t i = 0; i < 128; i++) {
-                uint8_t bit = (gFrameBuffer[l][i] >> b) & 0x01;
-                acc |= (bit << bitCount++);
-                if (bitCount == 8) {
-                    frameBuffer[index++] = acc;
-                    acc = 0;
-                    bitCount = 0;
-                }
-            }
-        }
+        SCREENSHOT_Line(gFrameBuffer[l], frameBuffer, &index);
     }
 
     if (bitCount > 0)

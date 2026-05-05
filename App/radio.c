@@ -54,36 +54,67 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
 };
 
 #ifdef ENABLE_FEAT_F4HWN_AUDIO
-    static void AUDIO_ApplyProfile(uint8_t profile)
+
+    // About BK4819_WriteRegister(0x2b, val) experimentation...
+    //
+    // 0x000: 300 Hz high-pass filter enabled, 3 kHz low-pass filter enabled, de-emphasis enabled.
+    // Audio impression: the most "classic radio" tuning, more filtered and smoother.
+    //
+    // 0x300: 300 Hz high-pass filter enabled, 3 kHz low-pass filter disabled, de-emphasis disabled.
+    // Audio impression: clearer, brighter, and more open, while still cutting low frequencies.
+    //
+    // 0x400: 300 Hz high-pass filter disabled, 3 kHz low-pass filter enabled, de-emphasis enabled.
+    // Audio impression: fuller low end, but still softened by de-emphasis and upper-frequency limiting.
+    //
+    // 0x500: 300 Hz high-pass filter disabled, 3 kHz low-pass filter enabled, de-emphasis disabled.
+    // Audio impression: fuller bass, more direct sound, while still keeping the 3 kHz top-end limit.
+
+    static void AUDIO_ApplyFMProfile(uint8_t profile)
+    {   //  | 0x54 || 0x55 |
+        static const uint16_t fm_profiles[][2] = {
+            {0x9009, 0x3200}, // 0: FLAT
+            {0x9009, 0x33A9}, // 1: CLEAN
+            {0x9009, 0x3600}, // 2: MID
+            {0x8546, 0x3AF0}, // 3: BOOST
+            {0x8566, 0x3D00}  // 4: MAX
+        };
+
+        if (profile >= ARRAY_SIZE(fm_profiles))
+            profile = 0;
+
+        BK4819_WriteRegister(0x54, fm_profiles[profile][0]);
+        BK4819_WriteRegister(0x55, fm_profiles[profile][1]);
+    }
+
+    static void AUDIO_ApplyAMProfile(uint8_t profile)
+    {   //  | 0x2b || 0x2f || 0x54 || 0x55 |
+        static const uint16_t am_profiles[][4] = {
+            // SHARP (ALPHA test profile) - Narrow IF filter (REG54 bits[14:8]=0, bits[7:0]=9), low IF gain (REG55 bits[11:8]=1, ref=169)
+            // Selective and crisp, best adjacent channel rejection, may sound harsh on strong signals
+            {0x0300, 0x9990, 0x9009, 0x31A9},
+
+            // STOCK - Narrow IF filter (REG54 bits[14:8]=0, bits[7:0]=9), moderate IF gain (REG55 bits[11:8]=4, ref=180)
+            // Selective filter with balanced gain, punchy and detailed, good compromise between rejection and sensitivity
+            {0x0500, 0x9990, 0x9009, 0x31A9},
+
+            // OPEN (BRAVO test profile) - Medium-wide IF filter (REG54 bits[14:8]=8, bits[7:0]=70), high IF gain (REG55 bits[11:8]=8, ref=192)
+            // Wide and pleasant, better sensitivity on weak signals, may struggle with adjacent channel interference
+            {0x0300, 0x9990, 0x8846, 0x38C0}
+        };
+
+        if (profile >= ARRAY_SIZE(am_profiles))
+            profile = 0;
+
+        BK4819_WriteRegister(0x2b, am_profiles[profile][0]);
+        BK4819_WriteRegister(0x2f, am_profiles[profile][1]);
+        BK4819_WriteRegister(0x54, am_profiles[profile][2]);
+        BK4819_WriteRegister(0x55, am_profiles[profile][3]);
+    }
+
+    static void AUDIO_ApplyUSBProfile(void)
     {
-        switch (profile)
-        {
-            default:
-            case 0: // FLAT
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x3200);
-                break;
-
-            case 1: // CLEAN
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x33A9);
-                break;
-
-            case 2: // MID
-                BK4819_WriteRegister(0x54, 0x9009);
-                BK4819_WriteRegister(0x55, 0x3600);
-                break;
-
-            case 3: // BOOST
-                BK4819_WriteRegister(0x54, 0x8546);
-                BK4819_WriteRegister(0x55, 0x3AF0);
-                break;
-
-            case 4: // MAX
-                BK4819_WriteRegister(0x54, 0x8566);
-                BK4819_WriteRegister(0x55, 0x3D00);
-                break;
-        }
+        BK4819_WriteRegister(0x54, 0x9009);
+        BK4819_WriteRegister(0x55, 0x31A9);
     }
 #endif
 
@@ -202,6 +233,24 @@ void RADIO_InitInfo(VFO_Info_t *pInfo, const uint16_t ChannelSave, const uint32_
     RADIO_ConfigureSquelchAndOutputPower(pInfo);
 }
 
+void RADIO_ValidateAndSetCode(FREQ_Config_t *pFreq_Config, uint8_t tmp) {
+    switch (pFreq_Config->CodeType) {
+        default:
+        case CODE_TYPE_OFF:
+            pFreq_Config->CodeType = CODE_TYPE_OFF;
+            tmp = 0;
+            break;
+
+        case CODE_TYPE_CONTINUOUS_TONE:
+        case CODE_TYPE_DIGITAL:
+        case CODE_TYPE_REVERSE_DIGITAL:
+            if (tmp > ((pFreq_Config->CodeType == CODE_TYPE_CONTINUOUS_TONE ? ARRAY_SIZE(CTCSS_Options) : ARRAY_SIZE(DCS_Options)) - 1))
+                tmp = 0;
+            break;
+    }
+    pFreq_Config->Code = tmp;
+}
+
 void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure)
 {
     VFO_Info_t *pVfo = &gEeprom.VfoInfo[VFO];
@@ -275,7 +324,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
     }
 
     pVfo->Band                    = band;
-    pVfo->SCANLIST_PARTICIPATION = bParticipation;
+    pVfo->SCANLIST_PARTICIPATION  = bParticipation;
     pVfo->CHANNEL_SAVE            = channel;
 
     uint32_t base;
@@ -320,49 +369,8 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
         pVfo->freq_config_RX.CodeType = (data[2] >> 0) & 0x0F;
         pVfo->freq_config_TX.CodeType = (data[2] >> 4) & 0x0F;
 
-        tmp = data[0];
-        switch (pVfo->freq_config_RX.CodeType)
-        {
-            default:
-            case CODE_TYPE_OFF:
-                pVfo->freq_config_RX.CodeType = CODE_TYPE_OFF;
-                tmp = 0;
-                break;
-
-            case CODE_TYPE_CONTINUOUS_TONE:
-                if (tmp > (ARRAY_SIZE(CTCSS_Options) - 1))
-                    tmp = 0;
-                break;
-
-            case CODE_TYPE_DIGITAL:
-            case CODE_TYPE_REVERSE_DIGITAL:
-                if (tmp > (ARRAY_SIZE(DCS_Options) - 1))
-                    tmp = 0;
-                break;
-        }
-        pVfo->freq_config_RX.Code = tmp;
-
-        tmp = data[1];
-        switch (pVfo->freq_config_TX.CodeType)
-        {
-            default:
-            case CODE_TYPE_OFF:
-                pVfo->freq_config_TX.CodeType = CODE_TYPE_OFF;
-                tmp = 0;
-                break;
-
-            case CODE_TYPE_CONTINUOUS_TONE:
-                if (tmp > (ARRAY_SIZE(CTCSS_Options) - 1))
-                    tmp = 0;
-                break;
-
-            case CODE_TYPE_DIGITAL:
-            case CODE_TYPE_REVERSE_DIGITAL:
-                if (tmp > (ARRAY_SIZE(DCS_Options) - 1))
-                    tmp = 0;
-                break;
-        }
-        pVfo->freq_config_TX.Code = tmp;
+        RADIO_ValidateAndSetCode(&pVfo->freq_config_RX, data[0]);
+        RADIO_ValidateAndSetCode(&pVfo->freq_config_TX, data[1]);
 
         if (data[4] == 0xFF)
         {
@@ -574,30 +582,15 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
     uint8_t Op = 0; // Low eeprom calibration data 
     uint8_t currentPower = pInfo->OUTPUT_POWER;
 
-    if(currentPower == OUTPUT_POWER_USER)
-    {
-        if(gSetting_set_pwr == 5)
-        {
-            Op = 1; // Mid eeprom calibration data
-        }
-        else if(gSetting_set_pwr == 6)
-        {
-            Op = 2; // High eeprom calibration data
-        }
+    if (currentPower == OUTPUT_POWER_USER)
         currentPower = gSetting_set_pwr;
-    }
     else
-    {
-        if (currentPower == OUTPUT_POWER_MID)
-        {
-            Op = 1; // Mid eeprom calibration data
-        }
-        else if(currentPower == OUTPUT_POWER_HIGH)
-        {
-            Op = 2; // High eeprom calibration data
-        }
         currentPower--;
-    }
+
+    if (currentPower == 5)
+        Op = 1; // Mid eeprom calibration data
+    else if (currentPower == 6)
+        Op = 2; // High eeprom calibration data
 
     PY25Q16_ReadBuffer(0x100D0 + (Band * 16) + (Op * 3), Txp, 3);
 
@@ -740,6 +733,12 @@ void RADIO_SelectVfos(void)
     RADIO_SelectCurrentVfo();
 }
 
+BK4819_FilterBandwidth_t RADIO_GetAMFilterBandwidth(const VFO_Info_t *pVfo)
+{
+    // On BK4829, AM "wide" intentionally reuses the wider RF filter preset.
+    return (pVfo->CHANNEL_BANDWIDTH == BANDWIDTH_WIDE) ? BK4819_FILTER_BW_WIDE : BK4819_FILTER_BW_AM;
+}
+
 void RADIO_SetupRegisters(bool switchToForeground)
 {
     BK4819_FilterBandwidth_t Bandwidth = gRxVfo->CHANNEL_BANDWIDTH;
@@ -758,7 +757,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
 
     if (gRxVfo->Modulation == MODULATION_AM)
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_AM, true);
+        BK4819_SetFilterBandwidth(RADIO_GetAMFilterBandwidth(gRxVfo), true);
     else
     {
         switch (Bandwidth)
@@ -822,12 +821,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
 
     // AF RX Gain and DAC
     //BK4819_WriteRegister(BK4819_REG_48, 0xB3A8);  // 1011 00 111010 1000
-    BK4819_WriteRegister(BK4819_REG_48,
-        (11u << 12)                 |     // ??? .. 0 ~ 15, doesn't seem to make any difference
-        ( 0u << 10)                 |     // AF Rx Gain-1
-        (gEeprom.VOLUME_GAIN << 4) |     // AF Rx Gain-2
-        (gEeprom.DAC_GAIN    << 0));     // AF DAC Gain (after Gain-1 and Gain-2)
-
+    BK4819_SetRxAudioGain();
 
     uint16_t InterruptMask = BK4819_REG_3F_SQUELCH_FOUND | BK4819_REG_3F_SQUELCH_LOST;
 
@@ -926,8 +920,8 @@ void RADIO_SetupRegisters(bool switchToForeground)
     BK4819_EnableDTMF();
     InterruptMask |= BK4819_REG_3F_DTMF_5TONE_FOUND;
 
-    //RADIO_SetupAGC(gRxVfo->Modulation == MODULATION_AM, false);
-    RADIO_SetupAGC(false, false);
+    RADIO_SetupAGC(gRxVfo->Modulation == MODULATION_AM, false);
+    //RADIO_SetupAGC(false, false);
 
     // enable/disable BK4819 selected interrupts
     BK4819_WriteRegister(BK4819_REG_3F, InterruptMask);
@@ -1057,26 +1051,25 @@ void RADIO_SetTxParameters(void)
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
     #ifdef ENABLE_BYP_RAW_DEMODULATORS
-    // BYP on BK4829 uses full audio bypass profile.
-    if (modulation == MODULATION_BYP) {
-        BK4819_EnterBypass();
+    if (modulation == MODULATION_BYP || modulation == MODULATION_RAW) {
+        uint16_t reg_3d_val = 0x0000;
+
+        if (modulation == MODULATION_BYP) {
+            // BYP on BK4829 uses full audio bypass profile.
+            BK4819_EnterBypass();
+            reg_3d_val = 0x2AAB;
+        } else {
+            // RAW on BK4829 uses RX-only filter bypass profile.
+            BK4819_EnterRaw();
+            // reg_3d_val = 0x0000;
+        }
+
         BK4819_SetRegValue(afDacGainRegSpec, 0xF);
-        BK4819_WriteRegister(BK4819_REG_3D, 0x2AAB);
+        BK4819_WriteRegister(BK4819_REG_3D, reg_3d_val);
         RADIO_SetupAGC(false, false);
         return;
     }
 
-    // RAW on BK4829 uses RX-only filter bypass profile.
-    if (modulation == MODULATION_RAW) {
-        BK4819_EnterRaw();
-        BK4819_SetRegValue(afDacGainRegSpec, 0xF);
-        BK4819_WriteRegister(BK4819_REG_3D, 0x0000);
-        RADIO_SetupAGC(false, false);
-        return;
-    }
-    #endif
-
-    #ifdef ENABLE_BYP_RAW_DEMODULATORS
     // Ensure we always leave bypass / raw mode before applying normal modulation settings.
     BK4819_ExitBypass();
     #endif
@@ -1098,81 +1091,83 @@ void RADIO_SetModulation(ModulationMode_t modulation)
 
     BK4819_SetAF(mod);
 
-    // HACK, FIXME:
+    // 
     // What follows is a direct copy of the AM enable/disable code from
     // the original UV-K1 firmware. It is not clear why these specific register
     // values are used for AM all of a sudden instead of the AF setting like on
     // the BK4819, nor what exactly they do.
     // So for now we just keep it as is to maintain compatibility.
     //
-    if (modulation != MODULATION_AM)
-    {
-        uint16_t uVar1 = BK4819_ReadRegister(0x31);
-        BK4819_WriteRegister(0x31,uVar1 & 0xfffffffe);
-        BK4819_WriteRegister(0x42,0x6b5a);
-        BK4819_WriteRegister(0x2a,0x7400);
-        BK4819_WriteRegister(0x2b,0);
-        BK4819_WriteRegister(0x2f,0x9890);
-        //BK4819_WriteRegister(0x54, 0x9009);
-        //BK4819_WriteRegister(0x55, 0x31a9);
-        #ifdef ENABLE_FEAT_F4HWN_AUDIO
-            AUDIO_ApplyProfile(gSetting_set_audio);
-        #else
-            BK4819_WriteRegister(0x54, 0x9009);
-            BK4819_WriteRegister(0x55, 0x31a9);
-        #endif
-    }
-    else
-    {
-        uint16_t uVar1 = BK4819_ReadRegister(0x31);
-        BK4819_WriteRegister(0x31,uVar1 | 1);
-        BK4819_WriteRegister(0x42,0x6f5c);
-        BK4819_WriteRegister(0x2a,0x7434);
-        BK4819_WriteRegister(0x2b,0x300);
-        BK4819_WriteRegister(0x2f,0x9990);
-        //BK4819_WriteRegister(0x54, 0x9775);
-        //BK4819_WriteRegister(0x55, 0x32c6);
 
-        BK4819_WriteRegister(0x54, 0x8846);
-        BK4819_WriteRegister(0x55, 0x38C0);
+    switch (modulation)
+    {
+        case MODULATION_AM:
+        {
+            uint16_t uVar1 = BK4819_ReadRegister(0x31);
+            BK4819_WriteRegister(0x31, uVar1 | 1); // AM Demodulation Enable
+            BK4819_WriteRegister(0x42, 0x6f5c);
+            BK4819_WriteRegister(0x2a, 0x7434);
 
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_AM, true);
+            #ifdef ENABLE_FEAT_F4HWN_AUDIO
+                AUDIO_ApplyAMProfile(gSetting_set_audio_am);
+            #else
+                BK4819_WriteRegister(0x54, 0x9009);
+                BK4819_WriteRegister(0x55, 0x31a9);
+            #endif
+
+            BK4819_SetFilterBandwidth(RADIO_GetAMFilterBandwidth(gCurrentVfo), true);
+            break;
+        }
+
+        case MODULATION_USB:
+        case MODULATION_FM:
+        default:
+        {
+            uint16_t uVar1 = BK4819_ReadRegister(0x31);
+            BK4819_WriteRegister(0x31, uVar1 & 0xfffe); // AM Demodulation Disable
+            BK4819_WriteRegister(0x42, 0x6b5a);
+            BK4819_WriteRegister(0x2a, 0x7400);
+            BK4819_WriteRegister(0x2b, 0x0000);
+            BK4819_WriteRegister(0x2f, 0x9890);
+
+            #ifdef ENABLE_FEAT_F4HWN_AUDIO
+                if (modulation == MODULATION_USB)
+                    AUDIO_ApplyUSBProfile();
+                else
+                    AUDIO_ApplyFMProfile(gSetting_set_audio_fm);
+            #else
+                BK4819_WriteRegister(0x54, 0x9009);
+                BK4819_WriteRegister(0x55, 0x31a9);
+            #endif
+            break;
+        }
     }
     
     BK4819_SetRegValue(afDacGainRegSpec, 0xF);
     BK4819_WriteRegister(BK4819_REG_3D, modulation == MODULATION_USB ? 0 : 0x2AAB);
     BK4819_SetRegValue(afcDisableRegSpec, modulation != MODULATION_FM);
 
-    //RADIO_SetupAGC(modulation == MODULATION_AM, false);
-    RADIO_SetupAGC(false, false);
+    RADIO_SetupAGC(modulation == MODULATION_AM, false);
 }
 
 void RADIO_SetupAGC(bool listeningAM, bool disable)
 {
-    static uint8_t lastSettings;
+    static uint8_t lastSettings = 0xFF;
     uint8_t newSettings = (listeningAM << 1) | disable;
-    if(lastSettings == newSettings)
+    if (lastSettings == newSettings)
         return;
     lastSettings = newSettings;
 
-
-    if(!listeningAM) { // if not actively listening AM we don't need any AM specific regulation
-        BK4819_SetAGC(!disable);
-        BK4819_InitAGC(false);
-    }
-    else {
 #ifdef ENABLE_AM_FIX
-        if(gSetting_AM_fix) { // if AM fix active lock AGC so AM-fix can do it's job
-            BK4819_SetAGC(0);
-            AM_fix_enable(!disable);
-        }
-        else
-#endif
-        {
-            BK4819_SetAGC(!disable);
-            BK4819_InitAGC(true);
-        }
+    if (listeningAM && gSetting_AM_fix) {
+        BK4819_SetAGC(0);
+        AM_fix_enable(!disable);
+        return;
     }
+#endif
+
+    BK4819_SetAGC(!disable);
+    BK4819_InitAGC(listeningAM);
 }
 
 void RADIO_SetVfoState(VfoState_t State)
@@ -1331,17 +1326,19 @@ void RADIO_PrepareTX(void)
 
 void RADIO_SendCssTail(void)
 {
-    switch (gCurrentVfo->pTX->CodeType) {
-    case CODE_TYPE_DIGITAL:
-    case CODE_TYPE_REVERSE_DIGITAL:
-        BK4819_PlayCDCSSTail();
-        break;
-    default:
-        BK4819_PlayCTCSSTail();
-        break;
-    }
+    if (gEeprom.TAIL_TONE_ELIMINATION) {
+        switch (gCurrentVfo->pTX->CodeType) {
+        case CODE_TYPE_DIGITAL:
+        case CODE_TYPE_REVERSE_DIGITAL:
+            BK4819_PlayCDCSSTail();
+            break;
+        default:
+            BK4819_PlayCTCSSTail();
+            break;
+        }
 
-    SYSTEM_DelayMs(200);
+        SYSTEM_DelayMs(200);
+    }
 }
 
 void RADIO_SendEndOfTransmission(void)
@@ -1350,8 +1347,7 @@ void RADIO_SendEndOfTransmission(void)
     DTMF_SendEndOfTransmission();
 
     // send the CTCSS/DCS tail tone - allows the receivers to mute the usual FM squelch tail/crash
-    if(gEeprom.TAIL_TONE_ELIMINATION)
-        RADIO_SendCssTail();
+    RADIO_SendCssTail();
     RADIO_SetupRegisters(false);
 }
 
@@ -1361,7 +1357,6 @@ void RADIO_PrepareCssTX(void)
 
     SYSTEM_DelayMs(200);
 
-    if(gEeprom.TAIL_TONE_ELIMINATION)
-        RADIO_SendCssTail();
+    RADIO_SendCssTail();
     RADIO_SetupRegisters(true);
 }
