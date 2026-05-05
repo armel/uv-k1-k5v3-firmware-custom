@@ -19,6 +19,11 @@
 
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
+
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    #include "app/beam.h"
+#endif
+
 #ifdef ENABLE_AM_FIX
     #include "am_fix.h"
 #endif
@@ -82,6 +87,46 @@ static uint8_t  gScanProgressPriorityState;
 #define SCAN_PROGRESS_PRIORITY_HOLD_SHIFT 5
 #define SCAN_PROGRESS_PRIORITY_HOLD_MASK  0xe0u
 #define SCAN_PROGRESS_PRIORITY_HOLD_FRAMES 6
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+static void UI_MAIN_DrawBeamLine(void)
+{
+    const char *text;
+#ifdef ENABLE_FEAT_F4HWN
+    const unsigned int line = isMainOnly() ? 5 : 3;
+#else
+    const unsigned int line = 3;
+#endif
+
+    switch (gBeamStatus) {
+    case BEAM_STATUS_TX_WAIT:
+        text = "SENDING";
+        break;
+    case BEAM_STATUS_TX_DONE:
+        text = "SENT";
+        break;
+    case BEAM_STATUS_RX_WAIT:
+        text = "WAITING";
+        break;
+    case BEAM_STATUS_RX_SAVED:
+        text = "RECEIVED";
+        break;
+    case BEAM_STATUS_RX_FULL:
+        text = "MEM FULL";
+        break;
+    case BEAM_STATUS_ERROR:
+        text = "ERROR";
+        break;
+    case BEAM_STATUS_READY:
+    default:
+        text = (gBeamMode == BEAM_MODE_TX) ? "BEAM TX" : "BEAM RX";
+        break;
+    }
+
+    memset(gFrameBuffer[line], 0, LCD_WIDTH);
+    UI_PrintStringSmallBold(text, 2, 127, line);
+}
 #endif
 
 const char *VfoStateStr[] = {
@@ -2047,6 +2092,13 @@ void UI_DisplayMain(void)
 
         const bool rx = FUNCTION_IsRx();
 
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        if (gBeamActive) {
+            center_line = CENTER_LINE_BEAM;
+            UI_MAIN_DrawBeamLine();
+        }
+        else
+#endif
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
         if (!rx && gScanStateDir != SCAN_OFF && UI_DrawScanProgress())
         {

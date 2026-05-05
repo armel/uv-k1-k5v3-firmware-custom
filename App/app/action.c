@@ -45,6 +45,9 @@
 #ifdef ENABLE_REGA
     #include "app/rega.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    #include "app/beam.h"
+#endif
 
 #if defined(ENABLE_FMRADIO)
 static void ACTION_Scan_FM(bool bRestart);
@@ -131,6 +134,9 @@ void (*action_opt_table[])(void) = {
 #ifdef ENABLE_REGA
     [ACTION_OPT_REGA_ALARM] = &ACTION_RegaAlarm,
     [ACTION_OPT_REGA_TEST] = &ACTION_RegaTest,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    [ACTION_OPT_BEAM] = &ACTION_Beam,
 #endif
 };
 

@@ -172,9 +172,9 @@ static inline void AIRCOPY_CheckComplete(void)
     }
 }
 
-static inline void AIRCOPY_Obfuscation(void)
+void AIRCOPY_Obfuscate(unsigned int count)
 {
-    for (unsigned int i = 0; i < 34; i++) {
+    for (unsigned int i = 0; i < count; i++) {
         g_FSK_Buffer[i + 1] ^= Obfuscation[i % 8];
     }
 }
@@ -230,7 +230,7 @@ bool AIRCOPY_SendMessage(void)
 
     g_FSK_Buffer[34] = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
 
-    AIRCOPY_Obfuscation();
+    AIRCOPY_Obfuscate(34);
 
     RADIO_SetTxParameters();
 
@@ -266,7 +266,7 @@ void AIRCOPY_StorePacket(void)
         return;
     }
 
-    AIRCOPY_Obfuscation();
+    AIRCOPY_Obfuscate(34);
 
     uint16_t Crc = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
     if (g_FSK_Buffer[34] != Crc) {

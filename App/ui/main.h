@@ -28,7 +28,10 @@ enum center_line_t {
     CENTER_LINE_RSSI,
     CENTER_LINE_AM_FIX_DATA,
     CENTER_LINE_DTMF_DEC,
-    CENTER_LINE_CHARGE_DATA
+    CENTER_LINE_CHARGE_DATA,
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    CENTER_LINE_BEAM
+#endif
 };
 
 enum Vfo_txtr_mode{

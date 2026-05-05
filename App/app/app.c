@@ -24,6 +24,9 @@
 #ifdef ENABLE_AIRCOPY
     #include "app/aircopy.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    #include "app/beam.h"
+#endif
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
@@ -796,6 +799,25 @@ static void CheckRadioInterrupts(void)
             AIRCOPY_StorePacket();
         }
 #endif
+
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        if ((interrupts.fskFifoAlmostFull || interrupts.fskRxFinied) &&
+            gBeamActive &&
+            gBeamMode == BEAM_MODE_RX &&
+            (gBeamStatus == BEAM_STATUS_RX_WAIT || gBeamStatus == BEAM_STATUS_ERROR))
+        {
+            const unsigned int wordsToRead = interrupts.fskRxFinied ? (36 - gFSKWriteIndex) : 4;
+            for (unsigned int i = 0; i < wordsToRead; i++) {
+                const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
+                if (gFSKWriteIndex < 36)
+                    g_FSK_Buffer[gFSKWriteIndex++] = word;
+            }
+
+            gBeamRxWordCount = gFSKWriteIndex;
+            gUpdateDisplay = true;
+            BEAM_StorePacket();
+        }
+#endif
     }
 }
 
@@ -1044,6 +1066,9 @@ void APP_Update(void)
         && gScanStateDir == SCAN_OFF
         && !gPttIsPressed
         && gCurrentFunction != FUNCTION_POWER_SAVE
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        && !gBeamActive
+#endif
 #ifdef ENABLE_VOICE
         && gVoiceWriteIndex == 0
 #endif
@@ -1122,7 +1147,11 @@ void APP_Update(void)
 
             if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF &&
                 gScanStateDir == SCAN_OFF &&
-                !gCssBackgroundScan)
+                !gCssBackgroundScan
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+                && !gBeamActive
+#endif
+            )
             {   // dual watch mode, toggle between the two VFO's
                 DualwatchAlternate();
                 goToSleep = false;
@@ -1133,7 +1162,11 @@ void APP_Update(void)
             gPowerSave_10ms = power_save1_10ms; // come back here in a bit
             gRxIdleMode     = false;            // RX is awake
         }
-        else if (gEeprom.DUAL_WATCH == DUAL_WATCH_OFF || gScanStateDir != SCAN_OFF || gCssBackgroundScan || goToSleep)
+        else if (
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+            !gBeamActive &&
+#endif
+        (gEeprom.DUAL_WATCH == DUAL_WATCH_OFF || gScanStateDir != SCAN_OFF || gCssBackgroundScan || goToSleep))
         {   // dual watch mode off or scanning or rssi update request
             // go back to sleep
 
@@ -1152,7 +1185,11 @@ void APP_Update(void)
             // Authentic device checked removed
 
         }
-        else {
+        else
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        if (!gBeamActive)
+#endif
+        {
             // toggle between the two VFO's
             DualwatchAlternate();
             gPowerSave_10ms   = power_save1_10ms;
@@ -1608,11 +1645,14 @@ void APP_TimeSlice500ms(void)
         gWakeUp = false;
     }
 
+    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx()
     #ifdef ENABLE_AIRCOPY
-    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx() && gScreenToDisplay != DISPLAY_AIRCOPY)
-    #else
-    if(gCurrentFunction != FUNCTION_TRANSMIT && !FUNCTION_IsRx())
+        && gScreenToDisplay != DISPLAY_AIRCOPY
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_BEAM
+        && !gBeamActive
+    #endif
+    )
     {
         if (gSleepModeCountdown_500ms > 0 && --gSleepModeCountdown_500ms == 0) {
             gBacklightCountdown_500ms = 0;
@@ -1698,6 +1738,9 @@ void APP_TimeSlice500ms(void)
 #endif
 #ifdef ENABLE_AIRCOPY
         && gScreenToDisplay != DISPLAY_AIRCOPY
+#endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        && !gBeamActive
 #endif
     ) {
         if (gEeprom.AUTO_KEYPAD_LOCK && gKeyLockCountdown > 0 && !gDTMF_InputMode
@@ -2104,12 +2147,21 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         }
 #endif
     }
-    else if (gScreenToDisplay != DISPLAY_INVALID && (
+    else if (
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+            gBeamActive ||
+#endif
+            (gScreenToDisplay != DISPLAY_INVALID && (
             (Key != KEY_SIDE1 && Key != KEY_SIDE2)
 #ifdef ENABLE_FEAT_F4HWN // For F + SIDE1 or F + SIDE2
             || (gWasFKeyPressed && (Key == KEY_SIDE1 || Key == KEY_SIDE2))
 #endif
-    )) {
+    ))) {
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        if (gBeamActive)
+            BEAM_ProcessKeys(Key, bKeyPressed, bKeyHeld);
+        else
+#endif
         ProcessKeysFunctions[gScreenToDisplay](Key, bKeyPressed, bKeyHeld);
     }
     else if (!SCANNER_IsScanning()

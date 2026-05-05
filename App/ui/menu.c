@@ -488,6 +488,9 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     {"REGA\nALARM",     ACTION_OPT_REGA_ALARM},
     {"REGA\nTEST",      ACTION_OPT_REGA_TEST},
 #endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    {"BEAM",            ACTION_OPT_BEAM},
+#endif
     {"LOCK\nKEYPAD",    ACTION_OPT_KEYLOCK},
     {"VFO A\nVFO B",    ACTION_OPT_A_B},
     {"VFO\nMEM",        ACTION_OPT_VFO_MR},
