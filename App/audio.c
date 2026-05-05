@@ -41,7 +41,6 @@ static const uint16_t BEEP_Classic_array[][3] = { /* Tone    Duration    Repeats
     [BEEP_880HZ_200MS]                            = {880,    200,        1      },
     [BEEP_880HZ_500MS]                            = {880,    500,        1      },
 #endif
-    [BEEP_500HZ_60MS_DOUBLE_BEEP]                 = {500,    60,         2      },
 #ifdef ENABLE_FEAT_F4HWN
     [BEEP_400HZ_30MS]                             = {400,    30,         1      },
     [BEEP_500HZ_30MS]                             = {500,    30,         1      },

@@ -2100,9 +2100,10 @@ void UI_DisplayMain(void)
         else
 #endif
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
-        if (!rx && gScanStateDir != SCAN_OFF && UI_DrawScanProgress())
+        if (!rx && gScanStateDir != SCAN_OFF && gKeypadLocked == 0)
         {
             center_line = CENTER_LINE_SCAN_PROGRESS;
+            UI_DrawScanProgress();
         }
         else
 #endif
