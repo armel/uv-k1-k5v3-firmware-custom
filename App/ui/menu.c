@@ -295,6 +295,9 @@ const char gSubMenu_PONMSG[][8] =
 #endif
     "MESSAGE",
     "VOLTAGE",
+#ifdef ENABLE_FEAT_F4HWN_LOGO
+    "LOGO",
+#endif
     "NONE"
 };
 

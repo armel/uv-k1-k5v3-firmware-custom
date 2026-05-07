@@ -214,6 +214,7 @@ if(ENABLE_FEAT_F4HWN_BEAM AND NOT ENABLE_AIRCOPY)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_BEAM requires ENABLE_AIRCOPY (it reuses g_FSK_Buffer, AIRCOPY_Obfuscate and the FSK packet plumbing).")
 endif()
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
+enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 
 # ---- DEBUGGING ----
 

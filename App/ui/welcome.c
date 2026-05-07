@@ -33,6 +33,19 @@
     #include "screenshot.h"
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_LOGO
+// Boot logo storage in PY25Q16 external flash, aligned on a 4 KB sector,
+// placed past the calibration zone (0x010000-0x010200).
+//
+// Layout inside the sector starting at LOGO_FLASH_ADDR:
+//   [0x00..0x07] : 8-byte header (reserved for future magic/version/flags)
+//   [0x08..0x407]: 128x64 monochrome bitmap (1024 B)
+//                  ST7565-native: 8 pages * 128 columns, column-major LSB-top
+#define LOGO_FLASH_ADDR     0x011000
+#define LOGO_HEADER_SIZE    8
+#define LOGO_BITMAP_ADDR    (LOGO_FLASH_ADDR + LOGO_HEADER_SIZE)
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_QRCODE
 // QR code (version 4, 33x33 modules, EC level L) encoding:
 // https://github.com/armel/uv-k1-k5v3-firmware-custom
@@ -216,10 +229,25 @@ void UI_DisplayWelcome(void)
 #endif
     UI_DisplayClear();
 
+#ifdef ENABLE_FEAT_F4HWN_LOGO
+    if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_LOGO) {
+        // Skip 8-byte header, then read 128x64 bitmap (1024 B):
+        // page 0 -> gStatusLine, pages 1..7 -> gFrameBuffer.
+        PY25Q16_ReadBuffer(LOGO_BITMAP_ADDR, gStatusLine, sizeof(gStatusLine));
+        PY25Q16_ReadBuffer(LOGO_BITMAP_ADDR + sizeof(gStatusLine), gFrameBuffer, sizeof(gFrameBuffer));
+        ST7565_BlitStatusLine();
+        ST7565_BlitFullScreen();
+        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+            SCREENSHOT_Update(true);
+        #endif
+        return;
+    }
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
-    
+
     if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_NONE || gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_SOUND) {
         ST7565_FillScreen(0x00);
     }
