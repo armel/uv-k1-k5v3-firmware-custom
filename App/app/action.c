@@ -40,9 +40,13 @@
 #include "misc.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/main.h"
 #include "ui/ui.h"
 #ifdef ENABLE_REGA
     #include "app/rega.h"
+#endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    #include "app/beam.h"
 #endif
 
 #if defined(ENABLE_FMRADIO)
@@ -131,6 +135,9 @@ void (*action_opt_table[])(void) = {
     [ACTION_OPT_REGA_ALARM] = &ACTION_RegaAlarm,
     [ACTION_OPT_REGA_TEST] = &ACTION_RegaTest,
 #endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    [ACTION_OPT_BEAM] = &ACTION_Beam,
+#endif
 };
 
 static_assert(ARRAY_SIZE(action_opt_table) == ACTION_OPT_LEN);
@@ -212,7 +219,7 @@ void ACTION_Scan(bool bRestart)
     DTMF_clear_RX();
 #endif
     gDTMF_RX_live_timeout = 0;
-    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+    DTMF_clear_input_box_memory();
 
     RADIO_SelectVfos();
 
@@ -237,15 +244,14 @@ void ACTION_Scan(bool bRestart)
 
         // channel mode. Keep scanning but toggle between scan lists
         RADIO_NextValidList(1);
+        UI_MAIN_NotifyScanProgressDataChanged();
 
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
             SETTINGS_WriteCurrentState();
         #endif
 
         // jump to the next channel
-        CHFRSCANNER_Start(false, gScanStateDir);
-        gScanPauseDelayIn_10ms = 1;
-        gScheduleScanListen    = false;
+        CHFRSCANNER_ManualResume(gScanStateDir);
     } else {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
         if(gScanRangeStart == 0) // No ScanRange
@@ -343,22 +349,14 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             break;
     }
 
-    if (!bKeyHeld && bKeyPressed) // button pushed
-    {
+    if (bKeyHeld != bKeyPressed) { // button pushed or released after hold 
+                                   // (!bKeyHeld && bKeyPressed) or (bKeyHeld && !bKeyPressed)
         return;
     }
 
-    // held or released beyond this point
+    // held or released after short press
 
-    if(!(bKeyHeld && !bKeyPressed)) // don't beep on released after hold
-        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-
-    if (bKeyHeld && !bKeyPressed) // button released after hold
-    {
-        return;
-    }
-
-    // held or released after short press beyond this point
+    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
     
 #ifdef ENABLE_FMRADIO
     if (gFmRadioMode) { // do not run these actions in FM radio mode
@@ -382,6 +380,9 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             case ACTION_OPT_POWER_HIGH:
             case ACTION_OPT_REMOVE_OFFSET:
         #endif
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_BEAM
+            case ACTION_OPT_BEAM:
     #endif
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;

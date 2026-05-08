@@ -114,6 +114,7 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * add SetOff menu to set the delay before the transceiver goes into deep sleep (Off or 1 minute to 2 hours),
     * add SetNFM menu to set Narrow width (12.5kHz or 6.25kHz),
     * add SetVol menu to adjust RX audio volume,
+    * add SetScn menu to set Scan mode
     * rename BatVol menu (52/63) to SysInf, which displays the firmware version in addition to the battery status,
     * improve PonMsg menu,
     * improve BackLt menu,
@@ -138,6 +139,8 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * `ALL` scans every channel except those set to `OFF`,
     * named scan lists are shown in the UI and status bar when available,
     * if the selected scan list is empty or invalid, the firmware automatically jumps to the next valid one,
+    * very fast scan mode (around 150 freq/s),
+    * frequencies exclusions,
 * add resume mode on startup (scan, spectrum analyzer and FM radio),
 * improve VFO persistence and restore behavior:
     * save the Squelch level adjusted with F + UP or F + DOWN,
@@ -151,6 +154,7 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
     * MUTE,
     * POWER HIGH,
     * REMOVE OFFSET,
+    * BEAM,
 * new key combinations:
     * add the F + UP or F + DOWN key combination to dynamically change the Squelch level,
     * add the F + F1 or F + F2 key combination to dynamically change the Step,

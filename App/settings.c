@@ -454,8 +454,12 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         // 1FF0..0x1FF7
         // TODO: address TBD
         PY25Q16_ReadBuffer(0x00A158, Data, 8);
+        const uint8_t set_ptt_scn = Data[7] & 0x0F;
         gSetting_set_pwr = (((Data[7] & 0xF0) >> 4) < 7) ? ((Data[7] & 0xF0) >> 4) : 0;
-        gSetting_set_ptt = (((Data[7] & 0x0F)) < 2) ? ((Data[7] & 0x0F)) : 0;
+        gSetting_set_ptt = (set_ptt_scn < 4) ? (set_ptt_scn & 0x01) : 0;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        gSetting_set_scn = (set_ptt_scn < 4) ? ((set_ptt_scn & 0x02) == 0) : 1;
+#endif
 
         gSetting_set_tot = (((Data[6] & 0xF0) >> 4) < 4) ? ((Data[6] & 0xF0) >> 4) : 0;
         gSetting_set_eot = (((Data[6] & 0x0F)) < 4) ? ((Data[6] & 0x0F)) : 0;
@@ -494,10 +498,6 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
         gSetting_set_off = (Data[4] >> 1) > 120 ? 60 : (Data[4] >> 1); 
 #endif
-
-        // Warning
-        // Be aware, Data[3] is use by Spectrum
-        // Warning
 
         // And set special session settings for actions
         gSetting_set_ptt_session = gSetting_set_ptt;
@@ -581,6 +581,124 @@ uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel)
     PY25Q16_ReadBuffer(channel * 16, &info, sizeof(info));
 
     return info.frequency;
+}
+
+bool SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation)
+{
+    struct
+    {
+        uint32_t frequency;
+        uint32_t offset;
+        uint8_t  settings[4];
+    } __attribute__((packed)) info;
+
+    PY25Q16_ReadBuffer(channel * 16, &info, sizeof(info));
+
+    if (frequency)
+        *frequency = info.frequency;
+
+    if (modulation)
+    {
+        uint8_t mode = info.settings[3] >> 4;
+        if (mode >= MODULATION_UKNOWN)
+            mode = MODULATION_FM;
+        *modulation = (ModulationMode_t)mode;
+    }
+
+    return info.frequency != 0 && info.frequency != 0xFFFFFFFF;
+}
+
+bool SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDisplayInfo_t *info)
+{
+    if (info == NULL)
+        return false;
+
+    struct
+    {
+        uint32_t frequency;
+        uint32_t offset;
+        uint8_t  data[8];
+    } __attribute__((packed)) raw;
+
+    PY25Q16_ReadBuffer(channel * 16, &raw, sizeof(raw));
+
+    if (raw.frequency == 0 || raw.frequency == 0xFFFFFFFF)
+        return false;
+
+    memset(info, 0, sizeof(*info));
+
+    info->rx.Frequency = raw.frequency;
+    info->tx.Frequency = raw.frequency;
+    info->offset       = (raw.offset >= _1GHz_in_KHz) ? (_1GHz_in_KHz / 100) : raw.offset;
+
+    info->rx.CodeType = (raw.data[2] >> 0) & 0x0F;
+    info->tx.CodeType = (raw.data[2] >> 4) & 0x0F;
+    RADIO_ValidateAndSetCode(&info->rx, raw.data[0]);
+    RADIO_ValidateAndSetCode(&info->tx, raw.data[1]);
+
+    uint8_t tmp = raw.data[3] & 0x0F;
+    if (tmp > TX_OFFSET_FREQUENCY_DIRECTION_SUB)
+        tmp = TX_OFFSET_FREQUENCY_DIRECTION_OFF;
+    info->txOffsetFrequencyDirection = tmp;
+
+    tmp = raw.data[3] >> 4;
+    if (tmp >= MODULATION_UKNOWN)
+        tmp = MODULATION_FM;
+    info->modulation = (ModulationMode_t)tmp;
+
+    tmp = raw.data[6];
+    if (tmp >= STEP_N_ELEM)
+        tmp = STEP_12_5kHz;
+    info->stepSetting   = (STEP_Setting_t)tmp;
+    info->stepFrequency = gStepFrequencyTable[tmp];
+
+    if (raw.data[4] == 0xFF)
+    {
+        info->frequencyReverse = false;
+        info->channelBandwidth = BANDWIDTH_WIDE;
+        info->outputPower      = OUTPUT_POWER_LOW1;
+        info->busyChannelLock  = false;
+        info->txLock           = true;
+    }
+    else
+    {
+        const uint8_t d4 = raw.data[4];
+        info->frequencyReverse = !!((d4 >> 0) & 1u);
+        info->channelBandwidth = !!((d4 >> 1) & 1u);
+        info->outputPower      =   ((d4 >> 2) & 7u);
+        info->busyChannelLock  = !!((d4 >> 5) & 1u);
+        info->txLock           = !!((d4 >> 6) & 1u);
+    }
+
+    switch (info->txOffsetFrequencyDirection)
+    {
+        case TX_OFFSET_FREQUENCY_DIRECTION_ADD:
+            info->tx.Frequency = raw.frequency + info->offset;
+            break;
+        case TX_OFFSET_FREQUENCY_DIRECTION_SUB:
+            info->tx.Frequency = raw.frequency - info->offset;
+            break;
+        default:
+            break;
+    }
+
+    if (raw.data[5] == 0xFF)
+    {
+#ifdef ENABLE_DTMF_CALLING
+        info->dtmfDecodingEnable = false;
+#endif
+        info->dtmfPttIdTxMode = PTT_ID_OFF;
+    }
+    else
+    {
+#ifdef ENABLE_DTMF_CALLING
+        info->dtmfDecodingEnable = (raw.data[5] >> 0) & 1u;
+#endif
+        const uint8_t pttId = (raw.data[5] >> 1) & 7u;
+        info->dtmfPttIdTxMode = pttId < ARRAY_SIZE(gSubMenu_PTT_ID) ? pttId : PTT_ID_OFF;
+    }
+
+    return true;
 }
 
 void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
@@ -1013,7 +1131,13 @@ void SETTINGS_SaveSettings(void)
 
     State[5] = ((tmp << 4) | (gSetting_set_ctr & 0x0F));
     State[6] = ((gSetting_set_tot << 4) | (gSetting_set_eot & 0x0F));
-    State[7] = ((gSetting_set_pwr << 4) | (gSetting_set_ptt & 0x0F));
+    uint8_t set_ptt_scn = gSetting_set_ptt & 0x01;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    if (!gSetting_set_scn)
+        set_ptt_scn |= 0x02;
+#endif
+
+    State[7] = ((gSetting_set_pwr << 4) | set_ptt_scn);
 
     gEeprom.KEY_LOCK_PTT = gSetting_set_lck;
 

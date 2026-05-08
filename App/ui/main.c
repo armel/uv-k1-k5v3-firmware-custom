@@ -19,6 +19,11 @@
 
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
+
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    #include "app/beam.h"
+#endif
+
 #ifdef ENABLE_AM_FIX
     #include "am_fix.h"
 #endif
@@ -84,6 +89,46 @@ static uint8_t  gScanProgressPriorityState;
 #define SCAN_PROGRESS_PRIORITY_HOLD_FRAMES 6
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+static void UI_MAIN_DrawBeamLine(void)
+{
+    const char *text;
+#ifdef ENABLE_FEAT_F4HWN
+    const unsigned int line = isMainOnly() ? 5 : 3;
+#else
+    const unsigned int line = 3;
+#endif
+
+    switch (gBeamStatus) {
+    case BEAM_STATUS_TX_WAIT:
+        text = "SENDING";
+        break;
+    case BEAM_STATUS_TX_DONE:
+        text = "SENT";
+        break;
+    case BEAM_STATUS_RX_WAIT:
+        text = "WAITING";
+        break;
+    case BEAM_STATUS_RX_SAVED:
+        text = "RECEIVED";
+        break;
+    case BEAM_STATUS_RX_FULL:
+        text = "MEM FULL";
+        break;
+    case BEAM_STATUS_ERROR:
+        text = "ERROR";
+        break;
+    case BEAM_STATUS_READY:
+    default:
+        text = (gBeamMode == BEAM_MODE_TX) ? "BEAM TX" : "BEAM RX";
+        break;
+    }
+
+    memset(gFrameBuffer[line], 0, LCD_WIDTH);
+    UI_PrintStringSmallBold(text, 2, 127, line);
+}
+#endif
+
 const char *VfoStateStr[] = {
        [VFO_STATE_NORMAL]="",
        [VFO_STATE_BUSY]="BUSY",
@@ -108,6 +153,7 @@ static void ScanProgress_ResetSession(void)
 void UI_MAIN_NotifyScanProgressDataChanged(void)
 {
     gScanProgressForceRebuild = true;
+    gUpdateStatus = true;
 }
 
 static inline void ScanProgress_SetBit(uint8_t *map, uint16_t ch)
@@ -221,7 +267,7 @@ static bool ScanProgress_BucketHasExcludedOrdinal(uint32_t first_ordinal, uint32
     return false;
 }
 
-static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode, uint8_t extra_left_offset)
+static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uint32_t total, uint8_t width, bool memory_mode, bool range_mode, uint8_t extra_left_offset)
 {
     const bool forward = ScanProgress_IsForward();
 
@@ -260,6 +306,10 @@ static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uin
 
         if (memory_mode)
             excluded = ScanProgress_BucketHasExcludedOrdinal(first_ordinal, last_ordinal);
+#ifdef ENABLE_SCAN_RANGES
+        else if (range_mode)
+            excluded = CHFRSCANNER_HasScanRangeExcludedOrdinal(first_ordinal, last_ordinal);
+#endif
 
         if (processed && !excluded) {
             pixel = 0x2d;
@@ -502,7 +552,7 @@ static bool UI_DrawScanProgress(void)
     UI_PrintStringSmallNormal(text, 2, 0, line);
 #endif
 
-    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory, extra_offset);
+    ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory, show_range, extra_offset);
 
     return true;
 }
@@ -920,6 +970,7 @@ void DisplayRSSIBar(const bool now)
         overS9dBm  = (uint8_t)MIN(rssi_dBm - (-93), 40);
         overS9Bars = overS9dBm / 10;
     }
+    const int16_t display_rssi_dBm = (rssi_dBm > -53) ? -53 : rssi_dBm;
 #else
     const int16_t s0_dBm   = -gEeprom.S0_LEVEL;                  // S0 .. base level
     const int16_t rssi_dBm =
@@ -938,12 +989,12 @@ void DisplayRSSIBar(const bool now)
 #ifdef ENABLE_FEAT_F4HWN
     if (gSetting_set_gui)
     {
-        sprintf(str, "%3d", rssi_dBm);
+        sprintf(str, "%3d", display_rssi_dBm);
         UI_PrintStringSmallNormal(str, LCD_WIDTH + 8, 0, line - 1);
     }
     else
     {
-        sprintf(str, "% 4d %s", rssi_dBm, "dBm");
+        sprintf(str, "% 4d %s", display_rssi_dBm, "dBm");
         if(isMainOnly())
             GUI_DisplaySmallest(str, 2, 41, false, true);
         else
@@ -1198,7 +1249,7 @@ void UI_DisplayMain(void)
                         shift = 3;
                     }
 
-                    UI_PrintString("ScnRng", 5, 0, line + shift, 8);
+                    UI_PrintString("ScnRng", 7, 0, line + shift, 8);
                     UI_FormatFrequency(gScanRangeStart, String);
                     UI_PrintStringSmallNormal(String, 56, 0, line + shift);
                     UI_FormatFrequency(gScanRangeStop, String);
@@ -1212,7 +1263,7 @@ void UI_DisplayMain(void)
                     gScanRangeStart = 0;
                 }
 #else
-                UI_PrintString("ScnRng", 5, 0, line, 8);
+                UI_PrintString("ScnRng", 7, 0, line, 8);
                 UI_FormatFrequency(gScanRangeStart, String);
                 UI_PrintStringSmallNormal(String, 56, 0, line);
                 UI_FormatFrequency(gScanRangeStop, String);
@@ -1297,14 +1348,6 @@ void UI_DisplayMain(void)
 
         uint32_t frequency = gEeprom.VfoInfo[vfo_num].pRX->Frequency;
 
-        if(TX_freq_check(frequency) != 0 && gEeprom.VfoInfo[vfo_num].TX_LOCK == true && !FUNCTION_IsRx())
-        {
-            if(isMainOnly())
-                memcpy(p_line0 + 25, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
-            else
-                memcpy(p_line0 + 25, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
-        }
-
         if (gCurrentFunction == FUNCTION_TRANSMIT)
         {   // transmitting
 
@@ -1386,6 +1429,12 @@ void UI_DisplayMain(void)
                     RxBlinkLed = 2;
             }
 #endif
+        }
+
+        if(TX_freq_check(frequency) != 0 && gEeprom.VfoInfo[vfo_num].TX_LOCK == true)
+        {
+            if (!FUNCTION_IsRx() || RxOnVfofrequency != frequency)
+                memcpy(p_line0 + 25, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
         }
 
         if (IS_MR_CHANNEL(gEeprom.ScreenChannel[vfo_num]))
@@ -1747,6 +1796,11 @@ void UI_DisplayMain(void)
 
         String[0] = '\0';
         const VFO_Info_t *vfoInfo = &gEeprom.VfoInfo[vfo_num];
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+        const VFO_Info_t *scanDisplayVfo = CHFRSCANNER_GetScanDisplayVfo();
+        if (vfo_num == gEeprom.RX_VFO && scanDisplayVfo != NULL)
+            vfoInfo = scanDisplayVfo;
+#endif
 
         // show the modulation symbol
         const char * s = "";
@@ -1936,10 +1990,12 @@ void UI_DisplayMain(void)
 #endif
 
 #if ENABLE_FEAT_F4HWN
+        const uint8_t displayBandwidth = vfoInfo->CHANNEL_BANDWIDTH;
+
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
             bool narrower = 0;
 
-            if(vfoInfo->CHANNEL_BANDWIDTH == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
+            if(displayBandwidth == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
             {
                 narrower = 1;
             }
@@ -1947,23 +2003,23 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N", "N+"};
-                UI_PrintStringSmallNormal(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH + narrower], LCD_WIDTH + 80, 0, line + 1);
+                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth + narrower], LCD_WIDTH + 80, 0, line + 1);
             }
             else
             {
                 const char *bandWidthNames[] = {"WIDE", "NAR", "NAR+"};
-                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH + narrower], 91, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(bandWidthNames[displayBandwidth + narrower], 91, line == 0 ? 17 : 49, false, true);
             }
         #else
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N"};
-                UI_PrintStringSmallNormal(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH], LCD_WIDTH + 80, 0, line + 1);
+                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth], LCD_WIDTH + 80, 0, line + 1);
             }
             else
             {
                 const char *bandWidthNames[] = {"WIDE", "NAR"};
-                GUI_DisplaySmallest(bandWidthNames[vfoInfo->CHANNEL_BANDWIDTH], 91, line == 0 ? 17 : 49, false, true);
+                GUI_DisplaySmallest(bandWidthNames[displayBandwidth], 91, line == 0 ? 17 : 49, false, true);
             }
         #endif
 #else
@@ -2036,10 +2092,18 @@ void UI_DisplayMain(void)
 
         const bool rx = FUNCTION_IsRx();
 
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+        if (gBeamActive) {
+            center_line = CENTER_LINE_BEAM;
+            UI_MAIN_DrawBeamLine();
+        }
+        else
+#endif
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
-        if (gScanStateDir != SCAN_OFF && UI_DrawScanProgress())
+        if (!rx && gScanStateDir != SCAN_OFF && gKeypadLocked == 0)
         {
             center_line = CENTER_LINE_SCAN_PROGRESS;
+            UI_DrawScanProgress();
         }
         else
 #endif

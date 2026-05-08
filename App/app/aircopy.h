@@ -106,5 +106,9 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 const AIRCOPY_TransferMap_t* AIRCOPY_GetCurrentMap(void);
 
+// XOR-obfuscate `count` words of g_FSK_Buffer starting at index 1.
+// Self-inverse: applying twice restores the original buffer.
+void AIRCOPY_Obfuscate(unsigned int count);
+
 #endif // ENABLE_AIRCOPY
 #endif // APP_AIRCOPY_H

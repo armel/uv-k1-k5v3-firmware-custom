@@ -90,12 +90,14 @@ DECLARE_AIRCOPY_BANK(1)
 static const AIRCOPY_Segment_t AIRCOPY_Segments_Settings[] = {
     { 0xA000, 0xA170, AIRCOPY_WRITE_BYTES },
     { 0x880E, 0x886E, AIRCOPY_WRITE_BYTES },
+    { 0x9000, 0x90D6, AIRCOPY_WRITE_BYTES }, // VFO area (so scan-range source frequencies are replicated)
 };
 
+// total_blocks = ceil(0x170/64) + ceil(0x60/64) + ceil(0xD6/64) = 6 + 2 + 4 = 12
 static const AIRCOPY_TransferMap_t AIRCOPY_Map_Settings = {
     .segments = AIRCOPY_Segments_Settings,
-    .num_segments = 2,
-    .total_blocks = 8
+    .num_segments = 3,
+    .total_blocks = 12
 };
 
 // Finally
@@ -158,8 +160,10 @@ static inline const AIRCOPY_Segment_t *AIRCOPY_FindSegmentForOffset(uint16_t off
     return NULL;
 }
 
-static inline void AIRCOPY_CheckComplete(void)
+static inline void AIRCOPY_CheckComplete(uint16_t *num)
 {
+    *num = *num + 1;
+
     const AIRCOPY_TransferMap_t *map = AIRCOPY_GetCurrentMap();
     uint16_t done = gAirCopyBlockNumber + gErrorsDuringAirCopy;
 
@@ -172,9 +176,9 @@ static inline void AIRCOPY_CheckComplete(void)
     }
 }
 
-static inline void AIRCOPY_Obfuscation(void)
+void AIRCOPY_Obfuscate(unsigned int count)
 {
-    for (unsigned int i = 0; i < 34; i++) {
+    for (unsigned int i = 0; i < count; i++) {
         g_FSK_Buffer[i + 1] ^= Obfuscation[i % 8];
     }
 }
@@ -230,7 +234,7 @@ bool AIRCOPY_SendMessage(void)
 
     g_FSK_Buffer[34] = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
 
-    AIRCOPY_Obfuscation();
+    AIRCOPY_Obfuscate(34);
 
     RADIO_SetTxParameters();
 
@@ -257,21 +261,18 @@ void AIRCOPY_StorePacket(void)
     BK4819_PrepareFSKReceive();
 
     if ((Status & 0x0010U) != 0 || g_FSK_Buffer[0] != 0xABCD || g_FSK_Buffer[35] != 0xDCBA) {
-        gErrorsDuringAirCopy++;
-
         BK4819_ResetFSK();           // <- important
         BK4819_PrepareFSKReceive();  // <- re-arm proprement
 
-        AIRCOPY_CheckComplete();
+        AIRCOPY_CheckComplete(&gErrorsDuringAirCopy);
         return;
     }
 
-    AIRCOPY_Obfuscation();
+    AIRCOPY_Obfuscate(34);
 
     uint16_t Crc = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
     if (g_FSK_Buffer[34] != Crc) {
-        gErrorsDuringAirCopy++;
-        AIRCOPY_CheckComplete();
+        AIRCOPY_CheckComplete(&gErrorsDuringAirCopy);
         return;
     }
 
@@ -280,36 +281,18 @@ void AIRCOPY_StorePacket(void)
     const AIRCOPY_Segment_t *seg = AIRCOPY_FindSegmentForOffset(Offset);
     
     if (seg == NULL) {
-        gErrorsDuringAirCopy++;
-        AIRCOPY_CheckComplete();
+        AIRCOPY_CheckComplete(&gErrorsDuringAirCopy);
         return;
     }
 
-    if (seg->write_mode == AIRCOPY_WRITE_BYTES)
-    {
-        /* Raw bytes stream, written in 8-byte EEPROM chunks */
-        const uint8_t *p8 = (const uint8_t *)&g_FSK_Buffer[2];
+    const uint8_t *pData = (const uint8_t *)&g_FSK_Buffer[2];
 
-        for (unsigned int i = 0; i < 8; i++)
-        {
-            EEPROM_WriteBuffer(Offset + (i * 8), p8 + (i * 8));
-        }
-    }
-    else
+    for (unsigned int i = 0; i < 8; i++)
     {
-        /* Structured data path (kept as-is) */
-        const uint16_t *pData = &g_FSK_Buffer[2];
-
-        for (unsigned int i = 0; i < 8; i++)
-        {
-            EEPROM_WriteBuffer(Offset, pData);
-            pData += 4;
-            Offset += 8;
-        }
+        EEPROM_WriteBuffer(Offset + (i * 8), pData + (i * 8));
     }
 
-    gAirCopyBlockNumber++;
-    AIRCOPY_CheckComplete();
+    AIRCOPY_CheckComplete(&gAirCopyBlockNumber);
 }
 
 static void AIRCOPY_InitTransfer(bool isSendMode)

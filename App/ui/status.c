@@ -59,7 +59,7 @@ void UI_DisplayStatus()
     char str[8] = "";
 
     gUpdateStatus = false;
-    memset(gStatusLine, 0, sizeof(gStatusLine));
+    UI_StatusClear();
 
     uint8_t     *line = gStatusLine;
     unsigned int x    = 0;

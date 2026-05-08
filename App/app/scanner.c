@@ -243,16 +243,13 @@ static void SCANNER_Key_STAR(bool bKeyPressed, bool bKeyHeld)
     return;
 }
 
-static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool pKeyHeld, int8_t Direction)
+static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 {
-    if (pKeyHeld) {
-        if (!bKeyPressed)
-            return;
+    if (!bKeyPressed) {
+        return;
     }
-    else {
-        if (!bKeyPressed)
-            return;
 
+    if (!bKeyHeld) {
         gInputBoxIndex = 0;
         gBeepToPlay    = BEEP_1KHZ_60MS_OPTIONAL;
     }
@@ -266,7 +263,7 @@ static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool pKeyHeld, int8_t Directio
         gShowChPrefix         = RADIO_CheckValidChannel(gScanChannel, false, 0);
         gRequestDisplayScreen = DISPLAY_SCANNER;
     }
-    else
+    else if (!bKeyHeld)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
 }
 

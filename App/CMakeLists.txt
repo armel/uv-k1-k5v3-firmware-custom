@@ -123,7 +123,7 @@ enable_feature(ENABLE_FMRADIO
     ui/fmradio.c
 )
 enable_feature(ENABLE_AIRCOPY
-    app/aircopy.c 
+    app/aircopy.c
     ui/aircopy.c
 )
 enable_feature(ENABLE_NOAA)
@@ -196,6 +196,7 @@ enable_feature(ENABLE_FEAT_F4HWN_NARROWER)
 enable_feature(ENABLE_FEAT_F4HWN_INV)
 enable_feature(ENABLE_FEAT_F4HWN_CTR)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_PROGRESS)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_FASTER)
 enable_feature(ENABLE_FEAT_F4HWN_RESCUE_OPS)
 enable_feature(ENABLE_FEAT_F4HWN_VOL)
 enable_feature(ENABLE_FEAT_F4HWN_AUDIO)
@@ -205,7 +206,15 @@ enable_feature(ENABLE_FEAT_F4HWN_GMRS_FRS_MURS)
 enable_feature(ENABLE_FEAT_F4HWN_CA)
 enable_feature(ENABLE_FEAT_F4HWN_DEBUG)
 enable_feature(ENABLE_FEAT_F4HWN_MEM)
+enable_feature(ENABLE_FEAT_F4HWN_BEAM
+    app/beam.c
+)
+
+if(ENABLE_FEAT_F4HWN_BEAM AND NOT ENABLE_AIRCOPY)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_BEAM requires ENABLE_AIRCOPY (it reuses g_FSK_Buffer, AIRCOPY_Obfuscate and the FSK packet plumbing).")
+endif()
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
+enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 
 # ---- DEBUGGING ----
 
