@@ -1248,8 +1248,9 @@ void RADIO_PrepareTX(void)
     }
 #endif
 #ifndef ENABLE_TX_WHEN_AM
-    else if (gCurrentVfo->Modulation != MODULATION_FM) {
-        // not allowed to TX if in AM mode
+    else if (gCurrentVfo->Modulation != MODULATION_FM
+             && gCurrentVfo->Modulation != MODULATION_AM
+             && gCurrentVfo->Modulation != MODULATION_USB) {
         State = VFO_STATE_TX_DISABLE;
     }
 #endif
@@ -1343,6 +1344,21 @@ void RADIO_SendCssTail(void)
 
 void RADIO_SendEndOfTransmission(void)
 {
+    if (gCurrentVfo != NULL &&
+        (gCurrentVfo->Modulation == MODULATION_AM || gCurrentVfo->Modulation == MODULATION_USB))
+    {
+        BK4819_SetAF(BK4819_AF_FM);
+        uint16_t reg73 = BK4819_ReadRegister(0x73);
+        BK4819_WriteRegister(0x73, reg73 & ~(1u << 4));
+        uint16_t reg2b = BK4819_ReadRegister(BK4819_REG_2B);
+        BK4819_WriteRegister(BK4819_REG_2B, reg2b & ~((1u << 0) | (1u << 1) | (1u << 2)));
+        BK4819_WriteRegister(0x7D, 0xE940 | (gEeprom.MIC_SENSITIVITY_TUNING & 0x1f));
+        uint16_t reg4b = BK4819_ReadRegister(0x4B);
+        BK4819_WriteRegister(0x4B, reg4b & ~(1u << 5));
+        RADIO_SetupRegisters(false);
+        return;
+    }
+
     BK4819_PlayRoger();
     DTMF_SendEndOfTransmission();
 
