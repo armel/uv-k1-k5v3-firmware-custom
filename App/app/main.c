@@ -486,6 +486,14 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             */
 
             INPUTBOX_Append(Key);
+            gKeyInputCountdown = key_input_timeout_500ms;
+
+            /* Check if the user is trying to enter a list number between 30 and 99 */
+            if (gInputBox[0] >= (MR_CHANNELS_LIST / 10 + 1)) {
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                gInputBoxIndex = 0;
+                return;
+            }
 
             /* Wait until exactly two digits are entered */
             if (gInputBoxIndex < 2)
@@ -493,6 +501,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
             /* Two digits entered */
             gInputBoxIndex = 0;
+            gKeyInputCountdown = 1;
 
             uint8_t value = (gInputBox[0] * 10) + gInputBox[1];
 
@@ -507,10 +516,17 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
 
-            /* 01 .. MR_CHANNELS_LIST */
-            if (value <= MR_CHANNELS_LIST)
+            gEeprom.SCAN_LIST_DEFAULT = value;
+
+            /* 25 = ALL scan lists + error beep */
+            if (value == MR_CHANNELS_LIST + 1)
             {
-                gEeprom.SCAN_LIST_DEFAULT = value;
+                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+                SETTINGS_WriteCurrentState();
+            #endif
+                return;
+            }
 
                 if (!RADIO_CheckValidList(value))
                 {
@@ -524,7 +540,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
             #endif
-            }
 
             return;
         }
@@ -725,6 +740,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         }
         else {
             gScanKeepResult = false;
+            gKeyInputCountdown = 1;
             gInputBoxIndex = 0;
             CHFRSCANNER_Stop();
 
