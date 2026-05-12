@@ -90,7 +90,6 @@ static bool flagSaveChannel;
 
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
 static bool gScreenSaverDisplayed;
-static uint8_t gScreenSaverMode;
 static uint8_t gScreenSaverTick;
 static uint16_t gMatrixRandom = 0xACE1;
 static uint8_t gMatrixHeads[32];
@@ -242,7 +241,6 @@ static void ScreenSaverTryDisplay(void)
         ScreenSaverRenderMatrix(true);
 
     gScreenSaverDisplayed = true;
-    gScreenSaverMode = gSetting_set_sav;
     gScreenSaverTick = 0;
     gUpdateDisplay = false;
     gUpdateStatus = false;
@@ -1579,25 +1577,29 @@ void APP_TimeSlice10ms(void)
     bool gUpdateDisplayCurrent = gUpdateDisplay;
     bool gUpdateStatusCurrent  = gUpdateStatus;
 
-#ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
-    if (gScreenSaverDisplayed && gUpdateDisplayCurrent) {
-        gUpdateDisplayCurrent = false;
+    if (gUpdateDisplayCurrent) {
         gUpdateDisplay = false;
-    } else if (gScreenSaverDisplayed && gUpdateStatusCurrent) {
-        gUpdateStatusCurrent = false;
-        gUpdateStatus = false;
     }
 
-    if (gScreenSaverDisplayed && gScreenSaverMode == SET_SAV_MATRIX && !gUpdateDisplayCurrent) {
-        if (++gScreenSaverTick >= 8u) {
-            gScreenSaverTick = 0;
-            ScreenSaverRenderMatrix(false);
+#ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+    if (gScreenSaverDisplayed) {
+        if (gUpdateDisplayCurrent) {
+            gUpdateDisplayCurrent = false;
+        } else if (gUpdateStatusCurrent) {
+            gUpdateStatusCurrent = false;
+            gUpdateStatus = false;
+        }
+
+        if (gSetting_set_sav == SET_SAV_MATRIX) {
+            if (++gScreenSaverTick >= 8u) {
+                gScreenSaverTick = 0;
+                ScreenSaverRenderMatrix(false);
+            }
         }
     }
 #endif
 
     if (gUpdateDisplayCurrent) {
-        gUpdateDisplay = false;
         GUI_DisplayScreen();
     }
 

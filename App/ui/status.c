@@ -55,9 +55,8 @@ static void convertTime(uint8_t *line, uint8_t type)
 
 void UI_DisplayStatus()
 {
-    char str[8] = "";
-
     gUpdateStatus = false;
+
     if (APP_IsScreenSaverDisplayed())
         return;
 
@@ -65,6 +64,8 @@ void UI_DisplayStatus()
 
     uint8_t     *line = gStatusLine;
     unsigned int x    = 0;
+
+    char str[8] = "";
 
 #ifdef ENABLE_NOAA
     // NOAA indicator
