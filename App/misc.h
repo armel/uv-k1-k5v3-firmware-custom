@@ -185,6 +185,7 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
         enum SET_SAV_t {
             SET_SAV_OFF,
             SET_SAV_LOGO,
+            SET_SAV_LOGO_PLUS,
             SET_SAV_MATRIX,
             SET_SAV_LEN
         };

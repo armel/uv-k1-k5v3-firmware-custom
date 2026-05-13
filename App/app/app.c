@@ -210,6 +210,29 @@ static void ScreenSaverRenderMatrix(bool reset)
     ST7565_BlitFullScreen();
 }
 
+static void ScreenSaverScrollLogoLine(uint8_t *line)
+{
+    const uint8_t first = line[0];
+
+    memmove(line, line + 1, LCD_WIDTH - 1);
+    line[LCD_WIDTH - 1] = first;
+}
+
+static void ScreenSaverRenderLogoPlus(bool reset)
+{
+    if (reset) {
+        UI_DisplayLogo();
+        return;
+    }
+
+    ScreenSaverScrollLogoLine(gStatusLine);
+    for (uint8_t line = 0; line < FRAME_LINES; line++)
+        ScreenSaverScrollLogoLine(gFrameBuffer[line]);
+
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
+
 static bool ScreenSaverCanDisplay(void)
 {
     if (gSetting_set_sav == SET_SAV_OFF ||
@@ -241,6 +264,8 @@ static void ScreenSaverTryDisplay(void)
 
     if (gSetting_set_sav == SET_SAV_LOGO)
         UI_DisplayLogo();
+    else if (gSetting_set_sav == SET_SAV_LOGO_PLUS)
+        ScreenSaverRenderLogoPlus(true);
     else if (gSetting_set_sav == SET_SAV_MATRIX)
         ScreenSaverRenderMatrix(true);
 
@@ -1598,6 +1623,11 @@ void APP_TimeSlice10ms(void)
             if (++gScreenSaverTick >= 8u) {
                 gScreenSaverTick = 0;
                 ScreenSaverRenderMatrix(false);
+            }
+        } else if (gSetting_set_sav == SET_SAV_LOGO_PLUS) {
+            if (++gScreenSaverTick >= 16u) {
+                gScreenSaverTick = 0;
+                ScreenSaverRenderLogoPlus(false);
             }
         }
     }
