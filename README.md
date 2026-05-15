@@ -20,6 +20,8 @@ GOGUFW focuses on adding a lightweight off-grid FSK messaging system while prese
 
 ---
 
+FOR MESSENGER PRESS F + MENU
+
 # Features
 
 ## Messenger System
