@@ -86,19 +86,19 @@ GOGUFW focuses on adding a lightweight off-grid FSK messaging system while prese
 
 ## Messenger Home
 
-![Messenger Home](uv-k5-screenshot (17).png)
+![Messenger Home](uv-k5-screenshot17.png)
 
 ## Compose Screen
 
-![Compose](uv-k5-screenshot (19).png)
+![Compose](uv-k5-screenshot19.png)
 
 ## Inbox
 
-![Inbox](uv-k5-screenshot (18).png)
+![Inbox](uv-k5-screenshot18.png)
 
 ## Sent
 
-![Inbox](uv-k5-screenshot (20).png)
+![Inbox](uv-k5-screenshot20.png)
 
 ---
 
