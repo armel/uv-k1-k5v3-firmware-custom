@@ -65,10 +65,7 @@ GOGUFW focuses on adding a lightweight off-grid FSK messaging system while prese
 
 - Compact metadata header
 - Hop display support
-- Delivery state indicators:
-  - ?
-  - +
-  - x
+- Delivery state indicators
 - Resend support
 - Delete support
 - Reply support
