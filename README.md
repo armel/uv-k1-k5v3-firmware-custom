@@ -1,3 +1,13 @@
+# Stats
+
+![GitHub stars](https://img.shields.io/github/stars/Gogu-Qs/GOGUFW-UV-K1-Messenger?style=for-the-badge)
+![GitHub forks](https://img.shields.io/github/forks/Gogu-Qs/GOGUFW-UV-K1-Messenger?style=for-the-badge)
+![GitHub release](https://img.shields.io/github/v/release/Gogu-Qs/GOGUFW-UV-K1-Messenger?style=for-the-badge)
+![GitHub downloads](https://img.shields.io/github/downloads/Gogu-Qs/GOGUFW-UV-K1-Messenger/total?style=for-the-badge)
+![License](https://img.shields.io/github/license/Gogu-Qs/GOGUFW-UV-K1-Messenger?style=for-the-badge)
+
+---
+
 # GOGUFW - UV-K1 Messenger Firmware
 
 Custom experimental messenger firmware for the Quansheng UV-K1 / K5V3 platform.
