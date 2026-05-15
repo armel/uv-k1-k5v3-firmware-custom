@@ -168,8 +168,11 @@ Use at your own risk.
 
 ## License
 
-Copyright 2023 Dual Tachyon
-https://github.com/DualTachyon
+Copyright (c) 2023 DualTachyon
+Copyright (c) 2024-2025 EGZUMER / F4HWN contributors
+
+Additional modifications and Messenger system:
+Copyright (c) 2026 GOGUFW / Gogu-Qs
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
