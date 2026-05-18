@@ -1,13 +1,14 @@
 #include <string.h>
 #include "app/messenger_store.h"
 #include "app/messenger_packet.h"
-#include "driver/eeprom.h"
+#include "driver/py25q16.h"
 #include "audio.h"
 #include "misc.h"
 
 #define MSG_CFG_MAGIC 0x47u
 #define MSG_CFG_VERSION 4u
-#define MSG_CFG_EEPROM_ADDR 0x1E80u
+#define MSG_CFG_FLASH_ADDR 0x012000u
+#define MSG_CFG_FLASH_SIZE 0x1000u
 
 MSG_Config_t gMessengerConfig;
 MSG_Message_t gMessengerInbox[MSG_INBOX_CAPACITY];
@@ -37,31 +38,18 @@ static void MSG_STORE_DefaultConfig(void)
     strncpy(gMessengerConfig.drafts[7], "BATTERY LOW", MSG_TEXT_LEN);
 }
 
-static void eeprom_read_struct(uint16_t addr, void *dst, uint16_t size)
+static void flash_read_struct(uint32_t addr, void *dst, uint16_t size)
 {
-    uint8_t *p = (uint8_t *)dst;
-    while (size) {
-        uint8_t n = size > 8 ? 8 : (uint8_t)size;
-        EEPROM_ReadBuffer(addr, p, n);
-        addr += n;
-        p += n;
-        size -= n;
-    }
+    PY25Q16_ReadBuffer(addr, dst, size);
 }
 
-static void eeprom_write_struct(uint16_t addr, const void *src, uint16_t size)
+static void flash_write_struct(uint32_t addr, const void *src, uint16_t size)
 {
-    const uint8_t *p = (const uint8_t *)src;
-    uint8_t page[8];
-    while (size) {
-        memset(page, 0, sizeof(page));
-        uint8_t n = size > 8 ? 8 : (uint8_t)size;
-        memcpy(page, p, n);
-        EEPROM_WriteBuffer(addr, page);
-        addr += 8;
-        p += n;
-        size -= n;
-    }
+    // Store Messenger data in a dedicated GOGUFW flash sector.
+    // Do not use EEPROM-compatible addresses here: the old 0x1E80 location
+    // overlaps the MR/channel memory compatibility area.
+    if (size > MSG_CFG_FLASH_SIZE) return;
+    PY25Q16_WriteBuffer(addr, src, size, false);
 }
 
 static void MSG_STORE_SanitizeCallsign(void)
@@ -77,12 +65,12 @@ static void MSG_STORE_SanitizeCallsign(void)
 void MSG_STORE_SaveConfig(void)
 {
     MSG_STORE_SanitizeCallsign();
-    eeprom_write_struct(MSG_CFG_EEPROM_ADDR, &gMessengerConfig, sizeof(gMessengerConfig));
+    flash_write_struct(MSG_CFG_FLASH_ADDR, &gMessengerConfig, sizeof(gMessengerConfig));
 }
 
 void MSG_STORE_Init(void)
 {
-    eeprom_read_struct(MSG_CFG_EEPROM_ADDR, &gMessengerConfig, sizeof(gMessengerConfig));
+    flash_read_struct(MSG_CFG_FLASH_ADDR, &gMessengerConfig, sizeof(gMessengerConfig));
     if (gMessengerConfig.magic != MSG_CFG_MAGIC || gMessengerConfig.version != MSG_CFG_VERSION) {
         MSG_STORE_DefaultConfig();
         MSG_STORE_SaveConfig();
@@ -122,8 +110,26 @@ uint16_t MSG_STORE_NextMsgId(void)
     return id;
 }
 
+bool MSG_STORE_IsDuplicateInbox(const char *from, uint16_t id)
+{
+    if (id == 0u) return false;
+    const char *safe_from = (from && from[0]) ? from : "UVK1";
+    for (uint8_t i = 0; i < MSG_INBOX_CAPACITY; i++) {
+        if (!gMessengerInbox[i].used) continue;
+        if (gMessengerInbox[i].id == id &&
+            strncmp(gMessengerInbox[i].from, safe_from, MSG_CALLSIGN_LEN) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void MSG_STORE_AddInboxMessage(const char *text, const char *from, const char *to, uint16_t id, uint8_t ttl_init, uint8_t ttl_remain, bool unread)
 {
+    /* Duplicate retry frames must not create a second inbox entry or trigger
+     * unread/beep state. ACK resend is handled by the RF layer before this call. */
+    if (MSG_STORE_IsDuplicateInbox(from, id)) return;
+
     add_to_list(gMessengerInbox, MSG_INBOX_CAPACITY, text, from, to, id, ttl_init, ttl_remain, unread);
     gUpdateStatus = true;
     gUpdateDisplay = true;

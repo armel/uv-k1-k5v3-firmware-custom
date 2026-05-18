@@ -18,7 +18,7 @@ extern uint8_t gFSKWriteIndex;
 #endif
 
 /*
- * GOGUFW 0.3.2 ACK timer overflow fix build.
+ * GOGUFW 0.3.3 next-fix build based on 0.3.2.
  *
  * This build is intentionally conservative:
  * - Messenger UI enter/exit does not start/stop RF.
@@ -86,6 +86,9 @@ static bool s_fsk_audio_prev_speaker;
 static uint16_t s_fsk_audio_prev_reg48;
 static uint16_t s_unread_led_ticks;
 static bool s_unread_led_owner;
+static bool s_bw_lock_active;
+static uint8_t s_bw_lock_tx_old;
+static uint8_t s_bw_lock_rx_old;
 
 static bool s_pending_ack_active;
 static uint8_t s_pending_ack_delay_ticks;
@@ -160,6 +163,29 @@ static void MSG_RF_EnsureStoreInitialized(void)
         MSG_STORE_Init();
         s_store_initialized = true;
     }
+}
+
+static void MSG_RF_NarrowLockBegin(void)
+{
+    /* Temporary Messenger RF narrow-lock: do not persist to EEPROM.
+     * This only changes runtime VFO bandwidth while a Messenger FSK TX/RX
+     * operation is active, then restores the user setting. */
+    if (s_bw_lock_active) return;
+    if (!gTxVfo) return;
+
+    s_bw_lock_tx_old = gTxVfo->CHANNEL_BANDWIDTH;
+    s_bw_lock_rx_old = gRxVfo ? gRxVfo->CHANNEL_BANDWIDTH : s_bw_lock_tx_old;
+    gTxVfo->CHANNEL_BANDWIDTH = BANDWIDTH_NARROW;
+    if (gRxVfo) gRxVfo->CHANNEL_BANDWIDTH = BANDWIDTH_NARROW;
+    s_bw_lock_active = true;
+}
+
+static void MSG_RF_NarrowLockEnd(void)
+{
+    if (!s_bw_lock_active) return;
+    if (gTxVfo) gTxVfo->CHANNEL_BANDWIDTH = s_bw_lock_tx_old;
+    if (gRxVfo) gRxVfo->CHANNEL_BANDWIDTH = s_bw_lock_rx_old;
+    s_bw_lock_active = false;
 }
 
 static bool MSG_RF_AckEnabledNow(void)
@@ -424,6 +450,7 @@ void MSG_RF_Close(void) {}
 void MSG_RF_HardRestoreVoicePath(void)
 {
     MSG_RF_RestoreFskAudioMute();
+    MSG_RF_NarrowLockEnd();
     if (!s_voice_snapshot.valid && !s_sidecar_armed) {
         return;
     }
@@ -522,6 +549,7 @@ static void MSG_RF_DoControlledReprime(void)
 static void MSG_RF_FinishRxAttempt(bool parsed)
 {
     MSG_RF_RestoreFskAudioMute();
+    MSG_RF_NarrowLockEnd();
     /* RF7 showed that dropping REG_59 to 0x0068 kills FIFO/decode even though
      * sync keeps increasing. Keep FSK RX enabled and just reset our local
      * capture/FIFO state. This should preserve the "open RX decodes all"
@@ -759,10 +787,12 @@ static bool MSG_RF_SendPacketFrame(const uint8_t *packet, bool count_tx, bool ig
     bytes_to_aircopy_words(packet);
 
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+    MSG_RF_NarrowLockBegin();
     RADIO_SetTxParameters();
     BK4819_SetupAircopy();
     MSG_RF_SendFskDataLongPreamble(g_FSK_Buffer);
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+    MSG_RF_NarrowLockEnd();
 
     MSG_RF_HardRestoreVoicePath();
     s_post_tx_restore_ticks = MSG_RF_POST_TX_RESTORE_TICKS;
@@ -964,13 +994,21 @@ static void try_store_rx_packet(void)
         return;
     }
 
-    MSG_STORE_AddInboxMessage(pkt.payload, pkt.from, pkt.to, pkt.id, pkt.ttl_init, pkt.ttl_remain, true);
+    const bool duplicate = MSG_STORE_IsDuplicateInbox(pkt.from, pkt.id);
 
     /* Stage 2 ACK: queue the ACK after a valid text frame is fully parsed.
-     * Sending is deferred to MSG_RF_Tick10ms() so we never transmit from the
-     * RX interrupt path. In current broadcast-first testing this is fine for
-     * two UV-K1 radios; later unicast/hop rules can restrict who ACKs. */
+     * Duplicate retry frames still get an ACK resend, but must not create a
+     * second inbox entry or trigger beep/unread state. */
     MSG_RF_QueueAck(pkt.id, pkt.from, gEeprom.RX_VFO);
+
+    if (duplicate) {
+        gBeepToPlay = BEEP_NONE;
+        MSG_RF_FinishRxAttempt(false);
+        gUpdateDisplay = true;
+        return;
+    }
+
+    MSG_STORE_AddInboxMessage(pkt.payload, pkt.from, pkt.to, pkt.id, pkt.ttl_init, pkt.ttl_remain, true);
 
     /* The store layer sets gBeepToPlay, but that is only consumed reliably by
      * key/UI paths. For real RF messages RF12 uses the global deferred beep
@@ -995,6 +1033,7 @@ void MSG_RF_OnRadioInterrupt(uint16_t status)
         s_sync_count++;
         s_rx_capture_active = true;
         s_rx_stale_ticks = MSG_RF_RX_STALE_TICKS;
+        MSG_RF_NarrowLockBegin();
         MSG_RF_MuteFskAudio();
     }
 
@@ -1006,6 +1045,7 @@ void MSG_RF_OnRadioInterrupt(uint16_t status)
         s_fifo_count++;
         s_rx_capture_active = true;
         s_rx_stale_ticks = MSG_RF_RX_STALE_TICKS;
+        MSG_RF_NarrowLockBegin();
         MSG_RF_MuteFskAudio();
     }
 

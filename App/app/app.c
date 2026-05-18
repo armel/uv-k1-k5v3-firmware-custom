@@ -1410,6 +1410,7 @@ void APP_TimeSlice10ms(void)
         CheckRadioInterrupts();
 #ifdef ENABLE_MESSENGER
         MSG_RF_Tick10ms();
+        MSG_Tick();  // GOGUFW 0.3.3 hotfix: drive T9 multi-tap commit timeout every 10ms
 #endif
 
     if (gCurrentFunction == FUNCTION_TRANSMIT)

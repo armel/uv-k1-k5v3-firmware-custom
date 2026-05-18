@@ -1,21 +1,23 @@
 #include <string.h>
 #include "app/messenger_t9.h"
 
-#define MSG_T9_COMMIT_TICKS 80U
+#define MSG_T9_COMMIT_TICKS 80U  /* 800 ms at 10 ms MSG_Tick cadence */
 
 static const char *map_chars(KEY_Code_t key)
 {
+    /* Letter modes intentionally cycle letters only (ABCABC...), not ABC2.
+     * Digits are available by long-press or by switching to numeric mode. */
     switch (key) {
-        case KEY_0: return " 0";
-        case KEY_1: return ".,?!1";
-        case KEY_2: return "ABC2";
-        case KEY_3: return "DEF3";
-        case KEY_4: return "GHI4";
-        case KEY_5: return "JKL5";
-        case KEY_6: return "MNO6";
-        case KEY_7: return "PQRS7";
-        case KEY_8: return "TUV8";
-        case KEY_9: return "WXYZ9";
+        case KEY_0: return " ";
+        case KEY_1: return ".,?!";
+        case KEY_2: return "ABC";
+        case KEY_3: return "DEF";
+        case KEY_4: return "GHI";
+        case KEY_5: return "JKL";
+        case KEY_6: return "MNO";
+        case KEY_7: return "PQRS";
+        case KEY_8: return "TUV";
+        case KEY_9: return "WXYZ";
         default: return "";
     }
 }

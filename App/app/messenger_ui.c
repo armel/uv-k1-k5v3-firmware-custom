@@ -60,25 +60,6 @@ static void draw_title(const char *s)
     UI_PrintStringSmallBold(s, x, 0, 0);
 }
 
-static void print_wrapped_small(const char *s, uint8_t first_line, uint8_t max_lines)
-{
-    // 17 chars is the safe width for SmallNormal on the UV-K1 LCD; longer
-    // lines can leave the last character half-drawn before wrapping.
-    char linebuf[18];
-    uint8_t line = 0;
-    while (*s && line < max_lines) {
-        uint8_t n = 0;
-        while (s[n] && n < 17U) {
-            linebuf[n] = s[n];
-            n++;
-        }
-        linebuf[n] = 0;
-        UI_PrintStringSmallNormal(linebuf, 0, 0, (uint8_t)(first_line + line));
-        s += n;
-        line++;
-    }
-}
-
 static void draw_dotted_separator(uint8_t y)
 {
     /* Light message separator: one filled segment, one gap.  It is less

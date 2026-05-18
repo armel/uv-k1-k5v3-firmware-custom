@@ -50,6 +50,7 @@ extern MSG_Message_t gMessengerOutbox[MSG_OUTBOX_CAPACITY];
 void MSG_STORE_Init(void);
 void MSG_STORE_SaveConfig(void);
 uint16_t MSG_STORE_NextMsgId(void);
+bool MSG_STORE_IsDuplicateInbox(const char *from, uint16_t id);
 void MSG_STORE_AddInboxMessage(const char *text, const char *from, const char *to, uint16_t id, uint8_t ttl_init, uint8_t ttl_remain, bool unread);
 void MSG_STORE_AddOutboxMessage(const char *text, const char *from, const char *to, uint16_t id, uint8_t ttl_init, uint8_t ttl_remain);
 void MSG_STORE_SetOutboxStatusById(uint16_t id, uint8_t status);
