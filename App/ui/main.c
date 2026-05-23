@@ -1267,6 +1267,16 @@ void UI_DisplayMain(void)
                     UI_FormatFrequency(gScanRangeStop, String);
                     UI_PrintStringSmallNormal(String, 56, 0, line + shift + 1);
 
+                    if (!isMainOnly() && gScanRangeCssCode != 0xFF)
+                    {
+                        if (gScanRangeCssType == CODE_TYPE_CONTINUOUS_TONE)
+                            sprintf(String, "CTCSS %u.%uHz", CTCSS_Options[gScanRangeCssCode] / 10, CTCSS_Options[gScanRangeCssCode] % 10);
+                        else
+                            sprintf(String, "DCS D%03o%c", DCS_Options[gScanRangeCssCode],
+                                gScanRangeCssType == CODE_TYPE_REVERSE_DIGITAL ? 'I' : 'N');
+                        UI_PrintStringSmallNormal(String, 6, 0, line + 2);
+                    }
+
                     if (!isMainOnly())
                         continue;
                 }
@@ -1280,6 +1290,17 @@ void UI_DisplayMain(void)
                 UI_PrintStringSmallNormal(String, 56, 0, line);
                 UI_FormatFrequency(gScanRangeStop, String);
                 UI_PrintStringSmallNormal(String, 56, 0, line + 1);
+
+                if (gScanRangeCssCode != 0xFF)
+                {
+                    if (gScanRangeCssType == CODE_TYPE_CONTINUOUS_TONE)
+                        sprintf(String, "CTCSS:%u.%uHz", CTCSS_Options[gScanRangeCssCode] / 10, CTCSS_Options[gScanRangeCssCode] % 10);
+                    else
+                        sprintf(String, "DCS:D%03o%c", DCS_Options[gScanRangeCssCode],
+                            gScanRangeCssType == CODE_TYPE_REVERSE_DIGITAL ? 'I' : 'N');
+                    UI_PrintStringSmallNormal(String, 2, 0, line + 2);
+                }
+
                 continue;
 #endif
             }
@@ -2099,6 +2120,18 @@ void UI_DisplayMain(void)
     UI_MAIN_PrintAGC(false);
 #endif
 
+#if defined(ENABLE_SCAN_RANGES) && defined(ENABLE_FEAT_F4HWN)
+    if (isMainOnly() && gScanRangeStart && gScanRangeCssCode != 0xFF)
+    {
+        if (gScanRangeCssType == CODE_TYPE_CONTINUOUS_TONE)
+            sprintf(String, "CTCSS %u.%uHz", CTCSS_Options[gScanRangeCssCode] / 10, CTCSS_Options[gScanRangeCssCode] % 10);
+        else
+            sprintf(String, "DCS D%03o%c", DCS_Options[gScanRangeCssCode],
+                                gScanRangeCssType == CODE_TYPE_REVERSE_DIGITAL ? 'I' : 'N');
+        UI_PrintStringSmallNormal(String, 2, 0, 6);
+    }
+#endif
+
     if (center_line == CENTER_LINE_NONE)
     {   // we're free to use the middle line
 
@@ -2151,6 +2184,7 @@ void UI_DisplayMain(void)
         }
         else
 #endif
+
 
 #ifdef ENABLE_RSSI_BAR
         if (rx) {

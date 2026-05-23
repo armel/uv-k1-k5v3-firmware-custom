@@ -1762,6 +1762,10 @@ void APP_TimeSlice10ms(void)
 
     SCANNER_TimeSlice10ms();
 
+#ifdef ENABLE_SCAN_RANGES
+    CHFRSCANNER_UpdateCssDetection();
+#endif
+
 #ifdef ENABLE_AIRCOPY
     if (gScreenToDisplay == DISPLAY_AIRCOPY && gAircopyState == AIRCOPY_TRANSFER && gAirCopyIsSendMode == 1) {
         if (!AIRCOPY_SendMessage()) {
