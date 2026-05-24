@@ -325,6 +325,23 @@ static void sort(int16_t *a, int16_t *b)
       }
     }
 
+    void GUI_DisplaySmallestInverse(const char *pString, uint8_t x, uint8_t Line,
+                                bool statusbar, bool fill, uint8_t end)
+    {
+        // First draw the string normally
+        GUI_DisplaySmallest(pString, x, (Line * 8) + 1, statusbar, fill);
+
+        // Now invert the framebuffer/statusline bits for the rendered area
+        uint8_t start = (x - 2);
+        uint8_t *buffer = statusbar ? gStatusLine : gFrameBuffer[Line];
+
+        buffer[start] ^= 0x3E;
+        for (uint8_t i = start + 1; i < end; i++) {
+            buffer[i] ^= 0x7F;
+        }
+        buffer[end] ^= 0x3E;
+    }
+
     void UI_DisplayUnlockKeyboard(uint8_t shift) {
         if (gEeprom.KEY_LOCK && gKeypadLocked > 0)
         {   // tell user how to unlock the keyboard

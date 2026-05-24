@@ -474,7 +474,7 @@ void DTMF_Reply(void)
     if (pString == NULL)
         return;
 
-    Delay = (gEeprom.DTMF_PRELOAD_TIME < 200) ? 200 : gEeprom.DTMF_PRELOAD_TIME;
+    Delay = MAX(gEeprom.DTMF_PRELOAD_TIME, 200);
 
     if (gEeprom.DTMF_SIDE_TONE)
     {   // the user will also hear the transmitted tones

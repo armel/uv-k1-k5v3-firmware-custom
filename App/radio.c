@@ -544,14 +544,14 @@ void RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo)
         if (glitch_close == glitch_open && glitch_close <= 253)
             glitch_close += 2;
 
-        pInfo->SquelchOpenRSSIThresh    = (rssi_open    > 255) ? 255 : rssi_open;
-        pInfo->SquelchCloseRSSIThresh   = (rssi_close   > 255) ? 255 : rssi_close;
-        pInfo->SquelchOpenGlitchThresh  = (glitch_open  > 255) ? 255 : glitch_open;
-        pInfo->SquelchCloseGlitchThresh = (glitch_close > 255) ? 255 : glitch_close;
+        pInfo->SquelchOpenRSSIThresh    = MIN(rssi_open,    255);
+        pInfo->SquelchCloseRSSIThresh   = MIN(rssi_close,   255);
+        pInfo->SquelchOpenGlitchThresh  = MIN(glitch_open,  255);
+        pInfo->SquelchCloseGlitchThresh = MIN(glitch_close, 255);
 #endif
 
-        pInfo->SquelchOpenNoiseThresh   = (noise_open   > 127) ? 127 : noise_open;
-        pInfo->SquelchCloseNoiseThresh  = (noise_close  > 127) ? 127 : noise_close;
+        pInfo->SquelchOpenNoiseThresh   = MIN(noise_open,   127);
+        pInfo->SquelchCloseNoiseThresh  = MIN(noise_close,  127);
     }
 
     // *******************************

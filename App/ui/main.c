@@ -287,8 +287,7 @@ static void ScanProgress_DrawGaugeLine(uint8_t line, uint32_t current_index, uin
         current_index = total;
 
     head_col = (total <= 1) ? (fill_cols - 1) : ((current_index - 1) * (fill_cols - 1)) / (total - 1);
-    if (head_col >= fill_cols)
-        head_col = fill_cols - 1;
+    head_col = MIN(head_col, fill_cols - 1);
 
     gFrameBuffer[line][gauge_left] = 0x0c;
     gFrameBuffer[line][gauge_left + 1] = 0x12;
@@ -1613,6 +1612,9 @@ void UI_DisplayMain(void)
                     xStart = 117;
                 }
 
+#ifdef ENABLE_FEAT_F4HWN
+                GUI_DisplaySmallestInverse(displayStr, xStart + 2, line, false, true, 127);  
+#else
                 GUI_DisplaySmallest(displayStr, xStart + 2, line == 0 ? 1 : 33, false, true);
 
                 gFrameBuffer[line][xStart] ^= 0x3E;
@@ -1620,6 +1622,7 @@ void UI_DisplayMain(void)
                     gFrameBuffer[line][x] ^= 0x7F;
                 }
                 gFrameBuffer[line][127] ^= 0x3E;
+#endif
 
                 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
                 {
@@ -2237,13 +2240,18 @@ void UI_DisplayMain(void)
     if (isMainOnly() && !gDTMF_InputMode)
     {
         sprintf(String, "VFO %s", activeTxVFO ? "B" : "A");
-        GUI_DisplaySmallest(String, 107, 50, false, true);
+
+#ifdef ENABLE_FEAT_F4HWN
+        GUI_DisplaySmallestInverse(String, 107, 6, false, true, 127);
+#else
+        GUI_DisplaySmallest(String, 107, 49, false, true);
 
         gFrameBuffer[6][105] ^= 0x7C;
         for (uint8_t x = 106; x < 127; x++) {
             gFrameBuffer[6][x] ^= 0xFE;
         }
         gFrameBuffer[6][127] ^= 0x7C;
+#endif
 
         /*
         UI_PrintStringSmallBold(String, 92, 0, 6);
