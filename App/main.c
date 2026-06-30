@@ -245,6 +245,9 @@ void Main(void)
 
         BOOT_ProcessMode(BootMode);
 
+        if (gEeprom.AUTO_KEYPAD_LOCK && !gEeprom.KEY_LOCK)
+            gKeyLockCountdown = gEeprom.AUTO_KEYPAD_LOCK * 30; // 15 seconds step
+
         // GPIO_ClearBit(&GPIOA->DATA, GPIOA_PIN_VOICE_0);
 
         gUpdateStatus = true;

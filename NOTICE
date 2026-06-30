@@ -1,0 +1,77 @@
+F4HWN Edition Fusion firmware for Quansheng UV-K1 and UV-K5 V3
+================================================================
+
+This product includes software originally developed by Dual Tachyon
+for the Quansheng UV-K5 open-source firmware project:
+
+  https://github.com/DualTachyon/uv-k5-firmware
+
+This product includes work derived from Egzumer's UV-K5 custom
+firmware:
+
+  https://github.com/egzumer/uv-k5-firmware-custom
+
+This product includes work developed by Armel / F4HWN and contributors
+for the F4HWN firmware projects, including the F4HWN Edition Fusion
+port for UV-K1 and UV-K5 V3 radios:
+
+  https://github.com/armel/uv-k5-firmware-custom
+  https://github.com/armel/uv-k1-k5v3-firmware-custom
+
+The UV-K1 and UV-K5 V3 port is the result of joint work by muzkr and
+Armel / F4HWN.
+
+Additional attribution notices
+------------------------------
+
+This product includes contributions and/or derived work from, among
+others:
+
+  Dual Tachyon
+  OneOfEleven
+  fagci
+  Egzumer
+  muzkr
+  Armel / F4HWN
+
+Project-specific derived components
+-----------------------------------
+
+The spectrum analyzer implementation includes work originally developed
+by fagci:
+
+  https://github.com/fagci
+
+Third-party components
+----------------------
+
+This product includes CherryUSB by sakumisu, licensed under the
+Apache License, Version 2.0. Its license is included at:
+
+  Middlewares/CherryUSB/LICENSE
+
+This product includes CMSIS Version 5 by Arm, licensed under the
+Apache License, Version 2.0. Its license is included at:
+
+  App/external/CMSIS_5/LICENSE.txt
+
+This product includes the embedded printf implementation by Marco
+Paland, licensed under the MIT License. Its license is included at:
+
+  App/external/printf/LICENSE
+
+License and endorsement notice
+------------------------------
+
+This NOTICE file is provided for attribution purposes only and does not
+modify the terms of any applicable license.
+
+The main firmware is licensed under the Apache License, Version 2.0.
+Redistributions of this product or derivative works, in source or object
+form, must comply with the Apache License, Version 2.0, including its
+conditions on license copies, modified-file notices, retained copyright
+and attribution notices, and NOTICE files.
+
+Attribution in this file does not imply endorsement by Dual Tachyon,
+OneOfEleven, fagci, Egzumer, muzkr, Armel / F4HWN or any other
+contributor.
