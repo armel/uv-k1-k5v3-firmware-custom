@@ -933,6 +933,13 @@ static void RXTX_LOG_DrawSessionMarker(uint8_t line)
     UI_DrawLineBuffer(gFrameBuffer, 4, y, 123, y, true);
 }
 
+static void RXTX_LOG_ShowEmpty(bool showMessage)
+{
+    if (showMessage)
+        UI_PrintStringSmallBold("NO LOG", 0, 127, 3);
+    ST7565_BlitFullScreen();
+}
+
 void UI_DisplayRxTxLog(void)
 {
     char duration[8];
@@ -942,23 +949,19 @@ void UI_DisplayRxTxLog(void)
     UI_DisplayClear();
 
     if (gClearActive) {
-        UI_PrintStringSmallBold("NO LOG", 0, 127, 3);
-        ST7565_BlitFullScreen();
+        RXTX_LOG_ShowEmpty(true);
         return;
     }
 
     RXTX_LOG_EnsureViewCache();
 
     if (gLogFilter == RXTX_LOG_FILTER_ALL && !gLogHasTraffic) {
-        UI_PrintStringSmallBold("NO LOG", 0, 127, 3);
-        ST7565_BlitFullScreen();
+        RXTX_LOG_ShowEmpty(true);
         return;
     }
 
     if (gViewCacheCount == 0) {
-        if (!gViewScanActive)
-            UI_PrintStringSmallBold("NO LOG", 0, 127, 3);
-        ST7565_BlitFullScreen();
+        RXTX_LOG_ShowEmpty(!gViewScanActive);
         return;
     }
 
