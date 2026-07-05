@@ -61,7 +61,10 @@ static uint8_t         gViewCacheCount;
 static uint8_t         gViewCacheFilter;
 static bool            gViewCacheHasOlder;
 static bool            gViewCacheComplete;
+static bool            gViewCacheCircular;
 static bool            gViewScanActive;
+static bool            gViewScanDiscoverTotal;
+static bool            gViewScanWrapped;
 static uint16_t        gViewScanSlot;
 static uint16_t        gViewScanScanned;
 static uint16_t        gViewScanSkip;
@@ -71,6 +74,10 @@ static uint16_t        gViewAnchorSlots[RXTX_LOG_VIEW_ANCHOR_COUNT];
 static uint16_t        gViewAnchorTrafficIndexes[RXTX_LOG_VIEW_ANCHOR_COUNT];
 static uint32_t        gViewAnchorMask;
 static uint8_t         gViewAnchorFilter;
+static bool            gViewTotalKnown;
+static bool            gViewWrapPending;
+static uint16_t        gViewTotalRows;
+static uint16_t        gViewTotalTraffic;
 static bool            gClearActive;
 static uint8_t         gClearSector;
 static bool            gMenuClearHandled;
@@ -111,6 +118,18 @@ static bool RXTX_LOG_IsValidFlashEntry(const RXTX_LogFlashEntry_t *entry)
         return false;
 
     return entry->crc == RXTX_LOG_Crc8(entry, sizeof(*entry) - 2);
+}
+
+static bool RXTX_LOG_IsBlankFlashEntry(const RXTX_LogFlashEntry_t *entry)
+{
+    const uint8_t *p = (const uint8_t *)entry;
+
+    for (uint8_t i = 0; i < sizeof(*entry); i++) {
+        if (p[i] != 0xFFu)
+            return false;
+    }
+
+    return true;
 }
 
 static bool RXTX_LOG_IsTx(const RXTX_LogEntry_t *entry)
@@ -199,7 +218,19 @@ static uint16_t RXTX_LOG_NextSlot(uint16_t slot)
     return (uint16_t)(slot + 1u) >= RXTX_LOG_SLOT_COUNT ? 0 : (uint16_t)(slot + 1u);
 }
 
-static void RXTX_LOG_StartViewCacheScan(uint16_t start);
+static void RXTX_LOG_StartViewCacheScan(uint16_t start, bool circular, bool discoverTotal);
+
+static void RXTX_LOG_StartCursorView(uint16_t cursor)
+{
+    gViewWrapPending = false;
+    gLogCursor = cursor;
+    RXTX_LOG_StartViewCacheScan(cursor,
+        gViewTotalKnown &&
+        gViewTotalRows > 0 &&
+        cursor < gViewTotalRows &&
+        (uint16_t)(cursor + RXTX_LOG_VIEW_CACHE_COUNT) > gViewTotalRows,
+        false);
+}
 
 static void RXTX_LOG_InvalidateViewAnchors(void)
 {
@@ -255,7 +286,12 @@ static void RXTX_LOG_InvalidateViewCache(void)
     gViewCacheFilter   = 0xFFu;
     gViewCacheHasOlder = false;
     gViewCacheComplete = false;
+    gViewCacheCircular = false;
+    gViewTotalKnown    = false;
+    gViewWrapPending   = false;
     gViewScanActive    = false;
+    gViewScanDiscoverTotal = false;
+    gViewScanWrapped   = false;
     RXTX_LOG_InvalidateViewAnchors();
 }
 
@@ -333,7 +369,25 @@ static bool RXTX_LOG_AlignLastViewPage(void)
         return false;
 
     gLogCursor = start;
-    RXTX_LOG_StartViewCacheScan(start);
+    RXTX_LOG_StartViewCacheScan(start, false, false);
+    return true;
+}
+
+static bool RXTX_LOG_TryWrapViewCacheScan(void)
+{
+    if (!gViewCacheCircular ||
+        gViewScanWrapped ||
+        !gViewTotalKnown ||
+        gViewCacheCount >= RXTX_LOG_VIEW_CACHE_COUNT ||
+        gViewScanIndex < gViewTotalRows)
+        return false;
+
+    gViewScanWrapped = true;
+    gViewScanSlot = RXTX_LOG_AddressToSlot(gNextFlashAddress);
+    gViewScanScanned = 0;
+    gViewScanSkip = 0;
+    gViewScanIndex = 0;
+    gViewScanTrafficIndex = 0;
     return true;
 }
 
@@ -348,12 +402,18 @@ static void RXTX_LOG_StepViewCacheScan(void)
         gViewScanScanned++;
 
         PY25Q16_ReadBuffer(RXTX_LOG_SlotToAddress(gViewScanSlot), &flashEntry, sizeof(flashEntry));
+        if (RXTX_LOG_IsBlankFlashEntry(&flashEntry)) {
+            gViewScanScanned = RXTX_LOG_SLOT_COUNT;
+            break;
+        }
+
         if (!RXTX_LOG_IsValidFlashEntry(&flashEntry) ||
             !RXTX_LOG_MatchesFlags(flashEntry.flags))
             continue;
 
         if (gViewScanTrafficIndex >= RXTX_LOG_VISIBLE_COUNT) {
             gViewScanActive = false;
+            gViewScanDiscoverTotal = false;
             gViewCacheComplete = true;
             break;
         }
@@ -376,27 +436,50 @@ static void RXTX_LOG_StepViewCacheScan(void)
             gViewCacheCount++;
         } else {
             gViewCacheHasOlder = true;
-            gViewScanActive = false;
-            gViewCacheComplete = true;
-            break;
+            if (!gViewScanDiscoverTotal) {
+                gViewScanActive = false;
+                gViewScanDiscoverTotal = false;
+                gViewCacheComplete = true;
+                break;
+            }
         }
 
         gViewScanIndex++;
         if (isTraffic)
             gViewScanTrafficIndex++;
+        if (RXTX_LOG_TryWrapViewCacheScan())
+            continue;
     }
 
     if (gViewScanScanned >= RXTX_LOG_SLOT_COUNT ||
         gViewScanTrafficIndex >= RXTX_LOG_VISIBLE_COUNT) {
+        if (!gViewScanWrapped) {
+            gViewTotalRows    = gViewScanIndex;
+            gViewTotalTraffic = gViewScanTrafficIndex;
+            gViewTotalKnown   = gViewTotalRows > 0;
+        }
+
+        if (gViewWrapPending) {
+            gViewWrapPending = false;
+            if (gViewTotalRows > 1u) {
+                RXTX_LOG_StartCursorView(gViewTotalRows - 1u);
+                return;
+            }
+        }
+
+        if (RXTX_LOG_TryWrapViewCacheScan())
+            return;
+
         gViewScanActive = false;
+        gViewScanDiscoverTotal = false;
         gViewCacheComplete = true;
     }
 
-    if (RXTX_LOG_AlignLastViewPage())
+    if (!gViewCacheCircular && RXTX_LOG_AlignLastViewPage())
         return;
 }
 
-static void RXTX_LOG_StartViewCacheScan(uint16_t start)
+static void RXTX_LOG_StartViewCacheScan(uint16_t start, bool circular, bool discoverTotal)
 {
     uint16_t anchorIndex;
     uint16_t anchorSlot;
@@ -410,9 +493,14 @@ static void RXTX_LOG_StartViewCacheScan(uint16_t start)
     gViewCacheFilter   = gLogFilter;
     gViewCacheHasOlder = false;
     gViewCacheComplete = false;
-    gViewScanActive    = false;
+    gViewCacheCircular = circular;
+    gViewScanActive        = false;
+    gViewScanDiscoverTotal = discoverTotal;
+    gViewScanWrapped       = false;
 
     if (gNextSequence == 0) {
+        gViewWrapPending = false;
+        gViewScanDiscoverTotal = false;
         gViewCacheComplete = true;
         return;
     }
@@ -433,6 +521,21 @@ static void RXTX_LOG_StartViewCacheScan(uint16_t start)
     gViewScanActive  = true;
 }
 
+static void RXTX_LOG_RequestWrapToLast(void)
+{
+    gViewWrapPending = true;
+
+    if (gViewScanActive &&
+        gViewCacheFilter == gLogFilter &&
+        gViewCacheStart == 0 &&
+        !gViewCacheCircular) {
+        gViewScanDiscoverTotal = true;
+        return;
+    }
+
+    RXTX_LOG_StartViewCacheScan(0, false, true);
+}
+
 static bool RXTX_LOG_ViewCacheCovers(uint16_t indexFromNewest)
 {
     return gViewCacheFilter == gLogFilter &&
@@ -446,13 +549,7 @@ static bool RXTX_LOG_SlotIsBlank(uint32_t address)
 
     PY25Q16_ReadBuffer(address, &entry, sizeof(entry));
 
-    const uint8_t *p = (const uint8_t *)&entry;
-    for (uint8_t i = 0; i < sizeof(entry); i++) {
-        if (p[i] != 0xFFu)
-            return false;
-    }
-
-    return true;
+    return RXTX_LOG_IsBlankFlashEntry(&entry);
 }
 
 static void RXTX_LOG_PrepareNextSlot(void)
@@ -536,7 +633,7 @@ static void RXTX_LOG_EnsureViewCache(void)
         gViewCacheStart == pageStart)
         return;
 
-    RXTX_LOG_StartViewCacheScan(gLogCursor);
+    RXTX_LOG_StartCursorView(gLogCursor);
 }
 
 static bool RXTX_LOG_GetFilteredEntry(uint16_t indexFromNewest, RXTX_LogEntry_t *entry)
@@ -730,17 +827,30 @@ void RXTX_LOG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     switch (Key) {
     case KEY_UP:
         if (gLogCursor > 0) {
-            gLogCursor--;
-            RXTX_LOG_EnsureViewCache();
+            RXTX_LOG_StartCursorView(gLogCursor - 1u);
+        } else if (gViewTotalKnown && gViewTotalRows > 1u) {
+            RXTX_LOG_StartCursorView(gViewTotalRows - 1u);
+        } else {
+            RXTX_LOG_RequestWrapToLast();
         }
         gUpdateDisplay = true;
         break;
 
     case KEY_DOWN:
+        gViewWrapPending = false;
         RXTX_LOG_EnsureViewCache();
         if (gViewCacheCount > 0) {
             if (gViewScanActive)
                 break;
+
+            if (gViewTotalKnown && gViewTotalRows > 1u) {
+                uint16_t next = gLogCursor + 1u;
+                if (next >= gViewTotalRows)
+                    next = 0;
+                RXTX_LOG_StartCursorView(next);
+                gUpdateDisplay = true;
+                break;
+            }
 
             if (gViewCacheComplete && !gViewCacheHasOlder)
                 break;
@@ -750,7 +860,7 @@ void RXTX_LOG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 gLogCursor = next;
             } else if (gViewCacheHasOlder) {
                 gLogCursor = gViewCacheStart + gViewCacheCount;
-                RXTX_LOG_StartViewCacheScan(gLogCursor);
+                RXTX_LOG_StartCursorView(gLogCursor);
             }
         }
         gUpdateDisplay = true;
@@ -850,10 +960,15 @@ void UI_DisplayRxTxLog(void)
 
     uint16_t displayIndex = gViewCacheTrafficIndex;
     for (uint8_t row = 0; row < RXTX_LOG_VIEW_CACHE_COUNT; row++) {
-        const uint16_t index = gLogCursor + row;
-
-        if (!RXTX_LOG_GetFilteredEntry(index, &entry))
-            break;
+        if (gViewCacheCircular) {
+            if (row >= gViewCacheCount)
+                break;
+            entry = gViewCache[row];
+        } else {
+            const uint16_t index = gLogCursor + row;
+            if (!RXTX_LOG_GetFilteredEntry(index, &entry))
+                break;
+        }
 
         if (RXTX_LOG_IsSessionMarker(&entry)) {
             RXTX_LOG_DrawSessionMarker(row);
@@ -863,6 +978,10 @@ void UI_DisplayRxTxLog(void)
         const bool isTx = RXTX_LOG_IsTx(&entry);
 
         RXTX_LOG_FormatTitle(&entry, title);
+        if (gViewCacheCircular &&
+            gViewTotalTraffic > 0 &&
+            displayIndex >= gViewTotalTraffic)
+            displayIndex = 0;
         RXTX_LOG_DrawIndexBadge(displayIndex, row);
         displayIndex++;
 
