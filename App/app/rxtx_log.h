@@ -15,7 +15,7 @@
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
 
-#define RXTX_LOG_VISIBLE_COUNT 250
+#define RXTX_LOG_VISIBLE_COUNT 512
 #define RXTX_LOG_NAME_LEN      10
 
 typedef enum {
