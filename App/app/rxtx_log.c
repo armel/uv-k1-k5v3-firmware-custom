@@ -65,10 +65,7 @@ static uint8_t         gViewCacheCount;
 static uint8_t         gViewCacheFilter;
 static bool            gViewCacheHasOlder;
 static bool            gViewCacheComplete;
-static bool            gViewCacheCircular;
 static bool            gViewScanActive;
-static bool            gViewScanDiscoverTotal;
-static bool            gViewScanWrapped;
 static uint16_t        gViewScanSlot;
 static uint16_t        gViewScanScanned;
 static uint16_t        gViewScanSkip;
@@ -76,9 +73,16 @@ static uint16_t        gViewScanIndex;
 static uint16_t        gViewAnchorSlots[RXTX_LOG_VIEW_ANCHOR_COUNT];
 static uint32_t        gViewAnchorMask;
 static uint8_t         gViewAnchorFilter;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
+// Wrap-around scrolling state: cycling UP past the first row (or DOWN past
+// the last) requires discovering the total row count with a dedicated scan.
+static bool            gViewCacheCircular;
+static bool            gViewScanDiscoverTotal;
+static bool            gViewScanWrapped;
 static bool            gViewTotalKnown;
 static bool            gViewWrapPending;
 static uint16_t        gViewTotalRows;
+#endif
 static bool            gClearActive;
 static uint8_t         gClearSector;
 static bool            gMenuClearHandled;
@@ -200,14 +204,18 @@ static void RXTX_LOG_StartViewCacheScan(uint16_t start, bool circular, bool disc
 
 static void RXTX_LOG_StartCursorView(uint16_t cursor)
 {
-    gViewWrapPending = false;
     gLogCursor = cursor;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
+    gViewWrapPending = false;
     RXTX_LOG_StartViewCacheScan(cursor,
         gViewTotalKnown &&
         gViewTotalRows > 0 &&
         cursor < gViewTotalRows &&
         (uint16_t)(cursor + RXTX_LOG_VIEW_CACHE_COUNT) > gViewTotalRows,
         false);
+#else
+    RXTX_LOG_StartViewCacheScan(cursor, false, false);
+#endif
 }
 
 static void RXTX_LOG_InvalidateViewAnchors(void)
@@ -262,12 +270,14 @@ static void RXTX_LOG_InvalidateViewCache(void)
     gViewCacheFilter   = 0xFFu;
     gViewCacheHasOlder = false;
     gViewCacheComplete = false;
+    gViewScanActive    = false;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
     gViewCacheCircular = false;
     gViewTotalKnown    = false;
     gViewWrapPending   = false;
-    gViewScanActive    = false;
     gViewScanDiscoverTotal = false;
     gViewScanWrapped   = false;
+#endif
     RXTX_LOG_InvalidateViewAnchors();
 }
 
@@ -353,11 +363,14 @@ static bool RXTX_LOG_AlignLastViewPage(void)
 
 static void RXTX_LOG_StopViewScan(void)
 {
-    gViewScanActive        = false;
+    gViewScanActive    = false;
+    gViewCacheComplete = true;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
     gViewScanDiscoverTotal = false;
-    gViewCacheComplete     = true;
+#endif
 }
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
 static bool RXTX_LOG_TryWrapViewCacheScan(void)
 {
     if (!gViewCacheCircular ||
@@ -374,6 +387,7 @@ static bool RXTX_LOG_TryWrapViewCacheScan(void)
     gViewScanIndex = 0;
     return true;
 }
+#endif
 
 static void RXTX_LOG_StepViewCacheScan(void)
 {
@@ -419,18 +433,26 @@ static void RXTX_LOG_StepViewCacheScan(void)
             gViewCacheCount++;
         } else {
             gViewCacheHasOlder = true;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
             if (!gViewScanDiscoverTotal) {
                 RXTX_LOG_StopViewScan();
                 break;
             }
+#else
+            RXTX_LOG_StopViewScan();
+            break;
+#endif
         }
 
         gViewScanIndex++;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
         if (RXTX_LOG_TryWrapViewCacheScan())
             continue;
+#endif
     }
 
     if (gViewScanScanned >= RXTX_LOG_SLOT_COUNT || capReached) {
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
         if (!gViewScanWrapped) {
             gViewTotalRows  = gViewScanIndex;
             gViewTotalKnown = gViewTotalRows > 0;
@@ -446,12 +468,18 @@ static void RXTX_LOG_StepViewCacheScan(void)
 
         if (RXTX_LOG_TryWrapViewCacheScan())
             return;
+#endif
 
         RXTX_LOG_StopViewScan();
     }
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
     if (!gViewCacheCircular && RXTX_LOG_AlignLastViewPage())
         return;
+#else
+    if (RXTX_LOG_AlignLastViewPage())
+        return;
+#endif
 }
 
 static void RXTX_LOG_StartViewCacheScan(uint16_t start, bool circular, bool discoverTotal)
@@ -467,14 +495,21 @@ static void RXTX_LOG_StartViewCacheScan(uint16_t start, bool circular, bool disc
     gViewCacheFilter   = gLogFilter;
     gViewCacheHasOlder = false;
     gViewCacheComplete = false;
-    gViewCacheCircular = circular;
-    gViewScanActive        = false;
+    gViewScanActive    = false;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
+    gViewCacheCircular     = circular;
     gViewScanDiscoverTotal = discoverTotal;
     gViewScanWrapped       = false;
+#else
+    (void)circular;
+    (void)discoverTotal;
+#endif
 
     if (gNextSequence == 0) {
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
         gViewWrapPending = false;
         gViewScanDiscoverTotal = false;
+#endif
         gViewCacheComplete = true;
         return;
     }
@@ -493,6 +528,7 @@ static void RXTX_LOG_StartViewCacheScan(uint16_t start, bool circular, bool disc
     gViewScanActive  = true;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
 static void RXTX_LOG_RequestWrapToLast(void)
 {
     gViewWrapPending = true;
@@ -507,6 +543,7 @@ static void RXTX_LOG_RequestWrapToLast(void)
 
     RXTX_LOG_StartViewCacheScan(0, false, true);
 }
+#endif
 
 static bool RXTX_LOG_ViewCacheCovers(uint16_t indexFromNewest)
 {
@@ -800,21 +837,27 @@ void RXTX_LOG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     case KEY_UP:
         if (gLogCursor > 0) {
             RXTX_LOG_StartCursorView(gLogCursor - 1u);
-        } else if (gViewTotalKnown && gViewTotalRows > 1u) {
+        }
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
+        else if (gViewTotalKnown && gViewTotalRows > 1u) {
             RXTX_LOG_StartCursorView(gViewTotalRows - 1u);
         } else {
             RXTX_LOG_RequestWrapToLast();
         }
+#endif
         gUpdateDisplay = true;
         break;
 
     case KEY_DOWN:
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
         gViewWrapPending = false;
+#endif
         RXTX_LOG_EnsureViewCache();
         if (gViewCacheCount > 0) {
             if (gViewScanActive)
                 break;
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
             if (gViewTotalKnown && gViewTotalRows > 1u) {
                 uint16_t next = gLogCursor + 1u;
                 if (next >= gViewTotalRows)
@@ -823,6 +866,7 @@ void RXTX_LOG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 gUpdateDisplay = true;
                 break;
             }
+#endif
 
             if (gViewCacheComplete && !gViewCacheHasOlder)
                 break;
@@ -928,11 +972,14 @@ void UI_DisplayRxTxLog(void)
     }
 
     for (uint8_t row = 0; row < RXTX_LOG_VIEW_CACHE_COUNT; row++) {
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP
         if (gViewCacheCircular) {
             if (row >= gViewCacheCount)
                 break;
             entry = gViewCache[row];
-        } else {
+        } else
+#endif
+        {
             const uint16_t index = gLogCursor + row;
             if (!RXTX_LOG_GetFilteredEntry(index, &entry))
                 break;
