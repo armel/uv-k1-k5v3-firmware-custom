@@ -6,6 +6,7 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
 
 #include <assert.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "app/generic.h"
@@ -54,6 +55,9 @@ typedef struct __attribute__((packed)) {
 
 static_assert(sizeof(RXTX_LogFlashEntry_t) == 32);
 static_assert(RXTX_LOG_VIEW_ANCHOR_COUNT <= 32);
+// RXTX_LogEntry_t (RAM) and RXTX_LogFlashEntry_t must stay byte-identical up
+// to the end of name[] so entries can be copied with a single memcpy.
+static_assert(offsetof(RXTX_LogEntry_t, name) == offsetof(RXTX_LogFlashEntry_t, name));
 
 static RXTX_LogEntry_t gViewCache[RXTX_LOG_VIEW_CACHE_COUNT];
 static uint16_t        gViewCacheStart;
@@ -161,22 +165,14 @@ static bool RXTX_LOG_MatchesFlags(uint8_t flags)
 
 const char *RXTX_LOG_GetFilterName(void)
 {
-    if (gLogFilter == RXTX_LOG_FILTER_RX)
-        return "RX";
-    if (gLogFilter == RXTX_LOG_FILTER_TX)
-        return "TX";
-    return "ALL";
+    static const char *const filterNames[] = {"ALL", "RX", "TX"};
+
+    return filterNames[gLogFilter];
 }
 
 static void RXTX_LOG_CopyFromFlash(RXTX_LogEntry_t *dst, const RXTX_LogFlashEntry_t *src)
 {
-    dst->sequence        = src->sequence;
-    dst->frequency       = src->frequency;
-    dst->trafficSeq      = src->trafficSeq;
-    dst->durationSeconds = src->durationSeconds;
-    dst->channel         = src->channel;
-    dst->flags           = src->flags;
-    memcpy(dst->name, src->name, RXTX_LOG_NAME_LEN);
+    memcpy(dst, src, offsetof(RXTX_LogFlashEntry_t, reserved));
     dst->name[RXTX_LOG_NAME_LEN] = 0;
 }
 
@@ -560,14 +556,8 @@ static uint32_t RXTX_LOG_WriteEntry(const RXTX_LogEntry_t *src)
     uint8_t commit = RXTX_LOG_ENTRY_COMMIT;
 
     memset(&entry, 0xFF, sizeof(entry));
-    entry.sequence        = src->sequence;
-    entry.frequency       = src->frequency;
-    entry.trafficSeq      = src->trafficSeq;
-    entry.durationSeconds = src->durationSeconds;
-    entry.channel         = src->channel;
-    entry.flags           = src->flags;
-    memcpy(entry.name, src->name, RXTX_LOG_NAME_LEN);
-    entry.crc             = RXTX_LOG_Crc8(&entry, sizeof(entry) - 2);
+    memcpy(&entry, src, offsetof(RXTX_LogFlashEntry_t, reserved));
+    entry.crc = RXTX_LOG_Crc8(&entry, sizeof(entry) - 2);
 
     RXTX_LOG_PrepareNextSlot();
 
@@ -596,18 +586,11 @@ static void RXTX_LOG_EnsureViewCache(void)
 {
     const uint16_t pageStart = RXTX_LOG_PageStart(gLogCursor);
 
-    if (RXTX_LOG_ViewCacheCovers(gLogCursor) &&
-        gViewCacheStart == pageStart)
-        return;
-
-    if (gViewScanActive &&
-        gViewCacheFilter == gLogFilter &&
-        gViewCacheStart == pageStart)
-        return;
-
-    if (gViewCacheComplete &&
-        gViewCacheFilter == gLogFilter &&
-        gViewCacheStart == pageStart)
+    if (gViewCacheFilter == gLogFilter &&
+        gViewCacheStart == pageStart &&
+        (gViewScanActive ||
+         gViewCacheComplete ||
+         RXTX_LOG_ViewCacheCovers(gLogCursor)))
         return;
 
     RXTX_LOG_StartCursorView(gLogCursor);

@@ -23,9 +23,11 @@ typedef enum {
     RXTX_LOG_DIR_TX = 1,
 } RXTX_LogDirection_t;
 
+// Field order mirrors RXTX_LogFlashEntry_t (rxtx_log.c) so both layouts
+// match byte-for-byte up to the end of name[] and can be copied in one pass.
 typedef struct {
-    uint32_t frequency;
     uint32_t sequence;
+    uint32_t frequency;
     uint32_t trafficSeq;
     uint16_t durationSeconds;
     uint16_t channel;
