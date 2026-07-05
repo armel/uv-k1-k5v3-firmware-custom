@@ -50,6 +50,9 @@ void ACTION_SwitchDemodul(void);
         void ACTION_Power_High(void);
         void ACTION_Remove_Offset(void);
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+        void ACTION_RxTxLog(void);
+    #endif
 #endif
 
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);

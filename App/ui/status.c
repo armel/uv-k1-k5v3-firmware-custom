@@ -18,6 +18,9 @@
 
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+#include "app/rxtx_log.h"
+#endif
 #ifdef ENABLE_FMRADIO
     #include "app/fm.h"
 #endif
@@ -66,9 +69,25 @@ void UI_DisplayStatus()
 
     char str[8] = "";
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    const bool isRxTxLogScreen = gScreenToDisplay == DISPLAY_RXTX_LOG;
+    if (isRxTxLogScreen) {
+        const char *filter = RXTX_LOG_GetFilterName();
+        const uint8_t end = (filter[2] == 0) ? 10 : 14;
+
+        GUI_DisplaySmallestInverse(filter, 2, 0, true, true, end);
+        x = 18;
+        x1 = x;
+    }
+#endif
+
 #if defined(ENABLE_FEAT_F4HWN_RX_TX_TIMER) && !defined(ENABLE_FEAT_F4HWN_DEBUG)
     bool isTransmit = gCurrentFunction == FUNCTION_TRANSMIT;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    if (!isRxTxLogScreen && gSetting_set_tmr && (isTransmit || FUNCTION_IsRx())) {
+#else
     if (gSetting_set_tmr && (isTransmit || FUNCTION_IsRx())) {
+#endif
         convertTime(line, !isTransmit);
         x += 39;
     } else {

@@ -33,6 +33,9 @@
 #include "frequencies.h"
 #include "functions.h"
 #include "helper/battery.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    #include "app/rxtx_log.h"
+#endif
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
@@ -239,7 +242,32 @@ void FUNCTION_Select(FUNCTION_Type_t Function)
     const FUNCTION_Type_t PreviousFunction = gCurrentFunction;
     const bool bWasPowerSave = PreviousFunction == FUNCTION_POWER_SAVE;
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    const bool previousWasActive =
+        PreviousFunction == FUNCTION_TRANSMIT ||
+        PreviousFunction == FUNCTION_MONITOR ||
+        PreviousFunction == FUNCTION_INCOMING ||
+        PreviousFunction == FUNCTION_RECEIVE;
+    const bool previousWasTx = PreviousFunction == FUNCTION_TRANSMIT;
+    const bool nextIsActive =
+        Function == FUNCTION_TRANSMIT ||
+        Function == FUNCTION_MONITOR ||
+        Function == FUNCTION_INCOMING ||
+        Function == FUNCTION_RECEIVE;
+    const bool nextIsTx = Function == FUNCTION_TRANSMIT;
+
+    if (previousWasActive &&
+        (!nextIsActive ||
+         (previousWasTx != nextIsTx)))
+        RXTX_LOG_EndActive();
+#endif
+
     gCurrentFunction = Function;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    if (nextIsActive && !nextIsTx && (!previousWasActive || previousWasTx))
+        RXTX_LOG_BeginRx(gRxVfo, Function);
+#endif
 
     if (bWasPowerSave && Function != FUNCTION_POWER_SAVE) {
         BK4819_Conditional_RX_TurnOn_and_GPIO6_Enable();

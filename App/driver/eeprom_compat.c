@@ -72,6 +72,10 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // [0x00..0x07] 8-byte header (reserved)
                                                 // [0x08..0x407] 128x64 monochrome bitmap, 1024 Bytes
                                                 // ST7565-native: 8 pages * 128 columns, column-major LSB-top
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    _MK_MAPPING(0x1E0000, 0x00D000, 0x015000),  // RX/TX append-only log * 32 KB / 8 sectors
+#endif
 };
 
 static void AddrTranslate(uint16_t EEPROM_Addr, uint16_t Size, uint32_t *PY25Q16_Addr_out, uint16_t *Size_out, bool *End_out);

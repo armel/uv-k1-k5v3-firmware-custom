@@ -19,6 +19,9 @@
 
 #include "am_fix.h"
 #include "app/dtmf.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    #include "app/rxtx_log.h"
+#endif
 #ifdef ENABLE_FMRADIO
     #include "app/fm.h"
 #endif
@@ -1271,6 +1274,10 @@ void RADIO_PrepareTX(void)
 #endif
 
     FUNCTION_Select(FUNCTION_TRANSMIT);
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_BeginTx(gCurrentVfo);
+#endif
 
     gTxTimerCountdown_500ms = 0;            // no timeout
 

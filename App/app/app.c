@@ -39,6 +39,9 @@
 #include "app/generic.h"
 #include "app/main.h"
 #include "app/menu.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    #include "app/rxtx_log.h"
+#endif
 #include "app/scanner.h"
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
     #include "app/uart.h"
@@ -115,6 +118,10 @@ void (*ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld) 
 
 #ifdef ENABLE_AIRCOPY
     [DISPLAY_AIRCOPY] = &AIRCOPY_ProcessKeys,
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    [DISPLAY_RXTX_LOG] = &RXTX_LOG_ProcessKeys,
 #endif
 };
 
@@ -771,6 +778,10 @@ void APP_StartListening(FUNCTION_Type_t function)
         RADIO_SetModulation(gRxVfo->Modulation);  // no need, set it now
 
     FUNCTION_Select(function);
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_BeginRx(gRxVfo, function);
+#endif
 
 #ifdef ENABLE_FMRADIO
     if (function == FUNCTION_MONITOR || gFmRadioMode)
@@ -1576,6 +1587,10 @@ void APP_TimeSlice10ms(void)
 
     SETTINGS_SaveVfoIndicesFlush();
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_Task10ms();
+#endif
+
     BACKLIGHT_Update();
 
     gFlashLightBlinkCounter++;
@@ -1805,6 +1820,10 @@ void APP_TimeSlice500ms(void)
     if (gKeypadLocked > 0)
         if (--gKeypadLocked == 0)
             gUpdateDisplay = true;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_Tick500ms();
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
     if (gSetting_set_tmr && (gCurrentFunction == FUNCTION_TRANSMIT || FUNCTION_IsRx())) {
