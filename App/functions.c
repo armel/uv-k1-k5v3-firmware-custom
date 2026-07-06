@@ -246,13 +246,11 @@ void FUNCTION_Select(FUNCTION_Type_t Function)
     const bool previousWasActive =
         PreviousFunction == FUNCTION_TRANSMIT ||
         PreviousFunction == FUNCTION_MONITOR ||
-        PreviousFunction == FUNCTION_INCOMING ||
         PreviousFunction == FUNCTION_RECEIVE;
     const bool previousWasTx = PreviousFunction == FUNCTION_TRANSMIT;
     const bool nextIsActive =
         Function == FUNCTION_TRANSMIT ||
         Function == FUNCTION_MONITOR ||
-        Function == FUNCTION_INCOMING ||
         Function == FUNCTION_RECEIVE;
     const bool nextIsTx = Function == FUNCTION_TRANSMIT;
 
