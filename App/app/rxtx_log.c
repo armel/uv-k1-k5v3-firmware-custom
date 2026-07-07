@@ -51,7 +51,9 @@
 #define RXTX_LOG_DETAIL_BATT         2u
 
 typedef struct __attribute__((packed)) {
-    uint32_t sequence;
+    // Display fields come first: they form the prefix mirrored by
+    // RXTX_LogEntry_t and copied to the view cache in one pass. Scan-only
+    // fields (sequence) sit past the prefix so RAM does not carry them.
     uint32_t frequency;
     uint32_t trafficSeq;
     uint16_t durationSeconds;
@@ -59,15 +61,21 @@ typedef struct __attribute__((packed)) {
     uint8_t  flags;
     uint8_t  sMeter;
     uint8_t  battVolt;
-    uint8_t  reserved[11];
+    // Padding byte, written as 0xFF like reserved. It keeps sequence 32-bit
+    // aligned: Cortex-M0+ forbids unaligned word access, so without it the
+    // compiler falls back to byte-wise loads/stores that cost flash.
+    uint8_t  pad;
+    uint32_t sequence;
+    uint8_t  reserved[10];
     uint8_t  crc;
     uint8_t  commit;
 } RXTX_LogFlashEntry_t;
 
 static_assert(sizeof(RXTX_LogFlashEntry_t) == 32);
+static_assert(offsetof(RXTX_LogFlashEntry_t, sequence) % 4 == 0);
 static_assert(RXTX_LOG_VIEW_ANCHOR_COUNT <= 32);
 
-#define RXTX_LOG_ENTRY_COPY_SIZE offsetof(RXTX_LogFlashEntry_t, reserved)
+#define RXTX_LOG_ENTRY_COPY_SIZE offsetof(RXTX_LogFlashEntry_t, pad)
 
 // RXTX_LogEntry_t (RAM) and RXTX_LogFlashEntry_t must stay byte-identical for
 // the copied prefix.
@@ -659,6 +667,7 @@ static void RXTX_LOG_WriteEntry(const RXTX_LogEntry_t *src)
 
     memset(&entry, 0xFF, sizeof(entry));
     memcpy(&entry, src, RXTX_LOG_ENTRY_COPY_SIZE);
+    entry.sequence = gNextSequence++;
     entry.crc = RXTX_LOG_Crc8(&entry, sizeof(entry) - 2);
 
     RXTX_LOG_PrepareNextSlot();
@@ -673,7 +682,6 @@ static void RXTX_LOG_WriteSessionMarker(void)
     RXTX_LogEntry_t entry;
 
     memset(&entry, 0, sizeof(entry));
-    entry.sequence = gNextSequence++;
     entry.channel  = RXTX_LOG_CHANNEL_NONE;
     entry.flags    = RXTX_LOG_FLAG_SESSION;
     entry.sMeter   = RXTX_LOG_SMETER_UNKNOWN;
@@ -837,7 +845,6 @@ void RXTX_LOG_EndActive(void)
     RXTX_LogEntry_t entry;
     memset(&entry, 0, sizeof(entry));
 
-    entry.sequence        = gNextSequence++;
     entry.trafficSeq      = gNextTrafficSequence++;
     entry.frequency       = gSessionFrequency;
     entry.durationSeconds = (gSessionTicks500ms + 1u) / 2u;

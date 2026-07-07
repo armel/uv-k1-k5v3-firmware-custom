@@ -17,12 +17,13 @@
 
 #define RXTX_LOG_VISIBLE_COUNT 512
 
-// Field order mirrors RXTX_LogFlashEntry_t (rxtx_log.c) so both layouts
-// match byte-for-byte up to and including battVolt, copied in one pass.
+// Field order mirrors the leading fields of RXTX_LogFlashEntry_t
+// (rxtx_log.c) so both layouts match byte-for-byte up to and including
+// battVolt, copied in one pass. Scan-only fields (sequence) sit past the
+// copied prefix in the flash layout and are not cached in RAM.
 // The channel name is not stored: it is resolved from `channel` at display
 // time via SETTINGS_FetchChannelName.
 typedef struct {
-    uint32_t sequence;
     uint32_t frequency;
     uint32_t trafficSeq;
     uint16_t durationSeconds;
