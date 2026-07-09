@@ -50,6 +50,9 @@ typedef enum {
     STATE_KA_1,
     STATE_KA_2,
     STATE_KA_3,
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    STATE_KA_FEATURE,
+#endif
     STATE_KEY_1,
     STATE_KEY_2,
     STATE_KEY_3,
@@ -64,6 +67,13 @@ extern bool       gWasFKeyPressed;
 #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
 // Serial-injected key (written by UART/VCP parser, consumed by KEYBOARD_Poll).
 extern volatile KEY_Code_t gKeyFromSerial;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+#define SERIAL_VIEWER_FEATURE_RF_LOG 0x01u
+
+// Extension flags announced by the viewer's feature keepalive.
+extern volatile uint8_t    gSerialViewerFeatures;
+#endif
 
 bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b);
 #endif

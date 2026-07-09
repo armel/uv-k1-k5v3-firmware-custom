@@ -81,6 +81,13 @@ static_assert(RXTX_LOG_VIEW_ANCHOR_COUNT <= 32);
 // the copied prefix.
 static_assert(RXTX_LOG_ENTRY_COPY_SIZE == offsetof(RXTX_LogEntry_t, battVolt) + sizeof(((RXTX_LogEntry_t *)0)->battVolt));
 static_assert(sizeof(RXTX_LogEntry_t) >= RXTX_LOG_ENTRY_COPY_SIZE);
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+// Both sizes are hardcoded in k5viewer.js (RF_LOG_ROW_SIZE and
+// RF_LOG_PACKET_SIZE): pin them so a struct change breaks the build
+// instead of the viewer.
+static_assert(sizeof(RXTX_LogK5ViewerRow_t) == 25);
+static_assert(RXTX_LOG_K5VIEWER_PACKET_SIZE == 1629);
+#endif
 
 static RXTX_LogEntry_t gViewCache[RXTX_LOG_VIEW_CACHE_COUNT];
 static uint16_t        gViewCacheStart;
@@ -727,6 +734,125 @@ static bool RXTX_LOG_GetFilteredEntry(uint16_t indexFromNewest, RXTX_LogEntry_t 
     *entry = gViewCache[indexFromNewest - gViewCacheStart];
     return true;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+static uint32_t RXTX_LOG_K5ViewerMix(uint32_t hash, uint32_t value)
+{
+    hash ^= value & 0xFFu;
+    hash *= 16777619u;
+    hash ^= (value >> 8) & 0xFFu;
+    hash *= 16777619u;
+    hash ^= (value >> 16) & 0xFFu;
+    hash *= 16777619u;
+    hash ^= (value >> 24) & 0xFFu;
+    hash *= 16777619u;
+    return hash;
+}
+
+uint32_t RXTX_LOG_K5ViewerSignature(void)
+{
+    uint32_t hash = 2166136261u;
+
+    hash = RXTX_LOG_K5ViewerMix(hash, gSessionActive);
+    hash = RXTX_LOG_K5ViewerMix(hash, gClearActive);
+    hash = RXTX_LOG_K5ViewerMix(hash, gLogHasTraffic);
+    hash = RXTX_LOG_K5ViewerMix(hash, gNextTrafficSequence);
+    hash = RXTX_LOG_K5ViewerMix(hash, gSessionFlags);
+    hash = RXTX_LOG_K5ViewerMix(hash, gSessionFrequency);
+    hash = RXTX_LOG_K5ViewerMix(hash, gSessionChannel);
+    // Mix the exported seconds, not the raw ticks: two consecutive ticks
+    // map to the same durationSeconds, hashing them would resend an
+    // identical packet every 500 ms during an active session.
+    hash = RXTX_LOG_K5ViewerMix(hash, (uint32_t)((gSessionTicks500ms + 1u) / 2u));
+    hash = RXTX_LOG_K5ViewerMix(hash, gSessionSMeter);
+    hash = RXTX_LOG_K5ViewerMix(hash, gSessionBattVolt);
+
+    return hash;
+}
+
+static void RXTX_LOG_SetK5ViewerChannelName(RXTX_LogK5ViewerRow_t *row, uint16_t channel)
+{
+    memset(row->channelName, 0, sizeof(row->channelName));
+
+    if (channel == RXTX_LOG_CHANNEL_NONE)
+        return;
+
+    char name[RXTX_LOG_K5VIEWER_NAME_LENGTH + 1u];
+    SETTINGS_FetchChannelName(name, channel);
+    for (uint8_t i = 0; i < RXTX_LOG_K5VIEWER_NAME_LENGTH && name[i] != 0; i++)
+        row->channelName[i] = name[i];
+}
+
+static void RXTX_LOG_CopyK5ViewerRow(RXTX_LogK5ViewerRow_t *dst, const RXTX_LogFlashEntry_t *src)
+{
+    dst->frequency       = src->frequency;
+    dst->trafficSeq      = src->trafficSeq;
+    dst->durationSeconds = src->durationSeconds;
+    dst->channel         = src->channel;
+    dst->flags           = src->flags;
+    dst->meter           = src->sMeter;
+    dst->battVolt        = src->battVolt;
+    RXTX_LOG_SetK5ViewerChannelName(dst, src->channel);
+}
+
+// Stream the whole packet through `send` without ever holding it in RAM:
+// peak stack stays at one row plus one flash entry. The row area is always
+// full-length; rowCount is not known before scanning, so the header
+// announces every slot and padding rows are all-zero (the viewer already
+// skips rows with frequency == 0).
+void RXTX_LOG_SendK5ViewerPacket(void (*send)(const uint8_t *data, uint16_t size))
+{
+    RXTX_LogK5ViewerRow_t row;
+    uint8_t rowsSent = 0;
+
+    uint8_t header[4] = {RXTX_LOG_K5VIEWER_VERSION, 0, RXTX_LOG_K5VIEWER_ROW_COUNT, 0};
+    if (gSessionActive)
+        header[1] |= RXTX_LOG_K5VIEWER_STATUS_ACTIVE;
+    if (gLogHasTraffic)
+        header[1] |= RXTX_LOG_K5VIEWER_STATUS_HAS_TRAFFIC;
+    if (gClearActive)
+        header[1] |= RXTX_LOG_K5VIEWER_STATUS_CLEARING;
+    send(header, sizeof(header));
+
+    row.frequency       = gSessionFrequency;
+    row.trafficSeq      = gNextTrafficSequence;
+    row.durationSeconds = (gSessionTicks500ms + 1u) / 2u;
+    row.channel         = gSessionChannel;
+    row.flags           = gSessionFlags;
+    row.meter           = gSessionSMeter;
+    row.battVolt        = gSessionBattVolt;
+    RXTX_LOG_SetK5ViewerChannelName(&row, gSessionChannel);
+    send((const uint8_t *)&row, sizeof(row));
+
+    if (gLogHasTraffic) {
+        uint16_t slot = RXTX_LOG_AddressToSlot(gNextFlashAddress);
+        for (uint16_t scanned = 0;
+             scanned < RXTX_LOG_SLOT_COUNT && rowsSent < RXTX_LOG_K5VIEWER_ROW_COUNT;
+             scanned++)
+        {
+            RXTX_LogFlashEntry_t flashEntry;
+
+            slot = RXTX_LOG_PreviousSlot(slot);
+            PY25Q16_ReadBuffer(RXTX_LOG_SlotToAddress(slot), &flashEntry, sizeof(flashEntry));
+
+            if (RXTX_LOG_IsBlankFlashEntry(&flashEntry))
+                break;
+
+            if (!RXTX_LOG_IsValidFlashEntry(&flashEntry) ||
+                !RXTX_LOG_IsTrafficFlags(flashEntry.flags))
+                continue;
+
+            RXTX_LOG_CopyK5ViewerRow(&row, &flashEntry);
+            send((const uint8_t *)&row, sizeof(row));
+            rowsSent++;
+        }
+    }
+
+    memset(&row, 0, sizeof(row));
+    for (; rowsSent < RXTX_LOG_K5VIEWER_ROW_COUNT; rowsSent++)
+        send((const uint8_t *)&row, sizeof(row));
+}
+#endif
 
 static void RXTX_LOG_CaptureSession(uint8_t flags, const VFO_Info_t *vfo)
 {

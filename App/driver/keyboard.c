@@ -39,8 +39,14 @@ bool       gWasFKeyPressed  = false;
 // Packet types for serial key injection (K5Viewer → radio)
 #define SERIAL_KEY_TYPE         0x03
 #define SERIAL_KEY_TYPE_LONG    0x04
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+#define SERIAL_FEATURE_TYPE     0x05
+#endif
 
 volatile KEY_Code_t gKeyFromSerial      = KEY_INVALID;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+volatile uint8_t    gSerialViewerFeatures = 0;
+#endif
 static   uint8_t    gSerialKeyHoldCount = 0;
 static   uint8_t    gSerialKeyLong      = 0;  // 0 = short press, 1 = long press
 
@@ -71,13 +77,35 @@ bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b)
             break;
             
         case STATE_KA_2:
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+            if (b == 0x00)
+                *state = STATE_KA_3;
+            else if (b == SERIAL_FEATURE_TYPE)
+                *state = STATE_KA_FEATURE;
+            else
+                *state = STATE_IDLE;
+#else
             *state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
+#endif
             break;
-            
+
         case STATE_KA_3:
-            if (b == 0x00) connected = true;
+            if (b == 0x00) {
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+                gSerialViewerFeatures = 0;
+#endif
+                connected = true;
+            }
             *state = STATE_IDLE;
             break;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+        case STATE_KA_FEATURE:
+            gSerialViewerFeatures = b;
+            connected = true;
+            *state = STATE_IDLE;
+            break;
+#endif
             
         case STATE_KEY_1:
             *state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;

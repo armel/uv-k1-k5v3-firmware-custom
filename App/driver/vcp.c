@@ -46,15 +46,19 @@ void VCP_Init()
 bool VCP_ScreenshotPing(void)
 {
     // State machine for parsing incoming packets:
-    //   Keepalive:       0x55 0xAA 0x00 0x00  → viewer alive
-    //   Short key press: 0xAA 0x55 0x03 <key> → inject short press
-    //   Long key press:  0xAA 0x55 0x04 <key> → inject long press
+    //   Keepalive:       0x55 0xAA 0x00 0x00    → viewer alive, no extensions
+    //   Feature keepalive (ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER builds only):
+    //                    0x55 0xAA 0x05 <flags> → viewer alive, extensions enabled
+    //                    flags bit 0 = RF log stream
+    //   Short key press: 0xAA 0x55 0x03 <key>   → inject short press
+    //   Long key press:  0xAA 0x55 0x04 <key>   → inject long press
     //
     // State transitions:
     //   IDLE  → 0x55 → KA_1
     //   KA_1  → 0xAA → KA_2       (else IDLE)
-    //   KA_2  → 0x00 → KA_3       (else IDLE)
-    //   KA_3  → 0x00 → keepalive OK, IDLE
+    //   KA_2  → 0x00 → KA_3       (else 0x05 → KA_FEATURE, else IDLE)
+    //   KA_3  → 0x00 → keepalive OK, clear extensions, IDLE
+    //   KA_FEATURE → <flags> → keepalive OK, set extensions, IDLE
     //
     //   IDLE   → 0xAA → KEY_1
     //   KEY_1  → 0x55 → KEY_2     (else IDLE)

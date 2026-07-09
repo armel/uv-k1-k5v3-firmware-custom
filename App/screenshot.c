@@ -21,6 +21,9 @@
 #include "driver/vcp.h"
 #include "driver/keyboard.h"
 #include "driver/bk4819.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+#include "app/rxtx_log.h"
+#endif
 
 // SRAM optimization: minimize static allocations
 // - previousHash: one fingerprint per 8-byte chunk instead of a full
@@ -41,6 +44,10 @@ static uint8_t forcedBlock = 0;
 static uint8_t keepAlive = 3;
 static bool hasConnectionPing = false;
 static bool wasConnected = false;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+static uint32_t previousRfLogSignature = 0;
+static bool rfLogSent = false;
+#endif
 
 // FNV-1a over one 8-byte chunk, folded to 16 bits
 static uint16_t SCREENSHOT_Hash(const uint8_t *data)
@@ -83,6 +90,8 @@ enum {
     SCREENSHOT_CHUNKS_PER_LINE = 16,
     SCREENSHOT_HALF_LINE_COLUMNS = LCD_WIDTH / 2,
     SCREENSHOT_MARKER_BASE = 0xF0,
+    SCREENSHOT_TYPE_DIFF = 0x02,
+    SCREENSHOT_TYPE_RXTX_LOG = 0x05,
     SCREENSHOT_FLAG_DEEP_SLEEP = 1 << 0,
     SCREENSHOT_FLAG_LED_RED = 1 << 1,
     SCREENSHOT_FLAG_LED_GREEN = 1 << 2,
@@ -106,10 +115,47 @@ static uint8_t SCREENSHOT_StateFlags(void)
     return flags;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+static bool SCREENSHOT_HasPendingRfLogUpdate(void)
+{
+    if ((gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG) == 0)
+        return false;
+
+    return !rfLogSent || RXTX_LOG_K5ViewerSignature() != previousRfLogSignature;
+}
+
+static void SCREENSHOT_SendRfLog(void)
+{
+    // Capture the signature before streaming: a state change landing
+    // during the blocking send still differs afterwards and triggers a
+    // resend on the next cycle.
+    previousRfLogSignature = RXTX_LOG_K5ViewerSignature();
+    rfLogSent = true;
+
+    const uint16_t len = RXTX_LOG_K5VIEWER_PACKET_SIZE;
+    uint8_t header[5] = {
+        0xAA, 0x55, SCREENSHOT_TYPE_RXTX_LOG,
+        (uint8_t)(len >> 8),
+        (uint8_t)(len & 0xFF)
+    };
+
+    SCREENSHOT_Send(header, 5);
+    RXTX_LOG_SendK5ViewerPacket(SCREENSHOT_Send);
+
+    uint8_t end = 0x0A;
+    SCREENSHOT_Send(&end, 1);
+}
+#endif
+
 bool SCREENSHOT_HasPendingStateChange(void)
 {
     if (gUART_LockScreenshot > 0 || keepAlive == 0 || !hasConnectionPing)
         return false;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    if (SCREENSHOT_HasPendingRfLogUpdate())
+        return true;
+#endif
 
     return !wasConnected || SCREENSHOT_StateFlags() != previousStateFlags;
 }
@@ -146,6 +192,10 @@ void SCREENSHOT_Update(bool force)
             wasConnected = false;
             hasConnectionPing = false;
             previousStateFlags = 0xFF;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+            gSerialViewerFeatures = 0;
+            rfLogSent = false;
+#endif
             return;
         }
     } else {
@@ -159,6 +209,11 @@ void SCREENSHOT_Update(bool force)
 
     const uint8_t stateFlags = SCREENSHOT_StateFlags();
     const bool stateChanged = (stateFlags != previousStateFlags);
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    const bool rfLogPending = SCREENSHOT_HasPendingRfLogUpdate();
+#else
+    const bool rfLogPending = false;
+#endif
 
     // ==== FIRST PASS: Count changed chunks ====
     uint16_t deltaLen = 0;
@@ -179,7 +234,7 @@ void SCREENSHOT_Update(bool force)
 
     forcedBlock = (forcedBlock + 1) % 128;
 
-    if (deltaLen == 0 && !stateChanged)
+    if (deltaLen == 0 && !stateChanged && !rfLogPending)
         return;
 
     // Skip transmission if a key is currently pressed
@@ -187,39 +242,52 @@ void SCREENSHOT_Update(bool force)
     if (gKeyReading0 != KEY_INVALID)
         return;
 
-    // ==== Send version marker and state flags ====
-    // 0xF0 keeps a resync-safe marker before the standard AA 55 header.
-    uint8_t versionMarker = SCREENSHOT_MARKER_BASE | stateFlags;
-    SCREENSHOT_Send(&versionMarker, 1);
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    // A pending RF log packet may be the only thing to send: skip the
+    // frame section when it carries nothing. Without the RF log stream
+    // the early return above already guarantees this condition.
+    if (deltaLen != 0 || stateChanged)
+#endif
+    {
+        // ==== Send version marker and state flags ====
+        // 0xF0 keeps a resync-safe marker before the standard AA 55 header.
+        uint8_t versionMarker = SCREENSHOT_MARKER_BASE | stateFlags;
+        SCREENSHOT_Send(&versionMarker, 1);
 
-    // ==== Send header ====
-    uint8_t header[5] = {
-        0xAA, 0x55, 0x02,
-        (uint8_t)(deltaLen >> 8),
-        (uint8_t)(deltaLen & 0xFF)
-    };
+        // ==== Send header ====
+        uint8_t header[5] = {
+            0xAA, 0x55, SCREENSHOT_TYPE_DIFF,
+            (uint8_t)(deltaLen >> 8),
+            (uint8_t)(deltaLen & 0xFF)
+        };
 
-    SCREENSHOT_Send(header, 5);
+        SCREENSHOT_Send(header, 5);
 
-    // ==== SECOND PASS: Send only changed chunks ====
-    for (uint8_t chunkIdx = 0; chunkIdx < 128; chunkIdx++) {
-        if (!(changedBitmap[chunkIdx >> 3] & (1 << (chunkIdx & 7))))
-            continue;
+        // ==== SECOND PASS: Send only changed chunks ====
+        for (uint8_t chunkIdx = 0; chunkIdx < 128; chunkIdx++) {
+            if (!(changedBitmap[chunkIdx >> 3] & (1 << (chunkIdx & 7))))
+                continue;
 
-        chunk[0] = chunkIdx;
-        SCREENSHOT_Chunk(chunkIdx, &chunk[1]);
+            chunk[0] = chunkIdx;
+            SCREENSHOT_Chunk(chunkIdx, &chunk[1]);
 
-        SCREENSHOT_Send(chunk, 9);
+            SCREENSHOT_Send(chunk, 9);
 
-        // Update the fingerprint only once the chunk is actually sent,
-        // so chunks skipped by an early return stay marked as changed.
-        // Hashing the recomputed payload also keeps the fingerprint in
-        // sync if the display buffer changed between the two passes.
-        previousHash[chunkIdx] = SCREENSHOT_Hash(&chunk[1]);
+            // Update the fingerprint only once the chunk is actually sent,
+            // so chunks skipped by an early return stay marked as changed.
+            // Hashing the recomputed payload also keeps the fingerprint in
+            // sync if the display buffer changed between the two passes.
+            previousHash[chunkIdx] = SCREENSHOT_Hash(&chunk[1]);
+        }
+
+        uint8_t end = 0x0A;
+        SCREENSHOT_Send(&end, 1);
     }
 
-    uint8_t end = 0x0A;
-    SCREENSHOT_Send(&end, 1);
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    if (rfLogPending)
+        SCREENSHOT_SendRfLog();
+#endif
 
     previousStateFlags = stateFlags;
     wasConnected = true;
