@@ -27,8 +27,8 @@
 #include "ui/helper.h"
 #include "ui/main.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-#include "screenshot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "k5viewer.h"
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_SPECTRUM
@@ -2461,10 +2461,10 @@ static void UpdateListening()
 
 static void Tick()
 {
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     // Parse incoming packets on every tick so serial keys are never missed,
     // regardless of whether the screen needs redrawing.
-    SCREENSHOT_ParseInput();
+    K5VIEWER_ParseInput();
 #endif
 
     if (gNextTimeslice)
@@ -2532,9 +2532,9 @@ static void Tick()
     if (redrawScreen || ++renderTimer >= RENDER_PERIOD_TICKS)
     {
         Render();
-        // For screenshot
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            SCREENSHOT_Update(false);
+        // For K5Viewer
+        #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+            K5VIEWER_Update(false);
         #endif
         redrawScreen = false;
         renderTimer = 0;

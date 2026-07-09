@@ -29,8 +29,8 @@
 #include "version.h"
 #include "bitmaps.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-    #include "screenshot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    #include "k5viewer.h"
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_LOGO
@@ -355,7 +355,7 @@ void UI_DisplayWelcome(void)
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        SCREENSHOT_Update(true);
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        K5VIEWER_Update(true);
     #endif
 }

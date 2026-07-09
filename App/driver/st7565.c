@@ -24,7 +24,7 @@
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "misc.h"
-#include "screenshot.h"
+#include "k5viewer.h"
 
 #define SPIx SPI1
 
@@ -164,8 +164,8 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
     void ST7565_BlitLine(unsigned line)
     {
         ST7565_BlitScreen(line + 1);
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            SCREENSHOT_Update(true);  // Force immediate capture
+        #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+            K5VIEWER_Update(true);  // Force immediate capture
         #endif
     }
 

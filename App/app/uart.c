@@ -863,7 +863,7 @@ void UART_HandleCommand(uint32_t Port)
 #endif
     } // switch
 
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        gUART_LockScreenshot = 20; // lock screenshot
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        gUART_LockK5Viewer = 20; // lock the K5Viewer stream
     #endif
 }

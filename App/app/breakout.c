@@ -16,8 +16,8 @@
 
 #include "app/breakout.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-#include "screenshot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "k5viewer.h"
 #endif
 
 static uint32_t randSeed = 1;
@@ -304,10 +304,10 @@ static void OnKeyDown(uint8_t key)
 // HandleUserInput 
 static bool HandleUserInput()
 {
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     // Parse incoming packets on every tick so serial keys are never missed,
     // regardless of whether the screen needs redrawing.
-    SCREENSHOT_ParseInput();
+    K5VIEWER_ParseInput();
 #endif
 
     kbd.prev = kbd.current;
@@ -388,10 +388,10 @@ void APP_RunBreakout(void) {
         ST7565_BlitStatusLine();  // Blank status line
         ST7565_BlitFullScreen();
 
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+        #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
             if(isPaused || swap == 0)
             {
-                SCREENSHOT_Update(false);
+                K5VIEWER_Update(false);
             }
         #endif
     }

@@ -18,7 +18,7 @@
 #include "usb_config.h"
 #include "py32f071_ll_bus.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "driver/keyboard.h"
 #endif
 
@@ -42,8 +42,8 @@ void VCP_Init()
     NVIC_EnableIRQ(USBD_IRQn);
 }
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-bool VCP_ScreenshotPing(void)
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+bool VCP_K5ViewerPing(void)
 {
     // State machine for parsing incoming packets:
     //   Keepalive:       0x55 0xAA 0x00 0x00    → viewer alive, no extensions
@@ -93,4 +93,4 @@ bool VCP_ScreenshotPing(void)
 
     return connected;
 }
-#endif // ENABLE_FEAT_F4HWN_SCREENSHOT
+#endif // ENABLE_FEAT_F4HWN_K5VIEWER

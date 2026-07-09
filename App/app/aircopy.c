@@ -30,8 +30,8 @@
 #include "settings.h"
 #include <stddef.h>
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-#include "screenshot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "k5viewer.h"
 #endif
 
 static const uint16_t Obfuscation[8] = { 0x6C16, 0xE614, 0x912E, 0x400D, 0x3521, 0x40D5, 0x0313, 0x80E9 };
@@ -140,8 +140,8 @@ static void AIRCOPY_clear()
     {
         crc[i] = 0;
     }
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        SCREENSHOT_Update(true);
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        K5VIEWER_Update(true);
     #endif
 }
 
@@ -170,8 +170,8 @@ static inline void AIRCOPY_CheckComplete(uint16_t *num)
     if (done >= map->total_blocks)
     {
         gAircopyState = AIRCOPY_COMPLETE;
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        SCREENSHOT_Update(false);
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        K5VIEWER_Update(false);
 #endif
     }
 }
@@ -222,8 +222,8 @@ bool AIRCOPY_SendMessage(void)
     // Check if transfer is complete
     if (CurrentSegmentIndex >= map->num_segments) {
         gAircopyState = AIRCOPY_COMPLETE;
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            SCREENSHOT_Update(false);
+        #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+            K5VIEWER_Update(false);
         #endif
         return 0;
     }

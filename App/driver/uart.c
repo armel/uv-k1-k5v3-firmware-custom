@@ -23,7 +23,7 @@
 #include "py32f071_ll_gpio.h"
 #include "py32f071_ll_usart.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "driver/keyboard.h"
 #endif
 
@@ -150,7 +150,7 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
     }
 }
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     bool UART_IsCableConnected(void) {
         static uint8_t     read_ptr = 0;
         static ParseState_t state   = STATE_IDLE;

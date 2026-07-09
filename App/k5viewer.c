@@ -16,7 +16,7 @@
 
 #include "debugging.h"
 #include "driver/st7565.h"
-#include "screenshot.h"
+#include "k5viewer.h"
 #include "misc.h"
 #include "driver/vcp.h"
 #include "driver/keyboard.h"
@@ -50,7 +50,7 @@ static bool rfLogSent = false;
 #endif
 
 // FNV-1a over one 8-byte chunk, folded to 16 bits
-static uint16_t SCREENSHOT_Hash(const uint8_t *data)
+static uint16_t K5VIEWER_Hash(const uint8_t *data)
 {
     uint32_t h = 2166136261u;
     for (uint8_t i = 0; i < 8; i++) {
@@ -59,26 +59,26 @@ static uint16_t SCREENSHOT_Hash(const uint8_t *data)
     return (uint16_t)(h ^ (h >> 16));
 }
 
-void SCREENSHOT_ParseInput(void)
+void K5VIEWER_ParseInput(void)
 {
-    if (SCREENSHOT_IsLocked())
+    if (K5VIEWER_IsLocked())
         return;
 
     if (UART_IsCableConnected()) {
         keepAlive = 15;
         hasConnectionPing = true;
-        gUSB_ScreenshotEnabled = false;
+        gUSB_K5ViewerEnabled = false;
     }
-    else if (VCP_ScreenshotPing()) {
+    else if (VCP_K5ViewerPing()) {
         keepAlive = 15;
         hasConnectionPing = true;
-        gUSB_ScreenshotEnabled = true;
+        gUSB_K5ViewerEnabled = true;
     }
 }
 
-static void SCREENSHOT_Send(const uint8_t *buf, uint16_t len)
+static void K5VIEWER_Send(const uint8_t *buf, uint16_t len)
 {
-    if (gUSB_ScreenshotEnabled) {
+    if (gUSB_K5ViewerEnabled) {
         cdc_acm_data_send_with_dtr(buf, len);
     } else {
         UART_Send(buf, len);
@@ -86,37 +86,37 @@ static void SCREENSHOT_Send(const uint8_t *buf, uint16_t len)
 }
 
 enum {
-    SCREENSHOT_CHUNK_SIZE = 8,
-    SCREENSHOT_CHUNKS_PER_LINE = 16,
-    SCREENSHOT_HALF_LINE_COLUMNS = LCD_WIDTH / 2,
-    SCREENSHOT_MARKER_BASE = 0xF0,
-    SCREENSHOT_TYPE_DIFF = 0x02,
-    SCREENSHOT_TYPE_RXTX_LOG = 0x05,
-    SCREENSHOT_FLAG_DEEP_SLEEP = 1 << 0,
-    SCREENSHOT_FLAG_LED_RED = 1 << 1,
-    SCREENSHOT_FLAG_LED_GREEN = 1 << 2,
+    K5VIEWER_CHUNK_SIZE = 8,
+    K5VIEWER_CHUNKS_PER_LINE = 16,
+    K5VIEWER_HALF_LINE_COLUMNS = LCD_WIDTH / 2,
+    K5VIEWER_MARKER_BASE = 0xF0,
+    K5VIEWER_TYPE_DIFF = 0x02,
+    K5VIEWER_TYPE_RXTX_LOG = 0x05,
+    K5VIEWER_FLAG_DEEP_SLEEP = 1 << 0,
+    K5VIEWER_FLAG_LED_RED = 1 << 1,
+    K5VIEWER_FLAG_LED_GREEN = 1 << 2,
 };
 
-static uint8_t SCREENSHOT_StateFlags(void)
+static uint8_t K5VIEWER_StateFlags(void)
 {
     uint8_t flags = 0;
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
     if (gWakeUp)
-        flags |= SCREENSHOT_FLAG_DEEP_SLEEP;
+        flags |= K5VIEWER_FLAG_DEEP_SLEEP;
 #endif
 
     if (BK4819_IsGpioOutSet(BK4819_GPIO5_PIN1_RED))
-        flags |= SCREENSHOT_FLAG_LED_RED;
+        flags |= K5VIEWER_FLAG_LED_RED;
 
     if (BK4819_IsGpioOutSet(BK4819_GPIO6_PIN2_GREEN))
-        flags |= SCREENSHOT_FLAG_LED_GREEN;
+        flags |= K5VIEWER_FLAG_LED_GREEN;
 
     return flags;
 }
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
-static bool SCREENSHOT_HasPendingRfLogUpdate(void)
+static bool K5VIEWER_HasPendingRfLogUpdate(void)
 {
     if ((gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG) == 0)
         return false;
@@ -124,7 +124,7 @@ static bool SCREENSHOT_HasPendingRfLogUpdate(void)
     return !rfLogSent || RXTX_LOG_K5ViewerSignature() != previousRfLogSignature;
 }
 
-static void SCREENSHOT_SendRfLog(void)
+static void K5VIEWER_SendRfLog(void)
 {
     // Capture the signature before streaming: a state change landing
     // during the blocking send still differs afterwards and triggers a
@@ -134,56 +134,56 @@ static void SCREENSHOT_SendRfLog(void)
 
     const uint16_t len = RXTX_LOG_K5VIEWER_PACKET_SIZE;
     uint8_t header[5] = {
-        0xAA, 0x55, SCREENSHOT_TYPE_RXTX_LOG,
+        0xAA, 0x55, K5VIEWER_TYPE_RXTX_LOG,
         (uint8_t)(len >> 8),
         (uint8_t)(len & 0xFF)
     };
 
-    SCREENSHOT_Send(header, 5);
-    RXTX_LOG_SendK5ViewerPacket(SCREENSHOT_Send);
+    K5VIEWER_Send(header, 5);
+    RXTX_LOG_SendK5ViewerPacket(K5VIEWER_Send);
 
     uint8_t end = 0x0A;
-    SCREENSHOT_Send(&end, 1);
+    K5VIEWER_Send(&end, 1);
 }
 #endif
 
-bool SCREENSHOT_HasPendingStateChange(void)
+bool K5VIEWER_HasPendingStateChange(void)
 {
-    if (gUART_LockScreenshot > 0 || keepAlive == 0 || !hasConnectionPing)
+    if (gUART_LockK5Viewer > 0 || keepAlive == 0 || !hasConnectionPing)
         return false;
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
-    if (SCREENSHOT_HasPendingRfLogUpdate())
+    if (K5VIEWER_HasPendingRfLogUpdate())
         return true;
 #endif
 
-    return !wasConnected || SCREENSHOT_StateFlags() != previousStateFlags;
+    return !wasConnected || K5VIEWER_StateFlags() != previousStateFlags;
 }
 
 // Compute one 8-byte output chunk directly from the display buffers.
 // Frame layout: per line (status + 7 frame lines), 8 bit layers of
 // 16 bytes each. Each bit layer is split into two 64-column chunks.
-static void SCREENSHOT_Chunk(uint8_t chunkIdx, uint8_t *dest)
+static void K5VIEWER_Chunk(uint8_t chunkIdx, uint8_t *dest)
 {
-    const uint8_t chunkInLine = chunkIdx % SCREENSHOT_CHUNKS_PER_LINE;
-    const uint8_t line = chunkIdx / SCREENSHOT_CHUNKS_PER_LINE;
+    const uint8_t chunkInLine = chunkIdx % K5VIEWER_CHUNKS_PER_LINE;
+    const uint8_t line = chunkIdx / K5VIEWER_CHUNKS_PER_LINE;
     const uint8_t bit = chunkInLine / 2;
-    const uint8_t columnBase = (chunkInLine % 2) * SCREENSHOT_HALF_LINE_COLUMNS;
+    const uint8_t columnBase = (chunkInLine % 2) * K5VIEWER_HALF_LINE_COLUMNS;
     const uint8_t *src = (line == 0 ? gStatusLine : gFrameBuffer[line - 1])
                          + columnBase;
 
-    for (uint8_t j = 0; j < SCREENSHOT_CHUNK_SIZE; j++) {
+    for (uint8_t j = 0; j < K5VIEWER_CHUNK_SIZE; j++) {
         uint8_t acc = 0;
-        for (uint8_t k = 0; k < SCREENSHOT_CHUNK_SIZE; k++) {
-            if (src[j * SCREENSHOT_CHUNK_SIZE + k] & (1 << bit)) acc |= (1 << k);
+        for (uint8_t k = 0; k < K5VIEWER_CHUNK_SIZE; k++) {
+            if (src[j * K5VIEWER_CHUNK_SIZE + k] & (1 << bit)) acc |= (1 << k);
         }
         dest[j] = gSetting_set_inv ? ~acc : acc;
     }
 }
 
-void SCREENSHOT_Update(bool force)
+void K5VIEWER_Update(bool force)
 {
-    if (SCREENSHOT_IsLocked())
+    if (K5VIEWER_IsLocked())
         return;
 
     if (keepAlive > 0) {
@@ -207,10 +207,10 @@ void SCREENSHOT_Update(bool force)
         force = true;
     }
 
-    const uint8_t stateFlags = SCREENSHOT_StateFlags();
+    const uint8_t stateFlags = K5VIEWER_StateFlags();
     const bool stateChanged = (stateFlags != previousStateFlags);
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
-    const bool rfLogPending = SCREENSHOT_HasPendingRfLogUpdate();
+    const bool rfLogPending = K5VIEWER_HasPendingRfLogUpdate();
 #else
     const bool rfLogPending = false;
 #endif
@@ -221,9 +221,9 @@ void SCREENSHOT_Update(bool force)
     uint8_t chunk[9];                 // [0] = index, [1..8] = payload
 
     for (uint8_t chunkIdx = 0; chunkIdx < 128; chunkIdx++) {
-        SCREENSHOT_Chunk(chunkIdx, &chunk[1]);
+        K5VIEWER_Chunk(chunkIdx, &chunk[1]);
 
-        bool changed = SCREENSHOT_Hash(&chunk[1]) != previousHash[chunkIdx];
+        bool changed = K5VIEWER_Hash(&chunk[1]) != previousHash[chunkIdx];
         bool isForced = (chunkIdx == forcedBlock);
 
         if (changed || isForced || force) {
@@ -251,17 +251,17 @@ void SCREENSHOT_Update(bool force)
     {
         // ==== Send version marker and state flags ====
         // 0xF0 keeps a resync-safe marker before the standard AA 55 header.
-        uint8_t versionMarker = SCREENSHOT_MARKER_BASE | stateFlags;
-        SCREENSHOT_Send(&versionMarker, 1);
+        uint8_t versionMarker = K5VIEWER_MARKER_BASE | stateFlags;
+        K5VIEWER_Send(&versionMarker, 1);
 
         // ==== Send header ====
         uint8_t header[5] = {
-            0xAA, 0x55, SCREENSHOT_TYPE_DIFF,
+            0xAA, 0x55, K5VIEWER_TYPE_DIFF,
             (uint8_t)(deltaLen >> 8),
             (uint8_t)(deltaLen & 0xFF)
         };
 
-        SCREENSHOT_Send(header, 5);
+        K5VIEWER_Send(header, 5);
 
         // ==== SECOND PASS: Send only changed chunks ====
         for (uint8_t chunkIdx = 0; chunkIdx < 128; chunkIdx++) {
@@ -269,24 +269,24 @@ void SCREENSHOT_Update(bool force)
                 continue;
 
             chunk[0] = chunkIdx;
-            SCREENSHOT_Chunk(chunkIdx, &chunk[1]);
+            K5VIEWER_Chunk(chunkIdx, &chunk[1]);
 
-            SCREENSHOT_Send(chunk, 9);
+            K5VIEWER_Send(chunk, 9);
 
             // Update the fingerprint only once the chunk is actually sent,
             // so chunks skipped by an early return stay marked as changed.
             // Hashing the recomputed payload also keeps the fingerprint in
             // sync if the display buffer changed between the two passes.
-            previousHash[chunkIdx] = SCREENSHOT_Hash(&chunk[1]);
+            previousHash[chunkIdx] = K5VIEWER_Hash(&chunk[1]);
         }
 
         uint8_t end = 0x0A;
-        SCREENSHOT_Send(&end, 1);
+        K5VIEWER_Send(&end, 1);
     }
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
     if (rfLogPending)
-        SCREENSHOT_SendRfLog();
+        K5VIEWER_SendRfLog();
 #endif
 
     previousStateFlags = stateFlags;

@@ -14,11 +14,11 @@
  *     limitations under the License.
  */
 
-#ifndef SCREENSHOT_H
-#define SCREENSHOT_H
+#ifndef K5VIEWER_H
+#define K5VIEWER_H
 
-void SCREENSHOT_Update(bool force);
-void SCREENSHOT_ParseInput(void);
-bool SCREENSHOT_HasPendingStateChange(void);
+void K5VIEWER_Update(bool force);
+void K5VIEWER_ParseInput(void);
+bool K5VIEWER_HasPendingStateChange(void);
 
 #endif

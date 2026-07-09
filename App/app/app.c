@@ -83,8 +83,8 @@
 #include "ui/ui.h"
 #include "ui/welcome.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-    #include "screenshot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    #include "k5viewer.h"
 #endif
 
 static bool flagSaveVfo;
@@ -230,8 +230,8 @@ static void ScreenSaverRenderLogoPlus(bool reset)
 
 static void ScreenSaverUpdateViewer(void)
 {
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-    SCREENSHOT_Update(false);
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    K5VIEWER_Update(false);
 #endif
 }
 
@@ -1121,10 +1121,10 @@ static void HandleVox(void)
 
 void APP_Update(void)
 {
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     // Parse incoming packets on every tick so serial keys are never missed,
     // regardless of whether the screen needs redrawing.
-    SCREENSHOT_ParseInput();
+    K5VIEWER_ParseInput();
 #endif
 
 #ifdef ENABLE_VOICE
@@ -1666,15 +1666,15 @@ void APP_TimeSlice10ms(void)
         UI_DisplayStatus();
     }
 
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     if (gUpdateDisplayCurrent || gUpdateStatusCurrent
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
         || screenSaverRendered
 #endif
         ) {
-        SCREENSHOT_Update(false);
-    } else if (SCREENSHOT_HasPendingStateChange()) {
-        SCREENSHOT_Update(false);
+        K5VIEWER_Update(false);
+    } else if (K5VIEWER_HasPendingStateChange()) {
+        K5VIEWER_Update(false);
     }
     #endif
 
