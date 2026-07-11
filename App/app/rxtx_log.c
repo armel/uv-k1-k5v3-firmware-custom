@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "app/common.h"
 #include "app/generic.h"
 #include "app/rxtx_log.h"
 #include "audio.h"
@@ -1059,7 +1060,12 @@ void RXTX_LOG_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     case KEY_F:
         // GENERIC_Key_F only toggles the flag on the MAIN screen, so
         // handle it here: F arms a go-to-first/last modifier for UP/DOWN.
-        if (bKeyPressed && !bKeyHeld) {
+        if (bKeyPressed && bKeyHeld) {
+            RXTX_LOG_CancelClearConfirm();
+            HideFKeyIcon();
+            COMMON_KeypadLockToggle();
+            gUpdateStatus = true;
+        } else if (bKeyPressed) {
             RXTX_LOG_CancelClearConfirm();
             gWasFKeyPressed = !gWasFKeyPressed;
             if (gWasFKeyPressed)
