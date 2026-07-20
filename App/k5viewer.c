@@ -123,6 +123,9 @@ static uint8_t K5VIEWER_StateFlags(void)
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
 static bool K5VIEWER_HasPendingRfLogUpdate(void)
 {
+    if (!RXTX_LOG_IsEnabled())
+        rfLogHistoryBefore = RXTX_LOG_K5VIEWER_HISTORY_START;
+
     if ((gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG_RESTART) != 0) {
         gSerialViewerFeatures &= ~SERIAL_VIEWER_FEATURE_RF_LOG_RESTART;
         rfLogSent = false;
@@ -157,14 +160,18 @@ static void K5VIEWER_SendRfLog(void)
     previousRfLogSignature = RXTX_LOG_K5ViewerSignature();
     rfLogSent = true;
 
-    K5VIEWER_SendRfLogFrameHeader(K5VIEWER_TYPE_RXTX_LOG, RXTX_LOG_K5VIEWER_PACKET_SIZE);
+    const uint16_t size = RXTX_LOG_IsEnabled()
+                            ? RXTX_LOG_K5VIEWER_PACKET_SIZE
+                            : RXTX_LOG_K5VIEWER_STATUS_PACKET_SIZE;
+    K5VIEWER_SendRfLogFrameHeader(K5VIEWER_TYPE_RXTX_LOG, size);
     RXTX_LOG_SendK5ViewerPacket(K5VIEWER_Send);
     K5VIEWER_SendRfLogFrameEnd();
 }
 
 static bool K5VIEWER_HasPendingRfLogHistory(void)
 {
-    return (gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG_HISTORY) != 0 &&
+    return RXTX_LOG_IsEnabled() &&
+           (gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG_HISTORY) != 0 &&
            rfLogHistoryBefore != 0;
 }
 

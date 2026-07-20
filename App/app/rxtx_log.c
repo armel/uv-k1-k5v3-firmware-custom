@@ -136,6 +136,22 @@ static uint16_t        gLogCursor;
 static uint8_t         gLogFilter;
 static uint8_t         gLogDetailMode;
 
+bool RXTX_LOG_IsEnabled(void)
+{
+    return gEeprom.KEY_1_SHORT_PRESS_ACTION == ACTION_OPT_RXTX_LOG ||
+           gEeprom.KEY_1_LONG_PRESS_ACTION  == ACTION_OPT_RXTX_LOG ||
+           gEeprom.KEY_2_SHORT_PRESS_ACTION == ACTION_OPT_RXTX_LOG ||
+           gEeprom.KEY_2_LONG_PRESS_ACTION  == ACTION_OPT_RXTX_LOG ||
+           gEeprom.KEY_M_LONG_PRESS_ACTION  == ACTION_OPT_RXTX_LOG;
+}
+
+static void RXTX_LOG_ResetActiveSession(void)
+{
+    gSessionActive   = false;
+    gSessionSMeter   = RXTX_LOG_SMETER_UNKNOWN;
+    gSessionBattVolt = RXTX_LOG_BATT_UNKNOWN;
+}
+
 static uint8_t RXTX_LOG_Crc8(const void *data, uint16_t size)
 {
     const uint8_t *p = (const uint8_t *)data;
@@ -755,6 +771,7 @@ uint32_t RXTX_LOG_K5ViewerSignature(void)
 {
     uint32_t hash = 2166136261u;
 
+    hash = RXTX_LOG_K5ViewerMix(hash, RXTX_LOG_IsEnabled());
     hash = RXTX_LOG_K5ViewerMix(hash, gSessionActive);
     hash = RXTX_LOG_K5ViewerMix(hash, gClearActive);
     hash = RXTX_LOG_K5ViewerMix(hash, gLogHasTraffic);
@@ -863,6 +880,13 @@ void RXTX_LOG_SendK5ViewerPacket(void (*send)(const uint8_t *data, uint16_t size
     RXTX_LogK5ViewerRow_t row;
 
     uint8_t header[4] = {RXTX_LOG_K5VIEWER_VERSION, 0, RXTX_LOG_K5VIEWER_ROW_COUNT, 0};
+    if (!RXTX_LOG_IsEnabled()) {
+        header[1] = RXTX_LOG_K5VIEWER_STATUS_DISABLED;
+        header[2] = 0;
+        send(header, sizeof(header));
+        return;
+    }
+
     if (gSessionActive)
         header[1] |= RXTX_LOG_K5VIEWER_STATUS_ACTIVE;
     if (gLogHasTraffic)
@@ -898,7 +922,7 @@ uint32_t RXTX_LOG_SendK5ViewerHistoryPage(uint32_t beforeSeq, void (*send)(const
 
 static void RXTX_LOG_CaptureSession(uint8_t flags, const VFO_Info_t *vfo)
 {
-    if (gClearActive)
+    if (!RXTX_LOG_IsEnabled() || vfo == NULL || gClearActive)
         return;
 
     const uint32_t frequency = (flags & RXTX_LOG_FLAG_TX) ? vfo->pTX->Frequency : vfo->pRX->Frequency;
@@ -984,15 +1008,13 @@ void RXTX_LOG_Init(void)
 
     // Skip the marker if the log already ends with one (e.g. repeated
     // reboots with no RX/TX in between) to avoid stacking empty separators.
-    if (!found || (lastEntryFlags & RXTX_LOG_FLAG_SESSION) == 0)
+    if (RXTX_LOG_IsEnabled() &&
+        (!found || (lastEntryFlags & RXTX_LOG_FLAG_SESSION) == 0))
         RXTX_LOG_WriteSessionMarker();
 }
 
 void RXTX_LOG_BeginRx(const VFO_Info_t *vfo, FUNCTION_Type_t function)
 {
-    if (vfo == NULL)
-        return;
-
     uint8_t flags = 0;
     if (function == FUNCTION_MONITOR)
         flags |= RXTX_LOG_FLAG_MONITOR;
@@ -1002,9 +1024,6 @@ void RXTX_LOG_BeginRx(const VFO_Info_t *vfo, FUNCTION_Type_t function)
 
 void RXTX_LOG_BeginTx(const VFO_Info_t *vfo)
 {
-    if (vfo == NULL)
-        return;
-
     RXTX_LOG_CaptureSession(RXTX_LOG_FLAG_TX, vfo);
 }
 
@@ -1013,10 +1032,8 @@ void RXTX_LOG_EndActive(void)
     if (!gSessionActive)
         return;
 
-    if (gClearActive) {
-        gSessionActive   = false;
-        gSessionSMeter   = RXTX_LOG_SMETER_UNKNOWN;
-        gSessionBattVolt = RXTX_LOG_BATT_UNKNOWN;
+    if (!RXTX_LOG_IsEnabled() || gClearActive) {
+        RXTX_LOG_ResetActiveSession();
         return;
     }
 
@@ -1040,9 +1057,7 @@ void RXTX_LOG_EndActive(void)
     gLogHasTraffic = true;
     RXTX_LOG_InvalidateViewCache();
 
-    gSessionActive   = false;
-    gSessionSMeter   = RXTX_LOG_SMETER_UNKNOWN;
-    gSessionBattVolt = RXTX_LOG_BATT_UNKNOWN;
+    RXTX_LOG_ResetActiveSession();
 }
 
 void RXTX_LOG_Tick500ms(void)
@@ -1056,6 +1071,9 @@ void RXTX_LOG_Tick500ms(void)
 
 void RXTX_LOG_Task10ms(void)
 {
+    if (gSessionActive && !RXTX_LOG_IsEnabled())
+        RXTX_LOG_ResetActiveSession();
+
     if (gClearActive) {
         RXTX_LOG_StepClear();
     } else if (gViewScanActive) {

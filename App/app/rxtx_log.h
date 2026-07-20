@@ -42,6 +42,8 @@ typedef struct {
 #define RXTX_LOG_K5VIEWER_STATUS_ACTIVE      (1u << 0)
 #define RXTX_LOG_K5VIEWER_STATUS_HAS_TRAFFIC (1u << 1)
 #define RXTX_LOG_K5VIEWER_STATUS_CLEARING    (1u << 2)
+#define RXTX_LOG_K5VIEWER_STATUS_DISABLED    (1u << 3)
+#define RXTX_LOG_K5VIEWER_STATUS_PACKET_SIZE 4u
 
 typedef struct __attribute__((packed)) {
     uint32_t frequency;
@@ -54,11 +56,11 @@ typedef struct __attribute__((packed)) {
     char     channelName[RXTX_LOG_K5VIEWER_NAME_LENGTH];
 } RXTX_LogK5ViewerRow_t;
 
-// On-wire packet layout: 4-byte header (version, status, rowCount,
-// reserved), one live row, then RXTX_LOG_K5VIEWER_ROW_COUNT row slots,
-// zero-padded past the last valid row. The packet is streamed row by row
-// and never built whole in RAM, so only its size is defined here.
-#define RXTX_LOG_K5VIEWER_PACKET_SIZE (4u + ((RXTX_LOG_K5VIEWER_ROW_COUNT + 1u) * sizeof(RXTX_LogK5ViewerRow_t)))
+// On-wire packet layout: a disabled log sends only the 4-byte status header.
+// An enabled log continues with one live row and
+// RXTX_LOG_K5VIEWER_ROW_COUNT row slots, zero-padded past the last valid row.
+// The packet is streamed row by row and never built whole in RAM.
+#define RXTX_LOG_K5VIEWER_PACKET_SIZE (RXTX_LOG_K5VIEWER_STATUS_PACKET_SIZE + ((RXTX_LOG_K5VIEWER_ROW_COUNT + 1u) * sizeof(RXTX_LogK5ViewerRow_t)))
 #define RXTX_LOG_K5VIEWER_HISTORY_PACKET_SIZE (RXTX_LOG_K5VIEWER_HISTORY_ROW_COUNT * sizeof(RXTX_LogK5ViewerRow_t))
 
 uint32_t RXTX_LOG_K5ViewerSignature(void);
@@ -70,6 +72,7 @@ uint32_t RXTX_LOG_SendK5ViewerHistoryPage(uint32_t beforeSeq, void (*send)(const
 #endif
 
 void RXTX_LOG_Init(void);
+bool RXTX_LOG_IsEnabled(void);
 void RXTX_LOG_BeginRx(const VFO_Info_t *vfo, FUNCTION_Type_t function);
 void RXTX_LOG_BeginTx(const VFO_Info_t *vfo);
 void RXTX_LOG_EndActive(void);
