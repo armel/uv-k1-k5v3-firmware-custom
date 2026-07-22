@@ -771,12 +771,16 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
 #endif
 
     if (IS_MR_CHANNEL(gNextMrChannel))
-    {   
+    {
+        bool scanListChanged = false;
 
         if(!RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT)) {
             RADIO_NextValidList(1);
-            UI_MAIN_NotifyScanProgressDataChanged();
+            scanListChanged = true;
         }
+
+        if (storeBackupSettings || scanListChanged)
+            UI_MAIN_NotifyScanListChanged();
 
         // channel mode
         if (storeBackupSettings) {

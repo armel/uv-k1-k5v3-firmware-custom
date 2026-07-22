@@ -55,8 +55,10 @@ void UI_DisplayMain(void);
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
 void UI_MAIN_NotifyScanProgressDataChanged(void);
+void UI_MAIN_NotifyScanListChanged(void);
 #else
 static inline void UI_MAIN_NotifyScanProgressDataChanged(void) {}
+static inline void UI_MAIN_NotifyScanListChanged(void) {}
 #endif
 
 #ifdef ENABLE_AGC_SHOW_DATA
