@@ -60,6 +60,25 @@ Paland, licensed under the MIT License. Its license is included at:
 
   App/external/printf/LICENSE
 
+radio-server dock control mode (kbennett2000 fork)
+--------------------------------------------------
+
+This fork (https://github.com/kbennett2000/uv-k1-k5v3-firmware-custom) adds a
+"dock control mode" so the radio can be driven by radio-server
+(https://github.com/kbennett2000/radio-server) over the existing UART, using the
+same wire protocol as nicsure's "Quansheng Dock" firmware.
+
+Where dock-mode code is derived from nicsure's Quansheng Dock firmware
+(https://github.com/nicsure/quansheng-dock-fw, app/uart.c and driver/crc.c), that
+work is licensed under the Apache License, Version 2.0 — the same license as this
+firmware — and is used with attribution to nicsure and its upstream authors, per
+the Apache-2.0 terms. Ported files carry their own modified-file notices.
+
+The nicsure "QuanshengDock" Windows client
+(https://github.com/nicsure/QuanshengDock) is licensed under the GPL-2.0 and is
+**not** copied or ported into this firmware; it is read only as a host-side
+specification of the wire protocol.
+
 License and endorsement notice
 ------------------------------
 
