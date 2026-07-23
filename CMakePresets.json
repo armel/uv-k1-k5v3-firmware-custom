@@ -214,6 +214,7 @@
                 "ENABLE_FEAT_F4HWN_LOGO": true,
                 "ENABLE_FEAT_F4HWN_LOGO_SAV": true,
                 "ENABLE_SWD": true,
+                "ENABLE_DOCK": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
             }

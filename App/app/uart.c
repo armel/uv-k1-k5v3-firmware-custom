@@ -45,6 +45,11 @@
 #include "settings.h"
 #include "version.h"
 
+#ifdef ENABLE_DOCK
+#include "app/dock.h"
+#include "radio.h"
+#endif
+
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
 #endif
@@ -638,6 +643,65 @@ static void CMD_0602_WriteBK4819Reg(const uint8_t *pBuffer)
 }
 #endif
 
+#ifdef ENABLE_DOCK
+// radio-server "dock control mode": wire the pure app/dock.c protocol core to
+// the real BK4819 registers and UART. The port surface is deliberately tiny —
+// 0x0850/0x0851 register R/W and the 0x0870/0x0871 full-control loop — because
+// radio-server drives everything through BK4819 registers.
+static uint16_t Dock_HalRead(void *user, uint16_t reg)
+{
+    UNUSED(user);
+    return BK4819_ReadRegister((BK4819_REGISTER_t)reg);
+}
+static void Dock_HalWrite(void *user, uint16_t reg, uint16_t value)
+{
+    UNUSED(user);
+    BK4819_WriteRegister((BK4819_REGISTER_t)reg, value);
+}
+static void Dock_HalSend(void *user, const uint8_t *buf, uint16_t len)
+{
+    UNUSED(user);
+    UART_Send(buf, len);
+}
+static const dock_hal_t Dock_Hal = { Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL };
+static dock_ctx_t Dock_Ctx;
+static bool       Dock_Inited = false;
+
+static void Dock_EnsureInit(void)
+{
+    if (!Dock_Inited) { dock_init(&Dock_Ctx, &Dock_Hal); Dock_Inited = true; }
+}
+
+// Dispatch one decoded, CRC-validated top-level dock command
+// (0x0850/0x0851/0x0871). pUART_Command->Buffer holds the de-obfuscated payload
+// [ID][Size][params]; the frame size is 4 + inner Header.Size.
+static void Dock_HandleCommand(const UART_Command_t *pCmd)
+{
+    Dock_EnsureInit();
+    dock_dispatch(&Dock_Ctx, pCmd->Buffer, (uint16_t)(4 + pCmd->Header.Size));
+}
+
+// 0x0870 enter full-control: block here, re-entrantly servicing register R/W
+// until 0x0871 clears the flag. While blocked, the 10 ms timeslice is starved,
+// so CheckRadioInterrupts() — the only path that reprograms the BK4819 — cannot
+// run and fight us, and there is no hardware watchdog on this tree to feed
+// (both derived from the V3 tree, not assumed). VERIFY ON BENCH: the exact
+// resume-RX call on exit.
+static void Dock_EnterFullControl(uint32_t Port)
+{
+    Dock_EnsureInit();
+    if (Dock_Ctx.full_control)
+        return;                         // already inside — prevent recursion
+    Dock_Ctx.full_control = true;
+    while (Dock_Ctx.full_control)
+    {
+        if (UART_IsCommandAvailable(Port))
+            UART_HandleCommand(Port);   // routes 0x0850/0x0851/0x0871 to dock
+    }
+    RADIO_SetupRegisters(true);         // resume normal RX (verify on bench)
+}
+#endif // ENABLE_DOCK
+
 bool UART_IsCommandAvailable(uint32_t Port)
 {
     uint16_t Index;
@@ -856,9 +920,21 @@ void UART_HandleCommand(uint32_t Port)
         case 0x0601:
             CMD_0601_ReadBK4819Reg(Port, pUART_Command->Buffer);
             break;
-        
+
         case 0x0602:
             CMD_0602_WriteBK4819Reg(pUART_Command->Buffer);
+            break;
+#endif
+
+#ifdef ENABLE_DOCK
+        case 0x0850:   // write BK4819 registers (no reply)
+        case 0x0851:   // read BK4819 registers -> one 0x0951 reply each
+        case 0x0871:   // exit full-control (clears the loop flag)
+            Dock_HandleCommand(pUART_Command);
+            break;
+
+        case 0x0870:   // enter full-control (blocking register-servicing loop)
+            Dock_EnterFullControl(Port);
             break;
 #endif
     } // switch

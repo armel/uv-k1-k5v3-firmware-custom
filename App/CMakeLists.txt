@@ -233,6 +233,15 @@ endif()
 enable_feature(ENABLE_AGC_SHOW_DATA)
 enable_feature(ENABLE_UART_RW_BK_REGS)
 
+# ---- radio-server dock control mode ----
+# Pure protocol core in app/dock.c, wired to BK4819/UART in app/uart.c.
+enable_feature(ENABLE_DOCK
+    app/dock.c
+)
+if(ENABLE_DOCK AND NOT ENABLE_UART)
+    message(FATAL_ERROR "ENABLE_DOCK requires ENABLE_UART (the dock rides the UART command dispatch).")
+endif()
+
 # ---- COMPILER/LINKER OPTIONS ----
 
 enable_feature(ENABLE_SWD)

@@ -91,6 +91,31 @@ upstream tree at the pin). That green-lights F2 (the dock-protocol port).
 
 ---
 
+## F2 acceptance — the dock control mode
+
+Flash the **F2** build (`f4hwn.fusion.v5.7.0.f2-dock.bin`, the `ENABLE_DOCK` Fusion image
+from the `radio-server-f2-v5.7.0` pre-release; verify its `SHA256SUMS` first). Then, in
+order:
+
+1. **Connect probe (the port working).** From radio-server:
+   ```
+   uv run radio-server doctor --backend uvk5
+   ```
+   The dock connect probe sends a `ReadRegisters(0x30)` (`0x0851`) and waits for a
+   `RegisterInfo` (`0x0951`) answer. **The radio answering that elicit IS the port
+   working** — doctor reports "Dock firmware alive". (A stock/no-dock build times out here.)
+2. **The four F1 gates, still true with the dock idle:** radio **boots**, **receives**,
+   **keypad works**, and behaviour is otherwise identical to plain Fusion until radio-server
+   takes control. Entering/leaving full-control (`0x0870`/`0x0871`) should return the radio
+   to normal RX on exit.
+   - `⚠ CONFIRM AT BENCH`: the exact resume-RX behaviour after `0x0871`
+     (`RADIO_SetupRegisters(true)` on loop exit) — confirm the radio returns to normal
+     receive cleanly after radio-server disconnects.
+
+Green F2 acceptance green-lights **F3** (the full radio-server end-to-end bench loop).
+
+---
+
 ## Notes / open items
 - Once Kris confirms the five `⚠ CONFIRM AT BENCH` items, replace each placeholder with the
   real value and delete the provenance banner.

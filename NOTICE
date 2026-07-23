@@ -68,11 +68,13 @@ This fork (https://github.com/kbennett2000/uv-k1-k5v3-firmware-custom) adds a
 (https://github.com/kbennett2000/radio-server) over the existing UART, using the
 same wire protocol as nicsure's "Quansheng Dock" firmware.
 
-Where dock-mode code is derived from nicsure's Quansheng Dock firmware
-(https://github.com/nicsure/quansheng-dock-fw, app/uart.c and driver/crc.c), that
-work is licensed under the Apache License, Version 2.0 — the same license as this
-firmware — and is used with attribution to nicsure and its upstream authors, per
-the Apache-2.0 terms. Ported files carry their own modified-file notices.
+The dock-mode protocol core in App/app/dock.c is derived from nicsure's Quansheng
+Dock firmware (https://github.com/nicsure/quansheng-dock-fw, app/uart.c — the
+framing, the 16-byte XOR obfuscation table, the dummy-CRC reply, and the
+register read/write dispatch). That work is licensed under the Apache License,
+Version 2.0 — the same license as this firmware — and is used with attribution to
+nicsure and its upstream authors, per the Apache-2.0 terms. App/app/dock.c and
+App/app/dock.h carry their own modified-file notices.
 
 The nicsure "QuanshengDock" Windows client
 (https://github.com/nicsure/QuanshengDock) is licensed under the GPL-2.0 and is
