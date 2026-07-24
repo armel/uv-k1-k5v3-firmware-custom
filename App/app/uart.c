@@ -681,24 +681,46 @@ static void Dock_HandleCommand(const UART_Command_t *pCmd)
     dock_dispatch(&Dock_Ctx, pCmd->Buffer, (uint16_t)(4 + pCmd->Header.Size));
 }
 
-// 0x0870 enter full-control: block here, re-entrantly servicing register R/W
-// until 0x0871 clears the flag. While blocked, the 10 ms timeslice is starved,
-// so CheckRadioInterrupts() — the only path that reprograms the BK4819 — cannot
-// run and fight us, and there is no hardware watchdog on this tree to feed
-// (both derived from the V3 tree, not assumed). VERIFY ON BENCH: the exact
-// resume-RX call on exit.
+// Bring the RX audio path fully alive for the whole full-control session.
+// radio-server reads raw audio off the AIOC continuously and gates in software,
+// so it needs audio flowing the entire time it holds full-control. But while we
+// block below, the firmware's APP_StartListening() never runs — so nothing raises
+// GPIOA8 (the external AF-amp enable, an MCU GPIO the dock CANNOT reach) or flips
+// REG_47 out of mute. Force both up-front, plus the normal RX AF/DAC gain.
+//
+// F3a proved this empirically: over the dock we forced REG_30=0xBFF1 (RX chain),
+// REG_47=0x6142 (FM/unmute) and REG_48 loud, confirmed all three by read-back —
+// yet the AIOC still read the noise floor (~109 RMS). BK4819 fully RX-alive but
+// silent ⇒ the dead gate is outside the BK4819 = GPIOA8. Only the firmware can
+// raise it. Undone on 0x0871 exit by RADIO_SetupRegisters(true), which calls
+// AUDIO_AudioPathOff() and leaves REG_47 at MUTE (bench-confirmed by the F3a
+// baseline→post-exit register diff).
+static void Dock_ForceRxAudioAlive(void)
+{
+    GPIO_EnableAudioPath();             // GPIOA8 high — the un-dockable audio-amp gate
+    gEnableSpeaker = true;
+    BK4819_SetAF(BK4819_AF_FM);         // REG_47 = 0x6142 (unmute)
+    BK4819_SetRxAudioGain();            // REG_48 — normal RX AF/DAC gain from EEPROM
+}
+
+// 0x0870 enter full-control: force RX audio alive (above), then block here,
+// re-entrantly servicing register R/W until 0x0871 clears the flag. While blocked,
+// the 10 ms timeslice is starved, so CheckRadioInterrupts() — the only path that
+// reprograms the BK4819 — cannot run and fight us, and there is no hardware
+// watchdog on this tree to feed (both derived from the V3 tree, not assumed).
 static void Dock_EnterFullControl(uint32_t Port)
 {
     Dock_EnsureInit();
     if (Dock_Ctx.full_control)
         return;                         // already inside — prevent recursion
     Dock_Ctx.full_control = true;
+    Dock_ForceRxAudioAlive();           // F3a: RX audio path was dead without this
     while (Dock_Ctx.full_control)
     {
         if (UART_IsCommandAvailable(Port))
             UART_HandleCommand(Port);   // routes 0x0850/0x0851/0x0871 to dock
     }
-    RADIO_SetupRegisters(true);         // resume normal RX (verify on bench)
+    RADIO_SetupRegisters(true);         // resume normal (muted) RX on exit
 }
 #endif // ENABLE_DOCK
 
