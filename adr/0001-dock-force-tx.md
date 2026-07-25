@@ -92,11 +92,27 @@ host and only adds the missing PA chain.
   buffer-overflow guard is unreachable for valid frames, `DOCK_RX_BUF 264 > max total 262`, and the
   firmware uses the top-level UART deframer, not `dock_consume`; no force-off was added there.)
 
-## Verify-on-bench (marked, not asserted)
+## Verify-on-bench — ANSWERED 2026-07-25 (radio-server ADR 0132)
 
-- Which `OUTPUT_POWER` level dock TX radiates, and confirming the `gCurrentVfo` frequency source for
-  the PA bias (`Dock_ForceTx` comment). On the UHF bench (both radios 445.800) the band matches; a
-  VHF/UHF mismatch would only mis-scale power, not prevent keying.
+Both marked items are now measured, by reading the registers back over the dock while keyed. One
+was confirmed; the other was **wrong in a way that mattered**.
+
+- **Which `OUTPUT_POWER` level dock TX radiates: PA bias 12** (`0x36 = 0x0CA2` keyed on 445.800).
+  A low setting; enough for the bench. The lever for more is the radio's own OUTPUT_POWER, since
+  `TXP_CalculatedSetting` is derived from it and from per-band calibration in SPI flash.
+- **The `gCurrentVfo` frequency source is confirmed — and the guess about its consequence was
+  wrong.** "A VHF/UHF mismatch would only mis-scale power, not prevent keying" is true about
+  keying and misses the receiver entirely. Keyed on 147.555 with the radio's VFO on UHF, measured:
+  reg `0x36 = 0x0CA2` (UHF gain byte on a 2 m carrier) and reg `0x33` with the **UHF LNA path**
+  selected — and `Dock_EndTx` does not put the LNA back. `PickRXFilterPathBasedOnFrequency` writes
+  the *receive* front-end, so every transmission left the receiver pointing at the wrong band, and
+  nothing on the host re-steered it. The station went deaf after its first over.
+
+  radio-server now corrects both registers from the host **after** `Dock_ForceTx` completes, which
+  needs no firmware change. The clean fix here would be for `Dock_ForceTx` to derive its band from
+  a `REG_38/39` read-back instead of `gCurrentVfo` (call it F6) — worth doing if this fork is
+  rebuilt for another reason, but it is not required: it costs a flash, and a flash costs holding
+  a key at power-on.
 - The staged bench acceptance (dummy load → `--key-test` → carrier watch shows RF where F4 showed
   none → browser TX + service → antenna range proof) is in `BENCH.md` (F5 section).
 
