@@ -47,6 +47,7 @@
 
 #ifdef ENABLE_DOCK
 #include "app/dock.h"
+#include "driver/system.h"
 #include "radio.h"
 #endif
 
@@ -663,7 +664,10 @@ static void Dock_HalSend(void *user, const uint8_t *buf, uint16_t len)
     UNUSED(user);
     UART_Send(buf, len);
 }
-static const dock_hal_t Dock_Hal = { Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL };
+// F5: engage/disengage the physical PA chain on a REG_30 TX-enable edge (defined
+// below, after the F3a RX helper it reuses on un-key).
+static void Dock_TxSet(void *user, bool on);
+static const dock_hal_t Dock_Hal = { Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet };
 static dock_ctx_t Dock_Ctx;
 static bool       Dock_Inited = false;
 
@@ -701,6 +705,53 @@ static void Dock_ForceRxAudioAlive(void)
     gEnableSpeaker = true;
     BK4819_SetAF(BK4819_AF_FM);         // REG_47 = 0x6142 (unmute)
     BK4819_SetRxAudioGain();            // REG_48 — normal RX AF/DAC gain from EEPROM
+}
+
+// F5 — engage the physical PA on a dock-mode key. radio-server keys TX by writing
+// BK4819 REG_30 (TX_DSP), which lights the modulator but never the external PA
+// rail (REG_33 GPIO1 PA_ENABLE) or the PA bias (REG_36) — those pins are simply
+// not in radio-server's register writes, so the chip modulates and nothing
+// radiates (F4 Chain B: keyed, 0 radiated carrier; near-field chip RF only). This
+// is the TX mirror of the F3a RX force-open. dock.c detects the REG_30 TX-enable
+// edge and calls Dock_TxSet(); we add exactly the steps stock RADIO_SetTxParameters
+// (radio.c:972) does that a bare REG_30 write skips, in the same order.
+//
+// Frequency/bias come from gCurrentVfo (the boot VFO), same source stock uses.
+// In dock mode the host tunes via REG_38/39, which may differ from gCurrentVfo;
+// on the UHF bench (both radios 445.800) the band matches, and a VHF/UHF mismatch
+// would only mis-scale power, not prevent keying. ⚠ verify-on-bench: which
+// OUTPUT_POWER level dock TX radiates, and confirm the gCurrentVfo freq source.
+static void Dock_ForceTx(void)
+{
+    BK4819_ToggleGpioOut(BK4819_GPIO0_PIN28_RX_ENABLE, false);
+    BK4819_PrepareTransmit();           // REG_50/37/52 un-mute + REG_30 TX word
+    SYSTEM_DelayMs(10);
+    BK4819_PickRXFilterPathBasedOnFrequency(gCurrentVfo->pTX->Frequency);
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, true);   // the missing PA/antenna enable
+    SYSTEM_DelayMs(5);
+    BK4819_SetupPowerAmplifier(gCurrentVfo->TXP_CalculatedSetting, gCurrentVfo->pTX->Frequency);
+    SYSTEM_DelayMs(10);
+}
+
+// Drop the PA in the stock un-key order — bias to 0 (REG_36) BEFORE the PA-enable
+// GPIO (radio.c:782->784) — then restore RX: re-assert RX-enable and re-open the
+// F3a RX-audio path (PrepareTransmit's ExitBypass left REG_47 at MUTE), so the
+// receiver hears again after a service announcement.
+static void Dock_EndTx(void)
+{
+    BK4819_SetupPowerAmplifier(0, 0);
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+    BK4819_ToggleGpioOut(BK4819_GPIO0_PIN28_RX_ENABLE, true);
+    Dock_ForceRxAudioAlive();
+}
+
+static void Dock_TxSet(void *user, bool on)
+{
+    UNUSED(user);
+    if (on)
+        Dock_ForceTx();
+    else
+        Dock_EndTx();
 }
 
 // 0x0870 enter full-control: force RX audio alive (above), then block here,

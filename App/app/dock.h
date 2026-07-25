@@ -70,11 +70,18 @@ typedef struct {
     void     (*write_reg)(void *user, uint16_t reg, uint16_t value);
     void     (*send)(void *user, const uint8_t *buf, uint16_t len);
     void     *user;
+    /* Optional (may be NULL). Called on a REG_30 TX-enable *edge* — before the
+     * register write completes — so the firmware can engage/disengage the
+     * external PA chain (REG_33 PA-enable GPIO + REG_36 bias) that a bare
+     * REG_30 write leaves dark (F5 / radio-server Chain B). on=true on key,
+     * on=false on un-key and at the fail-safe seams (enter/exit/overflow). */
+    void     (*tx_set)(void *user, bool on);
 } dock_hal_t;
 
 typedef struct {
     const dock_hal_t *hal;
     bool     full_control;   /* set by 0x0870, cleared by 0x0871 */
+    bool     tx_on;          /* cached REG_30 TX-enable state, for edge-detect */
     uint8_t  buf[DOCK_RX_BUF];
     uint16_t len;
 } dock_ctx_t;

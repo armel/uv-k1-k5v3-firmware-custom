@@ -49,10 +49,28 @@ void dock_obfuscate(uint8_t *data, uint16_t len)
         data[i] ^= DOCK_OBF[i % 16];
 }
 
+/* BK4819 REG_30 bit 1 = ENABLE_TX_DSP: set in the app's TX word (0xC1FE),
+ * clear in its RX word (0xBFF1) — the single bit that distinguishes a transmit
+ * key from receive. Defined locally so this core stays free of any firmware-tree
+ * include (mirrors bk4819-regs.h BK4819_REG_30_MASK_ENABLE_TX_DSP). */
+#define DOCK_REG30_TX_DSP 0x0002u
+
+/* Edge-detect the REG_30 TX-enable state and, only on a change, notify the HAL
+ * so it can drive the physical PA. Idempotent: a force-off when already off is a
+ * no-op, so the enter/exit/overflow fail-safe calls never spuriously re-key. */
+static void dock_set_tx(dock_ctx_t *ctx, bool on)
+{
+    if (on == ctx->tx_on) return;
+    ctx->tx_on = on;
+    if (ctx->hal->tx_set)
+        ctx->hal->tx_set(ctx->hal->user, on);
+}
+
 void dock_init(dock_ctx_t *ctx, const dock_hal_t *hal)
 {
     ctx->hal          = hal;
     ctx->full_control = false;
+    ctx->tx_on        = false;
     ctx->len          = 0;
 }
 
@@ -94,10 +112,12 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
     switch (opcode) {
     case DOCK_CMD_ENTER_HW:
         ctx->full_control = true;
+        dock_set_tx(ctx, false);   /* fail-safe: never inherit a stale key */
         break;
 
     case DOCK_CMD_EXIT_HW:
         ctx->full_control = false;
+        dock_set_tx(ctx, false);   /* drop the PA before leaving full-control */
         break;
 
     case DOCK_CMD_WRITE_REGS: {
@@ -109,6 +129,10 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
             if ((uint32_t)(i + 1) * 4u > avail) break;    /* each pair = 4 bytes */
             const uint16_t reg = (uint16_t)(p[i * 4]     | (p[i * 4 + 1] << 8));
             const uint16_t val = (uint16_t)(p[i * 4 + 2] | (p[i * 4 + 3] << 8));
+            /* Drive the PA on the REG_30 TX-enable edge BEFORE completing the
+             * write (key: PA up then write; un-key: PA down then write). */
+            if (reg == 0x30)
+                dock_set_tx(ctx, (val & DOCK_REG30_TX_DSP) != 0);
             ctx->hal->write_reg(ctx->hal->user, reg, val);
         }
         break;                                            /* no reply */

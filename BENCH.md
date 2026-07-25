@@ -151,7 +151,58 @@ pre-release; verify its `SHA256SUMS` first). Then, in order:
 
 ---
 
+## F5 acceptance — the TX fix (dock keying now engages the PA)
+
+Background (F4 Chain B, radio-server HANDOFF + ADR 0126): with the F3 build, dock keying wrote
+BK4819 `REG_30` (TX_DSP) and the CONFIRM read-back passed, but **no RF radiated** — on an antenna
+the kv4p (an objective UHF receiver inches away) saw carrier `False` through a confirmed 5.7 s key
+(9 polls keyed-WITHOUT-RF, 0 with); on a dummy load it saw only near-field chip RF. Root cause: a
+bare `REG_30` write lights the modulator but never the **external PA rail** (`REG_33` GPIO1
+`PA_ENABLE`) or the **PA bias** (`REG_36`) — those are simply not in radio-server's register
+writes. The TX mirror of the F3a RX gap. The fix: `dock.c` edge-detects the `REG_30` TX-enable bit
+and calls `Dock_ForceTx`/`Dock_EndTx` (`uart.c`), adding exactly the PA steps stock
+`RADIO_SetTxParameters` does — `PrepareTransmit` (REG_50/37/52) → `PickRXFilterPath` →
+`ToggleGpioOut(PA_ENABLE, true)` → `SetupPowerAmplifier(TXP_CalculatedSetting, freq)` — and dropping
+them (bias→0, then PA-enable off) plus re-opening RX audio on un-key. Host protocol core untouched
+on the wire; the dock host tests go **19→31 checks**.
+
+Flash the **F5** build (`f4hwn.fusion.v5.7.0.f5-dock-force-tx.bin` from the
+`radio-server-f5-v5.7.0` pre-release; verify its `SHA256SUMS` first). **Kris present for every key;
+dummy load mandatory during iteration; antenna only for the final range proof.** Then, in order:
+
+1. **Register keying still passes (no regression):**
+   ```
+   uv run radio-server doctor --backend uvk5 --key-test        # type CONFIRM when prompted
+   ```
+   `REG_30` read-back keyed (`0xC1FE`). (A first-attempt settle flake — `0xBFF1`, retry passes —
+   was seen in F4; the F5 `SYSTEM_DelayMs` settle points target that. Note if it recurs.)
+2. **The RF now radiates — the F5 acceptance number.** Both radios on **UHF 445.800** (the kv4p is
+   UHF-only), dummy load on the UV-K5. On the server run the carrier watch, then key a tone:
+   ```
+   python3 /tmp/dual_tx_watch.py 60        # correlates UV-K5 transmitting vs kv4p carrier
+   uv run radio-server doctor --backend uvk5 --tx-tone --seconds 5 --freq 1000   # CONFIRM
+   ```
+   **PASS = kv4p carrier `True` while the UV-K5 is keyed** (`polls keyed WITH RF > 0`), where F4
+   showed 0-with / 9-without. `/tmp/kv4p_audio_probe.py 10` should show a ~1000 Hz tone in the
+   modulation.
+3. **Browser TX + a service is heard:** browser **Talk** → a second HT (or the kv4p probe) hears
+   voice; select a service (e.g. `01#` station-id) → its announcement is heard. This closes F4
+   symptoms (2) and (4).
+4. **RX survives a TX cycle:** after keying, `doctor --rx-noise` must **still** read thousands —
+   `Dock_EndTx` re-runs the F3a RX force-open, so a service announcement doesn't leave the receiver
+   deaf.
+5. **Final range proof only:** swap the dummy load for the antenna; the HT across the room now
+   hears the browser TX and the service. (⚠ verify-on-bench: which `OUTPUT_POWER` level dock TX
+   radiates — `Dock_ForceTx` uses `gCurrentVfo`'s calibrated setting.)
+
+RF guards and TOT are untouched; the PA is strictly slaved to `REG_30` and forced off at `0x0870`
+enter and `0x0871` exit (a host crash mid-key is covered by the existing TOT, not this change).
+
+---
+
 ## Notes / open items
 - Once Kris confirms the five `⚠ CONFIRM AT BENCH` items, replace each placeholder with the
   real value and delete the provenance banner.
 - Record any V3-specific surprises here as they're found, so the next flash inherits them.
+- **F5 verify-on-bench:** the `OUTPUT_POWER` level and `gCurrentVfo` frequency source used for the
+  dock-TX PA bias — see the `Dock_ForceTx` comment in `App/app/uart.c`.

@@ -11,6 +11,7 @@
 
 #include "app/dock.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +33,17 @@ static uint8_t  g_cap[2048];
 static uint16_t g_caplen;
 static int      g_reads, g_writes;
 
+/* TX-state spy (F5). g_ev logs the *order* of events: 'w' on a REG_30 write,
+ * '1'/'0' on a tx_set(on/off) callback — so "1w" proves the PA edge is driven
+ * BEFORE the register write completes. */
+static int      g_tx_calls, g_tx_last;   /* g_tx_last: 1=on, 0=off, -1=none yet */
+static char     g_ev[128];
+static int      g_evn;
+
+static void ev_push(char c)
+{
+    if (g_evn < (int)sizeof(g_ev) - 1) g_ev[g_evn++] = c;
+}
 static uint16_t hal_read(void *u, uint16_t reg)
 {
     (void)u; g_reads++;
@@ -40,6 +52,7 @@ static uint16_t hal_read(void *u, uint16_t reg)
 static void hal_write(void *u, uint16_t reg, uint16_t val)
 {
     (void)u; g_writes++;
+    if ((reg & 0xFF) == 0x30) ev_push('w');
     g_regs[reg & 0xFF] = val;
 }
 static void hal_send(void *u, const uint8_t *buf, uint16_t len)
@@ -50,7 +63,12 @@ static void hal_send(void *u, const uint8_t *buf, uint16_t len)
         g_caplen = (uint16_t)(g_caplen + len);
     }
 }
-static const dock_hal_t HAL = { hal_read, hal_write, hal_send, NULL };
+static void hal_tx(void *u, bool on)
+{
+    (void)u; g_tx_calls++; g_tx_last = on ? 1 : 0;
+    ev_push(on ? '1' : '0');
+}
+static const dock_hal_t HAL = { hal_read, hal_write, hal_send, NULL, hal_tx };
 
 static dock_ctx_t ctx;
 
@@ -58,6 +76,7 @@ static void reset(void)
 {
     memset(g_regs, 0, sizeof(g_regs));
     g_caplen = 0; g_reads = 0; g_writes = 0;
+    g_tx_calls = 0; g_tx_last = -1; g_evn = 0; memset(g_ev, 0, sizeof(g_ev));
     dock_init(&ctx, &HAL);
 }
 
@@ -251,6 +270,58 @@ int main(void)
         feed(buf, n);
         CHECK(g_reads == 1, "good frame after malformed in same buffer");
     }
+
+    /* ===== F5: REG_30 TX-state seam (drives the physical PA) ===== */
+    /* The app's TX word is 0xC1FE (ENABLE_TX_DSP, bit1, set); its RX word is
+     * 0xBFF1 (TX_DSP clear). dock.c edge-detects that bit and calls tx_set()
+     * BEFORE completing the REG_30 write. */
+
+    /* 12. Key: write REG_30=0xC1FE -> tx_set(true) fires once, before the write. */
+    reset();
+    { uint16_t pr[] = { 0x30, 0xC1FE }; plen = p_write(params, pr, 1); }
+    flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen);
+    feed(frame, flen);
+    CHECK(g_tx_calls == 1 && g_tx_last == 1, "key: tx_set(true) fires once");
+    CHECK(strcmp(g_ev, "1w") == 0, "key: PA engaged BEFORE the REG_30 write");
+    CHECK(ctx.tx_on && g_regs[0x30] == 0xC1FE, "key: tx_on set, REG_30 written");
+
+    /* 13. Key then un-key: each edge drives the PA before its write ("1w0w"). */
+    reset();
+    { uint16_t pr[] = { 0x30, 0xC1FE }; plen = p_write(params, pr, 1); }
+    flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen); feed(frame, flen);
+    { uint16_t pr[] = { 0x30, 0xBFF1 }; plen = p_write(params, pr, 1); }
+    flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen); feed(frame, flen);
+    CHECK(g_tx_calls == 2 && g_tx_last == 0, "un-key: tx_set(false) fires");
+    CHECK(strcmp(g_ev, "1w0w") == 0, "each PA edge precedes its REG_30 write");
+    CHECK(!ctx.tx_on, "un-key: tx_on cleared");
+
+    /* 14. Edge-detect: repeated same-state key writes fire tx_set once. */
+    reset();
+    for (int k = 0; k < 3; k++) {
+        uint16_t pr[] = { 0x30, 0xC1FE }; plen = p_write(params, pr, 1);
+        flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen); feed(frame, flen);
+    }
+    CHECK(g_tx_calls == 1 && g_writes == 3, "repeat key: one PA engage, three writes");
+    CHECK(strcmp(g_ev, "1www") == 0, "repeat key: PA edge only on the first write");
+
+    /* 15. Writes to other registers never touch the TX state. */
+    reset();
+    { uint16_t pr[] = { 0x38, 0xC1FE, 0x36, 0x7FFF }; plen = p_write(params, pr, 2); }
+    flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen);
+    feed(frame, flen);
+    CHECK(g_tx_calls == 0 && !ctx.tx_on, "non-REG_30 writes never key");
+
+    /* 16. Fail-safe: a dangling key is dropped at 0x0870 enter and at 0x0871 exit. */
+    reset();
+    { uint16_t pr[] = { 0x30, 0xC1FE }; plen = p_write(params, pr, 1); }        /* key, no un-key */
+    flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen); feed(frame, flen);
+    flen = build_cmd(frame, DOCK_CMD_ENTER_HW, params, 0); feed(frame, flen);   /* 0x0870 */
+    CHECK(g_tx_calls == 2 && g_tx_last == 0 && !ctx.tx_on, "0x0870 enter clears a stale key");
+    { uint16_t pr[] = { 0x30, 0xC1FE }; plen = p_write(params, pr, 1); }        /* key again inside */
+    flen = build_cmd(frame, DOCK_CMD_WRITE_REGS, params, plen); feed(frame, flen);
+    CHECK(g_tx_calls == 3 && ctx.tx_on, "re-key inside full-control");
+    flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);    /* 0x0871 */
+    CHECK(g_tx_calls == 4 && g_tx_last == 0 && !ctx.tx_on, "0x0871 exit drops the PA");
 
     /* ---- report ---- */
     printf("dock host tests: %d checks, %d failures\n", g_checks, g_fail);
