@@ -667,7 +667,11 @@ static void Dock_HalSend(void *user, const uint8_t *buf, uint16_t len)
 // F5: engage/disengage the physical PA chain on a REG_30 TX-enable edge (defined
 // below, after the F3a RX helper it reuses on un-key).
 static void Dock_TxSet(void *user, bool on);
-static const dock_hal_t Dock_Hal = { Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet };
+// F6: apply a whole repeater channel to the radio's OWN VFO (0x0872, below).
+static void Dock_SetVfo(void *user, const dock_vfo_t *want);
+static const dock_hal_t Dock_Hal = {
+    Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet, Dock_SetVfo
+};
 static dock_ctx_t Dock_Ctx;
 static bool       Dock_Inited = false;
 
@@ -752,6 +756,86 @@ static void Dock_TxSet(void *user, bool on)
         Dock_ForceTx();
     else
         Dock_EndTx();
+}
+
+// F6 — 0x0872 set-VFO. The one dock command that is meant to OUTLIVE the dock
+// session, and the reason it has to exist:
+//
+// Everything else here writes BK4819 registers, and none of it survives. 0x0870
+// backs the registers up and the exit below ends in RADIO_SetupRegisters(true),
+// which retunes the synthesiser from the radio's own VFO. So a host that tunes
+// by register can never hand this radio a channel and walk away — the moment it
+// lets go, the radio goes back to whatever its front panel said. That is why
+// radio-server's 37 repeater presets could be applied, read back correctly, and
+// still never key a machine.
+//
+// So set the VFO the radio actually transmits from, then let the firmware's own
+// chain do the work: RADIO_ApplyOffset computes the TX leg from the offset and
+// direction, and RADIO_ConfigureSquelchAndOutputPower derives the PA setting
+// from the per-band calibration in flash — the calibration the host cannot read
+// and must not invent (the mistake ADR 0128 removed). Afterwards the radio is
+// genuinely on the channel, screen and all, exactly as if a thumb had dialled it.
+
+// Resolve a CTCSS tone in tenths of a Hz against the firmware's OWN table.
+// Exact match only: "nearest" would silently transmit a tone the operator did
+// not ask for, and a repeater with a different tone simply will not open — a
+// quiet wrong answer where a refusal is recoverable.
+static bool Dock_CtcssIndex(uint16_t tenths, uint8_t *out)
+{
+    for (uint8_t i = 0; i < ARRAY_SIZE(CTCSS_Options); i++) {
+        if (CTCSS_Options[i] == tenths) { *out = i; return true; }
+    }
+    return false;
+}
+
+static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want)
+{
+    // Point the RX/TX views at their own storage. Normally already true, but a
+    // VFO left in FrequencyReverse would otherwise have us fill in the leg the
+    // radio is not going to use.
+    vfo->FrequencyReverse = false;
+    vfo->pRX = &vfo->freq_config_RX;
+    vfo->pTX = &vfo->freq_config_TX;
+
+    vfo->freq_config_RX.Frequency          = want->rx_hz;
+    vfo->TX_OFFSET_FREQUENCY               = want->offset_hz;
+    vfo->TX_OFFSET_FREQUENCY_DIRECTION     = want->direction;
+    RADIO_ApplyOffset(vfo);                 // fills freq_config_TX.Frequency
+
+    // CTCSS is transmit-only, matching radio-server's preset model (rx_tone is
+    // carried but never honoured there either), so an unexpected tone on the
+    // repeater's output can never mute our receiver.
+    uint8_t idx;
+    if (want->ctcss_tenths != 0 && Dock_CtcssIndex(want->ctcss_tenths, &idx)) {
+        vfo->freq_config_TX.CodeType = CODE_TYPE_CONTINUOUS_TONE;
+        vfo->freq_config_TX.Code     = idx;
+    } else {
+        vfo->freq_config_TX.CodeType = CODE_TYPE_OFF;
+        vfo->freq_config_TX.Code     = 0;
+    }
+    vfo->freq_config_RX.CodeType = CODE_TYPE_OFF;
+    vfo->freq_config_RX.Code     = 0;
+
+    vfo->CHANNEL_BANDWIDTH = want->narrow ? BANDWIDTH_NARROW : BANDWIDTH_WIDE;
+    vfo->Modulation        = MODULATION_FM;
+    vfo->OUTPUT_POWER      = want->power;
+    vfo->Band              = FREQUENCY_GetBand(want->rx_hz);
+
+    RADIO_ConfigureSquelchAndOutputPower(vfo);   // TXP_CalculatedSetting, per band
+}
+
+static void Dock_SetVfo(void *user, const dock_vfo_t *want)
+{
+    UNUSED(user);
+    // BOTH VFOs, deliberately. gCurrentVfo follows gRxVfo/gTxVfo and dual watch
+    // alternates between them (RADIO_SelectCurrentVfo, radio.c), so setting only
+    // one leaves which frequency we transmit on up to a timer. Setting both makes
+    // the answer the same either way.
+    for (unsigned i = 0; i < ARRAY_SIZE(gEeprom.VfoInfo); i++)
+        Dock_ApplyVfo(&gEeprom.VfoInfo[i], want);
+
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
 }
 
 // 0x0870 enter full-control: force RX audio alive (above), then block here,
@@ -1003,6 +1087,12 @@ void UART_HandleCommand(uint32_t Port)
         case 0x0850:   // write BK4819 registers (no reply)
         case 0x0851:   // read BK4819 registers -> one 0x0951 reply each
         case 0x0871:   // exit full-control (clears the loop flag)
+        case 0x0872:   // set the radio's own VFO (no reply) — F6
+            // 0x0872 sits HERE, in the ordinary non-blocking dispatch, and not
+            // with 0x0870 below. That is the point of it: the main loop keeps
+            // running, so the radio keeps sampling its own PTT pin and stays a
+            // radio. Entering full-control to tune would starve the very loop
+            // whose output we are trying to set up.
             Dock_HandleCommand(pUART_Command);
             break;
 

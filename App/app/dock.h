@@ -57,11 +57,52 @@
 #define DOCK_CMD_READ_REGS  0x0851u
 #define DOCK_CMD_ENTER_HW   0x0870u
 #define DOCK_CMD_EXIT_HW    0x0871u
+#define DOCK_CMD_SET_VFO    0x0872u
 #define DOCK_REPLY_REG_INFO 0x0951u
 
 /* Payload cap: matches radio_server frames.py MAX_PAYLOAD_SIZE (254). */
 #define DOCK_MAX_PAYLOAD 254u
 #define DOCK_RX_BUF      (DOCK_MAX_PAYLOAD + 10u)
+
+/* ---- 0x0872 set-VFO ------------------------------------------------------
+ *
+ * Everything else in this protocol writes BK4819 registers, and none of it
+ * survives the handoff back to the radio: 0x0870 backs the registers up and
+ * 0x0871 ends in RADIO_SetupRegisters(true), which retunes the synthesiser
+ * from the radio's OWN VFO (app/uart.c Dock_EnterFullControl -> radio.c
+ * "BK4819_SetFrequency(gRxVfo->pRX->Frequency)"). So a host that tunes by
+ * register can never hand the radio a channel and walk away.
+ *
+ * 0x0872 sets the firmware's VFO instead, and then lets the firmware's own
+ * RADIO_ApplyOffset / RADIO_ConfigureSquelchAndOutputPower / RADIO_SetupRegisters
+ * do the work. After it, the radio is genuinely on the channel — screen, split,
+ * CTCSS, and the per-band PA calibration the host cannot read out of flash —
+ * exactly as if a thumb had dialled it. It is deliberately NOT part of the
+ * full-control loop: a one-shot command, so the firmware main loop is never
+ * starved (that starvation is what makes the radio ignore its own PTT pin).
+ */
+#define DOCK_SET_VFO_PARAM_LEN 13u
+
+/* Offset direction, matching the firmware's TX_OFFSET_FREQUENCY_DIRECTION. */
+#define DOCK_OFFSET_NONE 0u
+#define DOCK_OFFSET_ADD  1u
+#define DOCK_OFFSET_SUB  2u
+
+/* One repeater channel, decoded from the wire.
+ *
+ * `ctcss_tenths` is tenths of a Hz (1000 = 100.0 Hz), 0 for none, so the wire
+ * carries the tone itself rather than an index into a table both sides would
+ * have to agree on for ever — the firmware resolves it against its own
+ * CTCSS_Options, which is the only table that can be wrong in a way that
+ * matters. */
+typedef struct {
+    uint32_t rx_hz;
+    uint32_t offset_hz;
+    uint16_t ctcss_tenths;
+    uint8_t  direction;     /* DOCK_OFFSET_* */
+    uint8_t  narrow;        /* 0 = wide FM, 1 = narrow */
+    uint8_t  power;         /* 0 low, 1 mid, 2 high */
+} dock_vfo_t;
 
 /* Thin hardware seam. Firmware binds these to BK4819_ReadRegister /
  * BK4819_WriteRegister / UART_Send; the host harness binds fakes. */
@@ -76,6 +117,12 @@ typedef struct {
      * REG_30 write leaves dark (F5 / radio-server Chain B). on=true on key,
      * on=false on un-key and at the fail-safe seams (enter/exit/overflow). */
     void     (*tx_set)(void *user, bool on);
+    /* Optional (may be NULL). Called on a validated 0x0872 with a decoded
+     * channel. The firmware binds this to its own RADIO_* chain; the host
+     * harness binds a spy. Never called while full_control is set — applying a
+     * VFO mid-dock would reprogram the chip under the host's feet, which is the
+     * "adopt whatever state you find" fault class ADR 0132 removed. */
+    void     (*set_vfo)(void *user, const dock_vfo_t *vfo);
 } dock_hal_t;
 
 typedef struct {

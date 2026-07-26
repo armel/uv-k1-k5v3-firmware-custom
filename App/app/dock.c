@@ -101,6 +101,15 @@ void dock_send_register_info(dock_ctx_t *ctx, uint16_t reg, uint16_t value)
     ctx->hal->send(ctx->hal->user, frame, n);
 }
 
+/* Little-endian u32 off the wire. Byte-at-a-time rather than a cast, because
+ * the payload sits at an arbitrary offset in the RX buffer and this core is
+ * compiled for both an ARM target and the host harness. */
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
 void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
 {
     if (size < 4) return;                     /* too short for inner header */
@@ -119,6 +128,31 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
         ctx->full_control = false;
         dock_set_tx(ctx, false);   /* drop the PA before leaving full-control */
         break;
+
+    case DOCK_CMD_SET_VFO: {
+        /* Set the firmware's VFO so the RADIO retunes itself, rather than
+         * writing registers the 0x0871 exit is going to throw away. See the
+         * long note in dock.h. Silent on every rejection: this command has no
+         * reply, so a caller cannot distinguish "refused" from "applied" on the
+         * wire — it verifies by reading the radio, over the air or on screen. */
+        if (plen < DOCK_SET_VFO_PARAM_LEN) break;   /* short frame: ignore */
+        if (ctx->full_control) break;               /* not while the host owns the chip */
+        dock_vfo_t vfo;
+        vfo.rx_hz        = rd32(params);
+        vfo.offset_hz    = rd32(params + 4);
+        vfo.ctcss_tenths = (uint16_t)(params[8] | (params[9] << 8));
+        vfo.direction    = params[10];
+        vfo.narrow       = params[11];
+        vfo.power        = params[12];
+        /* Refuse nonsense rather than pass it into the radio's own VFO struct.
+         * A bad direction byte would otherwise transmit somewhere unintended,
+         * which on a repeater input is somebody else's problem, not ours. */
+        if (vfo.direction > DOCK_OFFSET_SUB) break;
+        if (vfo.narrow > 1u || vfo.power > 2u) break;
+        if (ctx->hal->set_vfo)
+            ctx->hal->set_vfo(ctx->hal->user, &vfo);
+        break;                                      /* no reply */
+    }
 
     case DOCK_CMD_WRITE_REGS: {
         if (plen < 2) break;
