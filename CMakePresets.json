@@ -44,7 +44,7 @@
                 "ENABLE_BYP_RAW_DEMODULATORS": false,
                 "ENABLE_BLMIN_TMP_OFF": false,
                 "ENABLE_SCAN_RANGES": true,
-                "ENABLE_EXTRA_UART_CMD": false,
+                "ENABLE_EXTRA_UART_CMD": true,
                 "ENABLE_FEAT_F4HWN": true,
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_K5VIEWER": false,
