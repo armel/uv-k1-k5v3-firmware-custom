@@ -667,8 +667,9 @@ static void Dock_HalSend(void *user, const uint8_t *buf, uint16_t len)
 // F5: engage/disengage the physical PA chain on a REG_30 TX-enable edge (defined
 // below, after the F3a RX helper it reuses on un-key).
 static void Dock_TxSet(void *user, bool on);
-// F6: apply a whole repeater channel to the radio's OWN VFO (0x0873, below).
-static void Dock_SetVfo(void *user, const dock_vfo_t *want);
+// F6: apply a whole repeater channel to the radio's OWN VFO (0x0873, below),
+// reporting back through `out` what the radio actually ended up on (0x0874).
+static void Dock_SetVfo(void *user, const dock_vfo_t *want, dock_vfo_applied_t *out);
 static const dock_hal_t Dock_Hal = {
     Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet, Dock_SetVfo
 };
@@ -788,7 +789,25 @@ static bool Dock_CtcssIndex(uint16_t tenths, uint8_t *out)
     return false;
 }
 
-static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want)
+// Is this frequency actually inside a band this radio has, in the radio's own
+// 10 Hz units? FREQUENCY_GetBand() cannot answer that on its own: it CLAMPS,
+// returning BAND1_50MHz for anything below the bottom and BAND7_470MHz for
+// anything above the top, so it never reports a miss. Every out-of-range tune
+// therefore looks like a valid one and lands on a band whose PA calibration has
+// nothing to do with the requested frequency (radio-server ADR 0132/0134). So
+// take its answer and check the frequency really falls inside that band.
+static bool Dock_FreqInBand(uint32_t freq10, uint8_t *band_out)
+{
+    const FREQUENCY_Band_t band = FREQUENCY_GetBand(freq10);
+    if (freq10 < frequencyBandTable[band].lower || freq10 > frequencyBandTable[band].upper)
+        return false;
+    *band_out = (uint8_t)band;
+    return true;
+}
+
+static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want,
+                          uint32_t rx10, uint32_t off10, uint8_t band,
+                          const uint8_t *ctcss_idx)
 {
     // Point the RX/TX views at their own storage. Normally already true, but a
     // VFO left in FrequencyReverse would otherwise have us fill in the leg the
@@ -797,18 +816,18 @@ static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want)
     vfo->pRX = &vfo->freq_config_RX;
     vfo->pTX = &vfo->freq_config_TX;
 
-    vfo->freq_config_RX.Frequency          = want->rx_hz;
-    vfo->TX_OFFSET_FREQUENCY               = want->offset_hz;
+    vfo->freq_config_RX.Frequency          = rx10;
+    vfo->TX_OFFSET_FREQUENCY               = off10;
     vfo->TX_OFFSET_FREQUENCY_DIRECTION     = want->direction;
     RADIO_ApplyOffset(vfo);                 // fills freq_config_TX.Frequency
 
     // CTCSS is transmit-only, matching radio-server's preset model (rx_tone is
     // carried but never honoured there either), so an unexpected tone on the
-    // repeater's output can never mute our receiver.
-    uint8_t idx;
-    if (want->ctcss_tenths != 0 && Dock_CtcssIndex(want->ctcss_tenths, &idx)) {
+    // repeater's output can never mute our receiver. The index was resolved and
+    // any failure refused before we got here — this only writes it.
+    if (ctcss_idx != NULL) {
         vfo->freq_config_TX.CodeType = CODE_TYPE_CONTINUOUS_TONE;
-        vfo->freq_config_TX.Code     = idx;
+        vfo->freq_config_TX.Code     = *ctcss_idx;
     } else {
         vfo->freq_config_TX.CodeType = CODE_TYPE_OFF;
         vfo->freq_config_TX.Code     = 0;
@@ -819,23 +838,76 @@ static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want)
     vfo->CHANNEL_BANDWIDTH = want->narrow ? BANDWIDTH_NARROW : BANDWIDTH_WIDE;
     vfo->Modulation        = MODULATION_FM;
     vfo->OUTPUT_POWER      = want->power;
-    vfo->Band              = FREQUENCY_GetBand(want->rx_hz);
+    vfo->Band              = band;
 
     RADIO_ConfigureSquelchAndOutputPower(vfo);   // TXP_CalculatedSetting, per band
 }
 
-static void Dock_SetVfo(void *user, const dock_vfo_t *want)
+static void Dock_SetVfo(void *user, const dock_vfo_t *want, dock_vfo_applied_t *out)
 {
     UNUSED(user);
+
+    // The wire carries Hz; this radio's VFO stores units of 10 Hz (see dock.h).
+    // Nothing downstream would complain about the mistake — it would just tune
+    // ten times too high, get clamped into band 7, and transmit nowhere.
+    const uint32_t rx10  = want->rx_hz / 10u;
+    const uint32_t off10 = want->offset_hz / 10u;
+
+    uint8_t band;
+    if (!Dock_FreqInBand(rx10, &band)) {
+        out->status = DOCK_VFO_ERR_BAND;
+        return;
+    }
+
+    // Validate the leg that actually radiates at least as hard as the one that
+    // only listens. Mirrors RADIO_ApplyOffset, including refusing an offset
+    // larger than the frequency rather than letting the subtraction wrap.
+    uint32_t tx10 = rx10;
+    if (want->direction == DOCK_OFFSET_ADD) {
+        tx10 = rx10 + off10;
+    } else if (want->direction == DOCK_OFFSET_SUB) {
+        if (off10 >= rx10) {
+            out->status = DOCK_VFO_ERR_BAND;
+            return;
+        }
+        tx10 = rx10 - off10;
+    }
+    uint8_t tx_band;
+    if (!Dock_FreqInBand(tx10, &tx_band)) {
+        out->status = DOCK_VFO_ERR_BAND;
+        return;
+    }
+
+    // Resolve the tone BEFORE anything is applied. Dropping an unresolvable
+    // tone and tuning anyway would leave the radio on the repeater's input
+    // transmitting no tone: the machine stays shut, and nothing anywhere says
+    // why.
+    uint8_t idx = 0;
+    const bool want_tone = (want->ctcss_tenths != 0);
+    if (want_tone && !Dock_CtcssIndex(want->ctcss_tenths, &idx)) {
+        out->status = DOCK_VFO_ERR_TONE;
+        return;
+    }
+
     // BOTH VFOs, deliberately. gCurrentVfo follows gRxVfo/gTxVfo and dual watch
     // alternates between them (RADIO_SelectCurrentVfo, radio.c), so setting only
     // one leaves which frequency we transmit on up to a timer. Setting both makes
     // the answer the same either way.
     for (unsigned i = 0; i < ARRAY_SIZE(gEeprom.VfoInfo); i++)
-        Dock_ApplyVfo(&gEeprom.VfoInfo[i], want);
+        Dock_ApplyVfo(&gEeprom.VfoInfo[i], want, rx10, off10, band,
+                      want_tone ? &idx : NULL);
 
     RADIO_SelectVfos();
     RADIO_SetupRegisters(true);
+
+    // Report the channel the radio is on, read back out of its own struct after
+    // RADIO_ApplyOffset — not the values that were asked for.
+    const VFO_Info_t *v = &gEeprom.VfoInfo[0];
+    out->rx_hz        = v->freq_config_RX.Frequency * 10u;
+    out->tx_hz        = v->freq_config_TX.Frequency * 10u;
+    out->ctcss_tenths = (v->freq_config_TX.CodeType == CODE_TYPE_CONTINUOUS_TONE)
+                        ? CTCSS_Options[v->freq_config_TX.Code] : 0;
+    out->status       = DOCK_VFO_APPLIED;
 }
 
 // 0x0870 enter full-control: force RX audio alive (above), then block here,
@@ -1087,7 +1159,7 @@ void UART_HandleCommand(uint32_t Port)
         case 0x0850:   // write BK4819 registers (no reply)
         case 0x0851:   // read BK4819 registers -> one 0x0951 reply each
         case 0x0871:   // exit full-control (clears the loop flag)
-        case 0x0873:   // set the radio's own VFO (no reply) — F6
+        case 0x0873:   // set the radio's own VFO -> one 0x0874 reply — F6
             // 0x0873 sits HERE, in the ordinary non-blocking dispatch, and not
             // with 0x0870 below. That is the point of it: the main loop keeps
             // running, so the radio keeps sampling its own PTT pin and stays a

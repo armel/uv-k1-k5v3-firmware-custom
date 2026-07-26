@@ -74,31 +74,69 @@ void dock_init(dock_ctx_t *ctx, const dock_hal_t *hal)
     ctx->len          = 0;
 }
 
-void dock_send_register_info(dock_ctx_t *ctx, uint16_t reg, uint16_t value)
+/* Longest parameter block this core replies with (0x0874's 12; 0x0951 uses 4).
+ * Named rather than implied by the largest caller, so adding a reply that does
+ * not fit is a compile-time size check instead of a stack overrun. */
+#define DOCK_REPLY_MAX_PARAMS 12u
+
+/* Assemble and emit one reply frame: preamble, Size, obfuscated
+ * [opcode][param_len][params] + dummy CRC, footer. */
+static void dock_send_payload(dock_ctx_t *ctx, uint16_t opcode,
+                              const uint8_t *params, uint16_t plen)
 {
-    /* payload = [0x0951][param_len=4][reg:u16][value:u16], Size = 8. */
-    uint8_t body[8 + 2];
-    body[0] = (uint8_t)(DOCK_REPLY_REG_INFO & 0xFF);
-    body[1] = (uint8_t)(DOCK_REPLY_REG_INFO >> 8);
-    body[2] = 4; body[3] = 0;                 /* param_len */
-    body[4] = (uint8_t)(reg & 0xFF);   body[5] = (uint8_t)(reg >> 8);
-    body[6] = (uint8_t)(value & 0xFF); body[7] = (uint8_t)(value >> 8);
-    const uint16_t size = 8;
+    if (plen > DOCK_REPLY_MAX_PARAMS) return;   /* unreachable; see the #define */
+
+    uint8_t body[4 + DOCK_REPLY_MAX_PARAMS + 2];
+    const uint16_t size = (uint16_t)(4 + plen);
+    body[0] = (uint8_t)(opcode & 0xFF);
+    body[1] = (uint8_t)(opcode >> 8);
+    body[2] = (uint8_t)(plen & 0xFF);
+    body[3] = (uint8_t)(plen >> 8);
+    if (plen)
+        memcpy(body + 4, params, plen);
+
     /* Replies carry a DUMMY CRC: obf(0xFF 0xFF) in the CRC slot. Obfuscate
      * payload + {0xFF,0xFF} together over Size+2 bytes (matches SendReply). */
     body[size]     = 0xFF;
     body[size + 1] = 0xFF;
-    dock_obfuscate(body, size + 2);
+    dock_obfuscate(body, (uint16_t)(size + 2));
 
-    uint8_t frame[2 + 2 + (8 + 2) + 2];
+    uint8_t frame[2 + 2 + (4 + DOCK_REPLY_MAX_PARAMS + 2) + 2];
     uint16_t n = 0;
     frame[n++] = 0xAB; frame[n++] = 0xCD;                 /* preamble */
     frame[n++] = (uint8_t)(size & 0xFF);
     frame[n++] = (uint8_t)(size >> 8);                    /* Size (LE) */
-    memcpy(frame + n, body, size + 2); n += size + 2;     /* obf body + dummy CRC */
+    memcpy(frame + n, body, (size_t)(size + 2));
+    n = (uint16_t)(n + size + 2);                         /* obf body + dummy CRC */
     frame[n++] = 0xDC; frame[n++] = 0xBA;                 /* footer */
 
     ctx->hal->send(ctx->hal->user, frame, n);
+}
+
+void dock_send_register_info(dock_ctx_t *ctx, uint16_t reg, uint16_t value)
+{
+    /* payload = [0x0951][param_len=4][reg:u16][value:u16], Size = 8. */
+    const uint8_t p[4] = {
+        (uint8_t)(reg & 0xFF),   (uint8_t)(reg >> 8),
+        (uint8_t)(value & 0xFF), (uint8_t)(value >> 8),
+    };
+    dock_send_payload(ctx, DOCK_REPLY_REG_INFO, p, sizeof(p));
+}
+
+void dock_send_set_vfo_reply(dock_ctx_t *ctx, const dock_vfo_applied_t *r)
+{
+    /* payload = [0x0874][param_len=12][status:u8][reserved:u8][rx:u32][tx:u32]
+     * [ctcss_tenths:u16]. The reserved byte is zero and exists so a later flags
+     * field can be added without moving the two frequencies. */
+    const uint8_t p[12] = {
+        r->status, 0,
+        (uint8_t)(r->rx_hz),        (uint8_t)(r->rx_hz >> 8),
+        (uint8_t)(r->rx_hz >> 16),  (uint8_t)(r->rx_hz >> 24),
+        (uint8_t)(r->tx_hz),        (uint8_t)(r->tx_hz >> 8),
+        (uint8_t)(r->tx_hz >> 16),  (uint8_t)(r->tx_hz >> 24),
+        (uint8_t)(r->ctcss_tenths), (uint8_t)(r->ctcss_tenths >> 8),
+    };
+    dock_send_payload(ctx, DOCK_REPLY_SET_VFO, p, sizeof(p));
 }
 
 /* Little-endian u32 off the wire. Byte-at-a-time rather than a cast, because
@@ -132,26 +170,50 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
     case DOCK_CMD_SET_VFO: {
         /* Set the firmware's VFO so the RADIO retunes itself, rather than
          * writing registers the 0x0871 exit is going to throw away. See the
-         * long note in dock.h. Silent on every rejection: this command has no
-         * reply, so a caller cannot distinguish "refused" from "applied" on the
-         * wire — it verifies by reading the radio, over the air or on screen. */
-        if (plen < DOCK_SET_VFO_PARAM_LEN) break;   /* short frame: ignore */
-        if (ctx->full_control) break;               /* not while the host owns the chip */
-        dock_vfo_t vfo;
-        vfo.rx_hz        = rd32(params);
-        vfo.offset_hz    = rd32(params + 4);
-        vfo.ctcss_tenths = (uint16_t)(params[8] | (params[9] << 8));
-        vfo.direction    = params[10];
-        vfo.narrow       = params[11];
-        vfo.power        = params[12];
-        /* Refuse nonsense rather than pass it into the radio's own VFO struct.
-         * A bad direction byte would otherwise transmit somewhere unintended,
-         * which on a repeater input is somebody else's problem, not ours. */
-        if (vfo.direction > DOCK_OFFSET_SUB) break;
-        if (vfo.narrow > 1u || vfo.power > 2u) break;
-        if (ctx->hal->set_vfo)
-            ctx->hal->set_vfo(ctx->hal->user, &vfo);
-        break;                                      /* no reply */
+         * long note in dock.h.
+         *
+         * EVERY path below answers 0x0874, including every refusal. The first
+         * draft of this command was silent, which made "refused" and "applied"
+         * the same event on the wire — and this is the one command whose result
+         * outlives the dock session, so a caller that cannot tell them apart
+         * walks away believing the radio is on a channel it never reached. */
+        dock_vfo_applied_t res;
+        memset(&res, 0, sizeof(res));
+
+        if (plen < DOCK_SET_VFO_PARAM_LEN) {
+            res.status = DOCK_VFO_ERR_SHORT;        /* never read past the payload */
+        } else if (ctx->full_control) {
+            res.status = DOCK_VFO_ERR_BUSY;         /* the host owns the chip */
+        } else {
+            dock_vfo_t vfo;
+            vfo.rx_hz        = rd32(params);
+            vfo.offset_hz    = rd32(params + 4);
+            vfo.ctcss_tenths = (uint16_t)(params[8] | (params[9] << 8));
+            vfo.direction    = params[10];
+            vfo.narrow       = params[11];
+            vfo.power        = params[12];
+            /* Refuse nonsense rather than pass it into the radio's own VFO
+             * struct. A bad direction byte would otherwise transmit somewhere
+             * unintended, which on a repeater input is somebody else's problem,
+             * not ours. */
+            if (vfo.direction > DOCK_OFFSET_SUB)
+                res.status = DOCK_VFO_ERR_DIRECTION;
+            else if (vfo.narrow > 1u || vfo.power > 2u)
+                res.status = DOCK_VFO_ERR_FIELD;
+            else if (!ctx->hal->set_vfo)
+                res.status = DOCK_VFO_ERR_NO_HAL;
+            else
+                ctx->hal->set_vfo(ctx->hal->user, &vfo, &res);
+        }
+
+        /* The wire contract is unconditional: a non-zero status never carries
+         * frequencies. Enforced here rather than trusted to each HAL, so a
+         * binding that forgets cannot publish a channel the radio is not on. */
+        if (res.status != DOCK_VFO_APPLIED) {
+            res.rx_hz = 0; res.tx_hz = 0; res.ctcss_tenths = 0;
+        }
+        dock_send_set_vfo_reply(ctx, &res);
+        break;
     }
 
     case DOCK_CMD_WRITE_REGS: {

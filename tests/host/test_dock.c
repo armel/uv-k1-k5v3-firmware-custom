@@ -71,15 +71,57 @@ static void hal_tx(void *u, bool on)
 /* set-VFO spy (0x0873). Records the last decoded channel and how many times the
  * firmware would have been asked to apply one — the count is what proves a
  * malformed or out-of-range frame was REFUSED rather than quietly passed on to
- * the radio's own VFO struct. */
+ * the radio's own VFO struct.
+ *
+ * g_vfo_force_status makes the fake binding refuse the way the real one does
+ * for the two conditions only it can see (band, tone). It then ALSO fills in
+ * frequencies, deliberately, so the tests can prove dock.c blanks them: a
+ * non-zero status must never ship a channel the radio is not on. */
 static int        g_vfo_calls;
 static dock_vfo_t g_vfo_last;
+static uint8_t    g_vfo_force_status;
 
-static void hal_set_vfo(void *u, const dock_vfo_t *vfo)
+static void hal_set_vfo(void *u, const dock_vfo_t *vfo, dock_vfo_applied_t *out)
 {
     (void)u; g_vfo_calls++; g_vfo_last = *vfo;
+    if (g_vfo_force_status != DOCK_VFO_APPLIED) {
+        out->status       = g_vfo_force_status;
+        out->rx_hz        = 0xDEADBEEFu;
+        out->tx_hz        = 0xFEEDFACEu;
+        out->ctcss_tenths = 0x1234u;
+        return;
+    }
+    out->status       = DOCK_VFO_APPLIED;
+    out->rx_hz        = vfo->rx_hz;
+    out->tx_hz        = (vfo->direction == DOCK_OFFSET_ADD) ? vfo->rx_hz + vfo->offset_hz
+                      : (vfo->direction == DOCK_OFFSET_SUB) ? vfo->rx_hz - vfo->offset_hz
+                      : vfo->rx_hz;
+    out->ctcss_tenths = vfo->ctcss_tenths;
 }
 static const dock_hal_t HAL = { hal_read, hal_write, hal_send, NULL, hal_tx, hal_set_vfo };
+/* A build with no radio-side binding at all — 0x0873 must still answer. */
+static const dock_hal_t HAL_NO_VFO = { hal_read, hal_write, hal_send, NULL, hal_tx, NULL };
+
+/* Decode the one 0x0874 reply in the capture buffer. False unless exactly one
+ * well-formed reply is there, so "sent nothing" can never read as a pass. */
+#define VFO_REPLY_FRAME_LEN 24u   /* AB CD | size:2 | (4 + 12 + 2) | DC BA */
+
+static bool last_vfo_reply(dock_vfo_applied_t *out)
+{
+    if (g_caplen != VFO_REPLY_FRAME_LEN) return false;
+    uint8_t body[4 + 12 + 2];
+    memcpy(body, g_cap + 4, sizeof(body));
+    dock_obfuscate(body, (uint16_t)sizeof(body));
+    if ((uint16_t)(body[0] | (body[1] << 8)) != DOCK_REPLY_SET_VFO) return false;
+    if ((uint16_t)(body[2] | (body[3] << 8)) != 12u) return false;
+    out->status = body[4];
+    out->rx_hz  = (uint32_t)body[6]  | ((uint32_t)body[7] << 8)
+                | ((uint32_t)body[8] << 16) | ((uint32_t)body[9] << 24);
+    out->tx_hz  = (uint32_t)body[10] | ((uint32_t)body[11] << 8)
+                | ((uint32_t)body[12] << 16) | ((uint32_t)body[13] << 24);
+    out->ctcss_tenths = (uint16_t)(body[14] | (body[15] << 8));
+    return true;
+}
 
 static dock_ctx_t ctx;
 
@@ -89,6 +131,7 @@ static void reset(void)
     g_caplen = 0; g_reads = 0; g_writes = 0;
     g_tx_calls = 0; g_tx_last = -1; g_evn = 0; memset(g_ev, 0, sizeof(g_ev));
     g_vfo_calls = 0; memset(&g_vfo_last, 0, sizeof(g_vfo_last));
+    g_vfo_force_status = DOCK_VFO_APPLIED;
     dock_init(&ctx, &HAL);
 }
 
@@ -343,21 +386,21 @@ int main(void)
      * VFO written wrong is what the radio transmits on after we walk away.
      * Hence "refuse" rather than "clamp" everywhere below. */
 
-    /* 17. A well-formed repeater channel decodes field for field. K0PRA:
-     *     receive 448.525, transmit 5 MHz down, 100.0 Hz, wide, high power. */
+    /* K0PRA: receive 448.525, transmit 5 MHz down, 100.0 Hz, wide, high power. */
+    static const uint8_t K0PRA[DOCK_SET_VFO_PARAM_LEN] = {
+        0xC8, 0xF2, 0xBB, 0x1A,   /* rx_hz  448 525 000 */
+        0x40, 0x4B, 0x4C, 0x00,   /* offset   5 000 000 */
+        0xE8, 0x03,               /* ctcss tenths 1000 = 100.0 Hz */
+        DOCK_OFFSET_SUB,          /* direction */
+        0x00,                     /* wide */
+        0x02,                     /* high power */
+    };
+    dock_vfo_applied_t rep;
+
+    /* 17. A well-formed repeater channel decodes field for field. */
     reset();
-    {
-        uint8_t v[DOCK_SET_VFO_PARAM_LEN] = {
-            0xC8, 0xF2, 0xBB, 0x1A,   /* rx_hz  448 525 000 */
-            0x40, 0x4B, 0x4C, 0x00,   /* offset   5 000 000 */
-            0xE8, 0x03,               /* ctcss tenths 1000 = 100.0 Hz */
-            DOCK_OFFSET_SUB,          /* direction */
-            0x00,                     /* wide */
-            0x02,                     /* high power */
-        };
-        flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
-        feed(frame, flen);
-    }
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
     CHECK(g_vfo_calls == 1, "0x0873: a well-formed channel is applied once");
     CHECK(g_vfo_last.rx_hz == 448525000u, "0x0873: rx frequency decoded");
     CHECK(g_vfo_last.offset_hz == 5000000u, "0x0873: offset decoded");
@@ -365,7 +408,24 @@ int main(void)
     CHECK(g_vfo_last.direction == DOCK_OFFSET_SUB, "0x0873: direction decoded");
     CHECK(g_vfo_last.narrow == 0 && g_vfo_last.power == 2, "0x0873: bandwidth/power decoded");
     CHECK(g_writes == 0, "0x0873: writes no registers itself");
-    CHECK(g_caplen == 0, "0x0873: sends no reply");
+    CHECK(last_vfo_reply(&rep), "0x0874: exactly one well-formed reply");
+    CHECK(rep.status == DOCK_VFO_APPLIED, "0x0874: applied");
+    CHECK(rep.rx_hz == 448525000u && rep.tx_hz == 443525000u,
+          "0x0874: reports BOTH legs, so the caller learns where it will radiate");
+    CHECK(rep.ctcss_tenths == 1000u, "0x0874: reports the tone actually set");
+
+    /* 17b. Byte-exact reply vector — an oracle independent of this file's own
+     *      builders, and the thing radio-server's decoder is written against. */
+    {
+        static const uint8_t golden[] = {
+            0xAB, 0xCD, 0x10, 0x00, 0x62, 0x64, 0x18, 0xE6,
+            0x2E, 0x91, 0xC5, 0xB2, 0x9A, 0x2F, 0x5D, 0xE7,
+            0x7C, 0x19, 0x01, 0x83, 0xE9, 0x93, 0xDC, 0xBA,
+        };
+        CHECK(g_caplen == sizeof(golden), "0x0874: golden reply length");
+        CHECK(g_caplen == sizeof(golden) &&
+              memcmp(g_cap, golden, sizeof(golden)) == 0, "0x0874: byte-exact reply");
+    }
 
     /* 18. A simplex channel is expressible: no offset, no tone. */
     reset();
@@ -382,10 +442,14 @@ int main(void)
     CHECK(g_vfo_calls == 1 && g_vfo_last.rx_hz == 445800000u, "0x0873: simplex channel applies");
     CHECK(g_vfo_last.ctcss_tenths == 0 && g_vfo_last.direction == DOCK_OFFSET_NONE,
           "0x0873: no tone and no offset survive as zero, not as garbage");
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_APPLIED
+          && rep.rx_hz == 445800000u && rep.tx_hz == 445800000u,
+          "0x0874: simplex reports the same frequency on both legs");
 
     /* 19. A truncated payload is refused, not read past. The frame is otherwise
      *     valid, so nothing but the length check stands between a short frame
-     *     and reading whatever follows it in the RX buffer. */
+     *     and reading whatever follows it in the RX buffer. It still answers:
+     *     a caller that mis-sized its own frame most needs to be told. */
     reset();
     {
         uint8_t v[DOCK_SET_VFO_PARAM_LEN - 1] = { 0 };
@@ -393,30 +457,42 @@ int main(void)
         feed(frame, flen);
     }
     CHECK(g_vfo_calls == 0, "0x0873: a short payload is refused");
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_SHORT,
+          "0x0874: a short payload is REPORTED, not swallowed");
 
-    /* 20. Out-of-range fields are refused rather than clamped. A bad direction
-     *     byte silently treated as "simplex" would transmit on the repeater's
-     *     OUTPUT — on top of the machine, and on top of whoever it is repeating. */
-    reset();
+    /* 20. Out-of-range fields are refused rather than clamped, and each names
+     *     its own reason. A bad direction byte silently treated as "simplex"
+     *     would transmit on the repeater's OUTPUT — on top of the machine, and
+     *     on top of whoever it is repeating. */
     {
-        uint8_t v[DOCK_SET_VFO_PARAM_LEN] = {
-            0x40, 0x5E, 0x92, 0x1A, 0x40, 0x4B, 0x4C, 0x00, 0xE8, 0x03,
-            0x07,        /* direction: not one of NONE/ADD/SUB */
-            0, 1,
-        };
+        uint8_t v[DOCK_SET_VFO_PARAM_LEN];
+        memcpy(v, K0PRA, sizeof(v));
+
+        reset();
+        v[10] = 0x07;                             /* direction: not NONE/ADD/SUB */
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
         CHECK(g_vfo_calls == 0, "0x0873: an unknown offset direction is refused");
+        CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_DIRECTION,
+              "0x0874: the direction is named as the reason");
 
-        v[10] = DOCK_OFFSET_SUB; v[11] = 0x05;    /* bandwidth: neither wide nor narrow */
+        reset();
+        memcpy(v, K0PRA, sizeof(v));
+        v[11] = 0x05;                             /* bandwidth: neither wide nor narrow */
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
         CHECK(g_vfo_calls == 0, "0x0873: an unknown bandwidth is refused");
+        CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_FIELD,
+              "0x0874: a bad bandwidth is reported");
 
-        v[11] = 0; v[12] = 0x09;                  /* power: off the end of the scale */
+        reset();
+        memcpy(v, K0PRA, sizeof(v));
+        v[12] = 0x09;                             /* power: off the end of the scale */
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
         CHECK(g_vfo_calls == 0, "0x0873: an unknown power level is refused");
+        CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_FIELD,
+              "0x0874: a bad power level is reported");
     }
 
     /* 21. Refused inside full-control. Applying a VFO mid-dock would call
@@ -424,24 +500,55 @@ int main(void)
      *     synthesiser — the "adopt whatever you find" fault ADR 0132 removed. */
     reset();
     flen = build_cmd(frame, DOCK_CMD_ENTER_HW, params, 0); feed(frame, flen);
-    {
-        uint8_t v[DOCK_SET_VFO_PARAM_LEN] = {
-            0x40, 0x5E, 0x92, 0x1A, 0, 0, 0, 0, 0, 0, DOCK_OFFSET_NONE, 0, 1,
-        };
-        flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
-        feed(frame, flen);
-        CHECK(g_vfo_calls == 0, "0x0873: refused while the host holds full-control");
+    g_caplen = 0;                                  /* drop the enter's own traffic */
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(g_vfo_calls == 0, "0x0873: refused while the host holds full-control");
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_BUSY,
+          "0x0874: full-control is named, so the caller can retry after 0x0871");
 
-        flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);
-        flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
-        feed(frame, flen);
-        CHECK(g_vfo_calls == 1, "0x0873: accepted once full-control is released");
-    }
+    flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);
+    g_caplen = 0;
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(g_vfo_calls == 1, "0x0873: accepted once full-control is released");
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_APPLIED,
+          "0x0874: applied after full-control is released");
 
     /* 22. Never keys. This command runs while the radio is a radio, so if it
      *     could touch the TX state it would key one outside the dock's own
      *     fail-safe seams, with nothing tracking it. */
     CHECK(g_tx_calls == 0 && !ctx.tx_on, "0x0873: no PA activity of its own");
+
+    /* 23. A build with no radio-side binding still answers. Silence here would
+     *     be indistinguishable from a radio that is not listening at all. */
+    reset();
+    dock_init(&ctx, &HAL_NO_VFO);
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_NO_HAL,
+          "0x0874: a missing set_vfo binding is reported, not silent");
+
+    /* 24. A rejection never carries frequencies. The fake binding fills them in
+     *     on purpose; dock.c must blank them, so no caller can ever read a
+     *     channel off a reply that says the radio is not on one. This is the
+     *     whole contract in one case: status first, and it is authoritative. */
+    reset();
+    g_vfo_force_status = DOCK_VFO_ERR_BAND;
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_BAND,
+          "0x0874: an out-of-band refusal from the radio side is reported");
+    CHECK(rep.rx_hz == 0 && rep.tx_hz == 0 && rep.ctcss_tenths == 0,
+          "0x0874: a non-zero status ships no frequencies, whatever the HAL wrote");
+
+    reset();
+    g_vfo_force_status = DOCK_VFO_ERR_TONE;
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_TONE
+          && rep.rx_hz == 0 && rep.ctcss_tenths == 0,
+          "0x0874: an unresolvable tone refuses the whole tune, on frequency or not");
 
     /* ---- report ---- */
     printf("dock host tests: %d checks, %d failures\n", g_checks, g_fail);
