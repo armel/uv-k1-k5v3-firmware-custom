@@ -125,11 +125,11 @@ void dock_send_register_info(dock_ctx_t *ctx, uint16_t reg, uint16_t value)
 
 void dock_send_set_vfo_reply(dock_ctx_t *ctx, const dock_vfo_applied_t *r)
 {
-    /* payload = [0x0874][param_len=12][status:u8][reserved:u8][rx:u32][tx:u32]
-     * [ctcss_tenths:u16]. The reserved byte is zero and exists so a later flags
-     * field can be added without moving the two frequencies. */
+    /* payload = [0x0874][param_len=12][status:u8][power:u8][rx:u32][tx:u32]
+     * [ctcss_tenths:u16]. `power` is the radio's own OUTPUT_POWER_* value, which
+     * is a different scale from the 0/1/2 the host sends — see dock.h. */
     const uint8_t p[12] = {
-        r->status, 0,
+        r->status, r->power,
         (uint8_t)(r->rx_hz),        (uint8_t)(r->rx_hz >> 8),
         (uint8_t)(r->rx_hz >> 16),  (uint8_t)(r->rx_hz >> 24),
         (uint8_t)(r->tx_hz),        (uint8_t)(r->tx_hz >> 8),
@@ -210,7 +210,7 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
          * frequencies. Enforced here rather than trusted to each HAL, so a
          * binding that forgets cannot publish a channel the radio is not on. */
         if (res.status != DOCK_VFO_APPLIED) {
-            res.rx_hz = 0; res.tx_hz = 0; res.ctcss_tenths = 0;
+            res.rx_hz = 0; res.tx_hz = 0; res.ctcss_tenths = 0; res.power = 0;
         }
         dock_send_set_vfo_reply(ctx, &res);
         break;

@@ -89,14 +89,21 @@ static void hal_set_vfo(void *u, const dock_vfo_t *vfo, dock_vfo_applied_t *out)
         out->rx_hz        = 0xDEADBEEFu;
         out->tx_hz        = 0xFEEDFACEu;
         out->ctcss_tenths = 0x1234u;
+        out->power        = 0x7Fu;
         return;
     }
+    /* Mirrors uart.c's DOCK_POWER_MAP. The wire's 0/1/2 are NOT the firmware's
+     * OUTPUT_POWER_* values (that enum is USER, LOW1..LOW5, MID, HIGH), and
+     * dock.c must pass whatever the binding reports straight through rather
+     * than assuming the two scales agree. */
+    static const uint8_t FAKE_POWER_MAP[3] = { 1u, 6u, 7u };   /* LOW1, MID, HIGH */
     out->status       = DOCK_VFO_APPLIED;
     out->rx_hz        = vfo->rx_hz;
     out->tx_hz        = (vfo->direction == DOCK_OFFSET_ADD) ? vfo->rx_hz + vfo->offset_hz
                       : (vfo->direction == DOCK_OFFSET_SUB) ? vfo->rx_hz - vfo->offset_hz
                       : vfo->rx_hz;
     out->ctcss_tenths = vfo->ctcss_tenths;
+    out->power        = FAKE_POWER_MAP[vfo->power];
 }
 static const dock_hal_t HAL = { hal_read, hal_write, hal_send, NULL, hal_tx, hal_set_vfo };
 /* A build with no radio-side binding at all — 0x0873 must still answer. */
@@ -115,6 +122,7 @@ static bool last_vfo_reply(dock_vfo_applied_t *out)
     if ((uint16_t)(body[0] | (body[1] << 8)) != DOCK_REPLY_SET_VFO) return false;
     if ((uint16_t)(body[2] | (body[3] << 8)) != 12u) return false;
     out->status = body[4];
+    out->power  = body[5];
     out->rx_hz  = (uint32_t)body[6]  | ((uint32_t)body[7] << 8)
                 | ((uint32_t)body[8] << 16) | ((uint32_t)body[9] << 24);
     out->tx_hz  = (uint32_t)body[10] | ((uint32_t)body[11] << 8)
@@ -413,19 +421,34 @@ int main(void)
     CHECK(rep.rx_hz == 448525000u && rep.tx_hz == 443525000u,
           "0x0874: reports BOTH legs, so the caller learns where it will radiate");
     CHECK(rep.ctcss_tenths == 1000u, "0x0874: reports the tone actually set");
+    CHECK(rep.power == 7u,
+          "0x0874: reports the RADIO's power level, not the 0/1/2 that was sent");
 
     /* 17b. Byte-exact reply vector — an oracle independent of this file's own
      *      builders, and the thing radio-server's decoder is written against. */
     {
         static const uint8_t golden[] = {
             0xAB, 0xCD, 0x10, 0x00, 0x62, 0x64, 0x18, 0xE6,
-            0x2E, 0x91, 0xC5, 0xB2, 0x9A, 0x2F, 0x5D, 0xE7,
+            0x2E, 0x96, 0xC5, 0xB2, 0x9A, 0x2F, 0x5D, 0xE7,
             0x7C, 0x19, 0x01, 0x83, 0xE9, 0x93, 0xDC, 0xBA,
         };
         CHECK(g_caplen == sizeof(golden), "0x0874: golden reply length");
         CHECK(g_caplen == sizeof(golden) &&
               memcmp(g_cap, golden, sizeof(golden)) == 0, "0x0874: byte-exact reply");
     }
+
+    /* 17c. The power byte is a conduit, not a copy of the request: asking for
+     *      mid (1) must come back as the radio's own MID, not as 1. */
+    reset();
+    {
+        uint8_t v[DOCK_SET_VFO_PARAM_LEN];
+        memcpy(v, K0PRA, sizeof(v));
+        v[12] = 1;                                 /* wire "mid" */
+        flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
+        feed(frame, flen);
+    }
+    CHECK(last_vfo_reply(&rep) && rep.power == 6u,
+          "0x0874: the wire's mid maps onto the radio's own scale, and is reported as such");
 
     /* 18. A simplex channel is expressible: no offset, no tone. */
     reset();
@@ -539,7 +562,7 @@ int main(void)
     feed(frame, flen);
     CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_BAND,
           "0x0874: an out-of-band refusal from the radio side is reported");
-    CHECK(rep.rx_hz == 0 && rep.tx_hz == 0 && rep.ctcss_tenths == 0,
+    CHECK(rep.rx_hz == 0 && rep.tx_hz == 0 && rep.ctcss_tenths == 0 && rep.power == 0,
           "0x0874: a non-zero status ships no frequencies, whatever the HAL wrote");
 
     reset();

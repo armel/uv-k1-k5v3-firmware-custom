@@ -805,6 +805,17 @@ static bool Dock_FreqInBand(uint32_t freq10, uint8_t *band_out)
     return true;
 }
 
+// The wire's three-step power scale is NOT this firmware's OUTPUT_POWER_* enum, and assigning
+// one to the other is silently wrong in the direction that matters. This tree's enum is
+// { USER, LOW1, LOW2, LOW3, LOW4, LOW5, MID, HIGH }, so a host asking for "high" (2) was
+// getting OUTPUT_POWER_LOW2 — a level no repeater is going to hear — while "low" (0) landed on
+// OUTPUT_POWER_USER, which is not a level at all but the user-configured special case
+// (radio.c:591). LOW1 is the real bottom of the scale the radio's own power key cycles through
+// (action.c:146-147).
+static const uint8_t DOCK_POWER_MAP[3] = {
+    OUTPUT_POWER_LOW1, OUTPUT_POWER_MID, OUTPUT_POWER_HIGH
+};
+
 static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want,
                           uint32_t rx10, uint32_t off10, uint8_t band,
                           const uint8_t *ctcss_idx)
@@ -837,7 +848,7 @@ static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want,
 
     vfo->CHANNEL_BANDWIDTH = want->narrow ? BANDWIDTH_NARROW : BANDWIDTH_WIDE;
     vfo->Modulation        = MODULATION_FM;
-    vfo->OUTPUT_POWER      = want->power;
+    vfo->OUTPUT_POWER      = DOCK_POWER_MAP[want->power];   // scales differ; see the map
     vfo->Band              = band;
 
     RADIO_ConfigureSquelchAndOutputPower(vfo);   // TXP_CalculatedSetting, per band
@@ -907,6 +918,7 @@ static void Dock_SetVfo(void *user, const dock_vfo_t *want, dock_vfo_applied_t *
     out->tx_hz        = v->freq_config_TX.Frequency * 10u;
     out->ctcss_tenths = (v->freq_config_TX.CodeType == CODE_TYPE_CONTINUOUS_TONE)
                         ? CTCSS_Options[v->freq_config_TX.Code] : 0;
+    out->power        = v->OUTPUT_POWER;   // the radio's own scale, not the wire's
     out->status       = DOCK_VFO_APPLIED;
 }
 

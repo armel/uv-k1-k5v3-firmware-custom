@@ -123,12 +123,19 @@
                                      * tone, so the repeater stays shut       */
 
 /* What the radio ended up on, read back after the firmware's own RADIO_ApplyOffset.
- * Frequencies in Hz. On any rejection these are zero. */
+ * Frequencies in Hz. On any rejection these are zero.
+ *
+ * `power` is the radio's OWN OUTPUT_POWER_* value, not the 0/1/2 that was sent.
+ * It is reported because the two scales are not the same and quietly disagreed:
+ * the wire's "high" (2) landed on OUTPUT_POWER_LOW2 in an enum that runs
+ * USER, LOW1..LOW5, MID, HIGH. A repeater simply does not open at that level,
+ * and nothing about it is visible from the host. */
 typedef struct {
     uint32_t rx_hz;
     uint32_t tx_hz;         /* the leg that actually radiates */
     uint16_t ctcss_tenths;  /* as applied; 0 = transmitting no tone */
     uint8_t  status;        /* DOCK_VFO_* */
+    uint8_t  power;         /* the firmware's OUTPUT_POWER_*, as applied */
 } dock_vfo_applied_t;
 
 /* Offset direction, matching the firmware's TX_OFFSET_FREQUENCY_DIRECTION. */
