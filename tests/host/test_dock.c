@@ -68,7 +68,7 @@ static void hal_tx(void *u, bool on)
     (void)u; g_tx_calls++; g_tx_last = on ? 1 : 0;
     ev_push(on ? '1' : '0');
 }
-/* set-VFO spy (0x0872). Records the last decoded channel and how many times the
+/* set-VFO spy (0x0873). Records the last decoded channel and how many times the
  * firmware would have been asked to apply one — the count is what proves a
  * malformed or out-of-range frame was REFUSED rather than quietly passed on to
  * the radio's own VFO struct. */
@@ -335,7 +335,7 @@ int main(void)
     flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);    /* 0x0871 */
     CHECK(g_tx_calls == 4 && g_tx_last == 0 && !ctx.tx_on, "0x0871 exit drops the PA");
 
-    /* ---- 0x0872 set-VFO -------------------------------------------------
+    /* ---- 0x0873 set-VFO -------------------------------------------------
      *
      * This is the one command whose whole point is to outlive the dock session,
      * so its failure modes are different in kind from the register commands:
@@ -358,14 +358,14 @@ int main(void)
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
     }
-    CHECK(g_vfo_calls == 1, "0x0872: a well-formed channel is applied once");
-    CHECK(g_vfo_last.rx_hz == 448525000u, "0x0872: rx frequency decoded");
-    CHECK(g_vfo_last.offset_hz == 5000000u, "0x0872: offset decoded");
-    CHECK(g_vfo_last.ctcss_tenths == 1000u, "0x0872: CTCSS decoded in tenths");
-    CHECK(g_vfo_last.direction == DOCK_OFFSET_SUB, "0x0872: direction decoded");
-    CHECK(g_vfo_last.narrow == 0 && g_vfo_last.power == 2, "0x0872: bandwidth/power decoded");
-    CHECK(g_writes == 0, "0x0872: writes no registers itself");
-    CHECK(g_caplen == 0, "0x0872: sends no reply");
+    CHECK(g_vfo_calls == 1, "0x0873: a well-formed channel is applied once");
+    CHECK(g_vfo_last.rx_hz == 448525000u, "0x0873: rx frequency decoded");
+    CHECK(g_vfo_last.offset_hz == 5000000u, "0x0873: offset decoded");
+    CHECK(g_vfo_last.ctcss_tenths == 1000u, "0x0873: CTCSS decoded in tenths");
+    CHECK(g_vfo_last.direction == DOCK_OFFSET_SUB, "0x0873: direction decoded");
+    CHECK(g_vfo_last.narrow == 0 && g_vfo_last.power == 2, "0x0873: bandwidth/power decoded");
+    CHECK(g_writes == 0, "0x0873: writes no registers itself");
+    CHECK(g_caplen == 0, "0x0873: sends no reply");
 
     /* 18. A simplex channel is expressible: no offset, no tone. */
     reset();
@@ -379,9 +379,9 @@ int main(void)
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
     }
-    CHECK(g_vfo_calls == 1 && g_vfo_last.rx_hz == 445800000u, "0x0872: simplex channel applies");
+    CHECK(g_vfo_calls == 1 && g_vfo_last.rx_hz == 445800000u, "0x0873: simplex channel applies");
     CHECK(g_vfo_last.ctcss_tenths == 0 && g_vfo_last.direction == DOCK_OFFSET_NONE,
-          "0x0872: no tone and no offset survive as zero, not as garbage");
+          "0x0873: no tone and no offset survive as zero, not as garbage");
 
     /* 19. A truncated payload is refused, not read past. The frame is otherwise
      *     valid, so nothing but the length check stands between a short frame
@@ -392,7 +392,7 @@ int main(void)
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
     }
-    CHECK(g_vfo_calls == 0, "0x0872: a short payload is refused");
+    CHECK(g_vfo_calls == 0, "0x0873: a short payload is refused");
 
     /* 20. Out-of-range fields are refused rather than clamped. A bad direction
      *     byte silently treated as "simplex" would transmit on the repeater's
@@ -406,17 +406,17 @@ int main(void)
         };
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
-        CHECK(g_vfo_calls == 0, "0x0872: an unknown offset direction is refused");
+        CHECK(g_vfo_calls == 0, "0x0873: an unknown offset direction is refused");
 
         v[10] = DOCK_OFFSET_SUB; v[11] = 0x05;    /* bandwidth: neither wide nor narrow */
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
-        CHECK(g_vfo_calls == 0, "0x0872: an unknown bandwidth is refused");
+        CHECK(g_vfo_calls == 0, "0x0873: an unknown bandwidth is refused");
 
         v[11] = 0; v[12] = 0x09;                  /* power: off the end of the scale */
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
-        CHECK(g_vfo_calls == 0, "0x0872: an unknown power level is refused");
+        CHECK(g_vfo_calls == 0, "0x0873: an unknown power level is refused");
     }
 
     /* 21. Refused inside full-control. Applying a VFO mid-dock would call
@@ -430,18 +430,18 @@ int main(void)
         };
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
-        CHECK(g_vfo_calls == 0, "0x0872: refused while the host holds full-control");
+        CHECK(g_vfo_calls == 0, "0x0873: refused while the host holds full-control");
 
         flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);
         flen = build_cmd(frame, DOCK_CMD_SET_VFO, v, sizeof(v));
         feed(frame, flen);
-        CHECK(g_vfo_calls == 1, "0x0872: accepted once full-control is released");
+        CHECK(g_vfo_calls == 1, "0x0873: accepted once full-control is released");
     }
 
     /* 22. Never keys. This command runs while the radio is a radio, so if it
      *     could touch the TX state it would key one outside the dock's own
      *     fail-safe seams, with nothing tracking it. */
-    CHECK(g_tx_calls == 0 && !ctx.tx_on, "0x0872: no PA activity of its own");
+    CHECK(g_tx_calls == 0 && !ctx.tx_on, "0x0873: no PA activity of its own");
 
     /* ---- report ---- */
     printf("dock host tests: %d checks, %d failures\n", g_checks, g_fail);

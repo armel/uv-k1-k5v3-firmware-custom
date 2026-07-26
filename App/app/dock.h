@@ -57,7 +57,7 @@
 #define DOCK_CMD_READ_REGS  0x0851u
 #define DOCK_CMD_ENTER_HW   0x0870u
 #define DOCK_CMD_EXIT_HW    0x0871u
-#define DOCK_CMD_SET_VFO    0x0872u
+#define DOCK_CMD_SET_VFO    0x0873u
 #define DOCK_REPLY_REG_INFO 0x0951u
 
 /* Payload cap: matches radio_server frames.py MAX_PAYLOAD_SIZE (254). */

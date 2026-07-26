@@ -667,7 +667,7 @@ static void Dock_HalSend(void *user, const uint8_t *buf, uint16_t len)
 // F5: engage/disengage the physical PA chain on a REG_30 TX-enable edge (defined
 // below, after the F3a RX helper it reuses on un-key).
 static void Dock_TxSet(void *user, bool on);
-// F6: apply a whole repeater channel to the radio's OWN VFO (0x0872, below).
+// F6: apply a whole repeater channel to the radio's OWN VFO (0x0873, below).
 static void Dock_SetVfo(void *user, const dock_vfo_t *want);
 static const dock_hal_t Dock_Hal = {
     Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet, Dock_SetVfo
@@ -758,7 +758,7 @@ static void Dock_TxSet(void *user, bool on)
         Dock_EndTx();
 }
 
-// F6 — 0x0872 set-VFO. The one dock command that is meant to OUTLIVE the dock
+// F6 — 0x0873 set-VFO. The one dock command that is meant to OUTLIVE the dock
 // session, and the reason it has to exist:
 //
 // Everything else here writes BK4819 registers, and none of it survives. 0x0870
@@ -1087,8 +1087,8 @@ void UART_HandleCommand(uint32_t Port)
         case 0x0850:   // write BK4819 registers (no reply)
         case 0x0851:   // read BK4819 registers -> one 0x0951 reply each
         case 0x0871:   // exit full-control (clears the loop flag)
-        case 0x0872:   // set the radio's own VFO (no reply) — F6
-            // 0x0872 sits HERE, in the ordinary non-blocking dispatch, and not
+        case 0x0873:   // set the radio's own VFO (no reply) — F6
+            // 0x0873 sits HERE, in the ordinary non-blocking dispatch, and not
             // with 0x0870 below. That is the point of it: the main loop keeps
             // running, so the radio keeps sampling its own PTT pin and stays a
             // radio. Entering full-control to tune would starve the very loop
