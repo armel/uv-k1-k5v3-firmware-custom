@@ -11,6 +11,8 @@ the reference for the firmware's features and menus.
   and firmware built for that chip will not run here.
 - **Protocol:** **[PROTOCOL.md](PROTOCOL.md)** — the full wire spec, with golden test vectors.
 - **Flashing:** [BENCH.md](BENCH.md).
+- **Contributing / working on the dock code:** [AGENTS.md](AGENTS.md) — build, test, the
+  byte-compatibility contract, and the guardrails.
 
 ## Why
 
