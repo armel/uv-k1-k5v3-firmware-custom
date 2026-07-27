@@ -16,4 +16,8 @@ k5_eeprom.raw
 __pycache__/
 
 .DS_Store
-AGENTS.md
+
+# NOTE: upstream ignores AGENTS.md (agent instructions were meant to stay local).
+# This fork tracks it deliberately - it carries the byte-compatibility contract with
+# radio-server and the BENCH.md placeholder rule, which are not optional local notes.
+# Keep this divergence when rebasing on a new F4HWN release.
