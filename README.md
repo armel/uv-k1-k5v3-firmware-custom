@@ -1,3 +1,104 @@
+# F4HWN + a dock control mode, for the UV-K1 / UV-K5 V3
+
+**This fork adds one thing to [F4HWN](https://github.com/armel/uv-k1-k5v3-firmware-custom): a *dock
+control mode* — a serial protocol that lets a computer tune, configure and key the radio over the K1
+jack.** Everything else here is F4HWN's, unchanged; its own documentation follows below and is still
+the reference for the firmware's features and menus.
+
+- **Base:** [`armel/uv-k1-k5v3-firmware-custom`](https://github.com/armel/uv-k1-k5v3-firmware-custom),
+  tag **`v5.7.0`** (commit `3bd3ebb`), Apache-2.0. The **Fusion** edition.
+- **Radio:** UV-K1 / UV-K5 **V3** — the **PY32F071** MCU. It will not run on a classic UV-K5 (DP32G030),
+  and firmware built for that chip will not run here.
+- **Protocol:** **[PROTOCOL.md](PROTOCOL.md)** — the full wire spec, with golden test vectors.
+- **Flashing:** [BENCH.md](BENCH.md).
+
+## Why
+
+Nothing open-source let a computer *drive* a UV-K5 V3. nicsure's
+[Quansheng Dock](https://github.com/nicsure/quansheng-dock-fw) does exactly that for the **classic**
+UV-K5, but it targets the DP32G030 and cannot run on a V3 at all. The V3 keeps the same **BK4819** RF
+chip, so the protocol ports cleanly — what was missing was somebody doing it.
+
+The dock command surface here is deliberately **byte-compatible** with the classic Dock, so a host
+program written for one drives the other. It was built for
+[radio-server](https://github.com/kbennett2000/radio-server), which controls a ham station over HTTP,
+but it has no dependency on it — the protocol is documented and the reference decoder is plain C.
+
+## What it adds
+
+Five commands and two replies (see [PROTOCOL.md](PROTOCOL.md) for the byte layouts):
+
+| | |
+|---|---|
+| `0x0850` / `0x0851` → `0x0951` | read and write BK4819 chip registers |
+| `0x0870` / `0x0871` | enter and leave full control — the radio's own logic stands down |
+| `0x0873` → `0x0874` | **hand the radio a whole channel** and let its own code apply it |
+
+`0x0873` is the one command with no classic-Dock equivalent, and it exists because of a trap:
+`0x0871` ends in `RADIO_SetupRegisters()`, which retunes the synthesiser from the radio's own VFO — so
+**every register a host writes is discarded when it lets go**. `0x0873` writes the radio's VFO
+instead, then lets the firmware run its own `RADIO_ApplyOffset` and, critically, its own per-band
+power-amplifier calibration, which lives in flash the host cannot read.
+
+**What it does not touch:** no keypress simulation, no screen capture, no scan or GPIO commands, no
+modulation control. `App/app/dock.c` and `dock.h` are new; four existing files gained a dispatch case,
+a HAL binding, a build flag. Nothing in the radio's own operation changes until a host sends `0x0870`.
+
+## Firmware levels
+
+Each cycle unlocked something the one before it lacked. Releases are tagged `radio-server-fN-v5.7.0`.
+
+| Level | Adds | Symptom without it |
+|---|---|---|
+| **F1** | nothing — a build gate proving fork → build → flash → boot on an unmodified image | — |
+| **F2** | the dock mode itself | the commands are silently ignored |
+| **F3** | forces the receive audio path alive on `0x0870` entry | dock connects and receives **silence**, with every register reading back correct |
+| **F5** | engages the power amplifier on the key-up edge | keys cleanly and **radiates nothing usable** |
+| **F6** | `0x0873`/`0x0874` set-VFO | tuning does not survive `0x0871`; no transmit-power control |
+
+**[Flash F6](../../releases/tag/radio-server-f6-v5.7.0).** It is cumulative. F3 and F5 are the two
+that cost a diagnostic cycle each to find, and neither is visible from the host as a fault — the radio
+reports success and does nothing. If you are debugging a silent radio, check the level first.
+
+## Build
+
+```sh
+./compile-with-docker.sh Fusion      # -> build/Fusion/f4hwn.fusion.bin
+```
+
+Docker + CMake + ARM GNU Toolchain 13.3; the script builds the image on first run. **Headless?** The
+script passes `docker run -it`, which needs a TTY — without one, run it directly:
+
+```sh
+docker build -t uvk1-uvk5v3 .
+docker run --rm -u $(id -u):$(id -g) -v "$PWD":/src -w /src uvk1-uvk5v3 \
+  bash -c "cmake --preset Fusion && cmake --build --preset Fusion -j"
+```
+
+The dock mode is behind `ENABLE_DOCK`, on in the Fusion preset. Flash region is 118 KB and the dock
+costs about 1 KB of it.
+
+## Test
+
+```sh
+make -C tests/host run      # 66 checks, needs only a C compiler
+```
+
+`App/app/dock.c` is pure C with no firmware or hardware includes — all hardware sits behind a
+caller-supplied `dock_hal_t` — so the whole protocol core compiles and runs on a development machine.
+That is also what makes it usable as a reference decoder in your own project. The tests include
+byte-exact golden frames, cross-checked against an independent Python implementation.
+
+## Licence and credit
+
+Apache-2.0, carrying forward DualTachyon's original copyright and F4HWN's work. The dock port derives
+from nicsure's Apache-2.0 `quansheng-dock-fw`; its GPL-2.0 Windows client was read as a specification
+and **not** copied. See [NOTICE](NOTICE).
+
+Per F4HWN's request below: this fork is open source and will stay that way.
+
+---
+
 # Stats
 
 ![Alt](https://repobeats.axiom.co/api/embed/ecdd86aa536b716f088339a0c5ee734558f78c28.svg "Repobeats analytics image")
