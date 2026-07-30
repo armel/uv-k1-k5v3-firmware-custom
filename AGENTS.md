@@ -40,7 +40,7 @@ the same commit differ in ~5 bytes. Compare with `cmp -l` before concluding a tr
 ## Test
 
 ```sh
-make -C tests/host run       # 66 checks; needs only a C compiler, no Docker, no hardware
+make -C tests/host run       # 98 checks; needs only a C compiler, no Docker, no hardware
 ```
 
 `App/app/dock.c` is deliberately **pure C with no firmware or hardware includes** — all hardware sits
@@ -81,17 +81,19 @@ Releases are tagged `radio-server-fN-v5.7.0`; branches `fN-*` are kept for histo
 | **F3** | forces the RX audio path alive on `0x0870` | connects, receives **silence**, all registers read back correct |
 | **F5** | engages the PA on the key-up edge | keys cleanly, **radiates nothing usable** |
 | **F6** | `0x0873`/`0x0874` set-VFO | tuning does not survive `0x0871`; no power control |
+| **F7** | `0x0877`/`0x0878` set-modulation; `0x0873` stops forcing FM | the radio is FM-only — no way to receive AM |
 
 None of F3 or F5's absence looks like a fault from the host — the radio reports success and does
 nothing. When something is silent, check the level first.
 
 ## Guardrails (do not violate)
 
-1. **Do not fill in `BENCH.md`'s `⚠ CONFIRM AT BENCH` placeholders from inference.** Five numbered
-   items (DFU entry, the FTDI cable, the tab-conflict gotcha, the calibration dump) plus the
-   resume-RX behaviour at `:111` are marked because **nobody has confirmed them on the radio**. A
-   plausible guess written as fact is worse than the placeholder — this is firmware that can brick a
-   radio. Replace a marker only with a bench result.
+1. **Do not fill in `BENCH.md`'s `⚠ CONFIRM AT BENCH` placeholders from inference.** Every one of
+   them — flashing (DFU entry, the FTDI cable, the tab-conflict gotcha, the calibration dump), the
+   resume-RX behaviour after `0x0871`, and F7's AM receive and PTT-refusal items — is marked because
+   **nobody has confirmed it on the radio**. A plausible guess written as fact is worse than the
+   placeholder — this is firmware that can brick a radio. Replace a marker only with a bench result.
+   Do not restate the count either: it was wrong in both files before F7 added to it.
 2. **Validate before acting; refuse, never clamp.** Every `0x0873` field is checked before anything is
    written, and a bad one is refused with a status code. This is load-bearing twice over: a silently
    moved channel can transmit on somebody else's repeater, and the refusal-before-action property is

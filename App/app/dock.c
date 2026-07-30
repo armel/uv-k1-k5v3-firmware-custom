@@ -71,12 +71,18 @@ void dock_init(dock_ctx_t *ctx, const dock_hal_t *hal)
     ctx->hal          = hal;
     ctx->full_control = false;
     ctx->tx_on        = false;
+    /* A CONSTANT, deliberately — never a read of the radio's current modulation.
+     * Seeding from the radio is the "adopt whatever state you find" fault ADR 0132
+     * removed, and it would hand a repeater channel whatever the front panel was
+     * last left on. FM so a host that never sends 0x0877 sees F6 behaviour exactly. */
+    ctx->modulation   = DOCK_MOD_FM;
     ctx->len          = 0;
 }
 
-/* Longest parameter block this core replies with (0x0874's 12; 0x0951 uses 4).
- * Named rather than implied by the largest caller, so adding a reply that does
- * not fit is a compile-time size check instead of a stack overrun. */
+/* Longest parameter block this core replies with (0x0874's 12; 0x0878 uses 4, and
+ * so does 0x0951). Named rather than implied by the largest caller, because
+ * dock_send_payload SILENTLY SENDS NOTHING for a longer block — so a new reply that
+ * does not fit would look exactly like a firmware that never got the command. */
 #define DOCK_REPLY_MAX_PARAMS 12u
 
 /* Assemble and emit one reply frame: preamble, Size, obfuscated
@@ -139,6 +145,15 @@ void dock_send_set_vfo_reply(dock_ctx_t *ctx, const dock_vfo_applied_t *r)
     dock_send_payload(ctx, DOCK_REPLY_SET_VFO, p, sizeof(p));
 }
 
+void dock_send_set_mod_reply(dock_ctx_t *ctx, const dock_mod_applied_t *r)
+{
+    /* payload = [0x0878][param_len=4][status:u8][modulation:u8][raw:u8][flags:u8].
+     * `modulation` is the wire value the radio is actually on; `raw` is the radio's
+     * own ModulationMode_t, whose numbering moves with a build flag — see dock.h. */
+    const uint8_t p[4] = { r->status, r->modulation, r->raw, r->flags };
+    dock_send_payload(ctx, DOCK_REPLY_SET_MOD, p, sizeof(p));
+}
+
 /* Little-endian u32 off the wire. Byte-at-a-time rather than a cast, because
  * the payload sits at an arbitrary offset in the RX buffer and this core is
  * compiled for both an ARM target and the host harness. */
@@ -192,6 +207,10 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
             vfo.direction    = params[10];
             vfo.narrow       = params[11];
             vfo.power        = params[12];
+            /* NOT from the payload — 0x0873 has no modulation field and must never
+             * grow one (dock.h). This is the session's sticky value, so a tune
+             * cannot silently move the radio off the modulation 0x0877 set. */
+            vfo.modulation   = ctx->modulation;
             /* Refuse nonsense rather than pass it into the radio's own VFO
              * struct. A bad direction byte would otherwise transmit somewhere
              * unintended, which on a repeater input is somebody else's problem,
@@ -213,6 +232,50 @@ void dock_dispatch(dock_ctx_t *ctx, const uint8_t *payload, uint16_t size)
             res.rx_hz = 0; res.tx_hz = 0; res.ctcss_tenths = 0; res.power = 0;
         }
         dock_send_set_vfo_reply(ctx, &res);
+        break;
+    }
+
+    case DOCK_CMD_SET_MODULATION: {
+        /* Like 0x0873, EVERY path answers — including every refusal. And like
+         * 0x0873, the length check is the FIRST branch, before a single field is
+         * decoded and before the binding is reached, which is what makes an EMPTY
+         * 0x0877 a safe firmware-level probe: it cannot move the radio. */
+        dock_mod_applied_t res;
+        memset(&res, 0, sizeof(res));
+
+        if (plen < DOCK_SET_MOD_PARAM_LEN) {
+            res.status = DOCK_MOD_ERR_SHORT;        /* never read past the payload */
+        } else if (ctx->full_control) {
+            res.status = DOCK_MOD_ERR_BUSY;         /* the host owns the chip */
+        } else {
+            const uint8_t want = params[0];
+            /* Refuse, never clamp. A clamped modulation is a radio quietly
+             * demodulating the wrong thing while the reply says it succeeded. */
+            if (want > DOCK_MOD_MAX_ACCEPTED)
+                res.status = DOCK_MOD_ERR_FIELD;
+            else if (!ctx->hal->set_modulation)
+                res.status = DOCK_MOD_ERR_NO_HAL;
+            else {
+                ctx->hal->set_modulation(ctx->hal->user, want, &res);
+                /* Advance the sticky value ONLY on a modulation the radio actually
+                 * took. Committing it during decode would mean a refusal — a BUSY in
+                 * particular — silently changed what the NEXT 0x0873 applies, which
+                 * is the bug this whole mechanism exists to remove, in mirror image. */
+                if (res.status == DOCK_MOD_APPLIED)
+                    ctx->modulation = want;
+            }
+        }
+
+        /* Same unconditional contract as 0x0874, with the sentinel that suits this
+         * payload: a non-zero status never describes a modulation. DOCK_MOD_UNKNOWN
+         * and NOT zero — zero is DOCK_MOD_FM, so blanking to it would answer a
+         * refusal with a plausible claim that the radio is on FM. */
+        if (res.status != DOCK_MOD_APPLIED) {
+            res.modulation = DOCK_MOD_UNKNOWN;
+            res.raw        = DOCK_MOD_UNKNOWN;
+            res.flags      = 0;
+        }
+        dock_send_set_mod_reply(ctx, &res);
         break;
     }
 

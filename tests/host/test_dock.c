@@ -105,9 +105,53 @@ static void hal_set_vfo(void *u, const dock_vfo_t *vfo, dock_vfo_applied_t *out)
     out->ctcss_tenths = vfo->ctcss_tenths;
     out->power        = FAKE_POWER_MAP[vfo->power];
 }
-static const dock_hal_t HAL = { hal_read, hal_write, hal_send, NULL, hal_tx, hal_set_vfo };
+/* set-modulation spy (0x0877). Same shape and same job as the set-VFO spy: the
+ * CALL COUNT is what proves a refused frame never reached the radio.
+ *
+ * g_mod_force_readback lets a test make the fake report a modulation OTHER than the
+ * one it was handed. That is not a contrived case — it is the whole reason 0x0878
+ * carries a read-back at all, and the 0x0874 `power` bug (wire 2 "high" landing on
+ * OUTPUT_POWER_LOW2) is what a reply that merely echoes the request looks like. */
+static int     g_mod_calls;
+static uint8_t g_mod_last;
+static uint8_t g_mod_force_status;    /* non-zero: refuse the way a HAL might */
+static int     g_mod_force_readback;  /* <0 = report what was asked for */
+static int     g_mod_force_raw;       /* <0 = derive from the readback */
+static uint8_t g_mod_force_flags;
+
+static void hal_set_modulation(void *u, uint8_t wire_mod, dock_mod_applied_t *out)
+{
+    (void)u; g_mod_calls++; g_mod_last = wire_mod;
+    if (g_mod_force_status != DOCK_MOD_APPLIED) {
+        /* Fill in a plausible-looking modulation on a refusal, deliberately, so the
+         * tests can prove dock.c overwrites it with DOCK_MOD_UNKNOWN. A binding that
+         * forgets must not be able to publish a modulation the radio is not on. */
+        out->status     = g_mod_force_status;
+        out->modulation = DOCK_MOD_FM;
+        out->raw        = 0u;
+        out->flags      = DOCK_MOD_FLAG_TX_OK;
+        return;
+    }
+    const uint8_t applied = (g_mod_force_readback < 0)
+                          ? wire_mod : (uint8_t)g_mod_force_readback;
+    out->status     = DOCK_MOD_APPLIED;
+    out->modulation = applied;
+    out->raw        = (g_mod_force_raw < 0) ? applied : (uint8_t)g_mod_force_raw;
+    out->flags      = g_mod_force_flags;
+}
+
+static const dock_hal_t HAL = {
+    hal_read, hal_write, hal_send, NULL, hal_tx, hal_set_vfo, hal_set_modulation
+};
 /* A build with no radio-side binding at all — 0x0873 must still answer. */
-static const dock_hal_t HAL_NO_VFO = { hal_read, hal_write, hal_send, NULL, hal_tx, NULL };
+static const dock_hal_t HAL_NO_VFO = {
+    hal_read, hal_write, hal_send, NULL, hal_tx, NULL, hal_set_modulation
+};
+/* A build carrying the set-VFO binding but not the set-modulation one — an F6
+ * firmware's shape. 0x0877 must still answer, with ERR_NO_HAL. */
+static const dock_hal_t HAL_NO_MOD = {
+    hal_read, hal_write, hal_send, NULL, hal_tx, hal_set_vfo, NULL
+};
 
 /* Decode the one 0x0874 reply in the capture buffer. False unless exactly one
  * well-formed reply is there, so "sent nothing" can never read as a pass. */
@@ -131,6 +175,25 @@ static bool last_vfo_reply(dock_vfo_applied_t *out)
     return true;
 }
 
+/* Decode the one 0x0878 reply in the capture buffer. Same "exactly one well-formed
+ * frame or false" rule as last_vfo_reply — silence must never read as a pass. */
+#define MOD_REPLY_FRAME_LEN 16u   /* AB CD | size:2 | (4 + 4 + 2) | DC BA */
+
+static bool last_mod_reply(dock_mod_applied_t *out)
+{
+    if (g_caplen != MOD_REPLY_FRAME_LEN) return false;
+    uint8_t body[4 + 4 + 2];
+    memcpy(body, g_cap + 4, sizeof(body));
+    dock_obfuscate(body, (uint16_t)sizeof(body));
+    if ((uint16_t)(body[0] | (body[1] << 8)) != DOCK_REPLY_SET_MOD) return false;
+    if ((uint16_t)(body[2] | (body[3] << 8)) != 4u) return false;
+    out->status     = body[4];
+    out->modulation = body[5];
+    out->raw        = body[6];
+    out->flags      = body[7];
+    return true;
+}
+
 static dock_ctx_t ctx;
 
 static void reset(void)
@@ -140,6 +203,10 @@ static void reset(void)
     g_tx_calls = 0; g_tx_last = -1; g_evn = 0; memset(g_ev, 0, sizeof(g_ev));
     g_vfo_calls = 0; memset(&g_vfo_last, 0, sizeof(g_vfo_last));
     g_vfo_force_status = DOCK_VFO_APPLIED;
+    g_mod_calls = 0; g_mod_last = 0xEE;
+    g_mod_force_status = DOCK_MOD_APPLIED;
+    g_mod_force_readback = -1; g_mod_force_raw = -1;
+    g_mod_force_flags = DOCK_MOD_FLAG_TX_OK;
     dock_init(&ctx, &HAL);
 }
 
@@ -572,6 +639,252 @@ int main(void)
     CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_ERR_TONE
           && rep.rx_hz == 0 && rep.ctcss_tenths == 0,
           "0x0874: an unresolvable tone refuses the whole tune, on frequency or not");
+
+    /* ================= 0x0877 set-modulation / 0x0878 (F7) ================= */
+
+    dock_mod_applied_t mrep;
+    static const uint8_t MOD_AM[1] = { DOCK_MOD_AM };
+
+    /* 25. Byte-exact COMMAND vector. Not a test of dock.c's dispatch — it exercises
+     *     this file's own builder — but it is the artifact a third-party client is
+     *     implemented against, and the thing that catches a client which mis-sizes
+     *     param_len, byte-swaps the opcode, or CRCs the obfuscated bytes instead of
+     *     the plaintext. Cross-checked against a separately written framer that
+     *     reproduces PROTOCOL.md's published 0x0951 and 0x0874 vectors exactly. */
+    reset();
+    {
+        static const uint8_t golden[] = {
+            0xAB, 0xCD, 0x05, 0x00,
+            0x61, 0x64, 0x15, 0xE6, 0x2F, 0x11, 0xD5,
+            0xDC, 0xBA,
+        };
+        flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+        CHECK(flen == sizeof(golden), "0x0877: golden command length");
+        CHECK(flen == sizeof(golden) && memcmp(frame, golden, sizeof(golden)) == 0,
+              "0x0877: byte-exact command vector");
+    }
+
+    /* 26. Byte-exact REPLY vector, the oracle radio-server's decoder is written
+     *     against. AM applies but cannot transmit on this build, so flags = 0 —
+     *     which is exactly the case a host most needs to read correctly. */
+    reset();
+    g_mod_force_flags = 0;                       /* AM: the radio will not key */
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    {
+        static const uint8_t golden[] = {
+            0xAB, 0xCD, 0x08, 0x00,
+            0x6E, 0x64, 0x10, 0xE6, 0x2E, 0x90, 0x0C, 0x40, 0xDE, 0xCA,
+            0xDC, 0xBA,
+        };
+        CHECK(g_caplen == sizeof(golden), "0x0878: golden reply length");
+        CHECK(g_caplen == sizeof(golden) &&
+              memcmp(g_cap, golden, sizeof(golden)) == 0,
+              "0x0878: byte-exact reply vector");
+    }
+
+    /* 27. A truncated payload is refused before params[0] is ever read. This is
+     *     what makes an EMPTY 0x0877 a safe firmware-level probe: the length check
+     *     is the first branch, so the frame cannot move the radio, and any 0x0878
+     *     at all answers "this firmware is F7 or later". */
+    reset();
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, params, 0);
+    feed(frame, flen);
+    CHECK(g_mod_calls == 0, "0x0877: an empty payload is refused, not read past");
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_SHORT,
+          "0x0878: a short payload is REPORTED, so the probe gets an answer");
+    CHECK(mrep.modulation == DOCK_MOD_UNKNOWN && mrep.raw == DOCK_MOD_UNKNOWN,
+          "0x0878: a refusal names no modulation — 0xFF, never 0 (0 is FM)");
+
+    /* 28. Out of range is refused, never clamped. USB's number is reserved but the
+     *     value is not accepted at F7, and 0x09 is not a modulation at all. A clamp
+     *     would leave the radio demodulating something nobody asked for while the
+     *     reply said it worked. */
+    reset();
+    {
+        uint8_t v[1] = { DOCK_MOD_USB };
+        flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, v, sizeof(v));
+        feed(frame, flen);
+    }
+    CHECK(g_mod_calls == 0, "0x0877: reserved-but-unaccepted USB is refused");
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_FIELD,
+          "0x0878: USB refusal is named");
+
+    reset();
+    {
+        uint8_t v[1] = { 0x09 };
+        flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, v, sizeof(v));
+        feed(frame, flen);
+    }
+    CHECK(g_mod_calls == 0, "0x0877: nonsense is refused, not folded into range");
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_FIELD
+          && mrep.modulation == DOCK_MOD_UNKNOWN,
+          "0x0878: an off-scale value refuses and names no modulation");
+
+    /* 29. Refused inside full-control, for the same reason 0x0873 is: applying it
+     *     would run RADIO_SetupRegisters underneath a host that believes it owns
+     *     the synthesiser. Ordering matters — SHORT is checked before BUSY, and
+     *     BUSY before the value — so a caller learns the most fundamental problem
+     *     first rather than the last one to be looked at. */
+    reset();
+    flen = build_cmd(frame, DOCK_CMD_ENTER_HW, params, 0); feed(frame, flen);
+    g_caplen = 0;
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(g_mod_calls == 0, "0x0877: refused while the host holds full-control");
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_BUSY,
+          "0x0878: full-control is named, so the caller can retry after 0x0871");
+
+    flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);
+    g_caplen = 0;
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(g_mod_calls == 1, "0x0877: accepted once full-control is released");
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_APPLIED,
+          "0x0878: applied after full-control is released");
+
+    /* 30. A REFUSAL MUST NOT MOVE THE STICKY VALUE. The single most important case
+     *     here. Set AM (applied), hold full-control, ask for FM (refused BUSY),
+     *     release, then tune — the tune must still carry AM. If the sticky value
+     *     were committed during decode rather than after the radio actually took
+     *     it, that refused FM would silently become what every later 0x0873
+     *     applies: the exact silent-revert bug this mechanism removes, in mirror
+     *     image, and invisible because the refusal itself was reported correctly. */
+    reset();
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_APPLIED,
+          "0x0878: AM applied (sticky-refusal setup)");
+
+    g_caplen = 0;
+    flen = build_cmd(frame, DOCK_CMD_ENTER_HW, params, 0); feed(frame, flen);
+    {
+        uint8_t v[1] = { DOCK_MOD_FM };
+        g_caplen = 0;
+        flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, v, sizeof(v));
+        feed(frame, flen);
+    }
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_BUSY,
+          "0x0878: the FM request is refused while full-control is held");
+
+    flen = build_cmd(frame, DOCK_CMD_EXIT_HW, params, 0); feed(frame, flen);
+    g_caplen = 0;
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(g_vfo_last.modulation == DOCK_MOD_AM,
+          "0x0873: a REFUSED set-modulation never became the sticky value");
+
+    /* 31. A valid frame reaches the binding exactly once, and does nothing else.
+     *     NOTE: this stays green against a stub that skips every check — it
+     *     discriminates against a dispatch that never calls the binding or calls it
+     *     twice, not against one that fails to validate. Do not read it as evidence
+     *     the refusals work; that is what 27-30 are for. */
+    reset();
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(g_mod_calls == 1 && g_mod_last == DOCK_MOD_AM,
+          "0x0877: a valid frame reaches the binding exactly once, with the value sent");
+    CHECK(g_writes == 0 && g_reads == 0 && g_vfo_calls == 0,
+          "0x0877: no register traffic and no set-VFO of its own");
+    CHECK(g_tx_calls == 0 && !ctx.tx_on, "0x0877: no PA activity of its own");
+
+    /* 32. THE POINT OF THE STICKY VALUE. Set AM, then tune — the tune must carry
+     *     AM into the binding. Without this, uart.c's Dock_ApplyVfo writes
+     *     MODULATION_FM literally and a tune silently undoes the modulation, with
+     *     nothing on the wire saying so. Sending the two as separate frames is not
+     *     just awkward, it is unreliable: this link drops frames (ADR 0131), so a
+     *     dropped set-modulation after a tune leaves the radio on the right channel
+     *     in the wrong demodulator. */
+    reset();
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    g_caplen = 0;
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(g_vfo_calls == 1 && g_vfo_last.modulation == DOCK_MOD_AM,
+          "0x0873: carries the modulation 0x0877 set, so a tune cannot revert it");
+    CHECK(last_vfo_reply(&rep) && rep.status == DOCK_VFO_APPLIED,
+          "0x0874: the tune still applies normally with a sticky modulation");
+
+    /* 33. Backward compatibility, stated as a test. A host that never sends 0x0877
+     *     must see F6 behaviour exactly — so the sticky value is seeded FM, from a
+     *     constant. Seeding it by reading the radio's current modulation would pass
+     *     this only by luck and would be the ADR 0132 "adopt whatever state you
+     *     find" fault: a repeater channel tuned in whatever the front panel was
+     *     last left on. */
+    reset();
+    flen = build_cmd(frame, DOCK_CMD_SET_VFO, K0PRA, sizeof(K0PRA));
+    feed(frame, flen);
+    CHECK(g_vfo_calls == 1 && g_vfo_last.modulation == DOCK_MOD_FM,
+          "0x0873: FM without a prior 0x0877 — an F6 host sees no change at all");
+
+    /* 34. The reply REPORTS, it does not ECHO. The fake is told to come back with
+     *     FM after being asked for AM; the reply must say FM while the sticky value
+     *     holds the AM that was requested and accepted. This is the 0x0874 `power`
+     *     bug in a new field: the wire's "high" landed on OUTPUT_POWER_LOW2 and a
+     *     reply that echoed the request would have confirmed it perfectly. */
+    reset();
+    g_mod_force_readback = DOCK_MOD_FM;
+    g_mod_force_raw      = 0;
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_APPLIED
+          && mrep.modulation == DOCK_MOD_FM,
+          "0x0878: reports the read-back, not the value it was handed");
+    CHECK(ctx.modulation == DOCK_MOD_AM,
+          "0x0877: the sticky value is the accepted request, reported independently");
+
+    /* 35. A modulation the wire cannot name survives as UNKNOWN. On a build with
+     *     ENABLE_BYP_RAW_DEMODULATORS the radio has modes this protocol has no word
+     *     for, and the firmware enum's numbering shifts underneath them. Collapsing
+     *     one onto index 0 would report FM — a specific, wrong, believable answer.
+     *     `raw` still carries the radio's own value, which is the only thing that
+     *     can tell BYP from RAW at a bench at 2 a.m. */
+    reset();
+    g_mod_force_readback = DOCK_MOD_UNKNOWN;
+    g_mod_force_raw      = 3;                    /* MODULATION_BYP on such a build */
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_APPLIED
+          && mrep.modulation == DOCK_MOD_UNKNOWN && mrep.raw == 3,
+          "0x0878: an unnameable modulation stays UNKNOWN and keeps its raw value");
+
+    /* 36. An F6-shaped build — set-VFO bound, set-modulation not — still answers.
+     *     Silence is what a pre-F7 firmware does, and it is how a host detects the
+     *     level; a firmware that HAS the opcode but no binding must not imitate it. */
+    reset();
+    dock_init(&ctx, &HAL_NO_MOD);
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(g_caplen == MOD_REPLY_FRAME_LEN, "0x0878: a missing binding still replies");
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_NO_HAL,
+          "0x0878: a missing set_modulation binding is reported, not silent");
+
+    /* 37. A rejection never describes a modulation — enforced in dock.c, not left
+     *     to each binding. The fake writes FM and TX_OK on its refusal on purpose.
+     *     Blanking to 0 here (0x0874 blanks its frequencies to 0) would answer
+     *     "refused, and by the way you are on FM, and you can transmit" — which is
+     *     worse than 0x0874's case, because 0 Hz is obviously not a channel and 0
+     *     IS a valid modulation. */
+    reset();
+    g_mod_force_status = DOCK_MOD_ERR_FIELD;
+    flen = build_cmd(frame, DOCK_CMD_SET_MODULATION, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(last_mod_reply(&mrep) && mrep.status == DOCK_MOD_ERR_FIELD,
+          "0x0878: a refusal from the radio side is reported");
+    CHECK(mrep.modulation == DOCK_MOD_UNKNOWN && mrep.raw == DOCK_MOD_UNKNOWN
+          && mrep.flags == 0,
+          "0x0878: a non-zero status ships no modulation and no TX claim, whatever the HAL wrote");
+
+    /* 38. An unknown opcode is still answered with silence. This is not a detail —
+     *     it is the whole firmware-level detection mechanism: a new host sending
+     *     0x0877 to a pre-F7 radio must get nothing back, so "no reply" means "does
+     *     not have it". A default: that started replying would break every level
+     *     probe at once, including 0x0873's. */
+    reset();
+    flen = build_cmd(frame, 0x087Fu, MOD_AM, sizeof(MOD_AM));
+    feed(frame, flen);
+    CHECK(g_caplen == 0, "unknown opcode: still no reply, so absence stays detectable");
 
     /* ---- report ---- */
     printf("dock host tests: %d checks, %d failures\n", g_checks, g_fail);

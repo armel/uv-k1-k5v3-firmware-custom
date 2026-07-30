@@ -14,8 +14,8 @@ The proven flash path for this fork, so every future flash follows the same step
 ## ⚠ Provenance of this document
 
 This runbook was **drafted by the F1 build cycle from the kickoff's named steps plus the
-public uvtools2/DFU procedure**. The four radio-specific specifics below are marked
-**`⚠ CONFIRM AT BENCH`**. They are **not** empirically confirmed here — the project rule is
+public uvtools2/DFU procedure**, and extended by later cycles. The radio-specific specifics below
+are marked **`⚠ CONFIRM AT BENCH`**. They are **not** empirically confirmed here — the project rule is
 that hardware facts are verified on the hardware, never asserted from memory (radio-server
 CLAUDE.md guardrail 1). Kris confirms/corrects each one on the first real flash, then this
 banner comes off.
@@ -200,8 +200,55 @@ enter and `0x0871` exit (a host crash mid-key is covered by the existing TOT, no
 
 ---
 
+## F7 — set-modulation (`0x0877`/`0x0878`)
+
+**This level has never been flashed.** Everything below is derived from reading the firmware, and
+nothing about AM on this radio has been observed. Both items stay placeholders until somebody is at
+the bench with the radio (guardrail 1) — a plausible answer written in as fact is worse than a gap,
+in a repository whose own history is four cycles of "reported success, did nothing".
+
+### 6. AM receive actually works over the AIOC  ⚠ CONFIRM AT BENCH
+
+Send `0x0877` with `modulation = 1`. Expected: `0x0878` status `0`, `modulation = 1`, `raw = 1`,
+`flags = 0`. Then confirm, in this order:
+
+1. **The radio's screen reads `AM`.** The display renders `gModulationStr[Modulation]`, so this is a
+   free visual check that the VFO field was actually written — independent of the reply.
+2. **Audio comes out.** Tune an AM signal (airband is the obvious one, 118–137 MHz — receive only)
+   and confirm `doctor --rx-noise` / `--rx-level` reads a real signal rather than the noise floor.
+   The F3a lesson applies: registers reading back correct proves nothing about audio reaching the
+   AIOC, and that cost a diagnostic cycle to learn the first time.
+3. **It survives a tune.** Send `0x0873` afterwards and confirm the screen still says `AM` — that is
+   the sticky-modulation mechanism working on real hardware rather than in the host harness.
+4. **It survives `0x0870`/`0x0871`.** Enter and leave full control; the exit's
+   `RADIO_SetupRegisters(true)` should re-derive AM from the VFO.
+
+`⚠ CONFIRM AT BENCH`: whether AM audio over the AIOC needs any gain change relative to FM. Unknown.
+Do not guess a number here.
+
+### 7. The radio refuses its own PTT in AM  ⚠ CONFIRM AT BENCH
+
+`RADIO_PrepareTX` sets `VFO_STATE_TX_DISABLE` for any non-FM modulation on a build without
+`ENABLE_TX_WHEN_AM`, which this is. `0x0878` reports that as `flags` bit 0 = 0. **Read from the
+source, not observed.**
+
+To confirm, with a **dummy load** — this is the one item here that involves keying:
+
+1. Set AM via `0x0877`; confirm `flags = 0`.
+2. Press the radio's own PTT. Expected: it refuses, and the screen shows the TX-disable state.
+3. Assert the AIOC's DTR line (the `baofeng` backend's keying path). Expected: **also refused** — it
+   drives the same pin and therefore the same `RADIO_PrepareTX` path. This is the one that matters
+   operationally, and it is the reason the flag exists.
+4. Set FM via `0x0877`; confirm `flags = 1` and that both key normally again.
+
+`⚠ CONFIRM AT BENCH`: whether a dock `0x0850` REG_30 key-up still radiates in AM. It bypasses
+`RADIO_PrepareTX` so it should, but "should" is not a measurement, and an unexpected transmission is
+exactly the class of surprise this file exists to prevent.
+
+---
+
 ## Notes / open items
-- Once Kris confirms the five `⚠ CONFIRM AT BENCH` items, replace each placeholder with the
+- Once Kris confirms the `⚠ CONFIRM AT BENCH` items, replace each placeholder with the
   real value and delete the provenance banner.
 - Record any V3-specific surprises here as they're found, so the next flash inherits them.
 - **F5 verify-on-bench:** the `OUTPUT_POWER` level and `gCurrentVfo` frequency source used for the

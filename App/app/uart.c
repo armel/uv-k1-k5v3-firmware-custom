@@ -670,8 +670,12 @@ static void Dock_TxSet(void *user, bool on);
 // F6: apply a whole repeater channel to the radio's OWN VFO (0x0873, below),
 // reporting back through `out` what the radio actually ended up on (0x0874).
 static void Dock_SetVfo(void *user, const dock_vfo_t *want, dock_vfo_applied_t *out);
+// F7: put the radio on a demodulator (0x0877, below), reporting back through `out` the one it
+// actually ended up on and whether it will still key its own PTT path there (0x0878).
+static void Dock_SetModulation(void *user, uint8_t wire_mod, dock_mod_applied_t *out);
 static const dock_hal_t Dock_Hal = {
-    Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet, Dock_SetVfo
+    Dock_HalRead, Dock_HalWrite, Dock_HalSend, NULL, Dock_TxSet, Dock_SetVfo,
+    Dock_SetModulation
 };
 static dock_ctx_t Dock_Ctx;
 static bool       Dock_Inited = false;
@@ -816,6 +820,53 @@ static const uint8_t DOCK_POWER_MAP[3] = {
     OUTPUT_POWER_LOW1, OUTPUT_POWER_MID, OUTPUT_POWER_HIGH
 };
 
+// Wire modulation -> this firmware's enum. Designated initialisers so the table reads as the
+// mapping it is, and a static assert so adding a wire value without a firmware entry fails the
+// BUILD rather than indexing off the end. Same lesson as DOCK_POWER_MAP above, applied before
+// it bites instead of after: the wire's scale and the radio's scale are not the same scale, and
+// the one time that was assumed it shipped.
+static const uint8_t DOCK_MODULATION_MAP[] = {
+    [DOCK_MOD_FM] = MODULATION_FM,
+    [DOCK_MOD_AM] = MODULATION_AM,
+};
+_Static_assert(ARRAY_SIZE(DOCK_MODULATION_MAP) == DOCK_MOD_MAX_ACCEPTED + 1u,
+               "DOCK_MODULATION_MAP must cover exactly the accepted wire values");
+
+// This firmware's enum -> the wire. A SWITCH, not an array indexed by ModulationMode_t: that
+// enum GROWS under ENABLE_BYP_RAW_DEMODULATORS (radio.h), so a lookup table would read off its
+// own end on precisely the build where the extra members exist. Anything the wire cannot name
+// is reported as DOCK_MOD_UNKNOWN rather than guessed at.
+static uint8_t Dock_ModulationToWire(ModulationMode_t m)
+{
+    switch (m) {
+    case MODULATION_FM:  return DOCK_MOD_FM;
+    case MODULATION_AM:  return DOCK_MOD_AM;
+    case MODULATION_USB: return DOCK_MOD_USB;
+    default:             return DOCK_MOD_UNKNOWN;   // BYP/RAW, or anything added later
+    }
+}
+
+// Will the radio key its OWN transmit path in this modulation? Built without
+// ENABLE_TX_WHEN_AM (this tree is not), RADIO_PrepareTX refuses anything that is not FM
+// (radio.c) — and that is the path the radio's PTT PIN drives, which is where radio-server's
+// baofeng backend keys from by asserting the AIOC's DTR line. So on that station AM stops the
+// transmitter outright. The dock's own REG_30 keying does not go through RADIO_PrepareTX and is
+// unaffected, so the same state means different things to different backends. A host cannot see
+// a build flag; this is how it finds out.
+static bool Dock_ModulationCanTx(ModulationMode_t m)
+{
+#ifdef ENABLE_TX_WHEN_AM
+    #ifdef ENABLE_BYP_RAW_DEMODULATORS
+        return m != MODULATION_BYP && m != MODULATION_RAW;   // receive-only modes
+    #else
+        UNUSED(m);
+        return true;
+    #endif
+#else
+    return m == MODULATION_FM;
+#endif
+}
+
 static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want,
                           uint32_t rx10, uint32_t off10, uint8_t band,
                           const uint8_t *ctcss_idx)
@@ -847,7 +898,12 @@ static void Dock_ApplyVfo(VFO_Info_t *vfo, const dock_vfo_t *want,
     vfo->freq_config_RX.Code     = 0;
 
     vfo->CHANNEL_BANDWIDTH = want->narrow ? BANDWIDTH_NARROW : BANDWIDTH_WIDE;
-    vfo->Modulation        = MODULATION_FM;
+    // The dock session's modulation, not a literal MODULATION_FM and not whatever the radio
+    // happens to be on. Hardcoding FM here made "set AM, then tune" silently revert; adopting
+    // the radio's current value instead would tune a repeater channel in whatever the front
+    // panel was last left on (the ADR 0132 fault). dock.c seeds this FM, so a host that never
+    // sends 0x0877 gets exactly the F6 behaviour this line used to have.
+    vfo->Modulation        = DOCK_MODULATION_MAP[want->modulation];
     vfo->OUTPUT_POWER      = DOCK_POWER_MAP[want->power];   // scales differ; see the map
     vfo->Band              = band;
 
@@ -920,6 +976,47 @@ static void Dock_SetVfo(void *user, const dock_vfo_t *want, dock_vfo_applied_t *
                         ? CTCSS_Options[v->freq_config_TX.Code] : 0;
     out->power        = v->OUTPUT_POWER;   // the radio's own scale, not the wire's
     out->status       = DOCK_VFO_APPLIED;
+}
+
+// 0x0877 set-modulation. dock.c has already range-checked `wire_mod` and refused full-control,
+// so this only applies it and reports what the radio ended up on.
+//
+// WHY THE VFO AND RADIO_SetupRegisters, AND NOT RADIO_SetModulation ON ITS OWN.
+//
+// RADIO_SetModulation alone reprograms the chip and nothing else, so the change does not
+// survive: gRxVfo->Modulation still says FM, and RADIO_SetupRegisters — which a dozen unrelated
+// paths call, including the 0x0871 exit — re-derives the demodulator from it (radio.c) and puts
+// the chip straight back. That is the same "register writes do not outlive the handoff" fault
+// 0x0873 exists to escape, and the read-back below would then report FM: a lie, not a miss.
+//
+// Writing the VFO and then calling RADIO_SetModulation directly is also wrong, less obviously.
+// Its AM branch sets the AM filter bandwidth but its FM branch never restores it, so AM->FM
+// leaves the AM filter in place; and it skips the FM-gated compander, the FM-gated CTCSS
+// interrupt mask, and FUNCTION_Init's gCurrentCodeType. Half-applied, silently.
+//
+// So: write both VFOs and let the radio's own setup path do the work — the same two lines
+// Dock_SetVfo ends with, which ADR 0146 records 186 tunes through.
+static void Dock_SetModulation(void *user, uint8_t wire_mod, dock_mod_applied_t *out)
+{
+    UNUSED(user);
+
+    const ModulationMode_t mod = (ModulationMode_t)DOCK_MODULATION_MAP[wire_mod];
+
+    // BOTH VFOs, for the same reason Dock_SetVfo writes both: dual watch alternates which one
+    // is current, so setting only one leaves the demodulator up to a timer.
+    for (unsigned i = 0; i < ARRAY_SIZE(gEeprom.VfoInfo); i++)
+        gEeprom.VfoInfo[i].Modulation = mod;
+
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
+
+    // Read back out of the radio's own struct, not from `mod` — if the map above were wrong,
+    // echoing the request is exactly what would hide it. This is why 0x0874 reports power.
+    const ModulationMode_t applied = gEeprom.VfoInfo[0].Modulation;
+    out->modulation = Dock_ModulationToWire(applied);
+    out->raw        = (uint8_t)applied;
+    out->flags      = Dock_ModulationCanTx(applied) ? DOCK_MOD_FLAG_TX_OK : 0u;
+    out->status     = DOCK_MOD_APPLIED;
 }
 
 // 0x0870 enter full-control: force RX audio alive (above), then block here,
@@ -1172,11 +1269,18 @@ void UART_HandleCommand(uint32_t Port)
         case 0x0851:   // read BK4819 registers -> one 0x0951 reply each
         case 0x0871:   // exit full-control (clears the loop flag)
         case 0x0873:   // set the radio's own VFO -> one 0x0874 reply — F6
-            // 0x0873 sits HERE, in the ordinary non-blocking dispatch, and not
-            // with 0x0870 below. That is the point of it: the main loop keeps
+        case 0x0877:   // set the radio's modulation -> one 0x0878 reply — F7
+            // Both sit HERE, in the ordinary non-blocking dispatch, and not with
+            // 0x0870 below. That is the point of them: the main loop keeps
             // running, so the radio keeps sampling its own PTT pin and stays a
             // radio. Entering full-control to tune would starve the very loop
             // whose output we are trying to set up.
+            //
+            // Neither arms the six-second TX lockout. gSerialConfigCountDown_500ms
+            // is set at exactly four sites in this file — CMD_0514, CMD_051B,
+            // CMD_051D and CMD_052F — and none of them is reachable from here.
+            // Keep it that way: a SETTINGS_Save* or EEPROM_WriteBuffer added to the
+            // dock path would mute the radio for six seconds on every tune.
             Dock_HandleCommand(pUART_Command);
             break;
 

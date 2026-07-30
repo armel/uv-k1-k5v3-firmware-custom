@@ -28,23 +28,30 @@ but it has no dependency on it — the protocol is documented and the reference 
 
 ## What it adds
 
-Five commands and two replies (see [PROTOCOL.md](PROTOCOL.md) for the byte layouts):
+Six commands and three replies (see [PROTOCOL.md](PROTOCOL.md) for the byte layouts):
 
 | | |
 |---|---|
 | `0x0850` / `0x0851` → `0x0951` | read and write BK4819 chip registers |
 | `0x0870` / `0x0871` | enter and leave full control — the radio's own logic stands down |
 | `0x0873` → `0x0874` | **hand the radio a whole channel** and let its own code apply it |
+| `0x0877` → `0x0878` | **put the radio on a demodulator** (FM or AM), the same way |
 
-`0x0873` is the one command with no classic-Dock equivalent, and it exists because of a trap:
-`0x0871` ends in `RADIO_SetupRegisters()`, which retunes the synthesiser from the radio's own VFO — so
-**every register a host writes is discarded when it lets go**. `0x0873` writes the radio's VFO
-instead, then lets the firmware run its own `RADIO_ApplyOffset` and, critically, its own per-band
-power-amplifier calibration, which lives in flash the host cannot read.
+`0x0873` and `0x0877` have no classic-Dock equivalent, and they exist because of a trap: `0x0871`
+ends in `RADIO_SetupRegisters()`, which retunes the synthesiser from the radio's own VFO — so **every
+register a host writes is discarded when it lets go**. They write the radio's VFO instead, then let
+the firmware run its own `RADIO_ApplyOffset` and, critically, its own per-band power-amplifier
+calibration, which lives in flash the host cannot read.
 
-**What it does not touch:** no keypress simulation, no screen capture, no scan or GPIO commands, no
-modulation control. `App/app/dock.c` and `dock.h` are new; four existing files gained a dispatch case,
-a HAL binding, a build flag. Nothing in the radio's own operation changes until a host sends `0x0870`.
+The modulation is **sticky for the session**, so a later `0x0873` keeps it rather than silently
+forcing FM. That matters because the link drops frames: sending "tune" and "set modulation" as two
+independent commands can leave the radio on the right channel in the wrong demodulator, and say
+nothing. **AM is receive-only** — the radio refuses to transmit in it, and `0x0878` reports that as a
+flag rather than leaving a host to discover it with a dead transmitter.
+
+**What it does not touch:** no keypress simulation, no screen capture, no scan or GPIO commands.
+`App/app/dock.c` and `dock.h` are new; four existing files gained a dispatch case, a HAL binding, a
+build flag. Nothing in the radio's own operation changes until a host sends a dock command.
 
 ## Firmware levels
 
@@ -57,8 +64,9 @@ Each cycle unlocked something the one before it lacked. Releases are tagged `rad
 | **F3** | forces the receive audio path alive on `0x0870` entry | dock connects and receives **silence**, with every register reading back correct |
 | **F5** | engages the power amplifier on the key-up edge | keys cleanly and **radiates nothing usable** |
 | **F6** | `0x0873`/`0x0874` set-VFO | tuning does not survive `0x0871`; no transmit-power control |
+| **F7** | `0x0877`/`0x0878` set-modulation; `0x0873` stops forcing FM | the radio is FM-only — there is no way to receive AM |
 
-**[Flash F6](../../releases/tag/radio-server-f6-v5.7.0).** It is cumulative. F3 and F5 are the two
+**[Flash F7](../../releases/tag/radio-server-f7-v5.7.0).** It is cumulative. F3 and F5 are the two
 that cost a diagnostic cycle each to find, and neither is visible from the host as a fault — the radio
 reports success and does nothing. If you are debugging a silent radio, check the level first.
 
