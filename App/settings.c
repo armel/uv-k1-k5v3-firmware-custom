@@ -534,6 +534,12 @@ void SETTINGS_LoadCalibration(void)
         gBatteryCalibration[0] = 1900;
         gBatteryCalibration[1] = 2000;
     }
+    // A wiped calibration zone (0x0000 / 0xFFFF) leaves gBatteryCalibration[3]
+    // invalid. As it is the divisor of the battery-voltage computation, that
+    // collapses the reading to "critical" and can trap the radio in reduced
+    // service -> reset (reboot loop). Fall back to a nominal value (RAM only).
+    if (gBatteryCalibration[3] < 1000 || gBatteryCalibration[3] > 3000)
+        gBatteryCalibration[3] = 2000;
     gBatteryCalibration[5] = 2300;
 
     #ifdef ENABLE_VOX

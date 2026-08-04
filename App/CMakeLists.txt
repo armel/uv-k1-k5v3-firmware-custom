@@ -197,6 +197,9 @@ enable_feature(ENABLE_FEAT_F4HWN_SCAN_FASTER)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_RSSI)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_SUBAUDIBLE)
 enable_feature(ENABLE_FEAT_F4HWN_RESCUE_OPS)
+enable_feature(ENABLE_FEAT_F4HWN_RECOVER
+    helper/recovery.c
+)
 enable_feature(ENABLE_FEAT_F4HWN_VOL)
 enable_feature(ENABLE_FEAT_F4HWN_AUDIO)
 enable_feature(ENABLE_FEAT_F4HWN_RESET_VFO)

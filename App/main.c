@@ -60,6 +60,9 @@
 #endif
 #include "helper/battery.h"
 #include "helper/boot.h"
+#ifdef ENABLE_FEAT_F4HWN_RECOVER
+    #include "helper/recovery.h"
+#endif
 
 #include "ui/lock.h"
 #include "ui/welcome.h"
@@ -113,6 +116,15 @@ void Main(void)
 
     SETTINGS_WriteBuildOptions();
     SETTINGS_LoadCalibration();
+
+#ifdef ENABLE_FEAT_F4HWN_RECOVER
+    // A radio whose calibration zone has been wiped by a faulty firmware would
+    // otherwise read a bogus battery voltage, be forced into reduced service
+    // and reset in a loop. Instead, park it on a safe recovery screen and wait
+    // for the calibration to be restored over USB (UV Studio).
+    if (RECOVERY_CalibrationIsWiped())
+        RECOVERY_Loop();   // never returns until a valid calibration is restored
+#endif
 
     RADIO_ConfigureChannel(0, VFO_CONFIGURE_RELOAD);
     RADIO_ConfigureChannel(1, VFO_CONFIGURE_RELOAD);
