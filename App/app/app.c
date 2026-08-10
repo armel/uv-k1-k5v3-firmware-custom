@@ -312,6 +312,13 @@ static void CheckForIncoming(void)
     if (!g_SquelchLost)
         return;          // squelch is closed
 
+#ifdef ENABLE_FMRADIO
+    // FM scan in progress: ignore main-channel RX so scanning is not interrupted.
+    // Normal FM listening (FM_SCAN_OFF) still yields to channel signals as before.
+    if (gFmRadioMode && gFM_ScanState != FM_SCAN_OFF)
+        return;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
     ScreenSaverExit();
 #endif
@@ -442,6 +449,12 @@ static void HandleIncoming(void)
             return;
         }
     }
+#endif
+
+#ifdef ENABLE_FMRADIO
+    // Defensive: do not leave FM scan for a main-channel signal.
+    if (gFmRadioMode && gFM_ScanState != FM_SCAN_OFF)
+        return;
 #endif
 
     APP_StartListening(gMonitor ? FUNCTION_MONITOR : FUNCTION_RECEIVE);
