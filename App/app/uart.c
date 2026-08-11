@@ -45,6 +45,10 @@
 #include "settings.h"
 #include "version.h"
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+#endif
+
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
 #endif
@@ -201,11 +205,11 @@ static void SendReply_VCP(void *pReply, uint16_t Size)
         return;
     }
 
-    memcpy(VCP_ReplyBuf + sizeof(Header_t), pReply, Size);
+    uint8_t *pBody   = VCP_ReplyBuf + sizeof(Header_t);
+    uint8_t *pFooter = pBody + Size;
 
-    Header_t *pHeader = (Header_t *)VCP_ReplyBuf;
-    Footer_t *pFooter = (Footer_t *)(VCP_ReplyBuf + sizeof(Header_t) + Size);
-    pReply = VCP_ReplyBuf + sizeof(Header_t);
+    memcpy(pBody, pReply, Size);
+    pReply = pBody;
 
     if (bIsEncrypted)
     {
@@ -215,23 +219,29 @@ static void SendReply_VCP(void *pReply, uint16_t Size)
             pBytes[i] ^= Obfuscation[i % 16];
     }
 
-    pHeader->ID = 0xCDAB;
-    pHeader->Size = Size;
+    /* Build the transport header/footer byte by byte. The reply body may have
+     * an odd size, so pFooter is not necessarily half-word aligned; casting it
+     * to Footer_t and storing ID as uint16_t can HardFault on Cortex-M0+. */
+    VCP_ReplyBuf[0] = 0xAB;
+    VCP_ReplyBuf[1] = 0xCD;
+    VCP_ReplyBuf[2] = (uint8_t)(Size & 0xFFu);
+    VCP_ReplyBuf[3] = (uint8_t)(Size >> 8);
 
     // VCP_Send((uint8_t *)&Header, sizeof(Header));
     // VCP_Send(pReply, Size);
-   
+
     if (bIsEncrypted)
     {
-        pFooter->Padding[0] = Obfuscation[(Size + 0) % 16] ^ 0xFF;
-        pFooter->Padding[1] = Obfuscation[(Size + 1) % 16] ^ 0xFF;
+        pFooter[0] = Obfuscation[(Size + 0) % 16] ^ 0xFF;
+        pFooter[1] = Obfuscation[(Size + 1) % 16] ^ 0xFF;
     }
     else
     {
-        pFooter->Padding[0] = 0xFF;
-        pFooter->Padding[1] = 0xFF;
+        pFooter[0] = 0xFF;
+        pFooter[1] = 0xFF;
     }
-    pFooter->ID = 0xBADC;
+    pFooter[2] = 0xDC;
+    pFooter[3] = 0xBA;
 
     // VCP_Send((uint8_t *)&Footer, sizeof(Footer));
 
@@ -782,6 +792,24 @@ bool UART_IsCommandAvailable(uint32_t Port)
     return CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+/* Timestamp latched by the device-info handshake (0x0514) for this port. Slot
+ * writes/erases require it to match, like the EEPROM write command (CMD_051D). */
+static uint32_t mb_port_timestamp(uint32_t Port)
+{
+#if defined(ENABLE_UART)
+    if (Port == UART_PORT_UART)
+        return UART_Timestamp;
+#endif
+#if defined(ENABLE_USB)
+    if (Port == UART_PORT_VCP)
+        return VCP_Timestamp;
+#endif
+    (void)Port;
+    return 0;
+}
+#endif
+
 void UART_HandleCommand(uint32_t Port)
 {
     UART_Command_t *pUART_Command;
@@ -851,6 +879,217 @@ void UART_HandleCommand(uint32_t Port)
                 NVIC_SystemReset();
             #endif
             break;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        // Multiboot self-test (developer only, gated build).
+        case 0x0710: // backup: internal application -> external flash slot 0
+        {
+            uint32_t size = 0, crc = 0;
+            MB_BackupToSlot0(&size, &crc);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Size;
+                uint32_t Crc32;
+            } Reply;
+            Reply.Header.ID   = 0x0711;
+            Reply.Header.Size = 8;
+            Reply.Size        = size;
+            Reply.Crc32       = crc;
+            SendReply(Port, &Reply, sizeof(Reply)); // ack once the backup completed
+            break;
+        }
+
+        case 0x0712: // restore: external flash slot 0 -> internal application + reset
+        {
+            // Returns only if validation failed (internal flash untouched);
+            // on success it reflashes and resets, so control never comes back.
+            uint8_t err = MB_RestoreSlot0();
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Code;
+            } Reply;
+            Reply.Header.ID   = 0x0713;
+            Reply.Header.Size = 1;
+            Reply.Code        = err;
+            SendReply(Port, &Reply, sizeof(Reply)); // restore refused, report why
+            break;
+        }
+
+        case 0x0714: // test: corrupt slot 0 image (exercise the CRC-refusal path)
+        {
+            uint16_t n = pUART_Command->Header.Size;
+            if (n > 128)
+                n = 128;
+            MB_CorruptSlot0(pUART_Command->Data, n);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint16_t Count;
+            } Reply;
+            Reply.Header.ID   = 0x0715;
+            Reply.Header.Size = 2;
+            Reply.Count       = n;
+            SendReply(Port, &Reply, sizeof(Reply)); // ack: bytes corrupted
+            break;
+        }
+
+        case 0x0716: // validate slot 0 (no reflash): report result code + computed CRC
+        {
+            uint32_t crc = 0;
+            uint8_t  code = MB_ValidateSlot0(&crc);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Crc32;   // 4-byte aligned (offset 4): no unaligned write
+                uint8_t  Code;
+            } Reply;
+            Reply.Header.ID   = 0x0717;
+            Reply.Header.Size = 5;
+            Reply.Crc32       = crc;
+            Reply.Code        = code;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0718: // ground-truth dump of external flash via the DMA driver
+        {
+            uint32_t addr = (uint32_t)pUART_Command->Data[0]
+                          | ((uint32_t)pUART_Command->Data[1] << 8)
+                          | ((uint32_t)pUART_Command->Data[2] << 16)
+                          | ((uint32_t)pUART_Command->Data[3] << 24);
+            uint8_t  len  = pUART_Command->Data[4];
+            if (len > 64)
+                len = 64;
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Addr;
+                uint8_t  Len;
+                uint8_t  Data[64];
+            } Reply;
+            MB_DumpExt(addr, Reply.Data, len);
+            Reply.Header.ID   = 0x0719;
+            Reply.Header.Size = 5 + len;   // Addr(4) + Len(1) + data(len)
+            Reply.Addr        = addr;
+            Reply.Len         = len;
+            SendReply(Port, &Reply, sizeof(Header_t) + 5 + len);
+            break;
+        }
+
+        case 0x071C: // diagnostic: snapshot SPI2 / DMA state (no flash access)
+        {
+            uint32_t st[4];
+            MB_SpiState(st);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t V[4];
+            } Reply;
+            Reply.Header.ID   = 0x071D;
+            Reply.Header.Size = 16;
+            Reply.V[0] = st[0]; Reply.V[1] = st[1];
+            Reply.V[2] = st[2]; Reply.V[3] = st[3];
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        // ---- M4 slot management ("Firmware Slots") ------------------------
+        case 0x0720: // slot info: read the 64-byte header only (fast, no CRC)
+        {
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t slot = pUART_Command->Data[0];
+            mb_slot_header_t hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            uint8_t status = MB_SlotInfo(slot, &hdr);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+                uint8_t  Hdr[sizeof(mb_slot_header_t)];
+            } Reply;
+            Reply.Header.ID   = 0x0721;
+            Reply.Header.Size = 2 + sizeof(mb_slot_header_t);
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            memcpy(Reply.Hdr, &hdr, sizeof(hdr));
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0722: // slot erase: wipe the whole 128 KiB slot region
+        {
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t ts   = (uint32_t)pUART_Command->Data[2]
+                          | ((uint32_t)pUART_Command->Data[3] << 8)
+                          | ((uint32_t)pUART_Command->Data[4] << 16)
+                          | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint8_t status = (ts != mb_port_timestamp(Port))
+                           ? MB_ERR_AUTH : MB_SlotErase(slot);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0723;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0724: // slot write: program bytes at slot+offset (slot pre-erased)
+        {
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot   = pUART_Command->Data[0];
+            uint32_t offset = (uint32_t)pUART_Command->Data[2]
+                            | ((uint32_t)pUART_Command->Data[3] << 8)
+                            | ((uint32_t)pUART_Command->Data[4] << 16)
+                            | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint16_t len    = (uint16_t)(pUART_Command->Data[6]
+                            | ((uint16_t)pUART_Command->Data[7] << 8));
+            uint32_t ts     = (uint32_t)pUART_Command->Data[8]
+                            | ((uint32_t)pUART_Command->Data[9] << 8)
+                            | ((uint32_t)pUART_Command->Data[10] << 16)
+                            | ((uint32_t)pUART_Command->Data[11] << 24);
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (len > 240u)  // 12-byte prefix + data must fit Data[252]
+                status = MB_ERR_SIZE;
+            else
+                status = MB_SlotWrite(slot, offset, &pUART_Command->Data[12], len);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0725;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0726: // slot validate: full image CRC-32, no reflash
+        {
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t crc  = 0;
+            uint8_t  status = MB_ValidateSlot(slot, NULL, &crc);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Crc32;   // offset 4: 4-byte aligned, no unaligned store
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0727;
+            Reply.Header.Size = 6;
+            Reply.Crc32       = crc;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+#endif
 
 #ifdef ENABLE_UART_RW_BK_REGS
         case 0x0601:

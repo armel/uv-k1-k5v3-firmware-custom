@@ -27,6 +27,13 @@
 #include "external/printf/printf.h"
 #include "misc.h"
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #define MBMARK(s) MB_Mark(s)
+#else
+    #define MBMARK(s)
+#endif
+
 // #define DEBUG
 
 #define SPIx SPI2
@@ -227,17 +234,21 @@ void PY25Q16_Init()
 
 void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
 {
+    MBMARK("RD cmd");          // about to assert CS + send read command
     CS_Assert();
 
     SPI_WriteByte(0x03);      // Send read command
+    MBMARK("RD addr");         // command sent, about to send address
     WriteAddr(Address);        // Send address (3 bytes)
 
+    MBMARK("RD flush");        // address sent, about to flush RX FIFO
     // CRITICAL: Flush RX FIFO before DMA to remove residual data
     while (LL_SPI_RX_FIFO_EMPTY != LL_SPI_GetRxFIFOLevel(SPIx))
     {
         LL_SPI_ReceiveData8(SPIx);  // Read and discard
     }
 
+    MBMARK("RD data");         // FIFO flushed, about to read the data
     if (Size >= 16) {
         SPI_ReadBuf((uint8_t *)pBuffer, Size);
     } else {
@@ -247,7 +258,20 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
         }
     }
 
+    MBMARK("RD end");          // data read, about to release CS
     CS_Release();
+}
+
+// Like PY25Q16_ReadBuffer, but waits for the flash to be idle first (WIP=0),
+// exactly as PY25Q16_WriteBuffer does before its internal reads. A standalone
+// read issued while the chip is still busy from a prior program/erase never
+// returns the expected data.
+void PY25Q16_ReadBufferSafe(uint32_t Address, void *pBuffer, uint32_t Size)
+{
+    MBMARK("SAFE wip");        // about to WaitWIP()
+    WaitWIP();
+    MBMARK("SAFE rb");         // WaitWIP done, about to ReadBuffer
+    PY25Q16_ReadBuffer(Address, pBuffer, Size);
 }
 
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, bool Append)

@@ -132,6 +132,16 @@ void Main(void)
 
     BOOT_Mode_t  BootMode = BOOT_GetMode();
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Run before the welcome screen and the normal application UI. EXIT from
+     * the selector simply resumes this boot as if no special mode was held. */
+    if (BootMode == BOOT_MODE_MULTIBOOT)
+    {
+        BOOT_ProcessMode(BootMode);
+        BootMode = BOOT_MODE_NORMAL;
+    }
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     if (BootMode == BOOT_MODE_RESCUE_OPS)
     {
