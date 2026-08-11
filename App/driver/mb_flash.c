@@ -13,15 +13,11 @@
  *     limitations under the License.
  */
 
-#include <string.h>
+#include <stddef.h>
 
 #include "driver/mb_flash.h"
 
 #include "py32f0xx.h"
-#include "driver/py25q16.h"
-#include "driver/st7565.h"
-#include "ui/helper.h"
-#include "version.h"
 
 /* Internal-flash program/erase keys (FLASH_KEY1 / FLASH_KEY2). */
 #define MB_FLASH_KEY1   0x45670123u
@@ -61,33 +57,6 @@ static const uint32_t mb_flash_timing[8] = {
     0x1FFF3238, 0x1FFF3260, 0x1FFF3288, 0x1FFF32B0,
     0x1FFF32D8, 0x1FFF3238, 0x1FFF3238, 0x1FFF3238
 };
-
-/* -------------------------------------------------------------------------- */
-/* Helpers (flash-resident).                                                  */
-/* -------------------------------------------------------------------------- */
-
-/* zlib/PNG CRC-32 (poly 0xEDB88320), streaming. Seed 'crc' with 0xFFFFFFFF and
- * XOR the final result with 0xFFFFFFFF. No lookup table (saves flash). */
-static uint32_t mb_crc32_update(uint32_t crc, const uint8_t *data, uint32_t len)
-{
-    while (len--)
-    {
-        crc ^= *data++;
-        for (int k = 0; k < 8; k++)
-            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-    }
-    return crc;
-}
-
-static void mb_copy_str(char *dst, uint32_t cap, const char *src)
-{
-    uint32_t i = 0;
-    if (src)
-        for (; i + 1 < cap && src[i]; i++)
-            dst[i] = src[i];
-    for (; i < cap; i++)
-        dst[i] = 0;
-}
 
 /* -------------------------------------------------------------------------- */
 /* Flash-resident preparation (runs while the flash is still readable).       */
@@ -378,39 +347,6 @@ fatal_reset:
 /* Public API.                                                                */
 /* -------------------------------------------------------------------------- */
 
-void MB_BackupToSlot0(uint32_t *out_size, uint32_t *out_crc32)
-{
-    const uint32_t imgBase = MB_SLOT0_EXT_BASE + MB_SLOT_IMG_OFFSET;
-    const uint32_t size    = MB_INT_APP_SIZE;      /* full region (self-test) */
-
-    /* CRC-32 of the internal image (memory-mapped, contiguous read). */
-    uint32_t crc = mb_crc32_update(0xFFFFFFFFu, (const uint8_t *)MB_INT_APP_BASE, size)
-                   ^ 0xFFFFFFFFu;
-
-    /* Write the image first ... */
-    PY25Q16_WriteBuffer(imgBase, (const void *)MB_INT_APP_BASE, size, false);
-
-    /* ... then a valid header (COMMITTED) last, so a committed header always
-     * implies a fully written image. */
-    mb_slot_header_t hdr;
-    memset(&hdr, 0, sizeof(hdr));
-    hdr.magic       = MB_SLOT_MAGIC;
-    hdr.hdr_version = MB_HDR_VERSION;
-    hdr.flags       = MB_FLAG_COMMITTED;
-    hdr.image_size  = size;
-    hdr.image_crc32 = crc;
-#ifdef ENABLE_FEAT_F4HWN
-    mb_copy_str(hdr.name, MB_NAME_LEN, Edition);
-#else
-    mb_copy_str(hdr.name, MB_NAME_LEN, "slot0");
-#endif
-    mb_copy_str(hdr.fw_version, MB_VERSION_LEN, Version);
-    PY25Q16_WriteBuffer(MB_SLOT0_EXT_BASE, &hdr, sizeof(hdr), false);
-
-    if (out_size)  *out_size  = size;
-    if (out_crc32) *out_crc32 = crc;
-}
-
 /* Set when a polled SPI wait below times out (external flash unresponsive). */
 static volatile int mb_spi_err;
 
@@ -674,11 +610,6 @@ uint8_t MB_ValidateSlot(uint8_t slot, mb_slot_header_t *out_header, uint32_t *ou
     return mb_validate(slot, out_header ? out_header : &local, out_crc);
 }
 
-uint8_t MB_ValidateSlot0(uint32_t *out_crc)
-{
-    return MB_ValidateSlot(0, NULL, out_crc);
-}
-
 uint8_t MB_RestoreSlot(uint8_t slot, uint8_t *progress_line)
 {
     mb_slot_header_t hdr;
@@ -699,11 +630,6 @@ uint8_t MB_RestoreSlot(uint8_t slot, uint8_t *progress_line)
                hdr.image_size, progress_line);
 
     return MB_OK; /* not reached */
-}
-
-uint8_t MB_RestoreSlot0(void)
-{
-    return MB_RestoreSlot(0, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -749,50 +675,4 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
         return MB_ERR_SPI;
 
     return MB_OK;
-}
-
-/* Middle of slot 0's image (32 KiB in, well within the 118 KiB image body). */
-#define MB_CORRUPT_OFFSET   0x8000u
-#define MB_CORRUPT_MAX      128u
-
-void MB_CorruptSlot0(const uint8_t *data, uint32_t len)
-{
-    if (!data || len == 0)
-        return;
-    if (len > MB_CORRUPT_MAX)
-        len = MB_CORRUPT_MAX;
-
-    /* Constrained to slot 0's image body: this address range cannot reach the
-     * slot header, nor calibration / EEPROM / RF log / voice regions. */
-    PY25Q16_WriteBuffer(MB_SLOT0_EXT_BASE + MB_SLOT_IMG_OFFSET + MB_CORRUPT_OFFSET,
-                        data, len, false);
-}
-
-volatile uint8_t mb_mark_on = 0;
-
-void MB_Mark(const char *s)
-{
-    if (!mb_mark_on)
-        return;
-    memset(gFrameBuffer, 0, sizeof(gFrameBuffer));
-    UI_PrintStringSmallNormal(s, 10, 0, 3);
-    ST7565_BlitFullScreen();
-}
-
-void MB_DumpExt(uint32_t addr, uint8_t *buf, uint32_t len)
-{
-    /* Trace the driver read step by step on the LCD so a freeze reveals where. */
-    mb_mark_on = 1;
-    MB_Mark("DUMP begin");
-    PY25Q16_ReadBufferSafe(addr, buf, len);
-    MB_Mark("DUMP done");
-    mb_mark_on = 0;
-}
-
-void MB_SpiState(uint32_t out[4])
-{
-    out[0] = SPI2->CR1;            /* bit 6 (SPE) = SPI enabled */
-    out[1] = SPI2->CR2;           /* bit0 RXDMAEN, bit1 TXDMAEN */
-    out[2] = SPI2->SR;            /* bit0 RXNE, bit1 TXE, bit7 BSY */
-    out[3] = DMA1_Channel4->CCR;  /* SPI2 RX DMA channel (bit0 EN) */
 }

@@ -80,25 +80,6 @@ enum {
     MB_ERR_AUTH          /* write refused: timestamp mismatch */
 };
 
-/*
- * Copy the live internal application image into external flash slot 0, writing
- * the image first and then a valid header (COMMITTED) last. Runs entirely from
- * flash and only writes the external SPI flash, so it is safe (no brick risk).
- * Reports the stored image size and CRC-32 through the (optional) out params.
- */
-void MB_BackupToSlot0(uint32_t *out_size, uint32_t *out_crc32);
-
-/*
- * Validate slot 0 and, if valid, reflash the internal application from it and
- * reset. Validation (magic, version, COMMITTED flag, size, image CRC-32) runs
- * from flash *before* any erase: on failure it returns an MB_ERR_* code and the
- * internal flash is left untouched. On success it NEVER RETURNS (the RAM-resident
- * copier reflashes the internal application and triggers a system reset). The
- * factory bootloader is never touched, so an interrupted copy is recoverable
- * over USB/DFU.
- */
-uint8_t MB_RestoreSlot0(void);
-
 /* Multi-slot API used by the boot selector. Validation always covers the full
  * image CRC before restore. progress_line may point to a 128-byte LCD page; the
  * RAM copier then fills it while reflashing. Pass NULL to disable LCD updates. */
@@ -122,47 +103,5 @@ uint8_t MB_RestoreSlot(uint8_t slot, uint8_t *progress_line);
 uint8_t MB_SlotInfo(uint8_t slot, mb_slot_header_t *out_header);
 uint8_t MB_SlotErase(uint8_t slot);
 uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
-
-
-/*
- * Test helper: overwrite up to `len` (capped) bytes in the MIDDLE of slot 0's
- * image with the supplied data, so the next MB_RestoreSlot0() fails its CRC-32
- * check and refuses. It writes ONLY inside slot 0's image body - never the
- * header, and never anything outside the slot (calibration, EEPROM, RF log...).
- * Developer aid to exercise the safe-refusal path without external tooling.
- */
-void MB_CorruptSlot0(const uint8_t *data, uint32_t len);
-
-/*
- * Validate slot 0 (header + image CRC-32) WITHOUT reflashing. Same checks as the
- * restore path, entirely via polled reads (cannot hang). Returns MB_OK or an
- * MB_ERR_* code, and reports the computed image CRC-32 through out_crc.
- * Useful as a safe diagnostic from the host tool.
- */
-uint8_t MB_ValidateSlot0(uint32_t *out_crc);
-
-/*
- * Read `len` bytes of external flash at `addr` into `buf`, via the DMA driver
- * (PY25Q16_ReadBuffer) - the same proven read path the backup uses internally.
- * Ground-truth diagnostic to check what is actually stored in a slot.
- */
-void MB_DumpExt(uint32_t addr, uint8_t *buf, uint32_t len);
-
-/*
- * Diagnostic: snapshot the SPI2 / DMA hardware state WITHOUT any flash access
- * (so it cannot hang). out[0]=SPI2->CR1, [1]=SPI2->SR, [2]=DMA RD chan CCR,
- * [3]=DMA WR chan CCR. Reveals whether SPI2 is disabled/busy or a DMA channel
- * is left armed when a read command runs.
- */
-void MB_SpiState(uint32_t out[4]);
-
-/*
- * On-screen trace marker (debug). Draws `s` on the LCD (SPI1, independent of the
- * flash SPI2) so that when a flash read freezes the CPU, the frozen screen shows
- * the last step reached. Only draws while mb_mark_on is set (i.e. during a Dump),
- * so it does not flash the screen during normal writes.
- */
-extern volatile uint8_t mb_mark_on;
-void MB_Mark(const char *s);
 
 #endif /* DRIVER_MB_FLASH_H */

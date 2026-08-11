@@ -27,12 +27,9 @@
 #include "external/printf/printf.h"
 #include "misc.h"
 
-#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
-    #include "driver/mb_flash.h"
-    #define MBMARK(s) MB_Mark(s)
-#else
-    #define MBMARK(s)
-#endif
+/* MBMARK was an on-screen SPI trace used while bringing up multiboot (M1/M2).
+ * The tracer is gone; keep the call sites as no-ops. */
+#define MBMARK(s)
 
 // #define DEBUG
 

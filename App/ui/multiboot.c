@@ -89,11 +89,37 @@ static void mb_format_slot_label(char *dst, uint8_t cap, const mb_slot_header_t 
     dst[n] = 0;
 }
 
+/* "MULTIBOOT" mode banner in the top status bar, shown on every screen - the
+ * same way the firmware puts mode labels there (inverse 3x5 capsule). */
+static void mb_status_bar(void)
+{
+    UI_StatusClear();
+    GUI_DisplaySmallestInverse("MULTIBOOT", 47, 0, true, true, 83);
+}
+
+/* Bottom key-hint line: each key name as an inverse 3x5 capsule label, its
+ * action in plain 3x5 text beside it. Drawn on the bottom line
+ * (gFrameBuffer[6] -> y = 6*8+1 = 49). MENU is pinned to the left and EXIT to
+ * the right, leaving an airy gap in the middle. "MENU"/"EXIT" are 4 chars
+ * (16 px); their capsule spans [x-2 .. x+16]. */
+static void mb_key_hints(const char *act_menu, const char *act_exit)
+{
+    const uint8_t sp = 6u;                              /* label <-> action gap  */
+    const uint8_t ae = (uint8_t)strlen(act_exit);
+    const uint8_t xm = 4u;                              /* MENU text; capsule at x=2 */
+    const uint8_t xe = (uint8_t)(124u - ae * 4u - sp - 16u); /* EXIT action ends at x=124 */
+
+    GUI_DisplaySmallestInverse("MENU", xm, 6, false, true, (uint8_t)(xm + 16u));
+    GUI_DisplaySmallest(act_menu, (uint8_t)(xm + 16u + sp), 49, false, true);
+
+    GUI_DisplaySmallestInverse("EXIT", xe, 6, false, true, (uint8_t)(xe + 16u));
+    GUI_DisplaySmallest(act_exit, (uint8_t)(xe + 16u + sp), 49, false, true);
+}
+
 static void mb_show_message(const char *line1, const char *line2, const char *line3)
 {
     UI_DisplayClear();
-    UI_StatusClear();
-    UI_PrintStringSmallNormal("MultiBoot", 2, 126, 0);
+    mb_status_bar();
     if (line1) UI_PrintStringSmallNormal(line1, 2, 126, 2);
     if (line2) UI_PrintStringSmallNormal(line2, 2, 126, 4);
     if (line3) UI_PrintStringSmallNormal(line3, 2, 126, 6);
@@ -147,14 +173,15 @@ static void mb_render_slots(uint8_t selected,
     char line[19]; /* 18 glyphs max: 18 * 7 px fits from x=2 to x=126. */
 
     UI_DisplayClear();
-    UI_StatusClear();
-    UI_PrintStringSmallNormal("MultiBoot", 2, 126, 0);
+    mb_status_bar();
 
     for (uint8_t slot = 0; slot < MB_SLOT_COUNT; slot++)
     {
+        const uint8_t fbLine = (uint8_t)(slot + 1u); /* page 1 stays blank */
+
         memset(line, 0, sizeof(line));
-        line[0] = (slot == selected) ? '>' : ' ';
-        line[1] = (char)('0' + slot);
+        line[0] = (char)('0' + slot);
+        line[1] = ' ';
         line[2] = ' ';
 
         if (status[slot] == MB_OK)
@@ -162,25 +189,30 @@ static void mb_render_slots(uint8_t selected,
         else
             mb_copy_label(&line[3], sizeof(line) - 3u, mb_error_text(status[slot]), 20u);
 
-        UI_PrintStringSmallNormal(line, 2, 0, (uint8_t)(slot + 1u));
+        UI_PrintStringSmallNormal(line, 2, 0, fbLine);
+
+        /* Selected row: full-width inverse bar, like the firmware menu list. */
+        if (slot == selected)
+            for (uint8_t x = 0; x < LCD_WIDTH; x++)
+                gFrameBuffer[fbLine][x] ^= 0xFFu;
     }
 
-    UI_PrintStringSmallNormal("MENU to select", 2, 126, 5);
-    UI_PrintStringSmallNormal("EXIT to go back", 2, 126, 6);
+    mb_key_hints("SELECT", "QUIT");
+
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 }
 
 static void mb_prepare_progress(uint8_t slot)
 {
-    char title[] = "RESTORE SLOT 0";
+    char title[] = "Restore slot 0";
     title[13] = (char)('0' + slot);
 
     UI_DisplayClear();
-    UI_StatusClear();
-    UI_PrintStringSmallNormal(title, 2, 126, 0);
-    UI_PrintStringSmallNormal("DO NOT POWER OFF", 2, 126, 2);
-    UI_PrintStringSmallNormal("Writing & Verify", 2, 126, 4);
+    mb_status_bar();
+    UI_PrintStringSmallNormal(title, 2, 126, 1);
+    UI_PrintStringSmallNormal("DO NOT POWER OFF", 2, 126, 3);
+    UI_PrintStringSmallNormal("Writing & Verify", 2, 126, 5);
 
     /* Same rounded outline and hatch pattern as the scan progress gauge. */
     gFrameBuffer[6][3] = 0x0Cu;
@@ -193,14 +225,29 @@ static void mb_prepare_progress(uint8_t slot)
     ST7565_BlitFullScreen();
 }
 
+static void mb_confirm_screen(uint8_t slot)
+{
+    char title[] = "Restore slot 0?";
+    title[13] = (char)('0' + slot);
+
+    UI_DisplayClear();
+    mb_status_bar();
+    UI_PrintStringSmallNormal(title, 2, 126, 3);
+    mb_key_hints("CONFIRM", "BACK");
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
+
 void UI_MultibootSelector(void)
 {
     mb_slot_header_t headers[MB_SLOT_COUNT];
     uint8_t status[MB_SLOT_COUNT];
     uint8_t selected = 0;
 
-    BACKLIGHT_TurnOn();
+    /* Clear + blit the LCD BEFORE the backlight comes on, otherwise it reveals
+     * the random power-on contents of the display RAM for a moment. */
     mb_show_message("Release keys", NULL, NULL);
+    BACKLIGHT_TurnOn();
     mb_wait_release();
     mb_scan_slots(headers, status);
 
@@ -247,9 +294,7 @@ void UI_MultibootSelector(void)
             continue;
         }
 
-        char confirm[] = "Restore slot 0?";
-        confirm[13] = (char)('0' + selected);
-        mb_show_message(confirm, "MENU to confirm", "EXIT to cancel");
+        mb_confirm_screen(selected);
         key = mb_get_key();
         if (key != KEY_MENU)
             continue;
