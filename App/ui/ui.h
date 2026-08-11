@@ -38,6 +38,10 @@ enum GUI_DisplayType_t
     DISPLAY_RXTX_LOG,
 #endif
 
+#ifdef ENABLE_SUPERF
+    DISPLAY_SUPERF,
+#endif
+
     DISPLAY_N_ELEM,
     DISPLAY_INVALID = 0xFFu
 };

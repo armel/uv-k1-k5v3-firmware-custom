@@ -55,6 +55,10 @@ void ACTION_SwitchDemodul(void);
     #endif
 #endif
 
+#ifdef ENABLE_SUPERF
+    extern void (*const action_opt_table[])(void);
+#endif
+
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 #endif

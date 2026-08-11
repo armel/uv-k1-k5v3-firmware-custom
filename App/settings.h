@@ -136,6 +136,10 @@ enum ACTION_OPT_t {
 #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
     ACTION_OPT_FOXHUNT,
 #endif
+#ifdef ENABLE_SUPERF
+    ACTION_OPT_SUPERF,
+#endif
+
     ACTION_OPT_LEN
 };
 

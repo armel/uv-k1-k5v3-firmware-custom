@@ -48,6 +48,9 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
+#ifdef ENABLE_SUPERF
+    #include "app/superf.h"
+#endif
 #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
     #include "app/foxhunt.h"
 #endif
@@ -142,6 +145,9 @@ void (*const action_opt_table[])(void) = {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
     [ACTION_OPT_FOXHUNT] = &ACTION_FoxHunt,
+#endif
+#ifdef ENABLE_SUPERF
+    [ACTION_OPT_SUPERF] = &ACTION_SuperF,
 #endif
 };
 
@@ -392,6 +398,9 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
             case ACTION_OPT_FOXHUNT:
     #endif
+    #ifdef ENABLE_SUPERF
+            case ACTION_OPT_SUPERF:
+    #endif
                 gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                 return;
 
@@ -400,7 +409,10 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         }
     }
 #endif
-
+#ifdef ENABLE_SUPERF
+    if(gSuperFActive)
+        func = ACTION_OPT_NONE;
+#endif
     action_opt_table[func]();
 }
 

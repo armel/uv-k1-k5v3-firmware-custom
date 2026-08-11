@@ -42,6 +42,9 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
+#ifdef ENABLE_SUPERF
+    #include "app/superf.h"
+#endif
 #include "app/scanner.h"
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
     #include "app/uart.h"
@@ -122,6 +125,10 @@ void (*const ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKey
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     [DISPLAY_RXTX_LOG] = &RXTX_LOG_ProcessKeys,
+#endif
+
+#ifdef ENABLE_SUPERF
+    [DISPLAY_SUPERF] = &SuperF_ProcessKeys,
 #endif
 };
 
@@ -2346,7 +2353,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         }
         // KEY_MENU has a special treatment here, because we want to pass hold event to ACTION_Handle
         // but we don't want it to complain when initial press happens
-        // we want to react on realese instead
+        // we want to react on release instead
         else if (!passActionKey)
         {
             if ((!bKeyPressed || bKeyHeld || (Key == KEY_MENU && bKeyPressed)) && // prevent released or held, prevent KEY_MENU pressed

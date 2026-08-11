@@ -528,6 +528,9 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
         {"FOX HUNT\nBEACON", ACTION_OPT_FOXHUNT},
     #endif
+    #ifdef ENABLE_SUPERF
+        {"SuperF", ACTION_OPT_SUPERF},
+    #endif
 #endif
 };
 

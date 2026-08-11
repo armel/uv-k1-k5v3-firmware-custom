@@ -33,6 +33,9 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
+#ifdef ENABLE_SUPERF
+    #include "app/superf.h"
+#endif
 #include "ui/inputbox.h"
 #include "ui/main.h"
 #include "ui/menu.h"
@@ -63,6 +66,10 @@ void (*const UI_DisplayFunctions[])(void) = {
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     [DISPLAY_RXTX_LOG] = &UI_DisplayRxTxLog,
+#endif
+
+#ifdef ENABLE_SUPERF
+    [DISPLAY_SUPERF] = &UI_DisplaySuperF,
 #endif
 };
 
