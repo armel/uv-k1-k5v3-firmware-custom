@@ -22,6 +22,7 @@
 #include "audio.h"
 #include "ui/ui.h"
 #include "ui/menu.h"
+#include "ui/inputbox.h"
 #include "ui/helper.h"
 #include "action.h"
 #include "external/printf/printf.h"
@@ -45,6 +46,25 @@ static void SuperF_KeyMenu(void)
     action_opt_table[gSubMenu_SIDEFUNCTIONS[gCurrentSuperFIndex].id]();
 }
 
+static void SuperF_Key_DIGITS(KEY_Code_t Key)
+{
+    INPUTBOX_Append(Key);
+
+    uint8_t index = StrToUL(INPUTBOX_GetAscii());
+
+    if (index < gSubMenu_SIDEFUNCTIONS_size-1) 
+        gCurrentSuperFIndex = index+1;
+    else
+    {
+        gInputBoxIndex--;
+        gInputBox[0] = gInputBox[1];
+        gCurrentSuperFIndex = gInputBox[0]+1;
+    }
+    
+    if (gInputBoxIndex >= 2)
+        gInputBoxIndex = 0;
+}
+
 void ACTION_SuperF(void)
 {
     gSuperFActive = true; // useless?
@@ -60,6 +80,9 @@ void SuperF_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
     switch (Key) {
+    case KEY_0...KEY_9:
+        SuperF_Key_DIGITS(Key);
+        break;
     case KEY_UP:
         gCurrentSuperFIndex = (gCurrentSuperFIndex >= gSubMenu_SIDEFUNCTIONS_size - 1)? 1 : gCurrentSuperFIndex + 1;
         break;
