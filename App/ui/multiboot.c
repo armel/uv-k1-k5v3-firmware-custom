@@ -69,12 +69,12 @@ static uint8_t mb_copy_slot_version(char *dst, uint8_t cap, const mb_slot_header
     return n;
 }
 
-/* "MULTIBOOT" mode banner in the top status bar, shown on every screen - the
+/* "F4HWN MULTIBOOT" banner in the top status bar, shown on every screen - the
  * same way the firmware puts mode labels there (inverse 3x5 capsule). */
 static void mb_status_bar(void)
 {
     UI_StatusClear();
-    GUI_DisplaySmallestInverse("MULTIBOOT", 47, 0, true, true, 83);
+    GUI_DisplaySmallestInverse("F4HWN MULTIBOOT", 34, 0, true, true, 94);
 }
 
 /* Bottom key-hint line: each key name as an inverse 3x5 capsule label, its
