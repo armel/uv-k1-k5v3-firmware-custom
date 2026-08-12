@@ -100,111 +100,18 @@
             }
         },
         {
-            "name": "Bandscope",
-            "inherits": "default",
-            "cacheVariables": {
-                "ENABLE_SPECTRUM": true,
-                "ENABLE_FMRADIO": false,
-                "ENABLE_VOX": false,
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": false,
-                "ENABLE_FEAT_F4HWN_PMR": true,
-                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
-                "EDITION_STRING": "Bandscope",
-                "TARGET": "f4hwn.bandscope"
-            }
-        },
-        {
-            "name": "Broadcast",
-            "inherits": "default",
-            "cacheVariables": {
-                "ENABLE_SPECTRUM": false,
-                "ENABLE_FMRADIO": true,
-                "ENABLE_VOX": true,
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": false,
-                "ENABLE_FEAT_F4HWN_PMR": true,
-                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
-                "EDITION_STRING": "Broadcast",
-                "TARGET": "f4hwn.broadcast"
-            }
-        },
-        {
-            "name": "Basic",
-            "inherits": "default",
-            "cacheVariables": {
-                "ENABLE_SPECTRUM": true,
-                "ENABLE_FMRADIO": true,
-                "ENABLE_VOX": false,
-                "ENABLE_AIRCOPY": false,
-                "ENABLE_FEAT_F4HWN_K5VIEWER": false,
-                "ENABLE_FEAT_F4HWN_GAME": false,
-                "ENABLE_FEAT_F4HWN_SPECTRUM": false,
-                "ENABLE_FEAT_F4HWN_PMR": true,
-                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_AUDIO_BAR": false,
-                "ENABLE_FEAT_F4HWN_RESUME_STATE": false,
-                "ENABLE_FEAT_F4HWN_CHARGING_C": false,
-                "ENABLE_FEAT_F4HWN_INV": true,
-                "ENABLE_FEAT_F4HWN_CTR": false,
-                "ENABLE_FEAT_F4HWN_NARROWER": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
-                "EDITION_STRING": "Basic",
-                "TARGET": "f4hwn.basic"
-            }
-        },
-        {
-            "name": "RescueOps",
-            "inherits": "default",
-            "cacheVariables": {
-                "ENABLE_SPECTRUM": false,
-                "ENABLE_FMRADIO": false,
-                "ENABLE_VOX": true,
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": false,
-                "ENABLE_FEAT_F4HWN_PMR": true,
-                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_NOAA": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
-                "EDITION_STRING": "RescueOps",
-                "TARGET": "f4hwn.rescueops"
-            }
-        },
-        {
-            "name": "Game",
-            "inherits": "default",
-            "cacheVariables": {
-                "ENABLE_SPECTRUM": false,
-                "ENABLE_FMRADIO": true,
-                "ENABLE_VOX": false,
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": true,
-                "ENABLE_FEAT_F4HWN_PMR": true,
-                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
-                "EDITION_STRING": "Game",
-                "TARGET": "f4hwn.game"
-            }
-        },
-        {
             "name": "Fusion",
             "inherits": "default",
             "cacheVariables": {
                 "ENABLE_SPECTRUM": true,
                 "ENABLE_FMRADIO": true,
                 "ENABLE_VOX": true,
-                "ENABLE_AIRCOPY": true,
+                "ENABLE_AIRCOPY": false,
                 "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": true,
+                "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_PMR": true,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
+                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
                 "ENABLE_FEAT_F4HWN_VOL": true,
                 "ENABLE_FEAT_F4HWN_AUDIO": true,
                 "ENABLE_FEAT_F4HWN_AUDIO_SCOPE": true,
@@ -212,9 +119,8 @@
                 "ENABLE_FEAT_F4HWN_SCAN_FASTER": true,
                 "ENABLE_FEAT_F4HWN_SCAN_RSSI": true,
                 "ENABLE_FEAT_F4HWN_SCAN_SUBAUDIBLE": true,
-                "ENABLE_FEAT_F4HWN_BEAM": true,
-                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
-                "ENABLE_FEAT_F4HWN_ACTION_PICKER": true,
+                "ENABLE_FEAT_F4HWN_BEAM": false,
+                "ENABLE_FEAT_F4HWN_FOXHUNT": false,
                 "ENABLE_FEAT_F4HWN_RXTX_LOG": true,
                 "ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP": false,
                 "ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER": true,
@@ -223,9 +129,44 @@
                 "ENABLE_FEAT_F4HWN_LOGO": true,
                 "ENABLE_FEAT_F4HWN_LOGO_SAV": true,
                 "ENABLE_FEAT_F4HWN_MENU_CAT": true,
+                "ENABLE_FEAT_F4HWN_ACTION_PICKER": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
+            }
+        },
+        {
+            "name": "Transfer",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_AIRCOPY": true,
+                "ENABLE_FEAT_F4HWN_BEAM": true,
+                "EDITION_STRING": "Transfer",
+                "TARGET": "f4hwn.transfer"
+            }
+        },
+        {
+            "name": "Field",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
+                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
+                "EDITION_STRING": "Field",
+                "TARGET": "f4hwn.field"
+            }
+        },
+        {
+            "name": "Extended",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_AIRCOPY": true,
+                "ENABLE_FEAT_F4HWN_GAME": true,
+                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
+                "ENABLE_FEAT_F4HWN_BEAM": true,
+                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
+                "EDITION_STRING": "Extended",
+                "TARGET": "f4hwn.extended"
             }
         }
     ],
@@ -235,28 +176,20 @@
             "configurePreset": "Custom"
         },
         {
-            "name": "Bandscope",
-            "configurePreset": "Bandscope"
-        },
-        {
-            "name": "Broadcast",
-            "configurePreset": "Broadcast"
-        },
-        {
-            "name": "Basic",
-            "configurePreset": "Basic"
-        },
-        {
-            "name": "RescueOps",
-            "configurePreset": "RescueOps"
-        },
-        {
-            "name": "Game",
-            "configurePreset": "Game"
-        },
-        {
             "name": "Fusion",
             "configurePreset": "Fusion"
+        },
+        {
+            "name": "Transfer",
+            "configurePreset": "Transfer"
+        },
+        {
+            "name": "Field",
+            "configurePreset": "Field"
+        },
+        {
+            "name": "Extended",
+            "configurePreset": "Extended"
         }
     ]
 }

@@ -59,18 +59,23 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
 ### Fusion edition
 
-Fusion is the reference edition of the project. It provides an all-in-one firmware for the UV-K1 and UV-K5 V3, including:
+Fusion is the generic reference edition for the UV-K1 and UV-K5 V3. It is intended
+for everyday use and is the base inherited by the specialized editions. It includes:
 
 - Fagci's spectrum analyzer,
-- broadcast FM radio,
-- VOX and AirCopy,
-- BEAM wireless channel transfer,
+- broadcast FM radio and VOX,
 - [UV Studio](https://armel.github.io/uvstudio/) with integrated K5Viewer screen mirroring, screenshots and remote keyboard control,
 - advanced RX audio profiles and Audio Scope,
-- first-responder-oriented controls,
 - the Breakout game,
 - automatic RX/TX activity logging with RF Log,
-- full Fox Hunt and Morse Beacon support.
+- multiboot support.
+
+Specialized presets extend Fusion for specific uses:
+
+- **Transfer** adds AirCopy and BEAM wireless channel transfer.
+- **Field** adds first-responder controls, Fox Hunt and Morse Beacon support.
+- **Extended** combines the Transfer and Field feature sets without claiming to include every optional feature.
+- **Custom** remains a manually configured build based directly on the hidden technical default.
 
 ### Radio and signal handling
 
@@ -324,9 +329,10 @@ But, they are nice toys for the price, fun to play with.
 
 ## Compiling and Building from Docker
 
-This project provides a Docker-based build system to compile the Fusion firmware for the UV-K1 and UV-K5 V3. Everything is handled through the `compile-with-docker.sh` helper script.
-
-The documented build output is generated inside `build/Fusion`, using the CMake presets defined in `CMakePresets.json`.
+This project provides a Docker-based build system for the UV-K1 and UV-K5 V3.
+Everything is handled through the `compile-with-docker.sh` helper script. Fusion is
+the default generic preset, while specialized builds are generated in their own
+`build/<Preset>` directories.
 
 ### Prerequisites
 
@@ -335,29 +341,37 @@ The documented build output is generated inside `build/Fusion`, using the CMake 
 
 ### Build Script Overview
 
-The script `compile-with-docker.sh` performs the following actions:
+The script `compile-with-docker.sh`:
 
 1. Builds the Docker image (`uvk1-uvk5v3`) if it does not already exist.
-2. Removes any previous `build` directory to ensure a clean configuration.
-3. Runs CMake using the `Fusion` preset inside the Docker container.
-4. Builds the firmware and outputs `.elf`, `.bin` and `.hex` files.
+2. Configures the selected preset with `cmake --fresh`.
+3. Builds the firmware and outputs matching `.elf`, `.bin` and `.hex` files.
+4. Displays Flash and RAM usage; `All` keeps the individual build logs quiet.
 
 ### Usage
 
 ```bash
-./compile-with-docker.sh Fusion [extra CMake options]
+./compile-with-docker.sh [Preset] [extra CMake options]
 ```
 
-### Documented Preset
+The default preset is **Fusion**. Available presets are:
 
+- **Custom**
 - **Fusion**
+- **Transfer**
+- **Field**
+- **Extended**
+- **All** (Fusion, Transfer, Field and Extended)
 
-### Examples
-
-Build Fusion:
+Examples:
 
 ```bash
+./compile-with-docker.sh
 ./compile-with-docker.sh Fusion
+./compile-with-docker.sh Transfer
+./compile-with-docker.sh Field
+./compile-with-docker.sh Extended
+./compile-with-docker.sh All
 ```
 
 ### Passing Additional CMake Options

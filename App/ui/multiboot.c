@@ -41,52 +41,32 @@ static void mb_copy_label(char *dst, uint8_t cap, const char *src, uint8_t src_c
     dst[n] = 0;
 }
 
-static void mb_format_slot_label(char *dst, uint8_t cap, const mb_slot_header_t *header)
+static uint8_t mb_copy_slot_version(char *dst, uint8_t cap, const mb_slot_header_t *header)
 {
-    const char *version = NULL;
-    uint8_t version_cap = 0;
-    uint8_t version_len = 0;
-    uint8_t name_limit = cap - 1u;
     uint8_t n = 0;
 
-    if (!header->name[0])
-    {
-        mb_copy_label(dst, cap, header->fw_version, MB_VERSION_LEN);
-        return;
-    }
-
+    dst[0] = 0;
     for (uint8_t i = 0; i + 1u < MB_VERSION_LEN && header->fw_version[i]; i++)
     {
         if (header->fw_version[i] == 'v' &&
             header->fw_version[i + 1u] >= '0' &&
             header->fw_version[i + 1u] <= '9')
         {
-            version = &header->fw_version[i + 1u];
-            version_cap = MB_VERSION_LEN - i - 1u;
+            i++;
+            while (n + 1u < cap && i < MB_VERSION_LEN)
+            {
+                const char c = header->fw_version[i];
+                if ((c < '0' || c > '9') && c != '.')
+                    break;
+                dst[n++] = c;
+                i++;
+            }
             break;
         }
     }
 
-    if (version)
-    {
-        while (version_len < version_cap && version[version_len])
-            version_len++;
-        if (version_len + 1u < cap)
-            name_limit = cap - version_len - 2u;
-    }
-
-    while (n < name_limit && n < MB_NAME_LEN && header->name[n])
-    {
-        dst[n] = header->name[n];
-        n++;
-    }
-    if (version && n + version_len + 1u < cap)
-    {
-        dst[n++] = ' ';
-        for (uint8_t i = 0; i < version_len; i++)
-            dst[n++] = version[i];
-    }
     dst[n] = 0;
+    return n;
 }
 
 /* "MULTIBOOT" mode banner in the top status bar, shown on every screen - the
@@ -114,6 +94,17 @@ static void mb_key_hints(const char *act_menu, const char *act_exit)
 
     GUI_DisplaySmallestInverse("EXIT", xe, 6, false, true, (uint8_t)(xe + 16u));
     GUI_DisplaySmallest(act_exit, (uint8_t)(xe + 16u + sp), 49, false, true);
+}
+
+static void mb_invert_rounded_row(uint8_t line)
+{
+    gFrameBuffer[line][0] ^= 0x7Fu;
+    for (uint8_t x = 1u; x < LCD_WIDTH - 1u; x++)
+    {
+        gFrameBuffer[line][x] ^= 0xFFu;
+        gFrameBuffer[line - 1u][x] ^= 0x80u;
+    }
+    gFrameBuffer[line][LCD_WIDTH - 1u] ^= 0x7Fu;
 }
 
 static void mb_show_message(const char *line1, const char *line2, const char *line3)
@@ -171,6 +162,7 @@ static void mb_render_slots(uint8_t selected,
                             const uint8_t status[MB_SLOT_COUNT])
 {
     char line[19]; /* 18 glyphs max: 18 * 7 px fits from x=2 to x=126. */
+    char version[MB_VERSION_LEN];
 
     UI_DisplayClear();
     mb_status_bar();
@@ -178,23 +170,48 @@ static void mb_render_slots(uint8_t selected,
     for (uint8_t slot = 0; slot < MB_SLOT_COUNT; slot++)
     {
         const uint8_t fbLine = (uint8_t)(slot + 1u); /* page 1 stays blank */
+        uint8_t version_len = 0;
+        uint8_t version_x = 0;
 
         memset(line, 0, sizeof(line));
+        memset(version, 0, sizeof(version));
         line[0] = (char)('0' + slot);
         line[1] = ' ';
         line[2] = ' ';
 
         if (status[slot] == MB_OK)
-            mb_format_slot_label(&line[3], sizeof(line) - 3u, &headers[slot]);
+        {
+            uint8_t name_cap = sizeof(line) - 3u;
+
+            version_len = mb_copy_slot_version(version, sizeof(version), &headers[slot]);
+            if (version_len)
+            {
+                const uint8_t name_x = 2u + 3u * 7u;
+                uint8_t available;
+
+                version_x = (uint8_t)(LCD_WIDTH - 2u - version_len * 7u);
+                available = version_x > name_x
+                    ? (uint8_t)((version_x - name_x) / 7u)
+                    : 0u;
+                if (available + 1u < name_cap)
+                    name_cap = available + 1u;
+            }
+
+            if (headers[slot].name[0])
+                mb_copy_label(&line[3], name_cap, headers[slot].name, MB_NAME_LEN);
+            else if (!version_len)
+                mb_copy_label(&line[3], name_cap, headers[slot].fw_version, MB_VERSION_LEN);
+        }
         else
             mb_copy_label(&line[3], sizeof(line) - 3u, mb_error_text(status[slot]), 20u);
 
         UI_PrintStringSmallNormal(line, 2, 0, fbLine);
+        if (version_len)
+            UI_PrintStringSmallNormal(version, version_x, 0, fbLine);
 
-        /* Selected row: full-width inverse bar, like the firmware menu list. */
+        /* Selected row: full-width rounded inverse capsule. */
         if (slot == selected)
-            for (uint8_t x = 0; x < LCD_WIDTH; x++)
-                gFrameBuffer[fbLine][x] ^= 0xFFu;
+            mb_invert_rounded_row(fbLine);
     }
 
     mb_key_hints("SELECT", "QUIT");
