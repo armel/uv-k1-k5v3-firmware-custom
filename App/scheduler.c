@@ -132,6 +132,8 @@ void SysTick_Handler(void)
 
     DECREMENT_AND_TRIGGER(gTailNoteEliminationCountdown_10ms, gFlagTailNoteEliminationComplete);
 
+    DECREMENT(gFlashLightButtonTimeout_10ms);
+
 #ifdef ENABLE_VOICE
     DECREMENT_AND_TRIGGER(gCountdownToPlayNextVoice_10ms, gFlagPlayQueuedVoice);
 #endif

@@ -15,6 +15,9 @@
 
     extern enum FlashlightMode_t gFlashLightState;
     extern volatile uint16_t     gFlashLightBlinkCounter;
+    extern volatile uint8_t      gFlashLightButtonTimeout_10ms;
+
+    extern const uint8_t         flashlight_button_countdown_10ms; 
 
     void FlashlightTimeSlice(void);
 #endif

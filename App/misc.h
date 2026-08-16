@@ -125,6 +125,8 @@ extern const uint16_t        NOAA_countdown_10ms;
 extern const uint16_t        NOAA_countdown_2_10ms;
 extern const uint16_t        NOAA_countdown_3_10ms;
 
+extern const uint8_t         flashlight_button_countdown_10ms;
+
 extern const uint16_t        dual_watch_count_after_tx_10ms;
 extern const uint16_t        dual_watch_count_after_rx_10ms;
 extern const uint16_t        dual_watch_count_after_1_10ms;
@@ -431,6 +433,7 @@ extern bool                  g_CxCSS_TAIL_Found;
 extern bool                  g_SquelchLost;
 
 extern volatile uint16_t     gFlashLightBlinkCounter;
+extern volatile uint8_t      gFlashLightButtonTimeout_10ms;
 
 extern bool                  gFlagEndTransmission;
 extern uint16_t              gNextMrChannel;
