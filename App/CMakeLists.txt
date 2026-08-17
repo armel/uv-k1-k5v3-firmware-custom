@@ -211,6 +211,11 @@ enable_feature(ENABLE_FEAT_F4HWN_BEAM
 enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG
     app/rxtx_log.c
 )
+enable_feature(ENABLE_FEAT_F4HWN_DOPPLER
+    driver/rtc.c
+    app/doppler.c
+    app/doppler_mode.c
+)
 enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT
     app/foxhunt.c
 )

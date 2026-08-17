@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F4HWN 多普勒星历写入工具</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; background: #f5f6f8; color: #222; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 15px; margin: 18px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  label { display: block; font-size: 13px; margin: 8px 0 2px; color: #444; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 14px; border: 1px solid #bbb; border-radius: 4px; }
+  textarea { font-family: Consolas, monospace; font-size: 12px; height: 52px; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button { padding: 8px 16px; font-size: 14px; border: none; border-radius: 4px; cursor: pointer; background: #2f6fdc; color: #fff; }
+  button.secondary { background: #6c757d; }
+  button:disabled { background: #aab; cursor: not-allowed; }
+  #status { font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+  .ok { color: #1a7f37; } .err { color: #c62828; } .info { color: #444; }
+  #progress { height: 8px; background: #e0e0e0; border-radius: 4px; margin: 8px 0; overflow: hidden; display: none; }
+  #progress > div { height: 100%; width: 0%; background: #2f6fdc; transition: width .2s; }
+  #log { font-family: Consolas, monospace; font-size: 12px; background: #111; color: #9f9; padding: 8px; border-radius: 4px; height: 160px; overflow-y: auto; white-space: pre-wrap; }
+  .result { font-size: 13px; line-height: 1.7; }
+</style>
+</head>
+<body>
+<h1>🛰️ F4HWN 多普勒星历写入工具</h1>
+<p style="font-size:13px;color:#666">适用于 UV-K1 / UV-K5 V3 / UV-K6 V3（PY32F071）F4HWN 固件 + 多普勒补丁。<br>
+流程：粘贴 TLE → 计算过境 → 连接对讲机 → 写入。机内操作：<b>F+0</b> 进入多普勒模式。</p>
+
+<div class="card">
+  <h2>1. 卫星与频率</h2>
+  <div class="row">
+    <div style="flex:2"><label>选择卫星（自动获取最新 TLE）</label>
+      <select id="satSelect" disabled><option value="">— 先点"获取" —</option></select>
+    </div>
+    <div style="flex:1; display:flex; align-items:flex-end; gap:8px">
+      <button id="btnFetch" style="flex:1">⬇️ 获取 TLE</button>
+    </div>
+  </div>
+  <label>TLE（两行，也可手动粘贴）</label>
+  <textarea id="tle" placeholder="1 25544U ...&#10;2 25544  51.6400 ..."></textarea>
+  <div class="row">
+    <div><label>上行频率 (MHz)</label><input id="fUp" value="145.99"></div>
+    <div><label>下行频率 (MHz)</label><input id="fDown" value="437.8"></div>
+    <div><label>发射亚音</label>
+      <select id="ctcss">
+        <option value="0">无</option>
+        <option value="670">67.0</option><option value="719">71.9</option>
+        <option value="885">88.5</option><option value="1000">100.0</option>
+        <option value="1109">110.9</option><option value="1230">123.0</option>
+        <option value="1365">136.5</option><option value="1413">141.3</option>
+        <option value="1514">151.4</option><option value="1622">162.2</option>
+        <option value="1679">167.9</option><option value="1738">173.8</option>
+        <option value="1799">179.9</option><option value="1862">186.2</option>
+        <option value="1928">192.8</option><option value="2035">203.5</option>
+        <option value="2181">218.1</option><option value="2336">233.6</option>
+        <option value="2418">241.8</option><option value="2541">254.1</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>2. 观测位置</h2>
+  <div class="row">
+    <div><label>纬度 (度)</label><input id="lat" value="31.23"></div>
+    <div><label>经度 (度)</label><input id="lon" value="121.47"></div>
+    <div><label>海拔 (km)</label><input id="alt" value="0.01"></div>
+    <div><label>最低仰角 (度)</label><input id="minEl" value="0"></div>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="btnMap" class="secondary" type="button" style="flex:1">📍 在地图上选点（高德）</button>
+    <button id="btnLocate" class="secondary" type="button" style="flex:1">🎯 用我的位置（GPS）</button>
+  </div>
+  <div id="mapWrap" style="display:none;margin-top:8px">
+    <div id="map" style="height:320px;border:1px solid #bbb;border-radius:6px"></div>
+    <p style="font-size:12px;color:#888;margin:4px 0 0">点击地图选点，经纬度自动填入并查询海拔（地图为高德 GCJ-02，已自动转 WGS-84）</p>
+  </div>
+  <button id="btnCalc" style="margin-top:10px">🔭 计算最近过境</button>
+  <div id="result" class="result" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h2>3. 写入对讲机（USB 线连接，Web Serial）</h2>
+  <div class="row">
+    <button id="btnConnect" class="secondary">连接串口</button>
+    <button id="btnWrite" disabled>💾 写入星历</button>
+  </div>
+  <div id="progress"><div id="progressBar"></div></div>
+  <div id="log"></div>
+  <div id="status"></div>
+</div>
+
+<script src="vendor/satellite.min.js"></script>
+<script src="vendor/leaflet.js"></script>
+<script src="protocol.js"></script>
+<script src="coord.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

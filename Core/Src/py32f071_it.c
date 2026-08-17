@@ -83,4 +83,25 @@ void PendSV_Handler(void)
 /* please refer to the startup file.                                          */
 /******************************************************************************/
 
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+
+#include "driver/rtc.h"
+#include "py32f071_ll_exti.h"
+#include "py32f071_ll_rtc.h"
+
+void RTC_IRQHandler(void)
+{
+    if (LL_EXTI_IsActiveFlag(LL_EXTI_LINE_19))
+    {
+        LL_EXTI_ClearFlag(LL_EXTI_LINE_19);
+    }
+    if (LL_RTC_IsActiveFlag_SEC(RTC))
+    {
+        LL_RTC_ClearFlag_SEC(RTC);
+        gRtcSecondTick = true;
+    }
+}
+
+#endif // ENABLE_FEAT_F4HWN_DOPPLER
+
 /************************ (C) COPYRIGHT Puya *****END OF FILE******************/

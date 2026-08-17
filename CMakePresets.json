@@ -81,6 +81,7 @@
                 "ENABLE_FEAT_F4HWN_LOGO": false,
                 "ENABLE_FEAT_F4HWN_LOGO_SAV": false,
                 "ENABLE_FEAT_F4HWN_MENU_CAT": false,
+                "ENABLE_FEAT_F4HWN_DOPPLER": false,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,

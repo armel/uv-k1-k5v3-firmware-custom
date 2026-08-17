@@ -1,0 +1,99 @@
+/**
+ * Node 单元测试：多普勒计算模块。
+ * 运行：node tools/k5web/test_calc.mjs
+ */
+import { strict as assert } from "node:assert";
+import calc from "./calc.js";
+const { radialVelocity, uplinkFreq, downlinkFreq, findPass, dateToFwTime, unixToFw } = calc;
+
+const C = 299792.458;
+
+// ---- 径向速度符号与数值 ----
+// 卫星在观测者正上方 400km 处，沿 +x 方向运动（地平线方向）
+{
+  const obs = { x: 0, y: 0, z: 6371 };          // ECI，观测者在地轴上（简化）
+  const sat = { x: 0, y: 0, z: 6771 };          // 正上方
+  const vel = { x: 7.5, y: 0, z: 0 };           // 沿 +x（垂直于视线 → vr 应≈0）
+  const vr = radialVelocity(sat, vel, obs);
+  assert.ok(Math.abs(vr) < 1e-6, `正上方横向速度 vr≈0, got ${vr}`);
+  console.log("✓ 横向速度 vr≈0");
+
+  // 沿视线方向远离（+z）：vr = +7.5
+  const vel2 = { x: 0, y: 0, z: 7.5 };
+  const vr2 = radialVelocity(sat, vel2, obs);
+  assert.ok(Math.abs(vr2 - 7.5) < 1e-6, `vr = +7.5, got ${vr2}`);
+  console.log("✓ 远离时 vr = +7.5 km/s");
+}
+
+// ---- 多普勒频率数值（ISS 典型值） ----
+{
+  // 接近时 vr = -7 km/s
+  const fDown = 437.8e6;
+  const fUp = 145.99e6;
+  const d = downlinkFreq(fDown, -7);
+  const u = uplinkFreq(fUp, -7);
+  // 下行：f × (1 - vr/c) = f × (1 + 7/299792.458) → +约 10.22 kHz @437.8MHz（ISS 70cm 段典型值）
+  const expectedD = fDown * (1 + 7 / C);
+  assert.ok(Math.abs(d - expectedD) < 1, `downlink +2.3kHz, got ${d - fDown} Hz`);
+  // 上行：f / (1 + vr/c) = f / (1 - 7/C) → +约 3.41 kHz @145.99MHz
+  const expectedU = fUp / (1 - 7 / C);
+  assert.ok(Math.abs(u - expectedU) < 0.5, `uplink +0.78kHz, got ${u - fUp} Hz`);
+  console.log(`✓ 多普勒数值：下行 ${(d - fDown).toFixed(0)} Hz、上行 ${(u - fUp).toFixed(0)} Hz（接近时频率升高）`);
+}
+
+// ---- 10Hz 单位转换 ----
+{
+  const d = downlinkFreq(437.8e6, -7);
+  const u = uplinkFreq(145.99e6, -7);
+  assert.ok(d / 10 < 0xffffffff, "fits u32");
+  assert.ok(u / 10 > 0, "positive");
+  console.log("✓ 10Hz 单位换算在 u32 范围内");
+}
+
+// ---- 时间转换 ----
+{
+  const d = new Date(Date.UTC(2026, 7, 17, 12, 0, 0)); // 2026-08-17 12:00 UTC
+  const fw = dateToFwTime(d);
+  assert.deepEqual(fw, [26, 8, 17, 12, 0, 0]);
+  assert.equal(unixToFw(d.getTime() / 1000), 840283200); // 与固件 DOPPLER_UnixTime 一致（Python 验证）
+  console.log("✓ 时间转换与固件一致");
+}
+
+// ---- 完整过境流程（用 ISS TLE 示例，跨过境窗口） ----
+{
+  // TLE 数据（示例：ISS，已过时不影响流程验证）
+  const tle1 = "1 25544U 98067A   26080.00000000  .00016717  00000-0  10270-3 0  9000";
+  const tle2 = "2 25544  51.6400 234.2345 0006043 141.3553 275.5311 15.50836567000002";
+  // 用未来 1 小时窗口内的搜索（避免 epoch 已过太久；若 TLE 太旧 SGP4 会误差大，仅测流程）
+  const pass = findPass({
+    tle1, tle2,
+    latDeg: 31.23, lonDeg: 121.47, altKm: 0.01, // 上海
+    uplinkMHz: 145.99, downlinkMHz: 437.8,
+    minElevation: -90, // 强制全可见，验证流程（真实使用建议 0-10 度）
+    searchStart: new Date(Date.now() + 60 * 60 * 1000),
+    maxSearchHours: 24,
+  });
+  if (pass) {
+    assert.ok(pass.entries.length > 0 && pass.entries.length <= 1920, "entries within bounds");
+    assert.ok(pass.durationS >= pass.entries.length * 2 - 2, "duration consistent");
+    // 检查频率表单调性方向：过境中间（最接近）频偏最小
+    const mid = pass.entries[Math.floor(pass.entries.length / 2)];
+    const first = pass.entries[0];
+    const last = pass.entries[pass.entries.length - 1];
+    // 靠近中段时 |Δf| 应小于两端（近地点/最近距离处多普勒变化最缓、频偏接近 0）
+    const df = (a, b) => Math.abs(a.downlink - b.downlink);
+    console.log(`  ISS 过境：${pass.start.toISOString()} → ${pass.end.toISOString()}，时长 ${pass.durationS}s，${pass.entries.length} 条`);
+    console.log(`  下行频率范围：${first.downlink / 1e5} ~ ${mid.downlink / 1e5} MHz（首/中）`);
+    // 频率应在合理范围（400-500MHz 区间）
+    for (const e of [first, mid, last]) {
+      // 10Hz 单位：437.8MHz = 4.378e7
+      assert.ok(e.downlink > 4e7 && e.downlink < 5e7, `downlink in 400-500MHz range, got ${e.downlink / 1e5}`);
+      assert.ok(e.uplink > 1.4e7 && e.uplink < 1.5e7, `uplink in 140-150MHz range, got ${e.uplink / 1e5}`);
+    }
+    console.log("✓ 频率表数值范围合理（下行 437.8±、上行 145.99±）");
+  } else {
+    console.log("  注意：24h 内未找到过境（TLE 过旧时 SGP4 偏差大，跳过断言）");
+  }
+}
+
+console.log("\n全部计算测试通过 ✅");

@@ -24,6 +24,9 @@
     #include "app/fm.h"
 #endif
 #include "app/uart.h"
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    #include "app/doppler.h"
+#endif
 #include "board.h"
 #include "py32f071_ll_dma.h"
 #include "driver/backlight.h"
@@ -151,6 +154,32 @@ typedef struct {
         uint8_t Padding[3];
     } Data;
 } REPLY_052D_t;
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+// Doppler satellite data programming commands (web tool -> radio)
+typedef struct {
+    Header_t Header;
+} CMD_DOPPLER_ERASE_t;
+
+typedef struct {
+    Header_t Header;
+    DOPPLER_Satellite_t Satellite;
+} CMD_DOPPLER_WRITE_SAT_t;
+
+typedef struct {
+    Header_t Header;
+    uint16_t Index;
+    uint16_t Padding;
+    DOPPLER_Entry_t Entry;
+} CMD_DOPPLER_WRITE_ENTRY_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;   // 0 = OK, 1 = rejected
+    } Data;
+} REPLY_DOPPLER_t;
+#endif // ENABLE_FEAT_F4HWN_DOPPLER
 
 
 #ifdef ENABLE_EXTRA_UART_CMD
@@ -782,6 +811,45 @@ bool UART_IsCommandAvailable(uint32_t Port)
     return CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+static void CMD_DOPPLER_ERASE(uint32_t Port)
+{
+    REPLY_DOPPLER_t Reply;
+
+    Reply.Header.ID   = 0x05E3;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 0;
+
+    DOPPLER_Erase();
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer)
+{
+    const CMD_DOPPLER_WRITE_SAT_t *pCmd = (const CMD_DOPPLER_WRITE_SAT_t *)pBuffer;
+    REPLY_DOPPLER_t Reply;
+
+    Reply.Header.ID   = 0x05E4;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = DOPPLER_WriteSatellite(&pCmd->Satellite) ? 0 : 1;
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer)
+{
+    const CMD_DOPPLER_WRITE_ENTRY_t *pCmd = (const CMD_DOPPLER_WRITE_ENTRY_t *)pBuffer;
+    REPLY_DOPPLER_t Reply;
+
+    Reply.Header.ID   = 0x05E5;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = DOPPLER_WriteEntry(pCmd->Index, &pCmd->Entry) ? 0 : 1;
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+#endif // ENABLE_FEAT_F4HWN_DOPPLER
+
 void UART_HandleCommand(uint32_t Port)
 {
     UART_Command_t *pUART_Command;
@@ -841,6 +909,20 @@ void UART_HandleCommand(uint32_t Port)
 
         case 0x052F:
             CMD_052F(Port, pUART_Command->Buffer);
+            break;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        case 0x05E0:
+            CMD_DOPPLER_ERASE(Port);
+            break;
+
+        case 0x05E1:
+            CMD_DOPPLER_WRITE_SAT(Port, pUART_Command->Buffer);
+            break;
+
+        case 0x05E2:
+            CMD_DOPPLER_WRITE_ENTRY(Port, pUART_Command->Buffer);
             break;
 #endif
 

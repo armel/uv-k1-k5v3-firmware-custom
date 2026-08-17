@@ -42,6 +42,9 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    #include "app/doppler_mode.h"
+#endif
 #include "app/scanner.h"
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
     #include "app/uart.h"
@@ -122,6 +125,10 @@ void (*const ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKey
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     [DISPLAY_RXTX_LOG] = &RXTX_LOG_ProcessKeys,
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    [DISPLAY_DOPPLER] = &DOPPLER_ProcessKeys,
 #endif
 };
 
@@ -1599,6 +1606,10 @@ void APP_TimeSlice10ms(void)
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     RXTX_LOG_Task10ms();
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    DOPPLER_TimeSlice();
 #endif
 
     BACKLIGHT_Update();
