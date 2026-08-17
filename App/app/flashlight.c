@@ -65,11 +65,10 @@ static inline void Flashlight_Toggle(){ GPIO_TogglePin(GPIO_PIN_FLASHLIGHT); }
 
         if (gFlashLightButtonTimeout_10ms == 0 && gFlashLightState != FLASHLIGHT_OFF) {
             Flashlight_TurnOff();
-	    gFlashLightState = FLASHLIGHT_OFF;
-	    return;
+	        gFlashLightState = FLASHLIGHT_OFF;
+	        return;
         }
         gFlashLightButtonTimeout_10ms = flashlight_button_countdown_10ms;
-
 
         if(gFlashLightState == FLASHLIGHT_OFF) {
             Flashlight_TurnOn();
