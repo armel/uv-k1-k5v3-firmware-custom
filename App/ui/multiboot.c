@@ -229,9 +229,18 @@ static void mb_render_slots(uint8_t selected,
     ST7565_BlitFullScreen();
 }
 
-/* Both restore and initial Main backup use the exact same progress frame.
- * Keep it out-of-line: each caller has different text, but duplicating the
- * framebuffer setup and the two LCD blits only wastes MCU flash. */
+static void mb_draw_progress_outline(void)
+{
+    /* Same rounded outline and hatch pattern as the scan progress gauge. */
+    gFrameBuffer[6][3] = 0x0Cu;
+    gFrameBuffer[6][4] = 0x12u;
+    gFrameBuffer[6][123] = 0x12u;
+    gFrameBuffer[6][124] = 0x0Cu;
+    for (uint8_t x = 5; x < 123u; x++)
+        gFrameBuffer[6][x] = 0x21u;
+}
+
+/* Full progress frame used while restoring a firmware slot. */
 __attribute__((noinline)) static void mb_prepare_progress_screen(const char *title,
                                                                   const char *detail)
 {
@@ -240,14 +249,7 @@ __attribute__((noinline)) static void mb_prepare_progress_screen(const char *tit
     UI_PrintStringSmallNormal(title, 2, 126, 1);
     UI_PrintStringSmallNormal("DO NOT POWER OFF", 2, 126, 3);
     UI_PrintStringSmallNormal(detail, 2, 126, 5);
-
-    /* Same rounded outline and hatch pattern as the scan progress gauge. */
-    gFrameBuffer[6][3] = 0x0Cu;
-    gFrameBuffer[6][4] = 0x12u;
-    gFrameBuffer[6][123] = 0x12u;
-    gFrameBuffer[6][124] = 0x0Cu;
-    for (uint8_t x = 5; x < 123u; x++)
-        gFrameBuffer[6][x] = 0x21u;
+    mb_draw_progress_outline();
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 }
@@ -265,7 +267,13 @@ static void mb_prepare_progress(uint8_t slot)
  * Flash-Firmware install, while the running firmware is copied into slot 0. */
 static void mb_backup_prepare(void)
 {
-    mb_prepare_progress_screen("Saving Main", "Slot Main");
+    UI_DisplayClear();
+    UI_StatusClear();
+    UI_PrintStringSmallNormal("Init Main", 2, 126, 1);
+    UI_PrintStringSmallNormal("DO NOT POWER OFF", 2, 126, 3);
+    mb_draw_progress_outline();
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
 }
 
 static void mb_backup_progress(uint32_t done, uint32_t total)
@@ -398,8 +406,8 @@ void UI_MultibootSelector(void)
  * multiboot (fresh radio, or a plain Flash-Firmware). */
 static uint8_t mb_adopt_internal_as_main(void)
 {
-    BACKLIGHT_TurnOn();
     mb_backup_prepare();
+    BACKLIGHT_TurnOn();
     if (MB_BackupInternalToSlot0(mb_backup_progress) == MB_OK)
         (void)MB_SetActiveProfile(MB_SLOT_BACKUP);
     return MB_SLOT_BACKUP;
