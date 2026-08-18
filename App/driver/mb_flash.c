@@ -14,8 +14,10 @@
  */
 
 #include <stddef.h>
+#include <string.h>
 
 #include "driver/mb_flash.h"
+#include "driver/py25q16.h"
 
 #include "py32f0xx.h"
 
@@ -103,10 +105,14 @@ static void MB_PrepareInternalFlash(void)
 /* the linker stores in flash and the startup copies to RAM alongside .data.  */
 /* -------------------------------------------------------------------------- */
 
-/* Polled single-byte SPI2 transfer. always_inline keeps all code in .RamFunc.
- * The result is returned through out so timeout and received 0xFF remain
- * distinguishable. */
-__attribute__((always_inline)) static inline bool mb_ram_spi(uint8_t v, uint8_t *out)
+/* These primitives are called repeatedly while application flash is offline.
+ * Keep one copy of each in the copied RAM section: noinline/noclone prevents
+ * GCC from silently duplicating one back into MB_RamReflash. */
+#define MB_RAM_HELPER __attribute__((section(".RamFunc"), noinline, noclone, used))
+
+/* Polled single-byte SPI2 transfer. The result is returned through out so
+ * timeout and received 0xFF remain distinguishable. */
+MB_RAM_HELPER static bool mb_ram_spi(uint8_t v, uint8_t *out)
 {
     uint32_t timeout = MB_RAM_SPI_TIMEOUT;
     while (!(SPI2->SR & SPI_SR_TXE))
@@ -124,7 +130,7 @@ __attribute__((always_inline)) static inline bool mb_ram_spi(uint8_t v, uint8_t 
     return true;
 }
 
-__attribute__((always_inline)) static inline bool mb_ram_flash_idle(void)
+MB_RAM_HELPER static bool mb_ram_flash_idle(void)
 {
     uint32_t timeout = MB_RAM_FLASH_TIMEOUT;
     while (FLASH->SR & FLASH_SR_BSY)
@@ -133,7 +139,7 @@ __attribute__((always_inline)) static inline bool mb_ram_flash_idle(void)
     return true;
 }
 
-__attribute__((always_inline, noreturn)) static inline void mb_ram_reset(void)
+MB_RAM_HELPER __attribute__((noreturn)) static void mb_ram_reset(void)
 {
     __DSB();
 
@@ -144,7 +150,7 @@ __attribute__((always_inline, noreturn)) static inline void mb_ram_reset(void)
 
 /* Minimal SPI1 LCD writer. A display timeout merely disables progress updates:
  * it must never abort or delay the safety-critical flash copy. */
-__attribute__((always_inline)) static inline bool mb_ram_lcd_spi(uint8_t v)
+MB_RAM_HELPER static bool mb_ram_lcd_spi(uint8_t v)
 {
     uint32_t timeout = MB_RAM_SPI_TIMEOUT;
     while (!(SPI1->SR & SPI_SR_TXE))
@@ -181,6 +187,35 @@ __attribute__((always_inline)) static inline bool mb_ram_progress_blit(const uin
             }
     GPIOB->BSRR = MB_LCD_CS_PIN;
     return ok != 0u;
+}
+
+/* Blank the whole LCD RAM (all 8 pages) right before the reset. The MCU reset
+ * leaves the display controller powered and still showing the "Restore slot N"
+ * screen; it stays visible through the next boot until ST7565_Init re-inits the
+ * panel. Wiping it here means the reboot window shows nothing instead of a
+ * stale restore screen. Best-effort: a display timeout just leaves it as-is. */
+__attribute__((always_inline)) static inline void mb_ram_lcd_clear(void)
+{
+    for (uint8_t page = 0; page < 8u; page++)
+    {
+        GPIOB->BRR = MB_LCD_CS_PIN;
+        GPIOA->BRR = MB_LCD_A0_PIN;             /* command */
+        if (!mb_ram_lcd_spi((uint8_t)(0xB0u | page)) ||  /* set page 0..7 */
+            !mb_ram_lcd_spi(0x10u) ||           /* column high nibble */
+            !mb_ram_lcd_spi(0x04u))             /* visible RAM starts at column 4 */
+        {
+            GPIOB->BSRR = MB_LCD_CS_PIN;
+            return;
+        }
+        GPIOA->BSRR = MB_LCD_A0_PIN;            /* data */
+        for (uint32_t i = 0; i < 128u; i++)
+            if (!mb_ram_lcd_spi(0x00u))
+            {
+                GPIOB->BSRR = MB_LCD_CS_PIN;
+                return;
+            }
+        GPIOB->BSRR = MB_LCD_CS_PIN;
+    }
 }
 
 __attribute__((section(".RamFunc"), noinline, used))
@@ -332,6 +367,8 @@ static void MB_RamReflash(uint32_t intAddr, uint32_t extAddr, uint32_t imageSize
     }
 
     FLASH->CR |= FLASH_CR_LOCK;
+    if (lcdEnabled)
+        mb_ram_lcd_clear();
     mb_ram_reset();
 
 fatal_reset:
@@ -644,7 +681,8 @@ uint8_t MB_SlotInfo(uint8_t slot, mb_slot_header_t *out_header)
 
 uint8_t MB_SlotErase(uint8_t slot)
 {
-    if (slot >= MB_SLOT_COUNT)
+    /* Slot 0 is the firmware-managed base backup: never erasable from the host. */
+    if (slot >= MB_SLOT_COUNT || slot == MB_SLOT_BACKUP)
         return MB_ERR_SLOT;
 
     const uint32_t base = MB_SLOT0_EXT_BASE + (uint32_t)slot * MB_SLOT_STRIDE;
@@ -660,7 +698,8 @@ uint8_t MB_SlotErase(uint8_t slot)
 
 uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len)
 {
-    if (slot >= MB_SLOT_COUNT)
+    /* Slot 0 is the firmware-managed base backup: never writable from the host. */
+    if (slot >= MB_SLOT_COUNT || slot == MB_SLOT_BACKUP)
         return MB_ERR_SLOT;
     if (len == 0)
         return MB_OK;
@@ -672,6 +711,326 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
     mb_spi_err = 0;
     mb_spi_polled_mode();
     if (!mb_ext_program(base + offset, data, len))
+        return MB_ERR_SPI;
+
+    return MB_OK;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Per-profile settings banks.                                                */
+/*                                                                            */
+/* The banking offset itself lives in the flash driver (PY25Q16_SetProfileBase);*/
+/* here we only own the active-profile marker and the profile->base mapping.  */
+/* All external-flash only, never brick-critical.                             */
+/* -------------------------------------------------------------------------- */
+
+static uint32_t mb_crc32_bytes(const uint8_t *p, uint32_t len)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+
+    for (uint32_t i = 0; i < len; i++)
+    {
+        crc ^= p[i];
+        for (int k = 0; k < 8; k++)
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+uint32_t MB_ProfileBase(uint8_t profile)
+{
+    if (profile == 0)
+        return 0;                    /* profile 0 = historical config region */
+    if (profile < MB_PROFILE_COUNT)
+        return MB_PROFILE1_EXT_BASE + (uint32_t)(profile - 1u) * MB_PROFILE_BANK_SIZE;
+    return 0;                        /* out of range -> safe default */
+}
+
+static mb_mark_status_t mb_read_profile_copy(uint32_t base, mb_profile_state_t *st)
+{
+    mb_spi_err = 0;
+    mb_ext_read(base, (uint8_t *)st, sizeof(*st));
+    if (mb_spi_err)                              return MB_MARK_IO;
+    if (st->magic == 0xFFFFFFFFu)                return MB_MARK_MISSING;
+    if (st->magic == MB_PROFILE_LEGACY_MAGIC)
+    {
+        /* FMP1 was { magic, index, ~index, reserved[2] }. Preserve its slot
+         * choice long enough for boot resolution to migrate it to FMP2. */
+        const uint8_t legacy_index = ((const uint8_t *)st)[4];
+        const uint8_t legacy_inv   = ((const uint8_t *)st)[5];
+        if ((uint8_t)~legacy_inv != legacy_index || legacy_index >= MB_PROFILE_COUNT)
+            return MB_MARK_CORRUPT;
+        memset(st, 0, sizeof(*st));
+        st->magic = MB_PROFILE_LEGACY_MAGIC;
+        st->index = legacy_index;
+        st->index_inv = legacy_inv;
+        return MB_MARK_LEGACY;
+    }
+    if (st->magic != MB_PROFILE_MAGIC)           return MB_MARK_CORRUPT;
+    if ((uint8_t)~st->index_inv != st->index)    return MB_MARK_CORRUPT;
+    if (st->index >= MB_PROFILE_COUNT)           return MB_MARK_CORRUPT;
+    if (st->image_size == 0u ||
+        st->image_size > MB_INT_APP_SIZE)         return MB_MARK_CORRUPT;
+    if (mb_crc32_bytes((const uint8_t *)st,
+                       sizeof(*st) - sizeof(st->state_crc32)) != st->state_crc32)
+                                                    return MB_MARK_CORRUPT;
+    return MB_MARK_VALID;
+}
+
+static bool mb_generation_newer(uint32_t a, uint32_t b)
+{
+    return (int32_t)(a - b) > 0;
+}
+
+static mb_mark_status_t mb_read_active_profile(mb_profile_state_t *state,
+                                                uint32_t *state_base)
+{
+    mb_profile_state_t a;
+    mb_profile_state_t b;
+    mb_mark_status_t sa = mb_read_profile_copy(MB_PROFILE_STATE_A_BASE, &a);
+    mb_mark_status_t sb = mb_read_profile_copy(MB_PROFILE_STATE_B_BASE, &b);
+
+    /* If either sector could not be read, it might contain the newest record.
+     * Do not silently select an older state and risk loading the wrong bank. */
+    if (sa == MB_MARK_IO || sb == MB_MARK_IO)
+        return MB_MARK_IO;
+
+    const mb_profile_state_t *chosen = NULL;
+    uint32_t chosen_base = 0;
+    if (sa == MB_MARK_VALID && sb == MB_MARK_VALID)
+    {
+        if (mb_generation_newer(b.generation, a.generation))
+        {
+            chosen = &b;
+            chosen_base = MB_PROFILE_STATE_B_BASE;
+        }
+        else
+        {
+            chosen = &a;
+            chosen_base = MB_PROFILE_STATE_A_BASE;
+        }
+    }
+    else if (sa == MB_MARK_VALID)
+    {
+        chosen = &a;
+        chosen_base = MB_PROFILE_STATE_A_BASE;
+    }
+    else if (sb == MB_MARK_VALID)
+    {
+        chosen = &b;
+        chosen_base = MB_PROFILE_STATE_B_BASE;
+    }
+
+    if (chosen)
+    {
+        if (state)
+            *state = *chosen;
+        if (state_base)
+            *state_base = chosen_base;
+        return MB_MARK_VALID;
+    }
+
+    /* A legacy record is usable for migration but has no firmware identity.
+     * Prefer A if both somehow exist; the next successful repair writes FMP2. */
+    if (sa == MB_MARK_LEGACY || sb == MB_MARK_LEGACY)
+    {
+        const bool use_b = sa != MB_MARK_LEGACY;
+        if (state)
+            *state = use_b ? b : a;
+        if (state_base)
+            *state_base = use_b ? MB_PROFILE_STATE_B_BASE : MB_PROFILE_STATE_A_BASE;
+        return MB_MARK_LEGACY;
+    }
+
+    return (sa == MB_MARK_MISSING && sb == MB_MARK_MISSING)
+             ? MB_MARK_MISSING : MB_MARK_CORRUPT;
+}
+
+mb_mark_status_t MB_ReadActiveProfile(mb_profile_state_t *state)
+{
+    return mb_read_active_profile(state, NULL);
+}
+
+uint8_t MB_GetActiveProfile(void)
+{
+    mb_profile_state_t st;
+    mb_mark_status_t status = MB_ReadActiveProfile(&st);
+    return (status == MB_MARK_VALID || status == MB_MARK_LEGACY) ? st.index : 0;
+}
+
+uint8_t MB_SetActiveProfile(uint8_t profile)
+{
+    mb_slot_header_t hdr;
+    mb_profile_state_t st;
+    mb_profile_state_t current;
+    uint32_t current_base = 0;
+
+    if (profile >= MB_PROFILE_COUNT)
+        return MB_ERR_SLOT;
+
+    uint8_t hdr_err = mb_read_header(profile, &hdr);
+    if (hdr_err != MB_OK)
+        return hdr_err;
+
+    mb_mark_status_t current_status = mb_read_active_profile(&current, &current_base);
+    if (current_status == MB_MARK_IO)
+        return MB_ERR_SPI;
+
+    memset(&st, 0, sizeof(st));
+    st.magic       = MB_PROFILE_MAGIC;
+    st.generation  = (current_status == MB_MARK_VALID) ? current.generation + 1u : 0u;
+    st.image_size  = hdr.image_size;
+    st.image_crc32 = hdr.image_crc32;
+    st.index       = profile;
+    st.index_inv   = (uint8_t)~profile;
+    st.state_crc32 = mb_crc32_bytes((const uint8_t *)&st,
+                                    sizeof(st) - sizeof(st.state_crc32));
+
+    const uint32_t target_base = ((current_status == MB_MARK_VALID ||
+                                   current_status == MB_MARK_LEGACY) &&
+                                  current_base == MB_PROFILE_STATE_A_BASE)
+                                   ? MB_PROFILE_STATE_B_BASE
+                                   : MB_PROFILE_STATE_A_BASE;
+
+    mb_spi_err = 0;
+    mb_spi_polled_mode();
+    if (!mb_ext_sector_erase(target_base))
+        return MB_ERR_SPI;
+    if (!mb_ext_program(target_base, (const uint8_t *)&st, sizeof(st)))
+        return MB_ERR_SPI;
+
+    /* Verify the new copy directly. The previous valid sector has not been
+     * touched, so any failure here remains power-loss safe. */
+    mb_profile_state_t chk;
+    mb_mark_status_t chk_status = mb_read_profile_copy(target_base, &chk);
+    if (chk_status == MB_MARK_IO)                    return MB_ERR_SPI;
+    if (chk_status != MB_MARK_VALID ||
+        memcmp(&chk, &st, sizeof(st)) != 0)           return MB_ERR_CRC;
+
+    return MB_OK;
+}
+
+uint8_t MB_ProfileErase(uint8_t profile)
+{
+    /* Profile 0 (the base config) is not resettable from the host: reset it by
+     * factory-resetting the running base firmware instead. Profiles 1..N live
+     * in their own 64 KiB banks, clear of the shared calibration at 0x010000. */
+    if (profile == 0 || profile >= MB_PROFILE_COUNT)
+        return MB_ERR_SLOT;
+
+    const uint32_t base = MB_ProfileBase(profile);
+
+    /* Invalidate before the first raw erase so an early failure cannot leave a
+     * cache entry referring to a sector that was already erased. */
+    PY25Q16_InvalidateCache();
+
+    mb_spi_err = 0;
+    mb_spi_polled_mode();
+    for (uint32_t off = 0; off < MB_PROFILE_BANK_SIZE; off += MB_EXT_SECTOR)
+        if (!mb_ext_sector_erase(base + off))
+            return MB_ERR_SPI;
+
+    return MB_OK;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Slot 0 self-backup (base firmware).                                        */
+/* -------------------------------------------------------------------------- */
+
+/* Bounded copy of a NUL-terminated string into a fixed field, zero-padded. */
+static void mb_copy_str(char *dst, uint8_t cap, const char *src)
+{
+    uint8_t n = 0;
+    while (n + 1u < cap && src[n])
+    {
+        dst[n] = src[n];
+        n++;
+    }
+    while (n < cap)
+        dst[n++] = 0;
+}
+
+/* CRC-32 (zlib) of the internal application flash, which is memory-mapped so
+ * no SPI is involved. Same polynomial as the external slot CRC. */
+static uint32_t mb_int_image_crc32(uint32_t len)
+{
+    const uint8_t *p = (const uint8_t *)MB_INT_APP_BASE;
+    return mb_crc32_bytes(p, len);
+}
+
+static bool mb_internal_matches(uint32_t image_size, uint32_t image_crc32)
+{
+    return mb_int_image_crc32(image_size) == image_crc32;
+}
+
+mb_fw_match_t MB_InternalMatchesSlot(uint8_t slot)
+{
+    mb_slot_header_t hdr;
+    uint8_t err = mb_read_header(slot, &hdr);
+
+    if (err == MB_ERR_SPI)
+        return MB_FW_IO;         /* couldn't read the header: never conclude mismatch */
+    if (err != MB_OK)
+        return MB_FW_MISMATCH;   /* no valid header: definitely not this firmware */
+
+    return mb_internal_matches(hdr.image_size, hdr.image_crc32)
+             ? MB_FW_MATCH : MB_FW_MISMATCH;
+}
+
+bool MB_InternalMatchesProfile(const mb_profile_state_t *state)
+{
+    if (!state || state->image_size == 0u || state->image_size > MB_INT_APP_SIZE)
+        return false;
+    return mb_internal_matches(state->image_size, state->image_crc32);
+}
+
+uint8_t MB_BackupInternalToSlot0(mb_progress_fn progress)
+{
+    const uint8_t *img  = (const uint8_t *)MB_INT_APP_BASE;
+    const uint32_t size = MB_INT_APP_SIZE;
+    const uint32_t base = MB_SLOT0_EXT_BASE + (uint32_t)MB_SLOT_BACKUP * MB_SLOT_STRIDE;
+
+    mb_spi_err = 0;
+    mb_spi_polled_mode();
+
+    /* Erase the header sector + image area (rounded up to 4 KiB sectors). */
+    for (uint32_t off = 0; off < MB_SLOT_IMG_OFFSET + size; off += MB_EXT_SECTOR)
+        if (!mb_ext_sector_erase(base + off))
+            return MB_ERR_SPI;
+
+    /* Program the whole internal application region verbatim, in chunks,
+     * reporting progress. It is an exact copy of what executes, so restoring
+     * it later reproduces the running firmware bit-for-bit. */
+    for (uint32_t done = 0; done < size; )
+    {
+        uint32_t n = (size - done < MB_EXT_SECTOR) ? (size - done) : MB_EXT_SECTOR;
+        if (!mb_ext_program(base + MB_SLOT_IMG_OFFSET + done, img + done, n))
+            return MB_ERR_SPI;
+        done += n;
+        if (progress)
+            progress(done, size);
+    }
+
+    /* Validate the stored image before committing its header. Until that final
+     * header write the slot remains invalid, so a failed CRC or interrupted
+     * backup is guaranteed to retry at the next boot. */
+    const uint32_t image_crc = mb_int_image_crc32(size);
+    uint32_t ext_crc = mb_ext_image_crc32(base + MB_SLOT_IMG_OFFSET, size);
+    if (mb_spi_err)                return MB_ERR_SPI;
+    if (ext_crc != image_crc)      return MB_ERR_CRC;
+
+    /* Write the COMMITTED header only after the external image verified. */
+    mb_slot_header_t hdr;
+    memset(&hdr, 0, sizeof(hdr));
+    hdr.magic       = MB_SLOT_MAGIC;
+    hdr.hdr_version = MB_HDR_VERSION;
+    hdr.flags       = MB_FLAG_COMMITTED;
+    hdr.image_size  = size;
+    hdr.image_crc32 = image_crc;
+    mb_copy_str(hdr.name, MB_NAME_LEN, EDITION_STRING);
+    mb_copy_str(hdr.fw_version, MB_VERSION_LEN, VERSION_STRING_2);
+
+    if (!mb_ext_program(base, (const uint8_t *)&hdr, sizeof(hdr)))
         return MB_ERR_SPI;
 
     return MB_OK;

@@ -47,6 +47,30 @@ static uint8_t SectorCache[SECTOR_SIZE];
 static uint8_t BlackHole[4] __attribute__((aligned(4)));
 static volatile bool TC_Flag;
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+/* Active settings-profile base (see py25q16.h). 0 = profile 0 / historical
+ * config region, i.e. an identity mapping. */
+static uint32_t ProfileBase = 0;
+
+void PY25Q16_SetProfileBase(uint32_t Base)
+{
+    ProfileBase = Base;
+}
+
+/* Redirect config-region accesses (addr < boundary) into the active bank.
+ * Calibration/logo/slots/marker (addr >= boundary) are returned unchanged.
+ * ProfileBase is sector-aligned, so alignment done by callers is preserved. */
+static inline uint32_t ProfileMap(uint32_t Address)
+{
+    return (Address < PY25Q16_PROFILE_SHARED_FROM) ? (Address + ProfileBase) : Address;
+}
+#else
+static inline uint32_t ProfileMap(uint32_t Address)
+{
+    return Address;
+}
+#endif
+
 static inline void CS_Assert()
 {
     GPIO_ResetOutputPin(CS_PIN);
@@ -222,6 +246,7 @@ static void WriteEnable();
 static void SectorErase(uint32_t Addr);
 static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
 static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
+static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size);
 
 void PY25Q16_Init()
 {
@@ -229,7 +254,7 @@ void PY25Q16_Init()
     SPI_Init();
 }
 
-void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
+static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size)
 {
     MBMARK("RD cmd");          // about to assert CS + send read command
     CS_Assert();
@@ -259,6 +284,11 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
     CS_Release();
 }
 
+void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
+{
+    ReadBufferRaw(ProfileMap(Address), pBuffer, Size);
+}
+
 // Like PY25Q16_ReadBuffer, but waits for the flash to be idle first (WIP=0),
 // exactly as PY25Q16_WriteBuffer does before its internal reads. A standalone
 // read issued while the chip is still busy from a prior program/erase never
@@ -273,6 +303,8 @@ void PY25Q16_ReadBufferSafe(uint32_t Address, void *pBuffer, uint32_t Size)
 
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, bool Append)
 {
+    Address = ProfileMap(Address);   /* map once; internal reads use *Raw below */
+
 #ifdef DEBUG
     printf("spi flash write: %06x %ld %d\n", Address, Size, Append);
 #endif
@@ -298,7 +330,9 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
 
         if (SecAddr != SectorCacheAddr)
         {
-            PY25Q16_ReadBuffer(SecAddr, SectorCache, SECTOR_SIZE);
+            /* SecAddr is already in mapped space (Address was mapped above), so
+             * read raw to avoid mapping a second time. */
+            ReadBufferRaw(SecAddr, SectorCache, SECTOR_SIZE);
             SectorCacheAddr = SecAddr;
         }
 
@@ -358,12 +392,20 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
 
 void PY25Q16_SectorErase(uint32_t Address)
 {
+    Address = ProfileMap(Address);
     Address -= (Address % SECTOR_SIZE);
     SectorErase(Address);
     if (SectorCacheAddr == Address)
     {
         memset(SectorCache, 0xff, SECTOR_SIZE);
     }
+}
+
+void PY25Q16_InvalidateCache(void)
+{
+    /* Same "no sector cached" sentinel as the initial value: the next write
+     * re-reads its sector from flash instead of trusting SectorCache. */
+    SectorCacheAddr = 0x1000000;
 }
 
 static inline void WriteAddr(uint32_t Addr)

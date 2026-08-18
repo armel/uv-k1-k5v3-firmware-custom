@@ -75,6 +75,13 @@ static void mb_status_bar(void)
 {
     UI_StatusClear();
     GUI_DisplaySmallestInverse("F4HWN MULTIBOOT", 34, 0, true, true, 94);
+
+    /* Thin line dressing up the otherwise blank row between the status bar and
+     * the first content row. Drawn on gFrameBuffer[0] (line 0), which every
+     * multiboot screen leaves blank, so it shows on all of them. Bit 3 (~mid of
+     * the row) stays clear of the selected-slot capsule's top edge (bit 7). */
+    for (uint8_t x = 2u; x < LCD_WIDTH - 2u; x++)
+        gFrameBuffer[0][x] |= 0x08u;
 }
 
 /* Bottom key-hint line: each key name as an inverse 3x5 capsule label, its
@@ -175,7 +182,9 @@ static void mb_render_slots(uint8_t selected,
 
         memset(line, 0, sizeof(line));
         memset(version, 0, sizeof(version));
-        line[0] = (char)('0' + slot);
+        /* Slot 0 is the auto-backed-up main firmware: label it 'M' (Main) so it
+         * reads apart from the numbered user slots 1..4. */
+        line[0] = (slot == 0u) ? 'M' : (char)('0' + slot);
         line[1] = ' ';
         line[2] = ' ';
 
@@ -220,16 +229,17 @@ static void mb_render_slots(uint8_t selected,
     ST7565_BlitFullScreen();
 }
 
-static void mb_prepare_progress(uint8_t slot)
+/* Both restore and initial Main backup use the exact same progress frame.
+ * Keep it out-of-line: each caller has different text, but duplicating the
+ * framebuffer setup and the two LCD blits only wastes MCU flash. */
+__attribute__((noinline)) static void mb_prepare_progress_screen(const char *title,
+                                                                  const char *detail)
 {
-    char title[] = "Restore slot 0";
-    title[13] = (char)('0' + slot);
-
     UI_DisplayClear();
     mb_status_bar();
     UI_PrintStringSmallNormal(title, 2, 126, 1);
     UI_PrintStringSmallNormal("DO NOT POWER OFF", 2, 126, 3);
-    UI_PrintStringSmallNormal("Writing & Verify", 2, 126, 5);
+    UI_PrintStringSmallNormal(detail, 2, 126, 5);
 
     /* Same rounded outline and hatch pattern as the scan progress gauge. */
     gFrameBuffer[6][3] = 0x0Cu;
@@ -242,10 +252,48 @@ static void mb_prepare_progress(uint8_t slot)
     ST7565_BlitFullScreen();
 }
 
+static void mb_prepare_progress(uint8_t slot)
+{
+    char slot_title[] = "Restore slot 0";
+    slot_title[13] = (char)('0' + slot);
+    const char *title = (slot == 0u) ? "Restore Main" : slot_title;
+
+    mb_prepare_progress_screen(title, "Writing & Verify");
+}
+
+/* Discreet "Main backup" screen shown once, at the first boot after a normal
+ * Flash-Firmware install, while the running firmware is copied into slot 0. */
+static void mb_backup_prepare(void)
+{
+    mb_prepare_progress_screen("Saving Main", "Slot Main");
+}
+
+static void mb_backup_progress(uint32_t done, uint32_t total)
+{
+    uint32_t cols = total ? (done * 118u / total) : 118u;
+    if (cols > 118u)
+        cols = 118u;
+    for (uint32_t i = 0; i < cols; i++)
+        gFrameBuffer[6][5u + i] = 0x2Du;
+    ST7565_BlitFullScreen();
+}
+
+/* With no trustworthy profile, continuing would let normal boot-time settings
+ * writes modify an arbitrary bank. Keep the radio in a read-only error state;
+ * a power cycle can recover from a transient SPI fault. */
+__attribute__((noreturn)) static void mb_profile_error_halt(void)
+{
+    BACKLIGHT_TurnOn();
+    mb_show_message("PROFILE ERROR", "Flash state unknown", "Restart radio");
+    for (;;)
+        SYSTEM_DelayMs(100);
+}
+
 static void mb_confirm_screen(uint8_t slot)
 {
-    char title[] = "Restore slot 0?";
-    title[13] = (char)('0' + slot);
+    char slot_title[] = "Restore slot 0?";
+    slot_title[13] = (char)('0' + slot);
+    const char *title = (slot == 0u) ? "Restore Main?" : slot_title;
 
     UI_DisplayClear();
     mb_status_bar();
@@ -268,12 +316,19 @@ void UI_MultibootSelector(void)
     mb_wait_release();
     mb_scan_slots(headers, status);
 
-    for (uint8_t slot = 0; slot < MB_SLOT_COUNT; slot++)
+    /* Pre-select the firmware currently running (its slot, from the marker), so
+     * the cursor lands on "where you are". If that slot isn't restorable (erased,
+     * bad CRC...), fall back to the first valid slot. */
+    selected = MB_GetActiveProfile();
+    if (selected >= MB_SLOT_COUNT || status[selected] != MB_OK)
     {
-        if (status[slot] == MB_OK)
+        for (uint8_t slot = 0; slot < MB_SLOT_COUNT; slot++)
         {
-            selected = slot;
-            break;
+            if (status[slot] == MB_OK)
+            {
+                selected = slot;
+                break;
+            }
         }
     }
 
@@ -316,6 +371,17 @@ void UI_MultibootSelector(void)
         if (key != KEY_MENU)
             continue;
 
+        /* Bind this slot to its own settings profile BEFORE reflashing. The
+         * write is verified (read-back); if it can't be confirmed we must NOT
+         * reflash - otherwise the next boot could resolve to the wrong profile
+         * (e.g. when two slots hold the same firmware image). */
+        if (MB_SetActiveProfile(selected) != MB_OK)
+        {
+            mb_show_message("PROFILE ERROR", "Marker not saved", "Press any key");
+            (void)mb_get_key();
+            continue;
+        }
+
         mb_prepare_progress(selected);
         uint8_t err = MB_RestoreSlot(selected, gFrameBuffer[6]);
 
@@ -325,4 +391,77 @@ void UI_MultibootSelector(void)
         (void)mb_get_key();
         mb_scan_slots(headers, status);
     }
+}
+
+/* Adopt the running internal firmware as Main: back it up into slot 0 and point
+ * the marker at profile 0. Reached when the firmware was installed outside
+ * multiboot (fresh radio, or a plain Flash-Firmware). */
+static uint8_t mb_adopt_internal_as_main(void)
+{
+    BACKLIGHT_TurnOn();
+    mb_backup_prepare();
+    if (MB_BackupInternalToSlot0(mb_backup_progress) == MB_OK)
+        (void)MB_SetActiveProfile(MB_SLOT_BACKUP);
+    return MB_SLOT_BACKUP;
+}
+
+uint8_t MB_BootResolveProfile(void)
+{
+    mb_profile_state_t mark;
+    mb_mark_status_t ms = MB_MARK_IO;
+
+    for (uint8_t retry = 0; retry < 3u && ms == MB_MARK_IO; retry++)
+    {
+        ms = MB_ReadActiveProfile(&mark);
+        if (ms == MB_MARK_IO)
+            SYSTEM_DelayMs(10);
+    }
+
+    /* A reliably-read marker is authoritative: it carries the expected internal
+     * identity, so we don't even need the slot header. */
+    if (ms == MB_MARK_VALID)
+    {
+        if (MB_InternalMatchesProfile(&mark))
+            return mark.index;                  /* running the slot the marker names */
+
+        /* Marker read fine but internal no longer carries its identity -> the
+         * firmware was replaced outside multiboot (a plain Flash-Firmware). Adopt
+         * it as Main. Deliberately NOT a content scan here: a build that merely
+         * duplicates a user slot (or a marker that already points at such a slot)
+         * must still refresh Main. */
+        return mb_adopt_internal_as_main();
+    }
+
+    /* Marker unreliable (MISSING / LEGACY / CORRUPT / IO): identify the running
+     * firmware by content, and never destroy Main on uncertainty - internal is
+     * adopted only when it matches no slot AND every read was clean, so a
+     * transient SPI error or a half-written marker can never destroy Main. */
+    bool had_io = false;
+    for (uint8_t slot = 0; slot < MB_SLOT_COUNT; slot++)
+    {
+        mb_fw_match_t m = MB_FW_IO;
+        for (uint8_t retry = 0; retry < 3u && m == MB_FW_IO; retry++)
+            m = MB_InternalMatchesSlot(slot);
+        if (m == MB_FW_MATCH)
+        {
+            (void)MB_SetActiveProfile(slot);    /* record/repair the marker */
+            return slot;
+        }
+        if (m == MB_FW_IO)
+            had_io = true;
+    }
+
+    if (had_io || ms == MB_MARK_IO || ms == MB_MARK_CORRUPT)
+    {
+        /* Halt to protect an existing Main while the flash state is uncertain;
+         * but if slot 0 holds no valid backup there is nothing to protect, so
+         * fall through and adopt instead of bricking a first boot. */
+        uint8_t main_status = MB_SlotInfo(MB_SLOT_BACKUP, NULL);
+        bool main_exists = (main_status != MB_ERR_MAGIC &&
+                            main_status != MB_ERR_NOT_COMMITTED);
+        if (main_exists)
+            mb_profile_error_halt();
+    }
+
+    return mb_adopt_internal_as_main();
 }
