@@ -197,7 +197,8 @@ typedef union
 #ifdef ENABLE_USB
 static void SendReply_VCP(void *pReply, uint16_t Size)
 {
-    static uint8_t VCP_ReplyBuf[MAX_REPLY_SIZE + sizeof(Header_t) + sizeof(Footer_t)];
+    static uint8_t VCP_ReplyBuf[MAX_REPLY_SIZE + sizeof(Header_t) + sizeof(Footer_t)]
+        __attribute__((aligned(4)));
 
     // !!
     if (Size > MAX_REPLY_SIZE)
