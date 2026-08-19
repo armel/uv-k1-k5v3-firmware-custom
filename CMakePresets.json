@@ -4,6 +4,16 @@
         {
             "name": "default",
             "hidden": true,
+            "vendor": {
+                "github.com/armel/uv-k1-k5v3-firmware-custom/support-policy/1.0": {
+                    "notice": [
+                        "SUPPORT POLICY",
+                        "Most options outside ENABLE_FEAT_F4HWN_* that are intentionally set to false in this preset are unsupported unless documented otherwise.",
+                        "Enabling them is at your own risk and may cause bugs, side effects, or instability.",
+                        "Do not expect troubleshooting assistance for such configurations."
+                    ]
+                }
+            },
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "toolchainFile": "${sourceDir}/cmake/gcc-arm-none-eabi.cmake",
