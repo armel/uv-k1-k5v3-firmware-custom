@@ -86,7 +86,10 @@ enum {
 
 /* Multi-slot API used by the boot selector. Validation always covers the full
  * image CRC before restore. progress_line may point to a 128-byte LCD page; the
- * RAM copier then fills it while reflashing. Pass NULL to disable LCD updates. */
+ * RAM copier then fills it while reflashing. Pass NULL to disable LCD updates.
+ * The in-copier LCD progress code is compiled out when
+ * ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM is defined (to reclaim RAM-resident
+ * .RamFunc space); in that case progress_line is ignored. */
 uint8_t MB_ValidateSlot(uint8_t slot, mb_slot_header_t *out_header, uint32_t *out_crc);
 uint8_t MB_RestoreSlot(uint8_t slot, uint8_t *progress_line);
 

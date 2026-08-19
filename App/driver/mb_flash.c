@@ -31,6 +31,7 @@
 /* External SPI flash chip-select is on PA3 (see driver/py25q16.c). */
 #define MB_CS_PIN       (1u << 3)
 
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
 /* LCD control pins used only for RAM-resident progress updates. */
 #define MB_LCD_CS_PIN   (1u << 2)  /* PB2 */
 #define MB_LCD_A0_PIN   (1u << 6)  /* PA6 */
@@ -39,6 +40,7 @@
 #define MB_PROGRESS_COLS        118u
 #define MB_PROGRESS_FIRST_COL     5u
 #define MB_PROGRESS_FILLED      0x2Du
+#endif
 
 /* Number of erase/program retries per page before giving up (and resetting
  * anyway - the region is already erased, so USB recovery is the only option). */
@@ -148,6 +150,7 @@ MB_RAM_HELPER __attribute__((noreturn)) static void mb_ram_reset(void)
     for (;;) { }
 }
 
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
 /* Minimal SPI1 LCD writer. A display timeout merely disables progress updates:
  * it must never abort or delay the safety-critical flash copy. */
 MB_RAM_HELPER static bool mb_ram_lcd_spi(uint8_t v)
@@ -217,6 +220,7 @@ __attribute__((always_inline)) static inline void mb_ram_lcd_clear(void)
         GPIOB->BSRR = MB_LCD_CS_PIN;
     }
 }
+#endif /* !ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM */
 
 __attribute__((section(".RamFunc"), noinline, used))
 static void MB_RamReflash(uint32_t intAddr, uint32_t extAddr, uint32_t imageSize,
@@ -227,10 +231,14 @@ static void MB_RamReflash(uint32_t intAddr, uint32_t extAddr, uint32_t imageSize
     uint8_t buf[MB_FLASH_PAGE] __attribute__((aligned(4)));
     uint32_t remaining = imageSize;
     uint32_t regionRemaining = MB_INT_APP_SIZE;
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
     uint32_t pagesDone = 0;
     uint32_t progressAccumulator = 0;
     uint32_t progressFilled = 0;
     uint32_t lcdEnabled = progressLine != NULL;
+#else
+    (void)progressLine;
+#endif
 
 
     __disable_irq();
@@ -341,6 +349,7 @@ static void MB_RamReflash(uint32_t intAddr, uint32_t extAddr, uint32_t imageSize
         if (!success)
             goto fatal_reset;
 
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
         /* Advance the gauge without division (which could call a helper
          * in erased flash). Refresh once per 8 KiB internal sector. */
         if (lcdEnabled)
@@ -359,6 +368,7 @@ static void MB_RamReflash(uint32_t intAddr, uint32_t extAddr, uint32_t imageSize
             if ((pagesDone & 31u) == 0u || regionRemaining == MB_FLASH_PAGE)
                 lcdEnabled = mb_ram_progress_blit(progressLine);
         }
+#endif
 
         intAddr += MB_FLASH_PAGE;
         extAddr += readSize;
@@ -367,8 +377,10 @@ static void MB_RamReflash(uint32_t intAddr, uint32_t extAddr, uint32_t imageSize
     }
 
     FLASH->CR |= FLASH_CR_LOCK;
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
     if (lcdEnabled)
         mb_ram_lcd_clear();
+#endif
     mb_ram_reset();
 
 fatal_reset:
