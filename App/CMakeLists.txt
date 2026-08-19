@@ -95,8 +95,7 @@ if(ENABLE_AIRCOPY OR ENABLE_UART OR ENABLE_USB)
 endif()
 
 enable_feature(ENABLE_UART
-    driver/uart.c 
-    app/uart.c
+    driver/uart.c
     # driver/aes.c
 )
 
@@ -176,6 +175,14 @@ enable_feature(ENABLE_SCAN_RANGES)
 enable_feature(ENABLE_EXTRA_UART_CMD)
 
 # ---- F4HWN MODS ----
+
+if(NOT ENABLE_UART AND NOT ENABLE_USB)
+    if(ENABLE_FEAT_F4HWN_K5VIEWER OR ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER)
+        message(STATUS "Disabling K5Viewer because both ENABLE_UART and ENABLE_USB are OFF.")
+    endif()
+    set(ENABLE_FEAT_F4HWN_K5VIEWER OFF)
+    set(ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER OFF)
+endif()
 
 enable_feature(ENABLE_FEAT_F4HWN)
 enable_feature(ENABLE_FEAT_F4HWN_GAME 

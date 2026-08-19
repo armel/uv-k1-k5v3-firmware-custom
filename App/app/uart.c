@@ -260,6 +260,7 @@ static void SendReply(uint32_t Port, void *pReply, uint16_t Size)
     }
 #endif
 
+#if defined(ENABLE_UART)
     Header_t Header;
     Footer_t Footer;
 
@@ -290,6 +291,7 @@ static void SendReply(uint32_t Port, void *pReply, uint16_t Size)
     Footer.ID = 0xBADC;
 
     UART_Send(&Footer, sizeof(Footer));
+#endif
 }
 
 static void SendVersion(uint32_t Port)
