@@ -262,7 +262,12 @@ __attribute__((noinline)) static void mb_prepare_progress_screen(const char *tit
     UI_PrintStringSmallNormal(title, 2, 126, 1);
     UI_PrintStringSmallNormal("DO NOT POWER OFF", 2, 126, 3);
     UI_PrintStringSmallNormal(detail, 2, 126, 5);
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
+    /* Empty gauge that the RAM copier fills as it reflashes. Without the
+     * in-copier progress code the bar would never move, so it is left out and
+     * the static "DO NOT POWER OFF" screen stands on its own. */
     mb_draw_progress_outline();
+#endif
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 }
@@ -273,7 +278,7 @@ static void mb_prepare_progress(uint8_t slot)
     slot_title[13] = (char)('0' + slot);
     const char *title = (slot == 0u) ? "Restore Main" : slot_title;
 
-    mb_prepare_progress_screen(title, "Writing & Verify");
+    mb_prepare_progress_screen(title, "Writing / Verify");
 }
 
 /* Discreet "Main backup" screen shown once, at the first boot after a normal
@@ -404,7 +409,11 @@ void UI_MultibootSelector(void)
         }
 
         mb_prepare_progress(selected);
+#ifndef ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM
         uint8_t err = MB_RestoreSlot(selected, gFrameBuffer[6]);
+#else
+        uint8_t err = MB_RestoreSlot(selected, NULL);
+#endif
 
         /* Only reached when the final pre-erase validation refused the slot. */
         status[selected] = err;

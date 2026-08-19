@@ -21,6 +21,7 @@
                 "CMAKE_BUILD_TYPE": "Release",
                 "DEV": false,
                 "ENABLE_LTO": false,
+                "ENABLE_NO_HEAP": false,
                 "ENABLE_FMRADIO": false,
                 "ENABLE_UART": true,
                 "ENABLE_USB": true,
@@ -92,6 +93,7 @@
                 "ENABLE_FEAT_F4HWN_LOGO_SAV": false,
                 "ENABLE_FEAT_F4HWN_MENU_CAT": false,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": false,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM": false,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,
@@ -113,6 +115,7 @@
             "name": "Fusion",
             "inherits": "default",
             "cacheVariables": {
+                "ENABLE_NO_HEAP": true,
                 "ENABLE_SPECTRUM": true,
                 "ENABLE_FMRADIO": true,
                 "ENABLE_VOX": true,
@@ -141,6 +144,7 @@
                 "ENABLE_FEAT_F4HWN_MENU_CAT": true,
                 "ENABLE_FEAT_F4HWN_ACTION_PICKER": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM": false,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
