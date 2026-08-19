@@ -28,7 +28,8 @@ void PY25Q16_SectorErase(uint32_t Address);
 
 /* Drop the internal single-sector write cache. Call after erasing/programming
  * flash behind the driver's back (e.g. the raw multiboot slot/profile ops) so a
- * later write cannot skip or resurrect data based on a stale cached sector. */
+ * later write cannot skip or resurrect data based on a stale cached sector. It
+ * is also called before multiboot reuses the cache storage as a RAM overlay. */
 void PY25Q16_InvalidateCache(void);
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT

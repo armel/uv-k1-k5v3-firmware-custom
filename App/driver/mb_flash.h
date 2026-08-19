@@ -71,7 +71,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  reserved[16];            /* pad to 64 bytes, future use      */
 } mb_slot_header_t;
 
-/* Restore validation result (MB_OK never returns - the radio resets). */
+/* Multiboot operation result (a successful restore resets before returning). */
 enum {
     MB_OK = 0,
     MB_ERR_MAGIC,        /* no/invalid slot header            */
@@ -81,15 +81,15 @@ enum {
     MB_ERR_CRC,          /* image CRC32 mismatch              */
     MB_ERR_SPI,          /* external flash read/write timed out*/
     MB_ERR_SLOT,         /* slot index out of range           */
-    MB_ERR_AUTH          /* write refused: timestamp mismatch */
+    MB_ERR_AUTH,         /* write refused: timestamp mismatch */
+    MB_ERR_RAM_LOAD      /* restore stub RAM copy mismatch    */
 };
 
 /* Multi-slot API used by the boot selector. Validation always covers the full
  * image CRC before restore. progress_line may point to a 128-byte LCD page; the
  * RAM copier then fills it while reflashing. Pass NULL to disable LCD updates.
- * The in-copier LCD progress code is compiled out when
- * ENABLE_FEAT_F4HWN_MULTIBOOT_LOW_RAM is defined (to reclaim RAM-resident
- * .RamFunc space); in that case progress_line is ignored. */
+ * With ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY, the copier is loaded over the
+ * PY25Q16 sector cache only after validation and immediately before this call. */
 uint8_t MB_ValidateSlot(uint8_t slot, mb_slot_header_t *out_header, uint32_t *out_crc);
 uint8_t MB_RestoreSlot(uint8_t slot, uint8_t *progress_line);
 

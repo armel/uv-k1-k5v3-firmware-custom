@@ -122,6 +122,25 @@ endif()
 #  Post build processing
 #
 
+# The restore stub executes while application flash is unavailable. Reject an
+# overlay build if the linked stub branches outside its RAM section or if its
+# input section refers to any external code/data. This is deliberately a hard
+# build gate: either condition could make a restore unrecoverable without DFU.
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                "-DOBJDUMP=${CMAKE_OBJDUMP}"
+                "-DELF=$<TARGET_FILE:${EXE_NAME}>"
+                "-DMAP=${CMAKE_CURRENT_BINARY_DIR}/${EXE_NAME}.map"
+                "-DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/check_mb_ramfunc.cmake"
+        COMMENT "Checking multiboot RAM stub isolation"
+        VERBATIM
+    )
+endif()
+
 # Generate .bin file
 add_custom_command(
     TARGET ${EXE_NAME}

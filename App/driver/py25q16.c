@@ -43,7 +43,15 @@
 #define PAGE_SIZE 0x100
 
 static uint32_t SectorCacheAddr = 0x1000000;
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY
+/* The restore-only RAM stub is copied over this cache immediately before it
+ * erases internal flash. A reset always follows, so the cache is never needed
+ * again after the overlay becomes active. */
+static uint8_t SectorCache[SECTOR_SIZE]
+    __attribute__((section(".bss.mb_workspace"), aligned(4), used));
+#else
 static uint8_t SectorCache[SECTOR_SIZE];
+#endif
 static uint8_t BlackHole[4] __attribute__((aligned(4)));
 static volatile bool TC_Flag;
 
