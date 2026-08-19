@@ -13,6 +13,19 @@
 #include "ui/helper.h"
 #include "ui/multiboot.h"
 
+static uint8_t gRunningSlot = MB_SLOT_BACKUP;
+
+static uint8_t mb_remember_running_slot(uint8_t slot)
+{
+    gRunningSlot = slot;
+    return slot;
+}
+
+uint8_t MB_GetRunningSlot(void)
+{
+    return gRunningSlot;
+}
+
 static const char *mb_error_text(uint8_t err)
 {
     switch (err)
@@ -430,14 +443,14 @@ uint8_t MB_BootResolveProfile(void)
     if (ms == MB_MARK_VALID)
     {
         if (MB_InternalMatchesProfile(&mark))
-            return mark.index;                  /* running the slot the marker names */
+            return mb_remember_running_slot(mark.index); /* slot named by the marker */
 
         /* Marker read fine but internal no longer carries its identity -> the
          * firmware was replaced outside multiboot (a plain Flash-Firmware). Adopt
          * it as Main. Deliberately NOT a content scan here: a build that merely
          * duplicates a user slot (or a marker that already points at such a slot)
          * must still refresh Main. */
-        return mb_adopt_internal_as_main();
+        return mb_remember_running_slot(mb_adopt_internal_as_main());
     }
 
     /* Marker unreliable (MISSING / LEGACY / CORRUPT / IO): identify the running
@@ -453,7 +466,7 @@ uint8_t MB_BootResolveProfile(void)
         if (m == MB_FW_MATCH)
         {
             (void)MB_SetActiveProfile(slot);    /* record/repair the marker */
-            return slot;
+            return mb_remember_running_slot(slot);
         }
         if (m == MB_FW_IO)
             had_io = true;
@@ -471,5 +484,5 @@ uint8_t MB_BootResolveProfile(void)
             mb_profile_error_halt();
     }
 
-    return mb_adopt_internal_as_main();
+    return mb_remember_running_slot(mb_adopt_internal_as_main());
 }

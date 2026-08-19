@@ -42,6 +42,9 @@
 #include "menu.h"
 #include "ui.h"
 #include "welcome.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "multiboot.h"
+#endif
 
 
 const t_menu_item MenuList[] =
@@ -836,6 +839,35 @@ static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t lin
     UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
 }
 
+/* Single-line variant for tight gaps: unlike UI_PrintStringSmallNormalInverse,
+ * the rounded edge stays entirely inside `line` and never touches line - 1. */
+static void UI_MENU_DrawInlineRoundedBadge(const char *text, const uint8_t line,
+                                           const uint8_t area_x1, const uint8_t area_x2)
+{
+    const size_t length = strlen(text);
+    const size_t char_pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
+    const size_t text_width = length * char_pitch;
+    const size_t capsule_width = text_width + 3u;
+
+    if (length == 0 || line >= FRAME_LINES || area_x2 <= area_x1) {
+        return;
+    }
+
+    const size_t area_width = area_x2 - area_x1 + 1u;
+    if (capsule_width >= area_width)
+        return;
+
+    const uint8_t capsule_left = (uint8_t)(area_x1 + ((area_width - capsule_width) / 2u));
+    const uint8_t text_x = (uint8_t)(capsule_left + 1u);
+    const uint8_t x_end = (uint8_t)(text_x + text_width + 1u);
+
+    UI_PrintStringSmallNormal(text, text_x, 0, line);
+    gFrameBuffer[line][text_x - 1u] ^= 0x7Eu;
+    for (uint8_t x = text_x; x < x_end; x++)
+        gFrameBuffer[line][x] ^= 0xFFu;
+    gFrameBuffer[line][x_end] ^= 0x7Eu;
+}
+
 void UI_DisplayMenu(void)
 {
     const unsigned int menu_list_width = 6; // max no. of characters on the menu list (left side)
@@ -1421,6 +1453,14 @@ void UI_DisplayMenu(void)
 #ifdef ENABLE_FEAT_F4HWN
                 sprintf(String, "%s\n%s", AUTHOR_STRING_2, DISPLAY_VERSION_STRING_2);
                 UI_PrintStringSmallNormal(Edition, menu_item_x1 - 1, menu_item_x2, 6);
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+                const uint8_t running_slot = MB_GetRunningSlot();
+                char slot_badge[2];
+
+                slot_badge[0] = (running_slot == 0u) ? 'M' : (char)('0' + running_slot);
+                slot_badge[1] = '\0';
+                UI_MENU_DrawInlineRoundedBadge(slot_badge, 5, menu_item_x1, menu_item_x2);
+#endif
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,

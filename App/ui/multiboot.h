@@ -17,4 +17,8 @@ void UI_MultibootSelector(void);
  * the profile index (0..MB_SLOT_COUNT-1) to feed PY25Q16_SetProfileBase(). */
 uint8_t MB_BootResolveProfile(void);
 
+/* Slot selected by MB_BootResolveProfile for the current session. This is kept
+ * in RAM so UI callers do not have to reread the external-flash marker. */
+uint8_t MB_GetRunningSlot(void);
+
 #endif
