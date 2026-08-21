@@ -86,11 +86,11 @@ void Main(void)
     BOARD_Init();
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
-    /* Resolve the active settings profile BEFORE any EEPROM/settings access
+    /* Resolve the active settings bank BEFORE any EEPROM/settings access
      * below. This also adopts a normally-flashed firmware as slot 0 (discreet
      * self-backup) when the running image isn't the slot the marker points to.
-     * Calibration stays shared regardless of the selected profile. */
-    PY25Q16_SetProfileBase(MB_ProfileBase(MB_BootResolveProfile()));
+     * Calibration stays shared regardless of the selected bank. */
+    PY25Q16_SetBankBase(MB_BankBase(MB_BootResolveState()));
 #endif
 
     boot_counter_10ms = 250;   // 2.5 sec

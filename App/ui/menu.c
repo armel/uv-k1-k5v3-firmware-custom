@@ -43,6 +43,7 @@
 #include "ui.h"
 #include "welcome.h"
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
     #include "multiboot.h"
 #endif
 
@@ -176,6 +177,9 @@ const t_menu_item MenuList[] =
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
     {"SetSav",      MENU_SET_SAV       },
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    {"SetCfg",      MENU_SET_CFG       }, // load another settings bank (reboots)
 #endif
 #endif
     // hidden menu items from here on
@@ -601,6 +605,9 @@ static const uint8_t CatChannels[] = {
 #endif
     MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK, MENU_PTT_ID, MENU_LIST_CH,
     MENU_MEM_CH, MENU_DEL_CH, MENU_MEM_NAME,
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    MENU_SET_CFG,
+#endif
 };
 static const uint8_t CatScan[]    = {
     MENU_S_LIST, MENU_S_PRI, MENU_S_PRI_CH_1, MENU_S_PRI_CH_2, MENU_SC_REV,
@@ -839,34 +846,27 @@ static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t lin
     UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
 }
 
-/* Single-line variant for tight gaps: unlike UI_PrintStringSmallNormalInverse,
- * the rounded edge stays entirely inside `line` and never touches line - 1. */
-static void UI_MENU_DrawInlineRoundedBadge(const char *text, const uint8_t line,
-                                           const uint8_t area_x1, const uint8_t area_x2)
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+/* Draw `text` (3x5 font) centred inside a fixed-width rounded inverse capsule:
+ * left edge `cap_left`, inclusive width `cap_w`, on framebuffer page `line`. Same
+ * capsule pattern as GUI_DisplaySmallestInverse (0x3E rounded ends, 0x7F body) but
+ * with the width decoupled from the text length, so two labels of different
+ * lengths (e.g. "SLOT 2" / "CFG 4") share one width and each stays centred. */
+static void UI_MENU_DrawFixedCapsule(const char *text, uint8_t cap_left,
+                                     uint8_t cap_w, uint8_t line)
 {
-    const size_t length = strlen(text);
-    const size_t char_pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
-    const size_t text_width = length * char_pitch;
-    const size_t capsule_width = text_width + 3u;
+    const uint8_t cap_right = (uint8_t)(cap_left + cap_w - 1u);
+    const uint8_t text_w    = (uint8_t)(strlen(text) * 4u - 1u); /* 3x5 glyphs: 4 px/char, last one 3 px wide */
+    const uint8_t tx        = (uint8_t)(cap_left + (cap_w - text_w) / 2u);
 
-    if (length == 0 || line >= FRAME_LINES || area_x2 <= area_x1) {
-        return;
-    }
+    GUI_DisplaySmallest(text, tx, (uint8_t)(line * 8u + 1u), false, true);
 
-    const size_t area_width = area_x2 - area_x1 + 1u;
-    if (capsule_width >= area_width)
-        return;
-
-    const uint8_t capsule_left = (uint8_t)(area_x1 + ((area_width - capsule_width) / 2u));
-    const uint8_t text_x = (uint8_t)(capsule_left + 1u);
-    const uint8_t x_end = (uint8_t)(text_x + text_width + 1u);
-
-    UI_PrintStringSmallNormal(text, text_x, 0, line);
-    gFrameBuffer[line][text_x - 1u] ^= 0x7Eu;
-    for (uint8_t x = text_x; x < x_end; x++)
-        gFrameBuffer[line][x] ^= 0xFFu;
-    gFrameBuffer[line][x_end] ^= 0x7Eu;
+    gFrameBuffer[line][cap_left] ^= 0x3Eu;
+    for (uint8_t x = (uint8_t)(cap_left + 1u); x < cap_right; x++)
+        gFrameBuffer[line][x] ^= 0x7Fu;
+    gFrameBuffer[line][cap_right] ^= 0x3Eu;
 }
+#endif
 
 void UI_DisplayMenu(void)
 {
@@ -1454,12 +1454,39 @@ void UI_DisplayMenu(void)
                 sprintf(String, "%s\n%s", AUTHOR_STRING_2, DISPLAY_VERSION_STRING_2);
                 UI_PrintStringSmallNormal(Edition, menu_item_x1 - 1, menu_item_x2, 6);
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
-                const uint8_t running_slot = MB_GetRunningSlot();
-                char slot_badge[2];
+                /* Two 3x5 inverse-capsule labels on one line (scan-list "label"
+                 * style): the running firmware slot (M = Main) and the active
+                 * config bank. They match unless SetCfg has pointed the bank at a
+                 * different bank (e.g. SLOT 2 / CFG 4). */
+                const uint8_t fw_slot = MB_GetRunningSlot();
+                const uint8_t bank    = MB_GetActiveBank();
+                char slot_lbl[8];
+                char cfg_lbl[8];
 
-                slot_badge[0] = (running_slot == 0u) ? 'M' : (char)('0' + running_slot);
-                slot_badge[1] = '\0';
-                UI_MENU_DrawInlineRoundedBadge(slot_badge, 5, menu_item_x1, menu_item_x2);
+                /* Only the last glyph varies (M / digit / ?), so poke it in place
+                 * instead of pulling sprintf for a single character. */
+                strcpy(slot_lbl, "SLOT ?");
+                if (fw_slot == 0u)
+                    slot_lbl[5] = 'M';
+                else if (fw_slot < MB_SLOT_COUNT)
+                    slot_lbl[5] = (char)('0' + fw_slot);
+                strcpy(cfg_lbl, "CFG M");            /* bank 0 = base config, like SLOT M */
+                if (bank != 0u)
+                    cfg_lbl[4] = (char)('0' + bank);
+
+                /* Both capsules share the wider label's width (6-char "SLOT x" ->
+                 * 4*6+3 = 27 px); the shorter CFG text is centred inside its own.
+                 * The two are drawn as one centred pair with a small gap, centred in
+                 * the space between the separator bar (x=48) and the right screen
+                 * edge, so they line up with the centred identity lines above. */
+                const uint8_t cap_w     = (uint8_t)(4u * 6u + 3u);                     /* 27 */
+                const uint8_t cap_gap   = 4u;
+                const uint8_t pair_w    = (uint8_t)(2u * cap_w + cap_gap);             /* 58 */
+                const uint8_t slot_left = (uint8_t)((48u + LCD_WIDTH - pair_w) / 2u);  /* 59 */
+                const uint8_t cfg_left  = (uint8_t)(slot_left + cap_w + cap_gap);      /* 90 */
+
+                UI_MENU_DrawFixedCapsule(slot_lbl, slot_left, cap_w, 5);
+                UI_MENU_DrawFixedCapsule(cfg_lbl,  cfg_left,  cap_w, 5);
 #endif
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
@@ -1581,6 +1608,14 @@ void UI_DisplayMenu(void)
         case MENU_SET_NAV:
             strcpy(String, gSubMenu_SET_NAV[gSubMenuSelection]);
             break;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        case MENU_SET_CFG:
+            strcpy(String, "CFG M");         /* bank 0 = base config, like SysInfo */
+            if (gSubMenuSelection != 0)
+                String[4] = (char)('0' + gSubMenuSelection);
+            break;
+#endif
 
         case MENU_F1SHRT:
         case MENU_F1LONG:
@@ -1837,6 +1872,9 @@ void UI_DisplayMenu(void)
     if ((m == MENU_RESET    ||
          m == MENU_MEM_CH   ||
          m == MENU_MEM_NAME ||
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+         m == MENU_SET_CFG  ||
+#endif
          m == MENU_DEL_CH) && gAskForConfirmation)
     {   // display confirmation
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";

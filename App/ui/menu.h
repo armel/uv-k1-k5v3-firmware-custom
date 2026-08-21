@@ -153,6 +153,9 @@ enum
         MENU_NOAA_S,
     #endif
     MENU_SET_NAV,
+    #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        MENU_SET_CFG,
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         MENU_SET_AUD,
     #endif

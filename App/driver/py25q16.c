@@ -56,24 +56,24 @@ static uint8_t BlackHole[4] __attribute__((aligned(4)));
 static volatile bool TC_Flag;
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
-/* Active settings-profile base (see py25q16.h). 0 = profile 0 / historical
+/* Active settings-bank base (see py25q16.h). 0 = bank 0 / historical
  * config region, i.e. an identity mapping. */
-static uint32_t ProfileBase = 0;
+static uint32_t BankBase = 0;
 
-void PY25Q16_SetProfileBase(uint32_t Base)
+void PY25Q16_SetBankBase(uint32_t Base)
 {
-    ProfileBase = Base;
+    BankBase = Base;
 }
 
 /* Redirect config-region accesses (addr < boundary) into the active bank.
  * Calibration/logo/slots/marker (addr >= boundary) are returned unchanged.
- * ProfileBase is sector-aligned, so alignment done by callers is preserved. */
-static inline uint32_t ProfileMap(uint32_t Address)
+ * BankBase is sector-aligned, so alignment done by callers is preserved. */
+static inline uint32_t BankMap(uint32_t Address)
 {
-    return (Address < PY25Q16_PROFILE_SHARED_FROM) ? (Address + ProfileBase) : Address;
+    return (Address < PY25Q16_BANK_SHARED_FROM) ? (Address + BankBase) : Address;
 }
 #else
-static inline uint32_t ProfileMap(uint32_t Address)
+static inline uint32_t BankMap(uint32_t Address)
 {
     return Address;
 }
@@ -294,7 +294,7 @@ static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size)
 
 void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
 {
-    ReadBufferRaw(ProfileMap(Address), pBuffer, Size);
+    ReadBufferRaw(BankMap(Address), pBuffer, Size);
 }
 
 // Like PY25Q16_ReadBuffer, but waits for the flash to be idle first (WIP=0),
@@ -311,7 +311,7 @@ void PY25Q16_ReadBufferSafe(uint32_t Address, void *pBuffer, uint32_t Size)
 
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, bool Append)
 {
-    Address = ProfileMap(Address);   /* map once; internal reads use *Raw below */
+    Address = BankMap(Address);   /* map once; internal reads use *Raw below */
 
 #ifdef DEBUG
     printf("spi flash write: %06x %ld %d\n", Address, Size, Append);
@@ -400,7 +400,7 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
 
 void PY25Q16_SectorErase(uint32_t Address)
 {
-    Address = ProfileMap(Address);
+    Address = BankMap(Address);
     Address -= (Address % SECTOR_SIZE);
     SectorErase(Address);
     if (SectorCacheAddr == Address)

@@ -985,24 +985,24 @@ void UART_HandleCommand(uint32_t Port)
             break;
         }
 
-        case 0x0728: // profile config reset: wipe the 64 KiB config bank of a slot
+        case 0x0728: // config reset: wipe the 64 KiB of a config bank (1..4)
         {
             gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
-            uint8_t  slot = pUART_Command->Data[0];
+            uint8_t  bank = pUART_Command->Data[0];
             uint32_t ts   = (uint32_t)pUART_Command->Data[2]
                           | ((uint32_t)pUART_Command->Data[3] << 8)
                           | ((uint32_t)pUART_Command->Data[4] << 16)
                           | ((uint32_t)pUART_Command->Data[5] << 24);
             uint8_t status = (ts != mb_port_timestamp(Port))
-                           ? MB_ERR_AUTH : MB_ProfileErase(slot);
+                           ? MB_ERR_AUTH : MB_BankErase(bank);
             struct __attribute__((packed)) {
                 Header_t Header;
-                uint8_t  Slot;
+                uint8_t  Bank;   // echoes the erased bank (same wire layout as slot replies)
                 uint8_t  Status;
             } Reply;
             Reply.Header.ID   = 0x0729;
             Reply.Header.Size = 2;
-            Reply.Slot        = slot;
+            Reply.Bank        = bank;
             Reply.Status      = status;
             SendReply(Port, &Reply, sizeof(Reply));
             break;

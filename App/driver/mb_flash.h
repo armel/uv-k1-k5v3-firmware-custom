@@ -1,4 +1,5 @@
-/* Copyright 2026 F4HWN
+/* Copyright 2026 Armel F4HWN
+ * https://github.com/armel
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,8 +26,6 @@
  * can never brick the radio. There is a single firmware for both the K1 and the
  * K5v3 (the keypad difference is handled at runtime by the hidden SetNav menu),
  * so no per-model guard is needed.
- *
- * See docs/multiboot-design.md for the overall design.
  */
 
 #ifndef DRIVER_MB_FLASH_H
@@ -42,7 +41,7 @@
 #define MB_INT_APP_BASE     0x08002800u
 #define MB_INT_APP_SIZE     0x0001D800u   /* 118 KiB */
 
-/* External SPI flash slot layout (see docs/multiboot-design.md).
+/* External SPI flash slot layout.
  * Each 128 KiB slot = one header sector (4 KiB) followed by the image.
  * Slot 0 is the firmware-managed BACKUP of the normally-flashed firmware
  * (written by MB_BackupInternalToSlot0, protected from host writes); slots
@@ -80,7 +79,7 @@ enum {
     MB_ERR_SIZE,         /* image_size out of range           */
     MB_ERR_CRC,          /* image CRC32 mismatch              */
     MB_ERR_SPI,          /* external flash read/write timed out*/
-    MB_ERR_SLOT,         /* slot index out of range           */
+    MB_ERR_SLOT,         /* slot or bank index out of range   */
     MB_ERR_AUTH,         /* write refused: timestamp mismatch */
     MB_ERR_RAM_LOAD      /* restore stub RAM copy mismatch    */
 };
@@ -112,95 +111,108 @@ uint8_t MB_SlotErase(uint8_t slot);
 uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
 
 /* -------------------------------------------------------------------------- */
-/* Per-profile settings banks.                                                */
+/* Config banks (one per slot by default, switchable via SetCfg).             */
 /*                                                                            */
-/* Each firmware slot gets its own copy of the user configuration (memory     */
-/* channels, names, VFOs, settings) so switching firmware no longer shares -  */
-/* or silently clobbers - settings between editions. The banking itself is a  */
-/* single address offset applied in the flash driver (see                     */
-/* PY25Q16_SetProfileBase); everything below PY25Q16_PROFILE_SHARED_FROM      */
-/* (0x010000, the calibration boundary) is per-profile, everything at/above   */
-/* stays shared. Slot N is bound to profile N. Profile 0 (slot 0 = base       */
-/* backup) reuses the historical config region at 0x000000 - no migration.    */
+/* Each firmware slot gets its own config bank by default (memory channels,   */
+/* names, VFOs, settings) so switching firmware does not implicitly share or  */
+/* clobber settings between editions. SetCfg deliberately lets the user pick  */
+/* another bank after confirmation; compatibility is then the user's concern. */
+/* The banking itself is a single address offset applied in the flash driver  */
+/* (PY25Q16_SetBankBase): everything below PY25Q16_BANK_SHARED_FROM           */
+/* (0x010000, the calibration boundary) is per-bank, at/above stays shared.   */
+/* Restoring slot N selects bank N initially, but slot and bank are tracked   */
+/* independently afterwards. Bank 0 reuses the historical config region at    */
+/* 0x000000 - no migration.                                                   */
 /*                                                                            */
 /* External SPI flash (PY25Q16, 2 MiB) map:                                   */
-/*   0x000000  profile 0 config  (channels/settings)  ] per-profile           */
+/*   0x000000  bank 0 config  (channels/settings)      ] per-bank             */
 /*   0x010000  calibration (512 B)                     ] shared               */
 /*   0x011000  boot logo (4 KiB)                       ] shared               */
-/*   0x020000  slot 0 firmware  (BACKUP, 128 KiB)      ] firmware-managed      */
-/*   0x040000  slot 1 firmware  (128 KiB)              ]                       */
-/*   0x060000  slot 2 firmware                         ] user (UV Studio)      */
-/*   0x080000  slot 3 firmware                         ]                       */
-/*   0x0A0000  slot 4 firmware                         ]                       */
-/*   0x0C0000  profile 1 config  (64 KiB)              ]                       */
-/*   0x0D0000  profile 2 config  (64 KiB)              ] per-profile           */
-/*   0x0E0000  profile 3 config  (64 KiB)              ]                       */
-/*   0x0F0000  profile 4 config  (64 KiB)              ]                       */
+/*   0x020000  slot 0 firmware  (BACKUP, 128 KiB)      ] firmware-managed     */
+/*   0x040000  slot 1 firmware  (128 KiB)              ]                      */
+/*   0x060000  slot 2 firmware                         ] user (UV Studio)     */
+/*   0x080000  slot 3 firmware                         ]                      */
+/*   0x0A0000  slot 4 firmware                         ]                      */
+/*   0x0C0000  bank 1 config  (64 KiB)                 ]                      */
+/*   0x0D0000  bank 2 config  (64 KiB)                 ] per-bank             */
+/*   0x0E0000  bank 3 config  (64 KiB)                 ]                      */
+/*   0x0F0000  bank 4 config  (64 KiB)                 ]                      */
 /*   0x100000  multiboot state A (4 KiB marker)        ] shared               */
 /*   0x101000  multiboot state B (4 KiB marker)        ] redundant            */
 /*   0x102000  -- free ~888 KiB --                                            */
-/*   0x1E0000  RX/TX log (32 KiB)                       ] shared               */
+/*   0x1E0000  RX/TX log (32 KiB)                      ] shared               */
 /*                                                                            */
 /* Banks are 64 KiB for headroom; the live config footprint is ~44 KiB (max   */
-/* physical config address 0x00A170). Keep the profile banks past the last    */
+/* physical config address 0x00A170). Keep the config banks past the last     */
 /* slot if MB_SLOT_COUNT ever grows.                                          */
 
-#define MB_PROFILE_COUNT        MB_SLOT_COUNT     /* one profile per slot (0..4) */
-#define MB_PROFILE_BANK_SIZE    0x00010000u       /* 64 KiB per config bank      */
-#define MB_PROFILE1_EXT_BASE    0x000C0000u       /* profiles 1..4, right after slot 4 */
-#define MB_PROFILE_STATE_A_BASE 0x00100000u       /* redundant marker sector A */
-#define MB_PROFILE_STATE_B_BASE 0x00101000u       /* redundant marker sector B */
+#define MB_BANK_COUNT           MB_SLOT_COUNT   /* selectable config banks (0..4)   */
+#define MB_BANK_SIZE            0x00010000u     /* 64 KiB per config bank           */
+#define MB_BANK1_EXT_BASE       0x000C0000u     /* banks 1..4, right after slot 4   */
+#define MB_STATE_A_BASE         0x00100000u     /* redundant marker sector A        */
+#define MB_STATE_B_BASE         0x00101000u     /* redundant marker sector B        */
 
-/* Active-profile marker: two alternating external-flash sectors, never banked,
+/* Active-state marker: two alternating external-flash sectors, never banked,
  * outside the EEPROM logical map. A new record is verified in the inactive
  * sector before it supersedes the previous one, so a power loss always leaves
  * at least one usable state. The expected firmware identity is stored here as
  * well: boot resolution never depends on the slot header remaining readable. */
-#define MB_PROFILE_LEGACY_MAGIC 0x31504D46u       /* "FMP1" (single 8-byte record) */
-#define MB_PROFILE_MAGIC        0x32504D46u       /* "FMP2" (redundant identity record) */
+#define MB_STATE_LEGACY_MAGIC   0x31504D46u     /* "FMP1" (single 8-byte record)    */
+#define MB_STATE_V2_MAGIC       0x32504D46u     /* "FMP2" (slot == config bank)     */
+#define MB_STATE_MAGIC          0x33504D46u     /* "FMP3" (slot + bank separated)   */
 typedef struct __attribute__((packed)) {
-    uint32_t magic;        /* MB_PROFILE_MAGIC                         */
-    uint32_t generation;   /* monotonically increasing record version */
-    uint32_t image_size;   /* expected internal image size             */
-    uint32_t image_crc32;  /* expected internal image CRC-32            */
-    uint8_t  index;        /* active profile 0..MB_PROFILE_COUNT-1     */
-    uint8_t  index_inv;    /* ~index, quick integrity check            */
-    uint8_t  reserved[2];  /* fixed zero for deterministic state CRC   */
-    uint32_t state_crc32;  /* CRC-32 over all preceding fields          */
-} mb_profile_state_t;
+    uint32_t magic;         /* MB_STATE_MAGIC                          */
+    uint32_t generation;    /* monotonically increasing record version */
+    uint32_t image_size;    /* expected internal image size            */
+    uint32_t image_crc32;   /* expected internal image CRC-32           */
+    uint8_t  firmware_slot; /* exact source slot of the running image   */
+    uint8_t  slot_inv;      /* ~firmware_slot, quick integrity check    */
+    uint8_t  config_bank;   /* active config bank 0..MB_BANK_COUNT-1    */
+    uint8_t  bank_inv;      /* ~config_bank, quick integrity check      */
+    uint32_t state_crc32;   /* CRC-32 over all preceding fields         */
+} mb_state_t;
 
-/* External-flash base of a profile's config bank. Profile 0 -> 0 (historical
- * region, identity map); profiles 1..N -> past the slots. Out-of-range -> 0. */
-uint32_t MB_ProfileBase(uint8_t profile);
+/* External-flash base of a config bank. Bank 0 -> 0 (historical
+ * region, identity map); banks 1..N -> past the slots. Out-of-range -> 0. */
+uint32_t MB_BankBase(uint8_t bank);
 
-/* Result of reading the active-profile marker. A boot must treat these very
+/* Result of reading the active-state marker. A boot must treat these very
  * differently: MISSING = fresh radio (adopting the running firmware as Main is
  * fine); IO / CORRUPT = uncertain (must NOT overwrite Main). */
 typedef enum {
-    MB_MARK_VALID = 0,   /* read OK, well-formed; *state populated       */
+    MB_MARK_VALID = 0,   /* valid FMP2/FMP3; *state normalized to FMP3  */
     MB_MARK_LEGACY,      /* valid FMP1 index; identity not stored        */
     MB_MARK_MISSING,     /* read OK but both sectors erased            */
     MB_MARK_CORRUPT,     /* read OK but magic/integrity bad            */
     MB_MARK_IO,          /* could not be read (SPI error)              */
 } mb_mark_status_t;
 
-/* Read the newest valid active-profile marker, distinguishing the states above. */
-mb_mark_status_t MB_ReadActiveProfile(mb_profile_state_t *state);
+/* Read the newest valid active-state marker, distinguishing the states above. */
+mb_mark_status_t MB_ReadActiveState(mb_state_t *state);
 
-/* Convenience wrapper for non-critical callers (e.g. cursor pre-selection):
- * the valid index, or 0 for anything not cleanly VALID. */
-uint8_t MB_GetActiveProfile(void);
-
-/* Write the active-profile marker into the inactive redundant sector and read it
+/* Write the active-state marker into the inactive redundant sector and read it
  * back to confirm it landed. The previous valid record is kept intact. The slot
- * header supplies the expected internal firmware identity. */
-uint8_t MB_SetActiveProfile(uint8_t profile);
+ * header supplies the expected internal firmware identity. Use this right before
+ * reflashing to `slot`: both the exact firmware slot and the initial config
+ * bank become `slot`. */
+uint8_t MB_SetActiveSlot(uint8_t slot);
 
-/* Erase a profile's whole config bank (host "Reset config" for a user slot):
- * the next boot on that slot reads 0xFF and re-seeds factory defaults. Profile 0
+/* Switch ONLY the active settings bank, keeping the firmware that is running.
+ * Unlike MB_SetActiveSlot (which records that slot's image as the
+ * expected identity, for the imminent reflash to that slot), this preserves the
+ * running firmware's identity taken from the current marker and changes only the
+ * config bank. The next boot therefore maps a different bank with no
+ * reflash and is never mistaken for an out-of-multiboot firmware change (which
+ * would self-backup + reset to bank 0). Requires a currently valid marker -
+ * what every normal boot leaves behind - else MB_ERR_SPI / MB_ERR_MAGIC. The
+ * caller resets the MCU afterwards; the new bank takes effect at the next boot. */
+uint8_t MB_SetActiveBank(uint8_t bank);
+
+/* Erase a whole config bank (host "Reset config" for a user slot):
+ * the next boot using that bank reads 0xFF and re-seeds factory defaults. Bank 0
  * (the base) is refused - reset it by factory-resetting the base firmware.
  * External flash only, never brick-critical. */
-uint8_t MB_ProfileErase(uint8_t profile);
+uint8_t MB_BankErase(uint8_t bank);
 
 /* -------------------------------------------------------------------------- */
 /* Slot 0 self-backup (base firmware).                                        */
@@ -223,7 +235,7 @@ typedef enum {
 mb_fw_match_t MB_InternalMatchesSlot(uint8_t slot);
 
 /* Compare internal flash with the identity stored in a validated marker. */
-bool MB_InternalMatchesProfile(const mb_profile_state_t *state);
+bool MB_InternalMatchesState(const mb_state_t *state);
 
 /* Back up the running internal firmware into slot 0 (erase + full image +
  * COMMITTED header, name=edition, version) and validate the stored image by a

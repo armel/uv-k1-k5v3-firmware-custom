@@ -1,4 +1,5 @@
-/* Copyright 2026 F4HWN
+/* Copyright 2026 Armel F4HWN
+ * https://github.com/armel
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -775,12 +776,19 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
 }
 
 /* -------------------------------------------------------------------------- */
-/* Per-profile settings banks.                                                */
+/* Config banks and the active-state marker.                                  */
 /*                                                                            */
-/* The banking offset itself lives in the flash driver (PY25Q16_SetProfileBase);*/
-/* here we only own the active-profile marker and the profile->base mapping.  */
+/* The banking offset itself lives in the flash driver (PY25Q16_SetBankBase); */
+/* here we only own the active-state marker and the bank -> base mapping.     */
 /* All external-flash only, never brick-critical.                             */
 /* -------------------------------------------------------------------------- */
+
+_Static_assert(sizeof(mb_state_t) == 24u,
+               "FMP2/FMP3 marker layout must stay 24 bytes");
+_Static_assert(offsetof(mb_state_t, firmware_slot) == 16u,
+               "FMP2 migration reads the coupled index at byte 16");
+_Static_assert(offsetof(mb_state_t, state_crc32) == 20u,
+               "state CRC must cover the first 20 bytes (magic..bank_inv)");
 
 static uint32_t mb_crc32_bytes(const uint8_t *p, uint32_t len)
 {
@@ -795,38 +803,72 @@ static uint32_t mb_crc32_bytes(const uint8_t *p, uint32_t len)
     return crc ^ 0xFFFFFFFFu;
 }
 
-uint32_t MB_ProfileBase(uint8_t profile)
+uint32_t MB_BankBase(uint8_t bank)
 {
-    if (profile == 0)
-        return 0;                    /* profile 0 = historical config region */
-    if (profile < MB_PROFILE_COUNT)
-        return MB_PROFILE1_EXT_BASE + (uint32_t)(profile - 1u) * MB_PROFILE_BANK_SIZE;
+    if (bank == 0)
+        return 0;                    /* bank 0 = historical config region */
+    if (bank < MB_BANK_COUNT)
+        return MB_BANK1_EXT_BASE + (uint32_t)(bank - 1u) * MB_BANK_SIZE;
     return 0;                        /* out of range -> safe default */
 }
 
-static mb_mark_status_t mb_read_profile_copy(uint32_t base, mb_profile_state_t *st)
+static mb_mark_status_t mb_read_state_copy(uint32_t base, mb_state_t *st)
 {
     mb_spi_err = 0;
     mb_ext_read(base, (uint8_t *)st, sizeof(*st));
     if (mb_spi_err)                              return MB_MARK_IO;
     if (st->magic == 0xFFFFFFFFu)                return MB_MARK_MISSING;
-    if (st->magic == MB_PROFILE_LEGACY_MAGIC)
+    if (st->magic == MB_STATE_LEGACY_MAGIC)
     {
-        /* FMP1 was { magic, index, ~index, reserved[2] }. Preserve its slot
-         * choice long enough for boot resolution to migrate it to FMP2. */
+        /* FMP1 was { magic, index, ~index, reserved[2] }, with index coupling the
+         * firmware slot and the config bank. Keep it as BOTH fields so boot
+         * resolution can honour that choice before migrating the record to FMP3. */
         const uint8_t legacy_index = ((const uint8_t *)st)[4];
         const uint8_t legacy_inv   = ((const uint8_t *)st)[5];
-        if ((uint8_t)~legacy_inv != legacy_index || legacy_index >= MB_PROFILE_COUNT)
+        if ((uint8_t)~legacy_inv != legacy_index || legacy_index >= MB_BANK_COUNT)
             return MB_MARK_CORRUPT;
         memset(st, 0, sizeof(*st));
-        st->magic = MB_PROFILE_LEGACY_MAGIC;
-        st->index = legacy_index;
-        st->index_inv = legacy_inv;
+        st->magic         = MB_STATE_LEGACY_MAGIC;
+        st->firmware_slot = legacy_index;
+        st->slot_inv      = legacy_inv;
+        st->config_bank   = legacy_index;
+        st->bank_inv      = legacy_inv;
         return MB_MARK_LEGACY;
     }
-    if (st->magic != MB_PROFILE_MAGIC)           return MB_MARK_CORRUPT;
-    if ((uint8_t)~st->index_inv != st->index)    return MB_MARK_CORRUPT;
-    if (st->index >= MB_PROFILE_COUNT)           return MB_MARK_CORRUPT;
+
+    if (st->magic == MB_STATE_V2_MAGIC)
+    {
+        /* FMP2 stored one index for both the firmware slot and config bank at
+         * byte 16, followed by its inverse and two zeroed reserved bytes.
+         * Validate the on-flash record before normalizing it in RAM to FMP3. */
+        const uint8_t legacy_index = ((const uint8_t *)st)[16];
+        const uint8_t legacy_inv   = ((const uint8_t *)st)[17];
+        if ((uint8_t)~legacy_inv != legacy_index ||
+            legacy_index >= MB_BANK_COUNT)
+            return MB_MARK_CORRUPT;
+        if (st->image_size == 0u || st->image_size > MB_INT_APP_SIZE)
+            return MB_MARK_CORRUPT;
+        if (mb_crc32_bytes((const uint8_t *)st,
+                           sizeof(*st) - sizeof(st->state_crc32)) != st->state_crc32)
+            return MB_MARK_CORRUPT;
+
+        st->magic         = MB_STATE_MAGIC;
+        st->firmware_slot = legacy_index;
+        st->slot_inv      = (uint8_t)~legacy_index;
+        st->config_bank   = legacy_index;
+        st->bank_inv      = (uint8_t)~legacy_index;
+        st->state_crc32   = mb_crc32_bytes((const uint8_t *)st,
+                                           sizeof(*st) - sizeof(st->state_crc32));
+        return MB_MARK_VALID;
+    }
+
+    if (st->magic != MB_STATE_MAGIC)           return MB_MARK_CORRUPT;
+    if ((uint8_t)~st->slot_inv != st->firmware_slot)
+                                                    return MB_MARK_CORRUPT;
+    if (st->firmware_slot >= MB_SLOT_COUNT)       return MB_MARK_CORRUPT;
+    if ((uint8_t)~st->bank_inv != st->config_bank)
+                                                    return MB_MARK_CORRUPT;
+    if (st->config_bank >= MB_BANK_COUNT)      return MB_MARK_CORRUPT;
     if (st->image_size == 0u ||
         st->image_size > MB_INT_APP_SIZE)         return MB_MARK_CORRUPT;
     if (mb_crc32_bytes((const uint8_t *)st,
@@ -840,43 +882,43 @@ static bool mb_generation_newer(uint32_t a, uint32_t b)
     return (int32_t)(a - b) > 0;
 }
 
-static mb_mark_status_t mb_read_active_profile(mb_profile_state_t *state,
-                                                uint32_t *state_base)
+static mb_mark_status_t mb_read_active_state(mb_state_t *state,
+                                             uint32_t *state_base)
 {
-    mb_profile_state_t a;
-    mb_profile_state_t b;
-    mb_mark_status_t sa = mb_read_profile_copy(MB_PROFILE_STATE_A_BASE, &a);
-    mb_mark_status_t sb = mb_read_profile_copy(MB_PROFILE_STATE_B_BASE, &b);
+    mb_state_t a;
+    mb_state_t b;
+    mb_mark_status_t sa = mb_read_state_copy(MB_STATE_A_BASE, &a);
+    mb_mark_status_t sb = mb_read_state_copy(MB_STATE_B_BASE, &b);
 
     /* If either sector could not be read, it might contain the newest record.
      * Do not silently select an older state and risk loading the wrong bank. */
     if (sa == MB_MARK_IO || sb == MB_MARK_IO)
         return MB_MARK_IO;
 
-    const mb_profile_state_t *chosen = NULL;
+    const mb_state_t *chosen = NULL;
     uint32_t chosen_base = 0;
     if (sa == MB_MARK_VALID && sb == MB_MARK_VALID)
     {
         if (mb_generation_newer(b.generation, a.generation))
         {
             chosen = &b;
-            chosen_base = MB_PROFILE_STATE_B_BASE;
+            chosen_base = MB_STATE_B_BASE;
         }
         else
         {
             chosen = &a;
-            chosen_base = MB_PROFILE_STATE_A_BASE;
+            chosen_base = MB_STATE_A_BASE;
         }
     }
     else if (sa == MB_MARK_VALID)
     {
         chosen = &a;
-        chosen_base = MB_PROFILE_STATE_A_BASE;
+        chosen_base = MB_STATE_A_BASE;
     }
     else if (sb == MB_MARK_VALID)
     {
         chosen = &b;
-        chosen_base = MB_PROFILE_STATE_B_BASE;
+        chosen_base = MB_STATE_B_BASE;
     }
 
     if (chosen)
@@ -889,14 +931,14 @@ static mb_mark_status_t mb_read_active_profile(mb_profile_state_t *state,
     }
 
     /* A legacy record is usable for migration but has no firmware identity.
-     * Prefer A if both somehow exist; the next successful repair writes FMP2. */
+     * Prefer A if both somehow exist; the next successful repair writes FMP3. */
     if (sa == MB_MARK_LEGACY || sb == MB_MARK_LEGACY)
     {
         const bool use_b = sa != MB_MARK_LEGACY;
         if (state)
             *state = use_b ? b : a;
         if (state_base)
-            *state_base = use_b ? MB_PROFILE_STATE_B_BASE : MB_PROFILE_STATE_A_BASE;
+            *state_base = use_b ? MB_STATE_B_BASE : MB_STATE_A_BASE;
         return MB_MARK_LEGACY;
     }
 
@@ -904,79 +946,113 @@ static mb_mark_status_t mb_read_active_profile(mb_profile_state_t *state,
              ? MB_MARK_MISSING : MB_MARK_CORRUPT;
 }
 
-mb_mark_status_t MB_ReadActiveProfile(mb_profile_state_t *state)
+mb_mark_status_t MB_ReadActiveState(mb_state_t *state)
 {
-    return mb_read_active_profile(state, NULL);
+    return mb_read_active_state(state, NULL);
 }
 
-uint8_t MB_GetActiveProfile(void)
+/* Commit a marker whose identity, firmware_slot and config_bank are set:
+ * fill the volatile fields (magic, generation, inverse bytes, state CRC), pick
+ * the inactive redundant sector, program it and read it back to confirm. The
+ * previous valid record is left untouched until the new one verifies, so this is
+ * power-loss safe. `current`/`current_base` come from mb_read_active_state. */
+static uint8_t mb_commit_state(mb_state_t *st,
+                               mb_mark_status_t current_status,
+                               const mb_state_t *current,
+                               uint32_t current_base)
 {
-    mb_profile_state_t st;
-    mb_mark_status_t status = MB_ReadActiveProfile(&st);
-    return (status == MB_MARK_VALID || status == MB_MARK_LEGACY) ? st.index : 0;
-}
-
-uint8_t MB_SetActiveProfile(uint8_t profile)
-{
-    mb_slot_header_t hdr;
-    mb_profile_state_t st;
-    mb_profile_state_t current;
-    uint32_t current_base = 0;
-
-    if (profile >= MB_PROFILE_COUNT)
-        return MB_ERR_SLOT;
-
-    uint8_t hdr_err = mb_read_header(profile, &hdr);
-    if (hdr_err != MB_OK)
-        return hdr_err;
-
-    mb_mark_status_t current_status = mb_read_active_profile(&current, &current_base);
-    if (current_status == MB_MARK_IO)
-        return MB_ERR_SPI;
-
-    memset(&st, 0, sizeof(st));
-    st.magic       = MB_PROFILE_MAGIC;
-    st.generation  = (current_status == MB_MARK_VALID) ? current.generation + 1u : 0u;
-    st.image_size  = hdr.image_size;
-    st.image_crc32 = hdr.image_crc32;
-    st.index       = profile;
-    st.index_inv   = (uint8_t)~profile;
-    st.state_crc32 = mb_crc32_bytes((const uint8_t *)&st,
-                                    sizeof(st) - sizeof(st.state_crc32));
+    st->magic       = MB_STATE_MAGIC;
+    st->generation  = (current_status == MB_MARK_VALID) ? current->generation + 1u : 0u;
+    st->slot_inv    = (uint8_t)~st->firmware_slot;
+    st->bank_inv    = (uint8_t)~st->config_bank;
+    st->state_crc32 = mb_crc32_bytes((const uint8_t *)st,
+                                     sizeof(*st) - sizeof(st->state_crc32));
 
     const uint32_t target_base = ((current_status == MB_MARK_VALID ||
                                    current_status == MB_MARK_LEGACY) &&
-                                  current_base == MB_PROFILE_STATE_A_BASE)
-                                   ? MB_PROFILE_STATE_B_BASE
-                                   : MB_PROFILE_STATE_A_BASE;
+                                  current_base == MB_STATE_A_BASE)
+                                   ? MB_STATE_B_BASE
+                                   : MB_STATE_A_BASE;
 
     mb_spi_err = 0;
     mb_spi_polled_mode();
     if (!mb_ext_sector_erase(target_base))
         return MB_ERR_SPI;
-    if (!mb_ext_program(target_base, (const uint8_t *)&st, sizeof(st)))
+    if (!mb_ext_program(target_base, (const uint8_t *)st, sizeof(*st)))
         return MB_ERR_SPI;
 
     /* Verify the new copy directly. The previous valid sector has not been
      * touched, so any failure here remains power-loss safe. */
-    mb_profile_state_t chk;
-    mb_mark_status_t chk_status = mb_read_profile_copy(target_base, &chk);
+    mb_state_t chk;
+    mb_mark_status_t chk_status = mb_read_state_copy(target_base, &chk);
     if (chk_status == MB_MARK_IO)                    return MB_ERR_SPI;
     if (chk_status != MB_MARK_VALID ||
-        memcmp(&chk, &st, sizeof(st)) != 0)           return MB_ERR_CRC;
+        memcmp(&chk, st, sizeof(*st)) != 0)           return MB_ERR_CRC;
 
     return MB_OK;
 }
 
-uint8_t MB_ProfileErase(uint8_t profile)
+uint8_t MB_SetActiveSlot(uint8_t slot)
 {
-    /* Profile 0 (the base config) is not resettable from the host: reset it by
-     * factory-resetting the running base firmware instead. Profiles 1..N live
-     * in their own 64 KiB banks, clear of the shared calibration at 0x010000. */
-    if (profile == 0 || profile >= MB_PROFILE_COUNT)
+    mb_slot_header_t hdr;
+    mb_state_t st;
+    mb_state_t current;
+    uint32_t current_base = 0;
+
+    if (slot >= MB_SLOT_COUNT)
         return MB_ERR_SLOT;
 
-    const uint32_t base = MB_ProfileBase(profile);
+    uint8_t hdr_err = mb_read_header(slot, &hdr);
+    if (hdr_err != MB_OK)
+        return hdr_err;
+
+    mb_mark_status_t current_status = mb_read_active_state(&current, &current_base);
+    if (current_status == MB_MARK_IO)
+        return MB_ERR_SPI;
+
+    memset(&st, 0, sizeof(st));
+    st.image_size    = hdr.image_size;  /* expect this slot's image (reflash) */
+    st.image_crc32   = hdr.image_crc32;
+    st.firmware_slot = slot;
+    st.config_bank   = slot;
+    return mb_commit_state(&st, current_status, &current, current_base);
+}
+
+uint8_t MB_SetActiveBank(uint8_t bank)
+{
+    mb_state_t st;
+    mb_state_t current;
+    uint32_t current_base = 0;
+
+    if (bank >= MB_BANK_COUNT)
+        return MB_ERR_SLOT;
+
+    /* Keep the running firmware's identity from the current marker so switching a
+     * bank never looks like an out-of-multiboot firmware change at the next boot.
+     * A valid marker is required for that identity - every normal boot leaves one. */
+    mb_mark_status_t current_status = mb_read_active_state(&current, &current_base);
+    if (current_status == MB_MARK_IO)
+        return MB_ERR_SPI;
+    if (current_status != MB_MARK_VALID)
+        return MB_ERR_MAGIC;
+
+    memset(&st, 0, sizeof(st));
+    st.image_size    = current.image_size;   /* keep the running firmware's identity */
+    st.image_crc32   = current.image_crc32;
+    st.firmware_slot = current.firmware_slot;
+    st.config_bank   = bank;
+    return mb_commit_state(&st, current_status, &current, current_base);
+}
+
+uint8_t MB_BankErase(uint8_t bank)
+{
+    /* Bank 0 (the base config) is not resettable from the host: reset it by
+     * factory-resetting the running base firmware instead. Banks 1..N live
+     * in their own 64 KiB banks, clear of the shared calibration at 0x010000. */
+    if (bank == 0 || bank >= MB_BANK_COUNT)
+        return MB_ERR_SLOT;
+
+    const uint32_t base = MB_BankBase(bank);
 
     /* Invalidate before the first raw erase so an early failure cannot leave a
      * cache entry referring to a sector that was already erased. */
@@ -984,7 +1060,7 @@ uint8_t MB_ProfileErase(uint8_t profile)
 
     mb_spi_err = 0;
     mb_spi_polled_mode();
-    for (uint32_t off = 0; off < MB_PROFILE_BANK_SIZE; off += MB_EXT_SECTOR)
+    for (uint32_t off = 0; off < MB_BANK_SIZE; off += MB_EXT_SECTOR)
         if (!mb_ext_sector_erase(base + off))
             return MB_ERR_SPI;
 
@@ -1035,7 +1111,7 @@ mb_fw_match_t MB_InternalMatchesSlot(uint8_t slot)
              ? MB_FW_MATCH : MB_FW_MISMATCH;
 }
 
-bool MB_InternalMatchesProfile(const mb_profile_state_t *state)
+bool MB_InternalMatchesState(const mb_state_t *state)
 {
     if (!state || state->image_size == 0u || state->image_size > MB_INT_APP_SIZE)
         return false;
