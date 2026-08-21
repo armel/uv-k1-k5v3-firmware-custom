@@ -39,6 +39,14 @@ if [[ "$PRESET" == "All" ]]; then
   QUIET=1
 fi
 
+# Remember whether the script itself was started from an interactive terminal.
+# The build output is piped through tee below, so checking stdout later from
+# run_preset_build() would always report a non-terminal.
+INTERACTIVE=0
+if [[ -t 1 ]]; then
+  INTERACTIVE=1
+fi
+
 # ---------------------------------------------
 # Build the Docker image (only needed once)
 # ---------------------------------------------
@@ -54,8 +62,16 @@ RESULT_RAM_SIZES=()
 
 run_preset_build() {
   local preset="$1"
+  local -a docker_tty_args=()
 
-  docker run --rm \
+  # Give Ninja a pseudo-terminal for an interactive single-preset build. This
+  # lets it refresh its [current/total] progress on one line. Batch/redirected
+  # builds keep plain line-oriented output suitable for logs and CI.
+  if (( INTERACTIVE && ! QUIET )); then
+    docker_tty_args=(-t)
+  fi
+
+  docker run --rm "${docker_tty_args[@]}" \
     -u "$(id -u):$(id -g)" \
     -v "$PWD":/src -w /src "$IMAGE" \
     bash -c 'which arm-none-eabi-gcc && arm-none-eabi-gcc --version &&
@@ -85,15 +101,25 @@ build_preset() {
     echo ""
     echo "=== 🚀 Building preset: ${preset} ==="
     echo "---------------------------------------------"
-    if run_preset_build "$preset" 2>&1 | tee "$log_file" | awk '
-      /^Memory region[[:space:]]+Used Size[[:space:]]+Region Size/ { next }
-      /^[[:space:]]+RAM:[[:space:]]/ { next }
-      /^[[:space:]]+FLASH:[[:space:]]/ { next }
-      { print; fflush() }
-    '; then
-      status=0
+    if (( INTERACTIVE )); then
+      # Do not put a line-oriented filter after tee here: it would buffer
+      # Ninja's carriage-return progress updates and defeat the TTY display.
+      if run_preset_build "$preset" 2>&1 | tee "$log_file"; then
+        status=0
+      else
+        status=$?
+      fi
     else
-      status=$?
+      if run_preset_build "$preset" 2>&1 | tee "$log_file" | awk '
+        /^Memory region[[:space:]]+Used Size[[:space:]]+Region Size/ { next }
+        /^[[:space:]]+RAM:[[:space:]]/ { next }
+        /^[[:space:]]+FLASH:[[:space:]]/ { next }
+        { print; fflush() }
+      '; then
+        status=0
+      else
+        status=$?
+      fi
     fi
   fi
 
