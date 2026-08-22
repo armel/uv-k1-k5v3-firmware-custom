@@ -1251,61 +1251,20 @@ void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep)
         SETTINGS_SaveChannelName(channel, "");
 }
 
-void SETTINGS_WriteBuildOptions(void)
+void SETTINGS_WriteChirpCapabilities(void)
 {
-    uint8_t State[8];
+    enum {
+        CHIRP_CAP_RESCUE_OPS = 1u << 0,
+    };
 
-#ifdef ENABLE_FEAT_F4HWN
-    // 0x1FF0
-    PY25Q16_ReadBuffer(0x00A158, State, sizeof(State));
-#endif
-    
-State[0] = 0
-#ifdef ENABLE_FMRADIO
-    | (1 << 0)
-#endif
-#ifdef ENABLE_NOAA
-    | (1 << 1)
-#endif
-#ifdef ENABLE_VOICE
-    | (1 << 2)
-#endif
-#ifdef ENABLE_VOX
-    | (1 << 3)
-#endif
-#ifdef ENABLE_TX1750
-    | (1 << 5)
-#endif
-#ifdef ENABLE_PWRON_PASSWORD
-    | (1 << 6)
-#endif
-#ifdef ENABLE_DTMF_CALLING
-    | (1 << 7)
-#endif
-;
+    uint8_t capabilities[2] = {0};
 
-State[1] = 0
-#ifdef ENABLE_FLASHLIGHT
-    | (1 << 0)
-#endif
-#ifdef ENABLE_WIDE_RX
-    | (1 << 1)
-#endif
-#ifdef ENABLE_BYP_RAW_DEMODULATORS
-    | (1 << 2)
-#endif
-#ifdef ENABLE_FEAT_F4HWN_GAME
-    | (1 << 3)
-#endif
-// Bit 4 is reserved (legacy ENABLE_AM_FIX).
-#ifdef ENABLE_SPECTRUM
-    | (1 << 5)
-#endif
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-    | (1 << 6)
+    capabilities[0] |= CHIRP_CAP_RESCUE_OPS;
 #endif
-;
-    PY25Q16_WriteBuffer(0x00A158, State, sizeof(State), false);
+
+    // 0xA158..0xA159 are reserved for the firmware/CHIRP capability contract.
+    PY25Q16_WriteBuffer(0x00A158, capabilities, sizeof(capabilities), false);
 }
 
 #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
