@@ -149,7 +149,6 @@ const char *const VfoStateStr[] = {
        [VFO_STATE_BAT_LOW]="BAT LOW",
        [VFO_STATE_TX_DISABLE]="TX DISABLE",
        [VFO_STATE_TIMEOUT]="TIMEOUT",
-       [VFO_STATE_ALARM]="ALARM",
        [VFO_STATE_VOLTAGE_HIGH]="VOLT HIGH"
 };
 
@@ -818,8 +817,8 @@ void UI_DisplayAudioBar(void)
             return;  // screen is in use
         }
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-        if (gAlarmState != ALARM_STATE_OFF)
+#ifdef ENABLE_TX1750
+        if (gTx1750Active)
             return;
 #endif
         static uint8_t barsOld = 0;
@@ -919,8 +918,8 @@ void UI_DisplayAudioScope(void)
         )
         return;
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    if (gAlarmState != ALARM_STATE_OFF)
+#ifdef ENABLE_TX1750
+    if (gTx1750Active)
         return;
 #endif
 
@@ -1566,11 +1565,6 @@ void UI_DisplayMain(void)
         if (gCurrentFunction == FUNCTION_TRANSMIT)
         {   // transmitting
 
-#ifdef ENABLE_ALARM
-            if (gAlarmState == ALARM_STATE_SITE_ALARM)
-                mode = VFO_MODE_RX;
-            else
-#endif
             {
                 if (activeTxVFO == vfo_num)
                 {   // show the TX symbol
@@ -1732,12 +1726,6 @@ void UI_DisplayMain(void)
 
         enum VfoState_t state = VfoState[vfo_num];
 
-#ifdef ENABLE_ALARM
-        if (gCurrentFunction == FUNCTION_TRANSMIT && gAlarmState == ALARM_STATE_SITE_ALARM) {
-            if (activeTxVFO == vfo_num)
-                state = VFO_STATE_ALARM;
-        }
-#endif
         if (state != VFO_STATE_NORMAL)
         {
             if (state < ARRAY_SIZE(VfoStateStr))
@@ -2113,7 +2101,7 @@ void UI_DisplayMain(void)
         UI_PrintStringSmallNormal(s, LCD_WIDTH + 24, 0, line + 1);
 #endif
 
-        if (state == VFO_STATE_NORMAL || state == VFO_STATE_ALARM)
+        if (state == VFO_STATE_NORMAL)
         {   // show the TX power
             uint8_t currentPower = vfoInfo->OUTPUT_POWER % 8;
             uint8_t arrowPos = 19;

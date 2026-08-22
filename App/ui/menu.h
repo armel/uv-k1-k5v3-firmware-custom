@@ -76,9 +76,6 @@ enum
     MENU_S_PRI,
     MENU_S_PRI_CH_1,
     MENU_S_PRI_CH_2,    
-#ifdef ENABLE_ALARM
-    MENU_AL_MOD,
-#endif
 #ifdef ENABLE_DTMF_CALLING
     MENU_ANI_ID,
 #endif
@@ -218,9 +215,6 @@ extern const char* const            gSubMenu_RXMode[4];
     extern const char* const        gSubMenu_VOICE[3];
 #endif
 extern const char* const            gSubMenu_MDF[4];
-#ifdef ENABLE_ALARM
-    extern const char* const        gSubMenu_AL_MOD[2];
-#endif
 #ifdef ENABLE_DTMF_CALLING
 extern const char* const            gSubMenu_D_RSP[4];
 #endif

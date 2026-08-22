@@ -244,8 +244,8 @@ bool              gCssBackgroundScan;
 volatile bool     gScheduleScanListen = true;
 volatile uint16_t gScanPauseDelayIn_10ms;
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    AlarmState_t  gAlarmState;
+#ifdef ENABLE_TX1750
+    bool gTx1750Active;
 #endif
 uint16_t          gMenuCountdown;
 bool              gPttWasReleased;
@@ -288,10 +288,6 @@ uint16_t          gNextMrChannel;
 ReceptionMode_t   gRxReceptionMode;
 
 bool              gRxVfoIsActive;
-#ifdef ENABLE_ALARM
-    uint8_t       gAlarmToneCounter;
-    uint16_t      gAlarmRunningCounter;
-#endif
 bool              gKeyBeingHeld;
 bool              gPttIsPressed;
 uint8_t           gPttDebounceCounter;

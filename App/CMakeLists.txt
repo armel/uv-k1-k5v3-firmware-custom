@@ -131,7 +131,6 @@ enable_feature(ENABLE_VOICE
     driver/voice.c
 )
 enable_feature(ENABLE_VOX)
-enable_feature(ENABLE_ALARM)
 enable_feature(ENABLE_TX1750)
 enable_feature(ENABLE_PWRON_PASSWORD
     ui/lock.c

@@ -161,29 +161,6 @@ void FUNCTION_Transmit()
         BK1080_Init0();
 #endif
 
-#ifdef ENABLE_ALARM
-    if (gAlarmState == ALARM_STATE_SITE_ALARM)
-    {
-        GUI_DisplayScreen();
-
-        AUDIO_AudioPathOff();
-
-        SYSTEM_DelayMs(20);
-        BK4819_PlayTone(500, 0);
-        SYSTEM_DelayMs(2);
-
-        AUDIO_AudioPathOn();
-
-        gEnableSpeaker = true;
-
-        SYSTEM_DelayMs(60);
-        BK4819_ExitTxMute();
-
-        gAlarmToneCounter = 0;
-        return;
-    }
-#endif
-
     gUpdateStatus = true;
 
     GUI_DisplayScreen();
@@ -198,20 +175,9 @@ void FUNCTION_Transmit()
     if (gCurrentVfo->DTMF_PTT_ID_TX_MODE == PTT_ID_APOLLO)
         BK4819_PlaySingleTone(2525, 250, 0, gEeprom.DTMF_SIDE_TONE);
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    if (gAlarmState != ALARM_STATE_OFF) {
-        #ifdef ENABLE_TX1750
-        if (gAlarmState == ALARM_STATE_TX1750)
-            BK4819_TransmitTone(true, 1750);
-        #endif
-
-        #ifdef ENABLE_ALARM
-        if (gAlarmState == ALARM_STATE_TXALARM)
-            BK4819_TransmitTone(true, 500);
-
-        gAlarmToneCounter = 0;
-        #endif
-
+#ifdef ENABLE_TX1750
+    if (gTx1750Active) {
+        BK4819_TransmitTone(true, 1750);
         SYSTEM_DelayMs(2);
         AUDIO_AudioPathOn();
         gEnableSpeaker = true;

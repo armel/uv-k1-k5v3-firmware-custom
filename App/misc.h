@@ -65,14 +65,6 @@ enum {
     VFO_CONFIGURE_RELOAD
 };
 
-enum AlarmState_t {
-    ALARM_STATE_OFF = 0,
-    ALARM_STATE_TXALARM,
-    ALARM_STATE_SITE_ALARM,
-    ALARM_STATE_TX1750
-};
-typedef enum AlarmState_t AlarmState_t;
-
 enum ReceptionMode_t {
     RX_MODE_NONE = 0,   // squelch close ?
     RX_MODE_DETECTED,   // signal detected
@@ -393,7 +385,7 @@ enum
 extern volatile bool     gScheduleScanListen;
 extern volatile uint16_t gScanPauseDelayIn_10ms;
 
-extern AlarmState_t          gAlarmState;
+extern bool                  gTx1750Active;
 extern uint16_t              gMenuCountdown;
 extern bool                  gPttWasReleased;
 extern bool                  gPttWasPressed;
@@ -438,8 +430,6 @@ extern ReceptionMode_t       gRxReceptionMode;
 
  //TRUE when dual watch is momentarly suspended and RX_VFO is locked to either last TX or RX
 extern bool                  gRxVfoIsActive;
-extern uint8_t               gAlarmToneCounter;
-extern uint16_t              gAlarmRunningCounter;
 extern bool                  gKeyBeingHeld;
 extern bool                  gPttIsPressed;
 extern uint8_t               gPttDebounceCounter;

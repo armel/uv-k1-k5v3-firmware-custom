@@ -59,10 +59,8 @@
 static void ACTION_Scan_FM(bool bRestart);
 #endif
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-static void ACTION_AlarmOr1750(bool b1750);
-inline static void ACTION_Alarm() { ACTION_AlarmOr1750(false); }
-inline static void ACTION_1750() { ACTION_AlarmOr1750(true); };
+#ifdef ENABLE_TX1750
+static void ACTION_1750(void);
 #endif
 
 inline static void ACTION_ScanRestart() { ACTION_Scan(true); };
@@ -95,11 +93,7 @@ void (*const action_opt_table[])(void) = {
     [ACTION_OPT_FM] = &FUNCTION_NOP,
 #endif
 
-#ifdef ENABLE_ALARM
-    [ACTION_OPT_ALARM] = &ACTION_Alarm,
-#else
-    [ACTION_OPT_ALARM] = &FUNCTION_NOP,
-#endif
+    [ACTION_OPT_RESERVED_ALARM] = &FUNCTION_NOP,
 
 #ifdef ENABLE_TX1750
     [ACTION_OPT_1750] = &ACTION_1750,
@@ -572,36 +566,19 @@ static void ACTION_Scan_FM(bool bRestart)
 #endif
 
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-static void ACTION_AlarmOr1750(const bool b1750)
+#ifdef ENABLE_TX1750
+static void ACTION_1750(void)
 {
-
     if(gEeprom.KEY_LOCK && (gSetting_set_lck & SET_LCK_PTT))
         return;
 
-    #if defined(ENABLE_ALARM)
-        const AlarmState_t alarm_mode = (gEeprom.ALARM_MODE == ALARM_MODE_TONE) ? ALARM_STATE_TXALARM : ALARM_STATE_SITE_ALARM;
-        gAlarmRunningCounter = 0;
-    #endif
-
-    #if defined(ENABLE_ALARM) && defined(ENABLE_TX1750)
-        gAlarmState = b1750 ? ALARM_STATE_TX1750 : alarm_mode;
-    #elif defined(ENABLE_ALARM)
-        gAlarmState = alarm_mode;
-    #else
-        gAlarmState = ALARM_STATE_TX1750;
-    #endif
-
-    (void)b1750;
+    gTx1750Active = true;
     gInputBoxIndex = 0;
-
-    gFlagPrepareTX = gAlarmState != ALARM_STATE_OFF;
+    gFlagPrepareTX = true;
 
     if (gScreenToDisplay != DISPLAY_MENU)     // 1of11 .. don't close the menu
         gRequestDisplayScreen = DISPLAY_MAIN;
 }
-
-
 #endif
 
 #ifdef ENABLE_VOX

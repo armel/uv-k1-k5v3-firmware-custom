@@ -106,7 +106,7 @@ enum ACTION_OPT_t {
     ACTION_OPT_MONITOR,
     ACTION_OPT_SCAN,
     ACTION_OPT_VOX,
-    ACTION_OPT_ALARM,
+    ACTION_OPT_RESERVED_ALARM, // Reserved EEPROM ID; removed in v6.0.0
     ACTION_OPT_FM,
     ACTION_OPT_1750,
     ACTION_OPT_KEYLOCK,
@@ -148,12 +148,6 @@ enum ACTION_OPT_t {
     };
     typedef enum VOICE_Prompt_t VOICE_Prompt_t;
 #endif
-
-enum ALARM_Mode_t {
-    ALARM_MODE_SITE = 0,
-    ALARM_MODE_TONE
-};
-typedef enum ALARM_Mode_t ALARM_Mode_t;
 
 enum ROGER_Mode_t {
     ROGER_MODE_OFF = 0,
@@ -237,9 +231,6 @@ typedef struct {
     uint8_t               field38_0x33;
 
     uint8_t               AUTO_KEYPAD_LOCK;
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    ALARM_Mode_t      ALARM_MODE;
-#endif
     POWER_OnDisplayMode_t POWER_ON_DISPLAY_MODE;
     ROGER_Mode_t          ROGER;
     uint8_t               REPEATER_TAIL_TONE_ELIMINATION;

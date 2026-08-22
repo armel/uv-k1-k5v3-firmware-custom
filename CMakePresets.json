@@ -29,7 +29,6 @@
                 "ENABLE_NOAA": false,
                 "ENABLE_VOICE": false,
                 "ENABLE_VOX": true,
-                "ENABLE_ALARM": false,
                 "ENABLE_TX1750": true,
                 "ENABLE_PWRON_PASSWORD": false,
                 "ENABLE_DTMF_CALLING": false,

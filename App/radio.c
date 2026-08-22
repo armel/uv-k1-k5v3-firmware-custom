@@ -1209,9 +1209,6 @@ void RADIO_PrepareTX(void)
 #ifdef ENABLE_FEAT_F4HWN
         && gCurrentVfo->TX_LOCK == true
 #endif
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-        && gAlarmState != ALARM_STATE_SITE_ALARM
-#endif
     ){
         // TX frequency not allowed
         State = VFO_STATE_TX_DISABLE;
@@ -1246,8 +1243,8 @@ void RADIO_PrepareTX(void)
         // TX not allowed
         RADIO_SetVfoState(State);
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-        gAlarmState = ALARM_STATE_OFF;
+#ifdef ENABLE_TX1750
+        gTx1750Active = false;
 #endif
 
 #ifdef ENABLE_DTMF_CALLING
@@ -1281,8 +1278,8 @@ void RADIO_PrepareTX(void)
 
     gTxTimerCountdown_500ms = 0;            // no timeout
 
-    #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    if (gAlarmState == ALARM_STATE_OFF)
+    #ifdef ENABLE_TX1750
+    if (!gTx1750Active)
     #endif
     {
 

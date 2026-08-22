@@ -110,9 +110,6 @@ const t_menu_item MenuList[] =
     {"STE",         MENU_STE           },
     {"RP STE",      MENU_RP_STE        },
     {"1 Call",      MENU_1_CALL        },
-#ifdef ENABLE_ALARM
-    {"AlarmT",      MENU_AL_MOD        },
-#endif
 #ifdef ENABLE_DTMF_CALLING
     {"ANI ID",      MENU_ANI_ID        },
 #endif
@@ -264,14 +261,6 @@ const char* const gSubMenu_MDF[] =
     "NAME",
     "NAME\n+\nFREQ"
 };
-
-#ifdef ENABLE_ALARM
-    const char* const gSubMenu_AL_MOD[] =
-    {
-        "SITE",
-        "TONE"
-    };
-#endif
 
 #ifdef ENABLE_DTMF_CALLING
 const char* const gSubMenu_D_RSP[] =
@@ -496,9 +485,6 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     {"SCAN",            ACTION_OPT_SCAN},
 #ifdef ENABLE_VOX
     {"VOX",             ACTION_OPT_VOX},
-#endif
-#ifdef ENABLE_ALARM
-    {"ALARM",           ACTION_OPT_ALARM},
 #endif
 #ifdef ENABLE_FMRADIO
     {"FM RADIO",        ACTION_OPT_FM},
@@ -1370,12 +1356,6 @@ void UI_DisplayMenu(void)
             }
             break;
             
-        #ifdef ENABLE_ALARM
-            case MENU_AL_MOD:
-                sprintf(String, gSubMenu_AL_MOD[gSubMenuSelection]);
-                break;
-        #endif
-
 #ifdef ENABLE_DTMF_CALLING
         case MENU_ANI_ID:
             strcpy(String, gEeprom.ANI_DTMF_ID);
