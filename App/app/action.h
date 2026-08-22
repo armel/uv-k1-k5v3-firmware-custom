@@ -17,6 +17,9 @@
 #ifndef APP_ACTION_H
 #define APP_ACTION_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "driver/keyboard.h"
 
 void ACTION_Power(void);
@@ -58,6 +61,7 @@ extern uint8_t gActionPickerSelection[2];
 extern uint8_t gActionPickerTimeout_500ms;
 bool ACTION_PickerProcessKey(KEY_Code_t key, bool isPressed, bool isHeld);
 #endif
+bool ACTION_IsAvailable(uint8_t action);
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 #endif

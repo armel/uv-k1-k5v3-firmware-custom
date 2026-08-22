@@ -14,9 +14,11 @@
  *     limitations under the License.
  */
 
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 
+#include "../app/action.h"
 #include "../app/dtmf.h"
 #include "../app/menu.h"
 #include "../bitmaps.h"
@@ -472,51 +474,32 @@ const char* const gSubMenu_SCRAMBLER[] =
 const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
 {
     {"NONE",            ACTION_OPT_NONE},
-#ifdef ENABLE_FLASHLIGHT
     {"FLASH\nLIGHT",    ACTION_OPT_FLASHLIGHT},
-#endif
     {"POWER",           ACTION_OPT_POWER},
     {"MONITOR",         ACTION_OPT_MONITOR},
     {"SCAN",            ACTION_OPT_SCAN},
-#ifdef ENABLE_VOX
     {"VOX",             ACTION_OPT_VOX},
-#endif
-#ifdef ENABLE_FMRADIO
     {"FM RADIO",        ACTION_OPT_FM},
-#endif
-#ifdef ENABLE_TX1750
     {"1750Hz",          ACTION_OPT_1750},
-#endif
     {"LOCK\nKEYPAD",    ACTION_OPT_KEYLOCK},
     {"VFO A\nVFO B",    ACTION_OPT_A_B},
     {"VFO\nMEM",        ACTION_OPT_VFO_MR},
     {"MODE",            ACTION_OPT_SWITCH_DEMODUL},
-#ifdef ENABLE_FEAT_F4HWN
     {"RX MODE",         ACTION_OPT_RXMODE},
     {"MAIN ONLY",       ACTION_OPT_MAINONLY},
     {"PTT",             ACTION_OPT_PTT},
     {"WIDE\nNARROW",    ACTION_OPT_WN},
     {"MUTE",            ACTION_OPT_MUTE},
-    #ifdef ENABLE_FEAT_F4HWN_AUDIO
-        {"RxA",            ACTION_OPT_RXA},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        {"POWER\nHIGH",    ACTION_OPT_POWER_HIGH},
-        {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_BEAM
-        {"BEAM",            ACTION_OPT_BEAM},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-        {"RF LOG",          ACTION_OPT_RXTX_LOG},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
-        {"FOX HUNT\nBEACON", ACTION_OPT_FOXHUNT},
-    #endif
-#endif
+    {"RxA",             ACTION_OPT_RXA},
+    {"RF LOG",          ACTION_OPT_RXTX_LOG},
+    {"BEAM",            ACTION_OPT_BEAM},
+    {"POWER\nHIGH",     ACTION_OPT_POWER_HIGH},
+    {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
+    {"FOX HUNT\nBEACON", ACTION_OPT_FOXHUNT},
 };
 
 const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);
+static_assert(ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS) == ACTION_OPT_LEN);
 
 bool    gIsInSubMenu;
 uint8_t gMenuCursor;
@@ -854,6 +837,7 @@ void UI_DisplayMenu(void)
     unsigned int       i;
     char               String[64];  // bigger cuz we can now do multi-line in one string (use '\n' char)
     char               top_right_badge[16];
+    uint8_t            top_right_badge_line = 1;
 
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
     if (gMenuLevel == MENU_LEVEL_CAT)
@@ -1589,8 +1573,15 @@ void UI_DisplayMenu(void)
         case MENU_F2SHRT:
         case MENU_F2LONG:
         case MENU_MLONG:
+        {
+            const uint8_t action = gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].id;
             strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].name);
+            if (!ACTION_IsAvailable(action)) {
+                strcpy(top_right_badge, "N/A");
+                top_right_badge_line = 5;
+            }
             break;
+        }
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
         case MENU_SET_OFF:
@@ -1833,7 +1824,7 @@ void UI_DisplayMenu(void)
 #endif
 
     if (top_right_badge[0] != '\0') {
-        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, 1, true, menu_item_x1, menu_item_x2);
+        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, top_right_badge_line, true, menu_item_x1, menu_item_x2);
     }
 
     if ((m == MENU_RESET    ||

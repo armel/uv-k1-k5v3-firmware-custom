@@ -1366,6 +1366,8 @@ void UI_DisplayMain(void)
         UI_PrintActionPickerLabel(previous, 1, false);
         UI_PrintActionPickerLabel(selection, 2, true);
         UI_PrintActionPickerLabel(next, 4, false);
+        if (!ACTION_IsAvailable(gSubMenu_SIDEFUNCTIONS[selection].id))
+            UI_PrintStringSmallNormalInverse("N/A", 53, 0, 6);
         ST7565_BlitFullScreen();
         return;
     }

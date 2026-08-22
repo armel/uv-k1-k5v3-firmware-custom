@@ -100,43 +100,34 @@ enum {
 };
 
 enum ACTION_OPT_t {
-    ACTION_OPT_NONE = 0,
-    ACTION_OPT_FLASHLIGHT,
-    ACTION_OPT_POWER,
-    ACTION_OPT_MONITOR,
-    ACTION_OPT_SCAN,
-    ACTION_OPT_VOX,
-    ACTION_OPT_RESERVED_ALARM, // Reserved EEPROM ID; removed in v6.0.0
-    ACTION_OPT_FM,
-    ACTION_OPT_1750,
-    ACTION_OPT_KEYLOCK,
-    ACTION_OPT_A_B,
-    ACTION_OPT_VFO_MR,
-    ACTION_OPT_SWITCH_DEMODUL,
-    ACTION_OPT_RESERVED_BLMIN_TMP_OFF, // Reserved EEPROM ID; removed in v6.0.0
-#ifdef ENABLE_FEAT_F4HWN
-    ACTION_OPT_RXMODE,
-    ACTION_OPT_MAINONLY,
-    ACTION_OPT_PTT,
-    ACTION_OPT_WN,
-    ACTION_OPT_BACKLIGHT,
-    ACTION_OPT_MUTE,
-    ACTION_OPT_RXA,
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        ACTION_OPT_POWER_HIGH,
-        ACTION_OPT_REMOVE_OFFSET,
-    #endif
-#endif
-#ifdef ENABLE_FEAT_F4HWN_BEAM
-    ACTION_OPT_BEAM,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-    ACTION_OPT_RXTX_LOG,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
-    ACTION_OPT_FOXHUNT,
-#endif
-    ACTION_OPT_LEN
+    /* Persisted in EEPROM: never renumber or make these values conditional. */
+    ACTION_OPT_NONE           = 0,
+    ACTION_OPT_FLASHLIGHT     = 1,
+    ACTION_OPT_POWER          = 2,
+    ACTION_OPT_MONITOR        = 3,
+    ACTION_OPT_SCAN           = 4,
+    ACTION_OPT_VOX            = 5,
+    ACTION_OPT_FM             = 6,
+    ACTION_OPT_1750           = 7,
+    ACTION_OPT_KEYLOCK        = 8,
+    ACTION_OPT_A_B            = 9,
+    ACTION_OPT_VFO_MR         = 10,
+    ACTION_OPT_SWITCH_DEMODUL = 11,
+    ACTION_OPT_RXMODE         = 12,
+    ACTION_OPT_MAINONLY       = 13,
+    ACTION_OPT_PTT            = 14,
+    ACTION_OPT_WN             = 15,
+    ACTION_OPT_MUTE           = 16,
+    ACTION_OPT_RXA            = 17,
+
+    /* Preset-specific actions keep their IDs even when not compiled. */
+    ACTION_OPT_RXTX_LOG       = 18,
+    ACTION_OPT_BEAM           = 19,
+    ACTION_OPT_POWER_HIGH     = 20,
+    ACTION_OPT_REMOVE_OFFSET  = 21,
+    ACTION_OPT_FOXHUNT        = 22,
+
+    ACTION_OPT_LEN            = 23
 };
 
 #ifdef ENABLE_VOICE

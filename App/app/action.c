@@ -65,7 +65,7 @@ static void ACTION_1750(void);
 
 inline static void ACTION_ScanRestart() { ACTION_Scan(true); };
 
-void (*const action_opt_table[])(void) = {
+void (*const action_opt_table[ACTION_OPT_LEN])(void) = {
     [ACTION_OPT_NONE] = &FUNCTION_NOP,
     [ACTION_OPT_POWER] = &ACTION_Power,
     [ACTION_OPT_MONITOR] = &ACTION_Monitor,
@@ -77,38 +77,25 @@ void (*const action_opt_table[])(void) = {
 
 #ifdef ENABLE_FLASHLIGHT
     [ACTION_OPT_FLASHLIGHT] = &ACTION_FlashLight,
-#else
-    [ACTION_OPT_FLASHLIGHT] = &FUNCTION_NOP,
 #endif
 
 #ifdef ENABLE_VOX
     [ACTION_OPT_VOX] = &ACTION_Vox,
-#else
-    [ACTION_OPT_VOX] = &FUNCTION_NOP,
 #endif
 
 #ifdef ENABLE_FMRADIO
     [ACTION_OPT_FM] = &ACTION_FM,
-#else
-    [ACTION_OPT_FM] = &FUNCTION_NOP,
 #endif
-
-    [ACTION_OPT_RESERVED_ALARM] = &FUNCTION_NOP,
 
 #ifdef ENABLE_TX1750
     [ACTION_OPT_1750] = &ACTION_1750,
-#else
-    [ACTION_OPT_1750] = &FUNCTION_NOP,
 #endif
-
-    [ACTION_OPT_RESERVED_BLMIN_TMP_OFF] = &FUNCTION_NOP,
 
 #ifdef ENABLE_FEAT_F4HWN
     [ACTION_OPT_RXMODE] = &ACTION_RxMode,
     [ACTION_OPT_MAINONLY] = &ACTION_MainOnly,
     [ACTION_OPT_PTT] = &ACTION_Ptt,
     [ACTION_OPT_WN] = &ACTION_Wn,
-    [ACTION_OPT_BACKLIGHT] = &ACTION_BackLight,
     //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
         [ACTION_OPT_MUTE] = &ACTION_Mute,
     //#else
@@ -116,16 +103,12 @@ void (*const action_opt_table[])(void) = {
     //#endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         [ACTION_OPT_RXA] = &ACTION_RxA,
-    #else
-        [ACTION_OPT_RXA] = &FUNCTION_NOP,
     #endif
 
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
         [ACTION_OPT_POWER_HIGH] = &ACTION_Power_High,
         [ACTION_OPT_REMOVE_OFFSET] = &ACTION_Remove_Offset,
     #endif
-#else
-    [ACTION_OPT_RXMODE] = &FUNCTION_NOP,
 #endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
     [ACTION_OPT_BEAM] = &ACTION_Beam,
@@ -139,6 +122,16 @@ void (*const action_opt_table[])(void) = {
 };
 
 static_assert(ARRAY_SIZE(action_opt_table) == ACTION_OPT_LEN);
+static_assert(ACTION_OPT_RXTX_LOG == 18);
+static_assert(ACTION_OPT_BEAM == 19);
+static_assert(ACTION_OPT_POWER_HIGH == 20);
+static_assert(ACTION_OPT_REMOVE_OFFSET == 21);
+static_assert(ACTION_OPT_FOXHUNT == 22);
+
+bool ACTION_IsAvailable(uint8_t action)
+{
+    return action < ACTION_OPT_LEN && action_opt_table[action] != NULL;
+}
 
 void ACTION_Power(void)
 {
@@ -330,10 +323,9 @@ inline static bool ACTION_IsBlockedInFM(uint8_t action)
 }
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
 static void ACTION_Execute(uint8_t action)
 {
-    if (action >= ACTION_OPT_LEN || action_opt_table[action] == NULL) {
+    if (!ACTION_IsAvailable(action)) {
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         return;
     }
@@ -349,6 +341,7 @@ static void ACTION_Execute(uint8_t action)
     action_opt_table[action]();
 }
 
+#ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
 uint8_t gActionPickerKey;
 uint8_t gActionPickerSelection[2] = {1, 1};
 uint8_t gActionPickerTimeout_500ms;
@@ -467,20 +460,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     }
 
     // held or released after short press
-#ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
     ACTION_Execute(func);
-#else
-    gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
-    
-#ifdef ENABLE_FMRADIO
-    if (gFmRadioMode && ACTION_IsBlockedInFM(func)) {
-        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
-        return;
-    }
-#endif
-
-    action_opt_table[func]();
-#endif
 }
 
 
