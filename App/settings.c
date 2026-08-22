@@ -152,7 +152,9 @@ void SETTINGS_InitEEPROM(void)
         gEeprom.SET_KEY = ((Data[4] >> 2) & 0x0F) > 4 ? 0 : (Data[4] >> 2) & 0x0F;
         gEeprom.SET_NAV = (Data[4] & 0x40) != 0;
     #else
-        gEeprom.KEY_LOCK             = (Data[4] <  2) ? Data[4] : false;
+        // RescueOps fields can be present in a config bank shared with another
+        // preset. Read only KEY_LOCK here and leave the other bits untouched.
+        gEeprom.KEY_LOCK = (Data[4] & 0x01) != 0;
     #endif
     #ifdef ENABLE_VOX
         gEeprom.VOX_SWITCH       = (Data[5] <  2) ? Data[5] : false;
@@ -896,7 +898,11 @@ void SETTINGS_SaveSettings(void)
             ((gEeprom.SET_KEY & 0x0F) << 2)      |
             (gEeprom.SET_NAV  ? 0x40 : 0);
     #else
-        State[4] = gEeprom.KEY_LOCK;
+        // A non-RescueOps preset owns KEY_LOCK only. Preserve Set RescueOps,
+        // SetKEY, SetNav and reserved bits from a config created by another
+        // preset while updating bit 0.
+        PY25Q16_ReadBuffer(0x00A004, &State[4], 1);
+        State[4] = (State[4] & 0xFEu) | (gEeprom.KEY_LOCK ? 0x01u : 0u);
     #endif
 
     #ifdef ENABLE_VOX
@@ -1249,22 +1255,6 @@ void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep)
 
     if (IS_MR_CHANNEL(channel) && !keep)
         SETTINGS_SaveChannelName(channel, "");
-}
-
-void SETTINGS_WriteChirpCapabilities(void)
-{
-    enum {
-        CHIRP_CAP_RESCUE_OPS = 1u << 0,
-    };
-
-    uint8_t capabilities[2] = {0};
-
-#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-    capabilities[0] |= CHIRP_CAP_RESCUE_OPS;
-#endif
-
-    // 0xA158..0xA159 are reserved for the firmware/CHIRP capability contract.
-    PY25Q16_WriteBuffer(0x00A158, capabilities, sizeof(capabilities), false);
 }
 
 #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE

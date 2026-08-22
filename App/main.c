@@ -119,7 +119,6 @@ void Main(void)
         gCB = gEeprom.CROSS_BAND_RX_TX;
     #endif
 
-    SETTINGS_WriteChirpCapabilities();
     SETTINGS_LoadCalibration();
 
     RADIO_ConfigureChannel(0, VFO_CONFIGURE_RELOAD);
