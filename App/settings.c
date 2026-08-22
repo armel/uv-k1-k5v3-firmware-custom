@@ -375,11 +375,7 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     #ifdef ENABLE_AUDIO_BAR
         gSetting_mic_bar       = !!(Data[7] & (1u << 4));
     #endif
-    #ifndef ENABLE_FEAT_F4HWN
-        #ifdef ENABLE_AM_FIX
-            gSetting_AM_fix        = !!(Data[7] & (1u << 5));
-        #endif
-    #endif
+    // Data[7] bit 5 is reserved (legacy ENABLE_AM_FIX).
     gSetting_backlight_on_tx_rx = (Data[7] >> 6) & 3u;
 
     if (!gEeprom.VFO_OPEN)
@@ -1076,11 +1072,7 @@ void SETTINGS_SaveSettings(void)
     #ifdef ENABLE_AUDIO_BAR
         if (!gSetting_mic_bar)           State[7] &= ~(1u << 4);
     #endif
-    #ifndef ENABLE_FEAT_F4HWN
-        #ifdef ENABLE_AM_FIX
-            if (!gSetting_AM_fix)            State[7] &= ~(1u << 5);
-        #endif
-    #endif
+    // State[7] bit 5 is preserved (legacy ENABLE_AM_FIX).
     State[7] = (State[7] & ~(3u << 6)) | ((gSetting_backlight_on_tx_rx & 3u) << 6);
 
     PY25Q16_WriteBuffer(0x00A150, SecBuf, 8, false);
@@ -1305,9 +1297,7 @@ State[1] = 0
 #ifdef ENABLE_FEAT_F4HWN_GAME
     | (1 << 3)
 #endif
-#ifdef ENABLE_AM_FIX
-    | (1 << 4)
-#endif
+// Bit 4 is reserved (legacy ENABLE_AM_FIX).
 #ifdef ENABLE_SPECTRUM
     | (1 << 5)
 #endif

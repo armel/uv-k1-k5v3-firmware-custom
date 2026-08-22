@@ -675,11 +675,7 @@ void ACTION_Wn(void)
         }
     #endif
 
-    #ifdef ENABLE_AM_FIX
-        BK4819_SetFilterBandwidth(bw, true);
-    #else
-        BK4819_SetFilterBandwidth(bw, false);
-    #endif
+    BK4819_SetFilterBandwidth(bw, false);
 }
 
 void ACTION_BackLight(void)

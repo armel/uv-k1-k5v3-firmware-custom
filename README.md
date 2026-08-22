@@ -274,11 +274,10 @@ Specialized presets extend Fusion for specific uses:
 - Improved VFO persistence and restoration.
 - Extensive code refactoring and memory optimization.
 - DTMF calling and the scrambler remain disabled in Fusion.
-- Legacy AM Fix code is not used by this firmware.
+- Legacy AM Fix support has been removed.
 
 ## Main features from Egzumer:
 * many of OneOfEleven mods:
-   * AM fix, huge improvement in reception quality
    * long press buttons functions replicating F+ action
    * fast scanning
    * channel name editing in the menu

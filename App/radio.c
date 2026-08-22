@@ -17,7 +17,6 @@
 #include "driver/bk4819-regs.h"
 #include <string.h>
 
-#include "am_fix.h"
 #include "app/dtmf.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
@@ -767,12 +766,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
             case BK4819_FILTER_BW_WIDE:
             case BK4819_FILTER_BW_NARROW:
             case BK4819_FILTER_BW_NARROWER:
-                #ifdef ENABLE_AM_FIX
-    //              BK4819_SetFilterBandwidth(Bandwidth, gRxVfo->Modulation == MODULATION_AM && gSetting_AM_fix);
-                    BK4819_SetFilterBandwidth(Bandwidth, true);
-                #else
-                    BK4819_SetFilterBandwidth(Bandwidth, false);
-                #endif
+                BK4819_SetFilterBandwidth(Bandwidth, false);
                 break;
         }
     }
@@ -994,12 +988,7 @@ void RADIO_SetTxParameters(void)
         case BK4819_FILTER_BW_WIDE:
         case BK4819_FILTER_BW_NARROW:
         case BK4819_FILTER_BW_NARROWER:
-            #ifdef ENABLE_AM_FIX
-//              BK4819_SetFilterBandwidth(Bandwidth, gCurrentVfo->Modulation == MODULATION_AM && gSetting_AM_fix);
-                BK4819_SetFilterBandwidth(Bandwidth, true);
-            #else
-                BK4819_SetFilterBandwidth(Bandwidth, false);
-            #endif
+            BK4819_SetFilterBandwidth(Bandwidth, false);
             break;
     }
 
@@ -1149,14 +1138,6 @@ void RADIO_SetupAGC(bool listeningAM, bool disable)
     if (lastSettings == newSettings)
         return;
     lastSettings = newSettings;
-
-#ifdef ENABLE_AM_FIX
-    if (listeningAM && gSetting_AM_fix) {
-        BK4819_SetAGC(0);
-        AM_fix_enable(!disable);
-        return;
-    }
-#endif
 
     BK4819_SetAGC(!disable);
     BK4819_InitAGC(listeningAM);
