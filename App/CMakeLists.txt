@@ -165,7 +165,6 @@ enable_feature(ENABLE_FEAT_F4HWN_AUDIO_SCOPE)
 enable_feature(ENABLE_COPY_CHAN_TO_VFO)
 enable_feature(ENABLE_REDUCE_LOW_MID_TX_POWER)
 enable_feature(ENABLE_BYP_RAW_DEMODULATORS)
-enable_feature(ENABLE_BLMIN_TMP_OFF)
 enable_feature(ENABLE_SCAN_RANGES)
 
 # ---- CONTRIB MODS ----

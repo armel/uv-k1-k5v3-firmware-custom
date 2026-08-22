@@ -113,7 +113,7 @@ enum ACTION_OPT_t {
     ACTION_OPT_A_B,
     ACTION_OPT_VFO_MR,
     ACTION_OPT_SWITCH_DEMODUL,
-    ACTION_OPT_BLMIN_TMP_OFF, //BackLight Minimum Temporay OFF
+    ACTION_OPT_RESERVED_BLMIN_TMP_OFF, // Reserved EEPROM ID; removed in v6.0.0
 #ifdef ENABLE_FEAT_F4HWN
     ACTION_OPT_RXMODE,
     ACTION_OPT_MAINONLY,
@@ -292,9 +292,6 @@ typedef struct {
 
     uint8_t               KEY_M_LONG_PRESS_ACTION;
     uint8_t               BACKLIGHT_MIN;
-#ifdef ENABLE_BLMIN_TMP_OFF
-    BLMIN_STAT_t          BACKLIGHT_MIN_STAT;
-#endif
     uint8_t               BACKLIGHT_MAX;
     BATTERY_Type_t        BATTERY_TYPE;
 #ifdef ENABLE_RSSI_BAR

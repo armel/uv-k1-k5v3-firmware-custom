@@ -164,9 +164,6 @@ void SETTINGS_InitEEPROM(void)
     PY25Q16_ReadBuffer(0x00A008, Data, 8);
     gEeprom.BACKLIGHT_MAX         = (Data[0] & 0xF) <= 10 ? (Data[0] & 0xF) : 10;
     gEeprom.BACKLIGHT_MIN         = (Data[0] >> 4) < gEeprom.BACKLIGHT_MAX ? (Data[0] >> 4) : 0;
-#ifdef ENABLE_BLMIN_TMP_OFF
-    gEeprom.BACKLIGHT_MIN_STAT    = BLMIN_STAT_ON;
-#endif
     gEeprom.CHANNEL_DISPLAY_MODE  = (Data[1] < 4) ? Data[1] : MDF_FREQUENCY;    // 4 instead of 3 - extra display mode
     gEeprom.CROSS_BAND_RX_TX      = (Data[2] < 3) ? Data[2] : CROSS_BAND_OFF;
     gEeprom.BATTERY_SAVE          = (Data[3] < 6) ? Data[3] : 4;

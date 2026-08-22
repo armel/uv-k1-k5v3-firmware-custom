@@ -101,11 +101,7 @@ void (*const action_opt_table[])(void) = {
     [ACTION_OPT_1750] = &FUNCTION_NOP,
 #endif
 
-#ifdef ENABLE_BLMIN_TMP_OFF
-    [ACTION_OPT_BLMIN_TMP_OFF] = &ACTION_BlminTmpOff,
-#else
-    [ACTION_OPT_BLMIN_TMP_OFF] = &FUNCTION_NOP,
-#endif
+    [ACTION_OPT_RESERVED_BLMIN_TMP_OFF] = &FUNCTION_NOP,
 
 #ifdef ENABLE_FEAT_F4HWN
     [ACTION_OPT_RXMODE] = &ACTION_RxMode,
@@ -592,18 +588,6 @@ void ACTION_Vox(void)
     #ifdef ENABLE_VOICE
         gAnotherVoiceID  = VOICE_ID_VOX;
     #endif
-}
-#endif
-
-#ifdef ENABLE_BLMIN_TMP_OFF
-void ACTION_BlminTmpOff(void)
-{
-    if(++gEeprom.BACKLIGHT_MIN_STAT == BLMIN_STAT_UNKNOWN) {
-        gEeprom.BACKLIGHT_MIN_STAT = BLMIN_STAT_ON;
-        BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MIN);
-    } else {
-        BACKLIGHT_SetBrightness(0);
-    }
 }
 #endif
 

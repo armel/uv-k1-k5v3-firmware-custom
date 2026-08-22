@@ -496,9 +496,6 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     {"VFO A\nVFO B",    ACTION_OPT_A_B},
     {"VFO\nMEM",        ACTION_OPT_VFO_MR},
     {"MODE",            ACTION_OPT_SWITCH_DEMODUL},
-#ifdef ENABLE_BLMIN_TMP_OFF
-    {"BLMIN\nTMP OFF",  ACTION_OPT_BLMIN_TMP_OFF},      //BackLight Minimum Temporary OFF
-#endif
 #ifdef ENABLE_FEAT_F4HWN
     {"RX MODE",         ACTION_OPT_RXMODE},
     {"MAIN ONLY",       ACTION_OPT_MAINONLY},
