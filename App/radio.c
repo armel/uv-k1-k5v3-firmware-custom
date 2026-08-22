@@ -1213,12 +1213,10 @@ void RADIO_PrepareTX(void)
         State = VFO_STATE_TX_DISABLE;
     }
 #endif
-#ifndef ENABLE_TX_WHEN_AM
     else if (gCurrentVfo->Modulation != MODULATION_FM) {
-        // not allowed to TX if in AM mode
+        // AM and other non-FM modes are receive-only.
         State = VFO_STATE_TX_DISABLE;
     }
-#endif
 
     if (State != VFO_STATE_NORMAL) {
         // TX not allowed

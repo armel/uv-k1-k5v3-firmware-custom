@@ -841,10 +841,8 @@ static VfoState_t FOXHUNT_TxState(void)
         return VFO_STATE_BAT_LOW;
     if (gBatteryDisplayLevel > 6)
         return VFO_STATE_VOLTAGE_HIGH;
-#ifndef ENABLE_TX_WHEN_AM
     if (gTxVfo->Modulation != MODULATION_FM)
         return VFO_STATE_TX_DISABLE;
-#endif
     return VFO_STATE_NORMAL;
 }
 

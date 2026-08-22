@@ -39,7 +39,6 @@
                 "ENABLE_CUSTOM_MENU_LAYOUT": true,
                 "ENABLE_KEEP_MEM_NAME": true,
                 "ENABLE_WIDE_RX": true,
-                "ENABLE_TX_WHEN_AM": false,
                 "ENABLE_F_CAL_MENU": false,
                 "ENABLE_CTCSS_TAIL_PHASE_SHIFT": false,
                 "ENABLE_BOOT_BEEPS": false,
