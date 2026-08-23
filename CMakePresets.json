@@ -148,16 +148,6 @@
             }
         },
         {
-            "name": "Transfer",
-            "inherits": "Fusion",
-            "cacheVariables": {
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_BEAM": true,
-                "EDITION_STRING": "Transfer",
-                "TARGET": "f4hwn.transfer"
-            }
-        },
-        {
             "name": "Field",
             "inherits": "Fusion",
             "cacheVariables": {
@@ -168,7 +158,17 @@
             }
         },
         {
-            "name": "Extended",
+            "name": "Transfer",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_AIRCOPY": true,
+                "ENABLE_FEAT_F4HWN_BEAM": true,
+                "EDITION_STRING": "Transfer",
+                "TARGET": "f4hwn.transfer"
+            }
+        },
+        {
+            "name": "Max",
             "inherits": "Fusion",
             "cacheVariables": {
                 "ENABLE_AIRCOPY": true,
@@ -176,8 +176,8 @@
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_BEAM": true,
                 "ENABLE_FEAT_F4HWN_FOXHUNT": true,
-                "EDITION_STRING": "Extended",
-                "TARGET": "f4hwn.extended"
+                "EDITION_STRING": "Max",
+                "TARGET": "f4hwn.max"
             }
         }
     ],
@@ -199,8 +199,8 @@
             "configurePreset": "Field"
         },
         {
-            "name": "Extended",
-            "configurePreset": "Extended"
+            "name": "Max",
+            "configurePreset": "Max"
         }
     ]
 }
