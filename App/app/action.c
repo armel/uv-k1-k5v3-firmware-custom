@@ -482,6 +482,14 @@ void ACTION_FM(void)
             return;
         }
 
+        // Do not start broadcast FM while a VFO reception is already active.
+        // Keeping this check after the block above ensures EXIT can still
+        // turn FM off if the UI ever reaches DISPLAY_MAIN with FM mode active.
+        if (FUNCTION_IsRx()) {
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            return;
+        }
+
         gMonitor = false;
 
         if (gScanStateDir != SCAN_OFF) {
