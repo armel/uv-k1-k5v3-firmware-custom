@@ -154,7 +154,7 @@
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_FOXHUNT": true,
                 "EDITION_STRING": "FieldOps",
-                "TARGET": "f4hwn.field"
+                "TARGET": "f4hwn.fieldops"
             }
         },
         {
