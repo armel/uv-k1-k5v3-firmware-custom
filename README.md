@@ -72,7 +72,7 @@ for everyday use and is the base inherited by the specialized editions. It inclu
 Specialized presets extend Fusion for specific uses:
 
 - **Transfer** adds AirCopy and BEAM wireless channel transfer.
-- **Field** adds first-responder controls, Fox Hunt and Morse Beacon support.
+- **FieldOps** adds first-responder controls, Fox Hunt and Morse Beacon support.
 - **Max** packs the broadest practical selection of features that fits safely within
   the radio's Flash and RAM limits. It is not a strict superset of every other edition:
   features may be exchanged between releases to preserve stability and memory headroom.
@@ -359,9 +359,9 @@ The default preset is **Fusion**. Available presets are:
 - **Custom**
 - **Fusion**
 - **Transfer**
-- **Field**
+- **FieldOps**
 - **Max**
-- **All** (Fusion, Transfer, Field and Max)
+- **All** (Fusion, Transfer, FieldOps and Max)
 
 Examples:
 
@@ -369,7 +369,7 @@ Examples:
 ./compile-with-docker.sh
 ./compile-with-docker.sh Fusion
 ./compile-with-docker.sh Transfer
-./compile-with-docker.sh Field
+./compile-with-docker.sh FieldOps
 ./compile-with-docker.sh Max
 ./compile-with-docker.sh All
 ```
@@ -382,7 +382,7 @@ These are forwarded directly to `cmake --preset` inside the container.
 Examples:
 
 ```bash
-./compile-with-docker.sh Field -DENABLE_VOX=OFF
+./compile-with-docker.sh FieldOps -DENABLE_VOX=OFF
 ./compile-with-docker.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON
 ./compile-with-docker.sh Fusion -DSQL_TONE=600
 ```

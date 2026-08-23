@@ -7,16 +7,16 @@ set -euo pipefail
 # Examples:
 #   ./compile-with-docker.sh Fusion
 #   ./compile-with-docker.sh Transfer
-#   ./compile-with-docker.sh Field
+#   ./compile-with-docker.sh FieldOps
 #   ./compile-with-docker.sh Max
 #   ./compile-with-docker.sh Fusion -DDEV=ON
-#   ./compile-with-docker.sh Field -DENABLE_VOX=OFF
+#   ./compile-with-docker.sh FieldOps -DENABLE_VOX=OFF
 #   ./compile-with-docker.sh All
 # Default preset: "Fusion"
 # ---------------------------------------------
 
 IMAGE=uvk1-uvk5v3
-RELEASE_PRESETS=(Fusion Transfer Field Max)
+RELEASE_PRESETS=(Fusion Transfer FieldOps Max)
 FLASH_LIMIT=$((118 * 1024))
 RAM_LIMIT=$((16 * 1024))
 
@@ -29,9 +29,9 @@ EXTRA_ARGS=("$@")
 # ---------------------------------------------
 # Validate preset name
 # ---------------------------------------------
-if [[ ! "$PRESET" =~ ^(Custom|Fusion|Transfer|Field|Max|All)$ ]]; then
+if [[ ! "$PRESET" =~ ^(Custom|Fusion|Transfer|FieldOps|Max|All)$ ]]; then
   echo "❌ Unknown preset: '$PRESET'"
-  echo "Valid presets are: Custom, Fusion, Transfer, Field, Max, All"
+  echo "Valid presets are: Custom, Fusion, Transfer, FieldOps, Max, All"
   exit 1
 fi
 
