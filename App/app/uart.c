@@ -403,6 +403,10 @@ static void CMD_051B(uint32_t Port, const uint8_t *pBuffer)
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
 
+    // Reject reads that do not fit in the fixed-size reply buffer.
+    if (pCmd->Size > sizeof(Reply.Data.Data))
+        return;
+
     memset(&Reply, 0, sizeof(Reply));
     Reply.Header.ID   = 0x051C;
     Reply.Header.Size = pCmd->Size + 4;
@@ -416,7 +420,7 @@ static void CMD_051B(uint32_t Port, const uint8_t *pBuffer)
     {
         EEPROM_ReadBuffer(pCmd->Offset, Reply.Data.Data, pCmd->Size);
     }
-    
+
     SendReply(Port, &Reply, pCmd->Size + 8);
 }
 
