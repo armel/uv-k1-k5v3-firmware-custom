@@ -298,9 +298,10 @@ static void SendVersion(uint32_t Port)
 {
     REPLY_0514_t Reply;
 
+    Reply.Data.Padding[0] = Reply.Data.Padding[1] = 0;
     Reply.Header.ID = 0x0515;
     Reply.Header.Size = sizeof(Reply.Data);
-    strcpy(Reply.Data.Version, Version);
+    strncpy(Reply.Data.Version, Version, sizeof(Reply.Data.Version));
     Reply.Data.bHasCustomAesKey = bHasCustomAesKey;
     Reply.Data.bIsInLockScreen = bIsInLockScreen;
     Reply.Data.Challenge[0] = gChallenge[0];
@@ -434,6 +435,9 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
 
     uint32_t Timestamp = 0;
 
+    if ((pCmd->Size & 7u) || pCmd->Header.Size < 8u + pCmd->Size)
+        return;
+
     if(0) {}
 #if defined(ENABLE_UART)
     else if (Port == UART_PORT_UART)
@@ -560,6 +564,7 @@ static void CMD_052D(uint32_t Port, const uint8_t *pBuffer)
     
     gIsLocked            = bIsLocked;
     Reply.Data.bIsLocked = bIsLocked;
+    Reply.Data.Padding[0] = Reply.Data.Padding[1] = Reply.Data.Padding[2] = 0;
 
     SendReply(Port, &Reply, sizeof(Reply));
 }
@@ -796,7 +801,9 @@ bool UART_IsCommandAvailable(uint32_t Port)
 
     Crc = pUART_Command->Buffer[Size] | (pUART_Command->Buffer[Size + 1] << 8);
 
-    return CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
+    return Size >= sizeof(Header_t) &&
+           pUART_Command->Header.Size <= Size - sizeof(Header_t) &&
+           CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
 }
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
@@ -936,6 +943,8 @@ void UART_HandleCommand(uint32_t Port)
 
         case 0x0724: // slot write: program bytes at slot+offset (slot pre-erased)
         {
+            if (pUART_Command->Header.Size < 12u)
+                break;
             gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
             uint8_t  slot   = pUART_Command->Data[0];
             uint32_t offset = (uint32_t)pUART_Command->Data[2]
@@ -951,7 +960,7 @@ void UART_HandleCommand(uint32_t Port)
             uint8_t status;
             if (ts != mb_port_timestamp(Port))
                 status = MB_ERR_AUTH;
-            else if (len > 240u)  // 12-byte prefix + data must fit Data[252]
+            else if (len > pUART_Command->Header.Size - 12u)
                 status = MB_ERR_SIZE;
             else
                 status = MB_SlotWrite(slot, offset, &pUART_Command->Data[12], len);

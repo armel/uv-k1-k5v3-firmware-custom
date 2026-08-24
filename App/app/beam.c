@@ -174,7 +174,6 @@ static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
     VFO_Info_t vfo;
     RADIO_InitInfo(&vfo, channel, payload->rx_frequency);
 
-    // CRC + magic + version already validate the payload — no need to clamp fields.
     vfo.TX_OFFSET_FREQUENCY = payload->tx_offset_frequency;
     vfo.freq_config_RX.Code = payload->rx_code;
     vfo.freq_config_TX.Code = payload->tx_code;
@@ -191,10 +190,9 @@ static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
 #ifdef ENABLE_DTMF_CALLING
     vfo.DTMF_DECODING_ENABLE = payload->dtmf_decoding_enable;
 #endif
-    vfo.STEP_SETTING = payload->step_setting;
+    vfo.STEP_SETTING = payload->step_setting < STEP_N_ELEM ? payload->step_setting : STEP_12_5kHz;
     vfo.StepFrequency = gStepFrequencyTable[vfo.STEP_SETTING];
     vfo.SCRAMBLING_TYPE = payload->scrambling_type;
-    vfo.Band = payload->band;
     vfo.SCANLIST_PARTICIPATION = payload->scanlist;
     vfo.Compander = payload->compander;
     

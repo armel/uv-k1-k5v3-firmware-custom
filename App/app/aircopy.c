@@ -88,13 +88,14 @@ DECLARE_AIRCOPY_BANK(1)
 // For settings only
 
 static const AIRCOPY_Segment_t AIRCOPY_Segments_Settings[] = {
-    { 0xA000, 0xA170, AIRCOPY_WRITE_BYTES },
-    { 0x880E, 0x886E, AIRCOPY_WRITE_BYTES },
-    { 0x9000, 0x90E5, AIRCOPY_WRITE_BYTES }, // VFO area (full 14 VFOs 0x9000..0x90E0) +
-                                             // Fox Hunt settings tail 0x90E0..0x90E5
+    // Ends are rounded to full Aircopy blocks. The extra bytes are unmapped
+    // EEPROM-compat holes (0x90E0..0x90E6 is the complete Fox Hunt tail).
+    { 0xA000, 0xA180, AIRCOPY_WRITE_BYTES },
+    { 0x880E, 0x888E, AIRCOPY_WRITE_BYTES },
+    { 0x9000, 0x9100, AIRCOPY_WRITE_BYTES },
 };
 
-// total_blocks = ceil(0x170/64) + ceil(0x60/64) + ceil(0xE5/64) = 6 + 2 + 4 = 12
+// total_blocks = 0x180/64 + 0x80/64 + 0x100/64 = 6 + 2 + 4 = 12
 static const AIRCOPY_TransferMap_t AIRCOPY_Map_Settings = {
     .segments = AIRCOPY_Segments_Settings,
     .num_segments = 3,
@@ -154,7 +155,8 @@ static inline const AIRCOPY_Segment_t *AIRCOPY_FindSegmentForOffset(uint16_t off
     {
         const AIRCOPY_Segment_t *seg = &map->segments[i];
 
-        if (off >= seg->start_offset && off < seg->end_offset)
+        if (off >= seg->start_offset && off < seg->end_offset &&
+            ((off - seg->start_offset) & (AIRCOPY_BLOCK_SIZE - 1u)) == 0u)
             return seg;
     }
 
