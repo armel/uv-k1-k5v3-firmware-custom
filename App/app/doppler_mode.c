@@ -293,6 +293,7 @@ void DOPPLER_TimeSlice(void)
 
     if (now < pSat->start_unix)
     {
+        gUpdateDisplay = true;   // refresh the WAIT countdown once per second
         return; // pass not started yet
     }
 
@@ -397,6 +398,17 @@ void DOPPLER_Render(void)
     else
     {
         UI_PrintString("WAIT", 0, 127, 1, 8);
+
+        // Countdown to pass start (T-HH:MM:SS), refreshed every second
+        const int32_t togo = (int32_t)pSat->start_unix - (int32_t)RTC_GetUnix32();
+        if (togo > 0)
+        {
+            snprintf(Buffer, sizeof(Buffer), "T-%02lu:%02lu:%02lu",
+                     (unsigned long)((uint32_t)togo / 3600u),
+                     (unsigned long)(((uint32_t)togo % 3600u) / 60u),
+                     (unsigned long)((uint32_t)togo % 60u));
+            UI_PrintStringSmallNormal(Buffer, 0, 127, 6);
+        }
     }
 
     ST7565_BlitFullScreen();   // 推送 LCD
