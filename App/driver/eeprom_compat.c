@@ -110,11 +110,8 @@ void EEPROM_ReadBuffer(uint16_t Address, void *pBuffer, uint8_t Size)
     }
 }
 
-void EEPROM_WriteBuffer(uint16_t Address, const void *pBuffer)
+void EEPROM_WriteBuffer(uint16_t Address, const void *pBuffer, uint8_t Size)
 {
-    // Write 8 bytes!!
-
-    uint16_t Size = 8;
     while (Size)
     {
         uint32_t PY_Addr;

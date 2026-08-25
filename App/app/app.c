@@ -1007,36 +1007,44 @@ static void CheckRadioInterrupts(void)
             BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
         }
 
-#ifdef ENABLE_AIRCOPY
-        if (interrupts.fskFifoAlmostFull &&
-            gScreenToDisplay == DISPLAY_AIRCOPY &&
-            gAircopyState == AIRCOPY_TRANSFER &&
-            gAirCopyIsSendMode == 0)
+#if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_BEAM)
+        if (interrupts.fskFifoAlmostFull || interrupts.fskRxFinied)
         {
-            for (unsigned int i = 0; i < 4; i++) {
-                g_FSK_Buffer[gFSKWriteIndex++] = BK4819_ReadRegister(BK4819_REG_5F);
-            }
-
-            AIRCOPY_StorePacket();
-        }
-#endif
+            uint8_t fskTarget = 0;
 
 #ifdef ENABLE_FEAT_F4HWN_BEAM
-        if ((interrupts.fskFifoAlmostFull || interrupts.fskRxFinied) &&
-            gBeamActive &&
-            gBeamMode == BEAM_MODE_RX &&
-            (gBeamStatus == BEAM_STATUS_RX_WAIT || gBeamStatus == BEAM_STATUS_ERROR))
-        {
-            const unsigned int wordsToRead = interrupts.fskRxFinied ? (36 - gFSKWriteIndex) : 4;
-            for (unsigned int i = 0; i < wordsToRead; i++) {
-                const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
-                if (gFSKWriteIndex < 36)
-                    g_FSK_Buffer[gFSKWriteIndex++] = word;
-            }
+            if (gBeamActive &&
+                gBeamMode == BEAM_MODE_RX &&
+                (gBeamStatus == BEAM_STATUS_RX_WAIT || gBeamStatus == BEAM_STATUS_ERROR))
+                fskTarget = 2;
+#endif
+#ifdef ENABLE_AIRCOPY
+            // Aircopy wins if stale state ever makes both receivers eligible.
+            if (gScreenToDisplay == DISPLAY_AIRCOPY &&
+                gAircopyState == AIRCOPY_TRANSFER)
+                fskTarget = 1;
+#endif
 
-            gBeamRxWordCount = gFSKWriteIndex;
-            gUpdateDisplay = true;
-            BEAM_StorePacket();
+            if (fskTarget != 0)
+            {
+                const unsigned int wordsToRead = interrupts.fskRxFinied
+                                               ? (gFSKWriteIndex < 36 ? 36u - gFSKWriteIndex : 0u)
+                                               : 4u;
+                for (unsigned int i = 0; i < wordsToRead; i++) {
+                    const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
+                    if (gFSKWriteIndex < 36)
+                        g_FSK_Buffer[gFSKWriteIndex++] = word;
+                }
+
+#ifdef ENABLE_AIRCOPY
+                if (fskTarget == 1)
+                    AIRCOPY_StorePacket();
+#endif
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+                if (fskTarget == 2)
+                    BEAM_StorePacket();
+#endif
+            }
         }
 #endif
     }
@@ -1446,7 +1454,7 @@ void CheckKeys(void)
 #endif
 
 #ifdef ENABLE_AIRCOPY
-    if (gScreenToDisplay == DISPLAY_AIRCOPY && gAircopyState != AIRCOPY_READY){
+    if (gScreenToDisplay == DISPLAY_AIRCOPY && gAircopyState == AIRCOPY_TRANSFER){
         return;
     }
 #endif
@@ -1750,7 +1758,7 @@ void APP_TimeSlice10ms(void)
 #endif
 
 #ifdef ENABLE_AIRCOPY
-    if (gScreenToDisplay == DISPLAY_AIRCOPY && gAircopyState == AIRCOPY_TRANSFER && gAirCopyIsSendMode == 1) {
+    if (gScreenToDisplay == DISPLAY_AIRCOPY && gAircopyState == AIRCOPY_TRANSFER) {
         if (!AIRCOPY_SendMessage()) {
             GUI_DisplayScreen();
         }

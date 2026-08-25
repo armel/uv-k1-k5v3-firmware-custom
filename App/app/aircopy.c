@@ -21,6 +21,7 @@
 #include "driver/bk4819.h"
 #include "driver/crc.h"
 #include "driver/eeprom.h"
+#include "driver/system.h"
 #include "frequencies.h"
 #include "misc.h"
 #include "radio.h"
@@ -29,6 +30,7 @@
 #include "ui/ui.h"
 #include "settings.h"
 #include <stddef.h>
+#include <string.h>
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "k5viewer.h"
@@ -43,140 +45,73 @@ bool     gAirCopyIsSendMode;
 
 uint16_t g_FSK_Buffer[36];
 
-// ============================================================================
-// Transfer Maps Definition
-// ============================================================================
+// Stop-and-wait protocol. Every frame keeps the original 64-byte payload:
+// DATA is acknowledged only after storage, ACK confirms that offset, and
+// RESEND requests the same offset immediately instead of waiting for timeout.
+#define AIRCOPY_PACKET_DATA          0xABCDu
+#define AIRCOPY_PACKET_ACK           0xABCEu
+#define AIRCOPY_PACKET_RESEND        0xABCFu
+#define AIRCOPY_PACKET_END           0xDCBAu
+#define AIRCOPY_ACK_TIMEOUT_10MS     400u
+#define AIRCOPY_RX_TIMEOUT_10MS      2000u
+#define AIRCOPY_RX_LINGER_10MS       500u
+#define AIRCOPY_MAX_RETRIES          3u
 
-#define AIRCOPY_BANK_SEGMENTS(bank)                     \
-{                                                       \
-    { 0x0000 + (bank)*0x0800, 0x0000 + (bank)*0x0800 + 0x0800, AIRCOPY_WRITE_STRUCT }, \
-    { 0x4000 + (bank)*0x0800, 0x4000 + (bank)*0x0800 + 0x0800, AIRCOPY_WRITE_STRUCT }, \
-    { 0x8000 + (bank)*0x0100, 0x8000 + (bank)*0x0100 + 0x0100, AIRCOPY_WRITE_BYTES  }, \
-}
+static uint16_t AircopyCountdown;
+static uint8_t  AircopyRetries;
 
-#define AIRCOPY_STD_MAP(seg_array) \
-{                                  \
-    .segments = seg_array,         \
-    .num_segments = 3,             \
-    .total_blocks = 68             \
-}
-
-// total_blocks = 68 (blocs of 64 bytes) because (16 bytes + 16 bytes + 2 bytes) * 128 = 4352 / 64 = 68
-
-#define DECLARE_AIRCOPY_BANK(n)                                     \
-    static const AIRCOPY_Segment_t AIRCOPY_Segments_Bank##n[] =     \
-        AIRCOPY_BANK_SEGMENTS(n);                                   \
-                                                                    \
-    static const AIRCOPY_TransferMap_t AIRCOPY_Map_Bank##n =        \
-        AIRCOPY_STD_MAP(AIRCOPY_Segments_Bank##n);
-
-DECLARE_AIRCOPY_BANK(0)
-DECLARE_AIRCOPY_BANK(1)
-#if AIRCOPY_NUM_BANKS >= 4 // if 512 MR CHANNEL
-    DECLARE_AIRCOPY_BANK(2)
-    DECLARE_AIRCOPY_BANK(3)
-#endif
-#if AIRCOPY_NUM_BANKS >= 6 // if 758 MR CHANNEL
-    DECLARE_AIRCOPY_BANK(4)
-    DECLARE_AIRCOPY_BANK(5)
-#endif
-#if AIRCOPY_NUM_BANKS >= 8 // if 1024 MR CHANNEL
-    DECLARE_AIRCOPY_BANK(6)
-    DECLARE_AIRCOPY_BANK(7)
-#endif
-
-// For settings only
-
-static const AIRCOPY_Segment_t AIRCOPY_Segments_Settings[] = {
-    // Ends are rounded to full Aircopy blocks. The extra bytes are unmapped
-    // EEPROM-compat holes (0x90E0..0x90E6 is the complete Fox Hunt tail).
-    { 0xA000, 0xA180, AIRCOPY_WRITE_BYTES },
-    { 0x880E, 0x888E, AIRCOPY_WRITE_BYTES },
-    { 0x9000, 0x9100, AIRCOPY_WRITE_BYTES },
-};
-
-// total_blocks = 0x180/64 + 0x80/64 + 0x100/64 = 6 + 2 + 4 = 12
-static const AIRCOPY_TransferMap_t AIRCOPY_Map_Settings = {
-    .segments = AIRCOPY_Segments_Settings,
-    .num_segments = 3,
-    .total_blocks = 12
-};
-
-// Finally
-
-static const AIRCOPY_TransferMap_t *AIRCOPY_AvailableMaps[] = {
-    &AIRCOPY_Map_Bank0,
-    &AIRCOPY_Map_Bank1,
-    #if AIRCOPY_NUM_BANKS >= 4 // if 512 MR CHANNEL
-        &AIRCOPY_Map_Bank2,
-        &AIRCOPY_Map_Bank3,
-    #endif
-    #if AIRCOPY_NUM_BANKS >= 6 // if 758 MR CHANNEL
-        &AIRCOPY_Map_Bank4,
-        &AIRCOPY_Map_Bank5,
-    #endif
-    #if AIRCOPY_NUM_BANKS >= 8 // if 1024 MR CHANNEL
-        &AIRCOPY_Map_Bank6,
-        &AIRCOPY_Map_Bank7,
-    #endif
-    &AIRCOPY_Map_Settings,
-};
-
-#define AIRCOPY_NUM_MAPS (sizeof(AIRCOPY_AvailableMaps) / sizeof(AIRCOPY_AvailableMaps[0]))
+#define AIRCOPY_NUM_MAPS        (AIRCOPY_NUM_BANKS + 1u)
+#define AIRCOPY_BANK_BLOCKS     68u
+#define AIRCOPY_SETTINGS_BLOCKS 12u
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-const AIRCOPY_TransferMap_t* AIRCOPY_GetCurrentMap(void)
+uint8_t AIRCOPY_GetTotalBlocks(void)
 {
-    if (gAircopyCurrentMapIndex >= AIRCOPY_NUM_MAPS) {
-        gAircopyCurrentMapIndex = 0;
+    return gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS
+         ? AIRCOPY_SETTINGS_BLOCKS
+         : AIRCOPY_BANK_BLOCKS;
+}
+
+static uint16_t AIRCOPY_GetBlockOffset(uint16_t block)
+{
+    if (gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS)
+    {
+        // Settings: 6 blocks at 0xA000, 2 at 0x880E and 4 at 0x9000.
+        if (block < 6u)
+            return 0xA000u + block * AIRCOPY_BLOCK_SIZE;
+        if (block < 8u)
+            return 0x880Eu + (block - 6u) * AIRCOPY_BLOCK_SIZE;
+        return 0x9000u + (block - 8u) * AIRCOPY_BLOCK_SIZE;
     }
-    return AIRCOPY_AvailableMaps[gAircopyCurrentMapIndex];
+
+    // A bank contains 32 frequency, 32 name and 4 attribute blocks.
+    const uint16_t channelOffset = gAircopyCurrentMapIndex * 0x0800u;
+    if (block < 32u)
+        return channelOffset + block * AIRCOPY_BLOCK_SIZE;
+    if (block < 64u)
+        return 0x4000u + channelOffset + (block - 32u) * AIRCOPY_BLOCK_SIZE;
+    return 0x8000u + gAircopyCurrentMapIndex * 0x0100u
+         + (block - 64u) * AIRCOPY_BLOCK_SIZE;
 }
 
 static void AIRCOPY_clear()
 {
-    for (uint8_t i = 0; i < 15; i++)
-    {
-        crc[i] = 0;
-    }
     #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
         K5VIEWER_Update(true);
     #endif
 }
 
-static inline const AIRCOPY_Segment_t *AIRCOPY_FindSegmentForOffset(uint16_t off)
+static void AIRCOPY_Finish(AIRCOPY_State_t state)
 {
-    const AIRCOPY_TransferMap_t *map = AIRCOPY_GetCurrentMap();
-
-    for (uint16_t i = 0; i < map->num_segments; i++)
-    {
-        const AIRCOPY_Segment_t *seg = &map->segments[i];
-
-        if (off >= seg->start_offset && off < seg->end_offset &&
-            ((off - seg->start_offset) & (AIRCOPY_BLOCK_SIZE - 1u)) == 0u)
-            return seg;
-    }
-
-    return NULL;
-}
-
-static inline void AIRCOPY_CheckComplete(uint16_t *num)
-{
-    *num = *num + 1;
-
-    const AIRCOPY_TransferMap_t *map = AIRCOPY_GetCurrentMap();
-    uint16_t done = gAirCopyBlockNumber + gErrorsDuringAirCopy;
-
-    if (done >= map->total_blocks)
-    {
-        gAircopyState = AIRCOPY_COMPLETE;
+    AircopyCountdown = 0;
+    gAircopyState = state;
+    gUpdateDisplay = true;
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-        K5VIEWER_Update(false);
+    K5VIEWER_Update(false);
 #endif
-    }
 }
 
 void AIRCOPY_Obfuscate(unsigned int count)
@@ -186,70 +121,97 @@ void AIRCOPY_Obfuscate(unsigned int count)
     }
 }
 
+static void AIRCOPY_TransmitBuffer(void)
+{
+    // Both sides need time to leave TX and re-arm FSK RX before the reply.
+    SYSTEM_DelayMs(50);
+    RADIO_SetTxParameters();
+    BK4819_SendFSKData(g_FSK_Buffer);
+    BK4819_SetupPowerAmplifier(0, 0);
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+}
+
+static void AIRCOPY_FinalizeAndSend(void)
+{
+    g_FSK_Buffer[34] = CRC_Calculate(&g_FSK_Buffer[0],
+                                     4 + AIRCOPY_BLOCK_SIZE);
+    g_FSK_Buffer[35] = AIRCOPY_PACKET_END;
+    AIRCOPY_Obfuscate(34);
+    AIRCOPY_TransmitBuffer();
+    gFSKWriteIndex = 0;
+    BK4819_PrepareFSKReceive();
+}
+
+static void AIRCOPY_SendControl(uint16_t type, uint16_t offset)
+{
+    g_FSK_Buffer[0] = type;
+    g_FSK_Buffer[1] = offset;
+    memset(&g_FSK_Buffer[2], 0, AIRCOPY_BLOCK_SIZE);
+    AIRCOPY_FinalizeAndSend();
+}
+
+static void AIRCOPY_RequestResend(void)
+{
+    gErrorsDuringAirCopy++;
+    gUpdateDisplay = true;
+    AircopyCountdown = AIRCOPY_RX_TIMEOUT_10MS;
+    AIRCOPY_SendControl(AIRCOPY_PACKET_RESEND,
+                        AIRCOPY_GetBlockOffset(gAirCopyBlockNumber));
+}
+
+static bool AIRCOPY_Retry(void)
+{
+    if (AircopyRetries >= AIRCOPY_MAX_RETRIES)
+    {
+        AIRCOPY_Finish(AIRCOPY_FAILED);
+        return false;
+    }
+
+    AircopyRetries++;
+    gErrorsDuringAirCopy++;
+    gUpdateDisplay = true;
+    AircopyCountdown = 0;
+    return true;
+}
+
 // ============================================================================
 // Send/Receive Functions
 // ============================================================================
 
 bool AIRCOPY_SendMessage(void)
 {
-    static uint8_t gAircopySendCountdown = 1;
-    static uint16_t CurrentOffset = 0;
-    static uint16_t CurrentSegmentIndex = 0;
-
     if (gAircopyState != AIRCOPY_TRANSFER) {
         return 1;
     }
 
-    if (--gAircopySendCountdown) {
+    if (!gAirCopyIsSendMode)
+    {
+        if (AircopyCountdown != 0 && --AircopyCountdown == 0)
+        {
+            AIRCOPY_Finish(gAirCopyBlockNumber >= AIRCOPY_GetTotalBlocks()
+                           ? AIRCOPY_COMPLETE
+                           : AIRCOPY_FAILED);
+            return 0;
+        }
         return 1;
     }
 
-    const AIRCOPY_TransferMap_t *map = AIRCOPY_GetCurrentMap();
-
-    // Initialize on first call
-    if (gAirCopyBlockNumber == 0) {
-        CurrentSegmentIndex = 0;
-        CurrentOffset = map->segments[0].start_offset;
-    }
-
-    // Advance to next segment if current is done
-    while (CurrentSegmentIndex < map->num_segments &&
-           CurrentOffset >= map->segments[CurrentSegmentIndex].end_offset)
+    if (AircopyCountdown != 0)
     {
-        CurrentSegmentIndex++;
-        if (CurrentSegmentIndex < map->num_segments) {
-            CurrentOffset = map->segments[CurrentSegmentIndex].start_offset;
-        }
+        if (--AircopyCountdown != 0)
+            return 1;
+        if (!AIRCOPY_Retry())
+            return 0;
     }
 
-    // Check if transfer is complete
-    if (CurrentSegmentIndex >= map->num_segments) {
-        gAircopyState = AIRCOPY_COMPLETE;
-        #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-            K5VIEWER_Update(false);
-        #endif
-        return 0;
-    }
+    const uint16_t currentOffset = AIRCOPY_GetBlockOffset(gAirCopyBlockNumber);
+    g_FSK_Buffer[0] = AIRCOPY_PACKET_DATA;
+    g_FSK_Buffer[1] = currentOffset;
+    EEPROM_ReadBuffer(currentOffset, &g_FSK_Buffer[2], AIRCOPY_BLOCK_SIZE);
+    AIRCOPY_FinalizeAndSend();
+    AircopyCountdown = AIRCOPY_ACK_TIMEOUT_10MS;
 
-    // Send data from current offset
-    g_FSK_Buffer[1] = CurrentOffset;
-    EEPROM_ReadBuffer(CurrentOffset, &g_FSK_Buffer[2], 64);
-
-    g_FSK_Buffer[34] = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
-
-    AIRCOPY_Obfuscate(34);
-
-    RADIO_SetTxParameters();
-
-    BK4819_SendFSKData(g_FSK_Buffer);
-    BK4819_SetupPowerAmplifier(0, 0);
-    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
-
-    CurrentOffset += 64;
-    gAirCopyBlockNumber++;
-    gAircopySendCountdown = 30;
-
-    return 0;
+    return 1;
 }
 
 void AIRCOPY_StorePacket(void)
@@ -259,52 +221,110 @@ void AIRCOPY_StorePacket(void)
     }
 
     gFSKWriteIndex = 0;
-    gUpdateDisplay = true;
-    uint16_t Status = BK4819_ReadRegister(BK4819_REG_0B);
-    BK4819_PrepareFSKReceive();
+    const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
+    const uint16_t type = g_FSK_Buffer[0];
+    bool valid = (status & 0x0010u) == 0 &&
+                 (type == AIRCOPY_PACKET_DATA ||
+                  type == AIRCOPY_PACKET_ACK ||
+                  type == AIRCOPY_PACKET_RESEND) &&
+                 g_FSK_Buffer[35] == AIRCOPY_PACKET_END;
 
-    if ((Status & 0x0010U) != 0 || g_FSK_Buffer[0] != 0xABCD || g_FSK_Buffer[35] != 0xDCBA) {
-        BK4819_ResetFSK();           // <- important
-        BK4819_PrepareFSKReceive();  // <- re-arm proprement
-
-        AIRCOPY_CheckComplete(&gErrorsDuringAirCopy);
-        return;
-    }
-
-    AIRCOPY_Obfuscate(34);
-
-    uint16_t Crc = CRC_Calculate(&g_FSK_Buffer[1], 2 + 64);
-    if (g_FSK_Buffer[34] != Crc) {
-        AIRCOPY_CheckComplete(&gErrorsDuringAirCopy);
-        return;
-    }
-
-    uint16_t Offset = g_FSK_Buffer[1];
-
-    const AIRCOPY_Segment_t *seg = AIRCOPY_FindSegmentForOffset(Offset);
-    
-    if (seg == NULL) {
-        AIRCOPY_CheckComplete(&gErrorsDuringAirCopy);
-        return;
-    }
-
-    const uint8_t *pData = (const uint8_t *)&g_FSK_Buffer[2];
-
-    for (unsigned int i = 0; i < 8; i++)
+    if (valid)
     {
-        EEPROM_WriteBuffer(Offset + (i * 8), pData + (i * 8));
+        AIRCOPY_Obfuscate(34);
+        valid = g_FSK_Buffer[34] ==
+                CRC_Calculate(&g_FSK_Buffer[0], 4 + AIRCOPY_BLOCK_SIZE);
     }
 
-    AIRCOPY_CheckComplete(&gAirCopyBlockNumber);
+    if (gAirCopyIsSendMode)
+    {
+        if (!valid)
+        {
+            BK4819_PrepareFSKReceive();
+            return;
+        }
+
+        const uint16_t offset = g_FSK_Buffer[1];
+        const uint16_t currentOffset = AIRCOPY_GetBlockOffset(gAirCopyBlockNumber);
+        if (type == AIRCOPY_PACKET_ACK && offset == currentOffset)
+        {
+            AircopyCountdown = 0;
+            AircopyRetries = 0;
+            gAirCopyBlockNumber++;
+            gUpdateDisplay = true;
+            if (gAirCopyBlockNumber >= AIRCOPY_GetTotalBlocks())
+                AIRCOPY_Finish(AIRCOPY_COMPLETE);
+            return;
+        }
+
+        if (type == AIRCOPY_PACKET_RESEND && offset == currentOffset)
+        {
+            (void)AIRCOPY_Retry();
+            return;
+        }
+
+        BK4819_PrepareFSKReceive();
+        return;
+    }
+
+    if (!valid)
+    {
+        if (type == AIRCOPY_PACKET_DATA)
+            AIRCOPY_RequestResend();
+        else
+            BK4819_PrepareFSKReceive();
+        return;
+    }
+
+    if (type != AIRCOPY_PACKET_DATA)
+    {
+        BK4819_PrepareFSKReceive();
+        return;
+    }
+
+    const uint16_t offset = g_FSK_Buffer[1];
+    if (gAirCopyBlockNumber != 0u &&
+        offset == AIRCOPY_GetBlockOffset(gAirCopyBlockNumber - 1u))
+    {
+        AircopyCountdown = gAirCopyBlockNumber >= AIRCOPY_GetTotalBlocks()
+                         ? AIRCOPY_RX_LINGER_10MS
+                         : AIRCOPY_RX_TIMEOUT_10MS;
+        AIRCOPY_SendControl(AIRCOPY_PACKET_ACK, offset);
+        return;
+    }
+
+    if (offset != AIRCOPY_GetBlockOffset(gAirCopyBlockNumber))
+    {
+        AIRCOPY_RequestResend();
+        return;
+    }
+
+    EEPROM_WriteBuffer(offset, &g_FSK_Buffer[2], AIRCOPY_BLOCK_SIZE);
+    // All pending RX errors concerned this stop-and-wait block.
+    gErrorsDuringAirCopy = 0;
+    gAirCopyBlockNumber++;
+    gUpdateDisplay = true;
+
+    AircopyCountdown = gAirCopyBlockNumber < AIRCOPY_GetTotalBlocks()
+                     ? AIRCOPY_RX_TIMEOUT_10MS
+                     : AIRCOPY_RX_LINGER_10MS;
+
+    AIRCOPY_SendControl(AIRCOPY_PACKET_ACK, offset);
 }
 
 static void AIRCOPY_InitTransfer(bool isSendMode)
 {
-    gAircopyStep = 1;
+    if (gAircopyCurrentMapIndex >= AIRCOPY_NUM_MAPS)
+        gAircopyCurrentMapIndex = 0;
+
     gFSKWriteIndex = 0;
     gAirCopyBlockNumber = 0;
+    gErrorsDuringAirCopy = 0;
     gInputBoxIndex = 0;
     gAirCopyIsSendMode = isSendMode;
+
+    AircopyCountdown = isSendMode ? 0 : AIRCOPY_RX_TIMEOUT_10MS;
+    AircopyRetries = 0;
 
     AIRCOPY_clear();
     
@@ -359,8 +379,6 @@ static void AIRCOPY_Key_EXIT()
 {
     if (gInputBoxIndex == 0) {
         AIRCOPY_InitTransfer(0); // Mode: Receive
-        gErrorsDuringAirCopy = lErrorsDuringAirCopy = 0;
-
         BK4819_PrepareFSKReceive();
         
     } else {
@@ -371,10 +389,6 @@ static void AIRCOPY_Key_EXIT()
 static void AIRCOPY_Key_MENU()
 {
     AIRCOPY_InitTransfer(1); // Mode: Send
-    
-    g_FSK_Buffer[0] = 0xABCD;
-    g_FSK_Buffer[1] = 0;
-    g_FSK_Buffer[35] = 0xDCBA;
 }
 
 static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
@@ -397,6 +411,14 @@ static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
     if (bKeyHeld || !bKeyPressed) {
+        return;
+    }
+
+    if (gAircopyState == AIRCOPY_COMPLETE || gAircopyState == AIRCOPY_FAILED)
+    {
+        gAircopyState = AIRCOPY_READY;
+        gUpdateDisplay = true;
+        gRequestDisplayScreen = DISPLAY_AIRCOPY;
         return;
     }
 
