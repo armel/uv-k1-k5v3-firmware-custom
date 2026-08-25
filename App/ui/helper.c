@@ -25,25 +25,6 @@
 #include "settings.h"
 
 
-void UI_GenerateChannelString(char *pString, const uint16_t Channel)
-{
-    unsigned int i;
-
-    if (gInputBoxIndex == 0)
-    {
-        sprintf(pString, "CH-%02u", Channel + 1);
-        return;
-    }
-
-    pString[0] = 'C';
-    pString[1] = 'H';
-    pString[2] = '-';
-    for (i = 0; i < 2; i++)
-        pString[i + 3] = (gInputBox[i] == 10) ? '-' : gInputBox[i] + '0';
-
-    pString[5] = 0;
-}
-
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber)
 {
     if (gInputBoxIndex > 0) {
