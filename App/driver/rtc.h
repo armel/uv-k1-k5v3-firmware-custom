@@ -43,6 +43,10 @@ uint32_t RTC_GetUnix32(void);
 // True when the LSE crystal is running, false when LSI is used.
 bool RTC_IsLse(void);
 
+// Enables/disables the 1 Hz second interrupt (the counter keeps running
+// either way). RTC_Init() leaves it enabled.
+void RTC_EnableSecondIT(bool Enable);
+
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 
 #endif // DRIVER_RTC_H

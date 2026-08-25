@@ -812,39 +812,53 @@ bool UART_IsCommandAvailable(uint32_t Port)
 }
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
-static void CMD_DOPPLER_ERASE(uint32_t Port)
+static void CMD_DOPPLER_ERASE(uint32_t Port, uint16_t Size)
 {
     REPLY_DOPPLER_t Reply;
 
     Reply.Header.ID   = 0x05E3;
     Reply.Header.Size = sizeof(Reply.Data);
-    Reply.Data.Status = 0;
+    Reply.Data.Status = (Size == 0) ? 0 : 1;
 
-    DOPPLER_Erase();
+    if (Reply.Data.Status == 0)
+    {
+        DOPPLER_Erase();
+    }
 
     SendReply(Port, &Reply, sizeof(Reply));
 }
 
-static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer)
+static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
 {
     const CMD_DOPPLER_WRITE_SAT_t *pCmd = (const CMD_DOPPLER_WRITE_SAT_t *)pBuffer;
     REPLY_DOPPLER_t Reply;
 
     Reply.Header.ID   = 0x05E4;
     Reply.Header.Size = sizeof(Reply.Data);
-    Reply.Data.Status = DOPPLER_WriteSatellite(&pCmd->Satellite) ? 0 : 1;
+    Reply.Data.Status = 1;
+
+    // Reject truncated/malformed payloads: never write stale buffer data to flash
+    if (Size == sizeof(pCmd->Satellite))
+    {
+        Reply.Data.Status = DOPPLER_WriteSatellite(&pCmd->Satellite) ? 0 : 1;
+    }
 
     SendReply(Port, &Reply, sizeof(Reply));
 }
 
-static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer)
+static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
 {
     const CMD_DOPPLER_WRITE_ENTRY_t *pCmd = (const CMD_DOPPLER_WRITE_ENTRY_t *)pBuffer;
     REPLY_DOPPLER_t Reply;
 
     Reply.Header.ID   = 0x05E5;
     Reply.Header.Size = sizeof(Reply.Data);
-    Reply.Data.Status = DOPPLER_WriteEntry(pCmd->Index, &pCmd->Entry) ? 0 : 1;
+    Reply.Data.Status = 1;
+
+    if (Size == sizeof(pCmd->Index) + sizeof(pCmd->Padding) + sizeof(pCmd->Entry))
+    {
+        Reply.Data.Status = DOPPLER_WriteEntry(pCmd->Index, &pCmd->Entry) ? 0 : 1;
+    }
 
     SendReply(Port, &Reply, sizeof(Reply));
 }
@@ -914,15 +928,15 @@ void UART_HandleCommand(uint32_t Port)
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
         case 0x05E0:
-            CMD_DOPPLER_ERASE(Port);
+            CMD_DOPPLER_ERASE(Port, pUART_Command->Header.Size);
             break;
 
         case 0x05E1:
-            CMD_DOPPLER_WRITE_SAT(Port, pUART_Command->Buffer);
+            CMD_DOPPLER_WRITE_SAT(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 
         case 0x05E2:
-            CMD_DOPPLER_WRITE_ENTRY(Port, pUART_Command->Buffer);
+            CMD_DOPPLER_WRITE_ENTRY(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 #endif
 

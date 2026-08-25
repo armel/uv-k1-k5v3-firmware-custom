@@ -13,6 +13,7 @@
 
   let port = null;
   let reader = null;
+  let writer = null;
   let replyQueue = [];
   let passData = null; // findPass 结果
 
@@ -140,23 +141,15 @@
     $("lon").value = wgs[1].toFixed(5);
     if (marker) marker.setLatLng(e.latlng);
     log(`地图选点：${wgs[0].toFixed(5)}, ${wgs[1].toFixed(5)}（WGS-84）`);
-    // 查询海拔（open-elevation，失败则保留手动值）
-    try {
-      const resp = await fetch(
-        "https://api.open-elevation.com/api/v1/lookup?locations=" + wgs[0].toFixed(4) + "," + wgs[1].toFixed(4),
-        { headers: { "accept": "application/json" } }
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        const h = data.results && data.results[0] && data.results[0].elevation;
-        if (typeof h === "number") {
-          $("alt").value = (h / 1000).toFixed(3); // 米 -> km
-          log(`海拔查询：${h.toFixed(0)} m`);
-        }
-      }
-    } catch (err) {
-      log("海拔查询失败（可手动填写）：" + err.message);
-    }
+    // 查询海拔（多源 + 超时；失败有明显提示，且不影响使用）
+    setStatus("📡 查询海拔...");
+    const h = await fetchElevation(wgs[0], wgs[1]);
+    if (h !== null) {
+      $("alt").value = h.toFixed(1); // 米
+      setStatus(`✅ 已选点 ${wgs[0].toFixed(4)}, ${wgs[1].toFixed(4)}，海拔 ${h.toFixed(0)} m`, "ok");
+    } else {
+      setStatus("⚠️ 海拔查询失败（保留手动值，海拔对过境计算影响可忽略）", "err");
+  }
   }
 
   $("btnMap").addEventListener("click", () => {
@@ -165,18 +158,53 @@
     setTimeout(() => map && map.invalidateSize(), 200);
   });
 
+  // 查询海拔：open-elevation API（8s 超时），失败返回 null
+  async function fetchElevation(lat, lon) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const resp = await fetch(
+        "https://api.open-elevation.com/api/v1/lookup?locations=" + lat.toFixed(4) + "," + lon.toFixed(4),
+        { headers: { "accept": "application/json" }, signal: ctrl.signal }
+      );
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const h = data.results && data.results[0] && data.results[0].elevation;
+      return typeof h === "number" ? h : null;
+    } catch (e) {
+      log("海拔查询失败：" + e.message);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+
   $("btnLocate").addEventListener("click", () => {
     if (!navigator.geolocation) {
       setStatus("当前浏览器不支持 GPS 定位", "err");
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        $("lat").value = pos.coords.latitude.toFixed(5);
-        $("lon").value = pos.coords.longitude.toFixed(5);
-        setStatus("✅ 已使用设备定位（WGS-84）", "ok");
-        log(`GPS 定位：${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`);
-        if (map) map.setView([pos.coords.latitude, pos.coords.longitude], 12);
+      async (pos) => {
+        const lat = pos.coords.latitude, lon = pos.coords.longitude;
+        $("lat").value = lat.toFixed(5);
+        $("lon").value = lon.toFixed(5);
+        log(`GPS 定位：${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+        // 优先 API 查精确地形海拔；API 失败时用设备海拔兜底
+        // （注意：很多浏览器拿不到高度时 altitude 返回 0，需排除）
+        let h = await fetchElevation(lat, lon);
+        if (h === null) {
+          const a = pos.coords.altitude;
+          if (typeof a === "number" && isFinite(a) && a > 0 && a < 9000) h = a;
+        }
+        if (h !== null) {
+          $("alt").value = h.toFixed(1); // 米
+          setStatus(`✅ 已使用设备定位：${lat.toFixed(4)}, ${lon.toFixed(4)}，海拔 ${h.toFixed(0)} m`, "ok");
+        } else {
+          setStatus(`✅ 已使用设备定位：${lat.toFixed(4)}, ${lon.toFixed(4)}（海拔查询失败，可手动填写）`, "ok");
+        }
+        if (map) map.setView([lat, lon], 12);
       },
       (err) => setStatus("GPS 定位失败：" + err.message + "（可改用地图选点）", "err"),
       { enableHighAccuracy: true, timeout: 10000 }
@@ -198,13 +226,8 @@
       return;
     }
     const lat = parseFloat($("lat").value), lon = parseFloat($("lon").value);
-    const minEl = parseFloat($("minEl").value);
     if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       showErr("观测位置经纬度无效（纬度 -90~90，经度 -180~180）");
-      return;
-    }
-    if (isNaN(minEl) || minEl < 0 || minEl > 89) {
-      showErr("最低仰角无效（0~89 度）");
       return;
     }
     const btn = $("btnCalc");
@@ -218,16 +241,15 @@
         tle2: tle[1],
         latDeg: lat,
         lonDeg: lon,
-        altKm: parseFloat($("alt").value) || 0,
+        altKm: (parseFloat($("alt").value) || 0) / 1000, // 输入为米，内部用 km
         uplinkMHz: parseFloat($("fUp").value),
         downlinkMHz: parseFloat($("fDown").value),
-        minElevation: minEl,
         searchStart: new Date(),
         maxSearchHours: 24,
         maxPassSeconds: 32 * 60,
       });
       if (!pass) {
-        showErr("未来 24 小时内未找到可见过境。检查：TLE 是否当天最新、经纬度是否正确、最低仰角是否过高");
+        showErr("未来 24 小时内未找到可见过境。检查：TLE 是否当天最新、经纬度是否正确");
         btn.disabled = false;
         btn.textContent = "🔭 计算最近过境";
         return;
@@ -235,16 +257,16 @@
       passData = pass;
       const r = $("result");
       r.style.display = "block";
-      const fmt = (d) => d.toLocaleString();
+      const fmt = (d) => d.toLocaleString("zh-CN", { hour12: false });
       const first = pass.entries[0], last = pass.entries[pass.entries.length - 1];
       r.innerHTML =
-        `<b>过境时间：</b>${fmt(pass.start)} → ${fmt(pass.end)}（本地）<br>` +
+        `<b>过境时间（北京时间）：</b>${fmt(pass.start)} → ${fmt(pass.end)}<br>` +
         `时长 ${pass.durationS}s，频率表 ${pass.entries.length} 条（每 2 秒）<br>` +
         `下行 ${(first.downlink / 1e5).toFixed(5)} ~ ${(last.downlink / 1e5).toFixed(5)} MHz<br>` +
         `上行 ${(first.uplink / 1e5).toFixed(5)} ~ ${(last.uplink / 1e5).toFixed(5)} MHz<br>` +
-        `<span class="ok">可以写入。写入后请在过境开始前开机，按 F+0 输入当前时间（UTC）开始跟踪。</span>`;
+        `<span class="ok">可以写入。写入后请在过境开始前开机，长按 0 输入当前北京时间开始跟踪。</span>`;
       $("btnWrite").disabled = false;
-      log(`过境 ${pass.start.toISOString()} → ${pass.end.toISOString()}，${pass.entries.length} 条`);
+      log(`过境 ${fmt(pass.start)} → ${fmt(pass.end)}（北京时间），${pass.entries.length} 条`);
     } catch (e) {
       showErr("计算失败：" + e.message);
       log("计算异常：" + e.stack);
@@ -275,7 +297,7 @@
 
   async function sendCommand(id, payload) {
     const frame = proto.buildFrame(id, payload);
-    await port.write(frame);
+    await writer.write(frame);
     // 等待对应回复（带 5s 超时）
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
@@ -293,6 +315,7 @@
 
   $("btnConnect").addEventListener("click", async () => {
     if (port) {
+      try { if (writer) { writer.releaseLock(); writer = null; } } catch (e) { /* ignore */ }
       try { await port.close(); } catch (e) { /* ignore */ }
       port = null;
       $("btnConnect").textContent = "连接串口";
@@ -305,7 +328,8 @@
     }
     try {
       port = await navigator.serial.requestPort();
-      await port.open({ baudRate: 115200 });
+      await port.open({ baudRate: 38400 }); // F4HWN UART protocol is 38400 baud
+      writer = port.writable.getWriter();
       reader = port.readable.getReader();
       readLoop();
       $("btnConnect").textContent = "断开串口";
@@ -336,7 +360,7 @@
       const start = new Date(passData.start.getTime());
       const end = new Date(passData.end.getTime());
       const sat = proto.buildSatelliteBlock({
-        name: "SAT",
+        name: ($("satSelect").value || "SAT").trim().slice(0, 9),
         startTime: calc.dateToFwTime(start),
         endTime: calc.dateToFwTime(end),
         sumTime: passData.durationS,

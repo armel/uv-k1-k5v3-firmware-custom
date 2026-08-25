@@ -50,13 +50,14 @@ const C = 299792.458;
   console.log("✓ 10Hz 单位换算在 u32 范围内");
 }
 
-// ---- 时间转换 ----
+// ---- 时间转换（北京时间 UTC+8） ----
 {
-  const d = new Date(Date.UTC(2026, 7, 17, 12, 0, 0)); // 2026-08-17 12:00 UTC
+  const d = new Date(Date.UTC(2026, 7, 17, 12, 0, 0)); // 2026-08-17 12:00 UTC = 北京 20:00
   const fw = dateToFwTime(d);
-  assert.deepEqual(fw, [26, 8, 17, 12, 0, 0]);
-  assert.equal(unixToFw(d.getTime() / 1000), 840283200); // 与固件 DOPPLER_UnixTime 一致（Python 验证）
-  console.log("✓ 时间转换与固件一致");
+  assert.deepEqual(fw, [26, 8, 17, 20, 0, 0]); // 北京时间
+  // unixToFw 加 8h 使固件按北京时间算的秒数与之匹配: 840283200 + 28800
+  assert.equal(unixToFw(d.getTime() / 1000), 840283200 + 28800);
+  console.log("✓ 时间转换与固件一致（北京时间基准）");
 }
 
 // ---- 完整过境流程（用 ISS TLE 示例，跨过境窗口） ----

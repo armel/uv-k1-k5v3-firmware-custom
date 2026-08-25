@@ -27,6 +27,11 @@
 static DOPPLER_Satellite_t gDopplerSatellite;
 static bool gDopplerValid = false;
 
+// 布局契约: 结构体必须恰好 32 字节 (无填充), 否则 UART Size 校验与
+// 网页工具 (protocol.js) 的紧凑布局会错位. start_unix 已在偏移 0 保证对齐.
+_Static_assert(sizeof(DOPPLER_Satellite_t) == 32, "DOPPLER_Satellite_t must be 32 bytes");
+_Static_assert(sizeof(DOPPLER_Entry_t) == 8, "DOPPLER_Entry_t must be 8 bytes");
+
 // Valid frequency range, in 10 Hz units (100 MHz .. 1 GHz)
 #define DOPPLER_FREQ_MIN 10000000u
 #define DOPPLER_FREQ_MAX 100000000u
@@ -95,7 +100,7 @@ uint32_t DOPPLER_UnixTime(const uint8_t t[6])
 
     uint32_t seconds = 0;
     const uint8_t year = t[0];
-    const uint8_t month = t[1];
+    const uint8_t month = (t[1] > 12u) ? 12u : t[1]; // defensive clamp: days_in_month has 12 entries
 
     for (uint8_t y = 0; y < year; y++)
     {
@@ -175,6 +180,8 @@ bool DOPPLER_WriteSatellite(const DOPPLER_Satellite_t *pSat)
 
     PY25Q16_WriteBuffer(DOPPLER_FLASH_BASE, &copy, sizeof(copy), false);
 
+    // 数据完整性由 CRC8 保证 (DOPPLER_IsValid 校验), 无需写后回读。
+    // 注: 写后立即用 DMA 回读 (SPI_ReadBuf) 数据不可靠, 不用它做校验。
     memcpy(&gDopplerSatellite, &copy, sizeof(copy));
     gDopplerValid = DOPPLER_IsValid(&gDopplerSatellite);
     return gDopplerValid;
@@ -186,8 +193,9 @@ bool DOPPLER_WriteEntry(uint16_t Index, const DOPPLER_Entry_t *pEntry)
     {
         return false;
     }
-    PY25Q16_WriteBuffer(DOPPLER_FLASH_TABLE + (uint32_t)Index * sizeof(DOPPLER_Entry_t),
-                        pEntry, sizeof(DOPPLER_Entry_t), false);
+
+    const uint32_t addr = DOPPLER_FLASH_TABLE + (uint32_t)Index * sizeof(DOPPLER_Entry_t);
+    PY25Q16_WriteBuffer(addr, pEntry, sizeof(DOPPLER_Entry_t), false);
     return true;
 }
 

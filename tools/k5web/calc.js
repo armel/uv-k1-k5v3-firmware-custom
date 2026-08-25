@@ -155,21 +155,22 @@ function findPass({
   };
 }
 
-/** Date -> 固件 6 字节时间 [年2000, 月, 日, 时, 分, 秒]（UTC） */
+/** Date -> 固件 6 字节时间 [年2000, 月, 日, 时, 分, 秒]（本地时间 = 北京时间 UTC+8） */
 function dateToFwTime(date) {
   return [
-    date.getUTCFullYear() - 2000,
-    date.getUTCMonth() + 1,
-    date.getUTCDate(),
-    date.getUTCHours(),
-    date.getUTCMinutes(),
-    date.getUTCSeconds(),
+    date.getFullYear() - 2000,
+    date.getMonth() + 1,
+    date.getDate(),
+    date.getHours(),
+    date.getMinutes(),
+    date.getSeconds(),
   ];
 }
 
-/** 1970 基准秒 -> 2000 基准秒（固件 start_unix） */
+/** 1970 基准秒 -> 2000 基准秒（固件 start_unix），按北京时间对齐。
+ *  固件按用户输入的北京时间算 2000 基准秒, 所以这里加 8 小时使两边基准一致. */
 function unixToFw(unix1970) {
-  return unix1970 - 946684800;
+  return unix1970 - 946684800 + 8 * 3600;
 }
 
 

@@ -44,17 +44,19 @@ typedef struct {
 } DOPPLER_Entry_t;
 
 // Satellite info block, 32 bytes, stored at DOPPLER_FLASH_BASE.
+// Field order keeps start_unix (u32) 4-byte aligned so there is NO padding:
+// sizeof(DOPPLER_Satellite_t) == 32 exactly (the UART size check depends on it).
 // Valid data: name[9] == 0, printable name[0], CRC8 over the first 30
 // bytes matching crc8, sum_time > 0.
 typedef struct {
-    char     name[10];       // satellite name, <= 9 chars + '\0'
-    uint8_t  start_time[6];  // pass start: year (2000-based) / month / day / hour / minute / second
-    uint8_t  end_time[6];    // pass end, same layout
-    uint16_t sum_time;       // total pass duration in seconds
-    uint16_t send_ctcss;     // TX sub-audio tone in Hz (0 = none)
-    uint32_t start_unix;     // pass start, in seconds since 2000-01-01 00:00:00 UTC
-    uint8_t  crc8;           // CRC-8 (poly 0x07) of the first 30 bytes
-    uint8_t  reserved;       // 0
+    uint32_t start_unix;     // 0..3   pass start, seconds since 2000-01-01 00:00:00 UTC
+    char     name[10];       // 4..13  satellite name, <= 9 chars + '\0'
+    uint8_t  start_time[6];  // 14..19 pass start: year (2000-based)/month/day/hour/minute/second
+    uint8_t  end_time[6];    // 20..25 pass end, same layout
+    uint16_t sum_time;       // 26..27 total pass duration in seconds
+    uint16_t send_ctcss;     // 28..29 TX sub-audio tone in Hz/10 (0 = none)
+    uint8_t  crc8;           // 30     CRC-8 (poly 0x07) of the first 30 bytes
+    uint8_t  reserved;       // 31     0
 } DOPPLER_Satellite_t;
 
 // Loads and validates the satellite info block. Call once at startup.

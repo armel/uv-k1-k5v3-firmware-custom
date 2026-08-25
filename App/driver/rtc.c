@@ -20,6 +20,7 @@
 
 #include "py32f071_ll_bus.h"
 #include "py32f071_ll_exti.h"
+#include "py32f071_ll_pwr.h"
 #include "py32f071_ll_rcc.h"
 #include "py32f071_ll_rtc.h"
 
@@ -32,6 +33,14 @@ static bool gRtcLse = false;
 void RTC_Init(void)
 {
     uint32_t i;
+
+    // 0. The RTC clock selection lives in the backup domain (RCC->BDCR);
+    //    writes are ignored unless backup access is enabled first.
+    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
+    LL_PWR_EnableBkUpAccess();
+    // RTC register access requires the APB1 RTC gate (RCC_APBENR1_RTCAPBEN);
+    // without it any RTC register poke triggers a bus fault (HardFault).
+    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_RTC);
 
     // 1. Backup-domain clock source: prefer the LSE crystal, fall back to LSI
     LL_RCC_LSE_Enable();
@@ -57,6 +66,10 @@ void RTC_Init(void)
             {
                 break;
             }
+        }
+        if (!LL_RCC_LSI_IsReady())
+        {
+            return; // no RTC clock source available; leave the RTC off
         }
         LL_RCC_SetRTCClockSource(LL_RCC_RTC_CLKSOURCE_LSI);
         gRtcLse = false;
@@ -109,6 +122,22 @@ uint32_t RTC_GetUnix32(void)
 bool RTC_IsLse(void)
 {
     return gRtcLse;
+}
+
+void RTC_EnableSecondIT(bool Enable)
+{
+    if (Enable)
+    {
+        LL_RTC_ClearFlag_SEC(RTC);
+        LL_RTC_EnableIT_SEC(RTC);
+        NVIC_ClearPendingIRQ(RTC_IRQn);
+        NVIC_EnableIRQ(RTC_IRQn);
+    }
+    else
+    {
+        LL_RTC_DisableIT_SEC(RTC);
+        NVIC_DisableIRQ(RTC_IRQn);
+    }
 }
 
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
