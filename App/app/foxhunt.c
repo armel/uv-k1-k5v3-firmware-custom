@@ -26,6 +26,8 @@
 #include "k5viewer.h"
 #endif
 
+#include "ui/status.h"
+
 // Signal window mapped onto the RSSI bar, in dBm.
 // Roughly S0 (empty) to S9 + 40 dB (full), IARU VHF/UHF scale.
 #define FOXHUNT_DBM_FLOOR (-141)
@@ -439,24 +441,6 @@ static void FOXHUNT_DrawRightSmall(const char *s, uint8_t rightX, uint8_t line)
     UI_PrintStringSmallNormal(s, (uint8_t)(rightX - strlen(s) * 7), 0, line);
 }
 
-// Battery icon plus the optional voltage/percentage text, top-right of the status
-// line — shared by the hunt and beacon screens.
-static void FOXHUNT_DrawStatusBattery(void)
-{
-    unsigned int bx = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1);
-    UI_DrawBattery(gStatusLine + bx, gBatteryDisplayLevel, gLowBatteryBlink);
-    if (gSetting_battery_text != 0) {
-        if (gSetting_battery_text == 1) {      // voltage
-            const uint16_t v = MIN(gBatteryVoltageAverage, 999);
-            sprintf(str, "%u.%02u", v / 100, v % 100);
-        } else {                               // percentage
-            sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-        }
-        bx -= 7 * strlen(str);
-        UI_PrintStringSmallBufferNormal(str, gStatusLine + bx);
-    }
-}
-
 // Right-aligned frequency on the bottom line (line 6), shared by the hunt and
 // beacon screens.
 static void FOXHUNT_DrawFreqBR(uint32_t freq)
@@ -472,7 +456,7 @@ static void FOXHUNT_BeaconChrome(void)
     UI_DisplayClear();
     UI_StatusClear();
     GUI_DisplaySmallestInverse("BEACON", 2, 0, true, true, 26);
-    FOXHUNT_DrawStatusBattery();
+    UI_DrawStatusBattery(gStatusLine, str);
     FOXHUNT_DrawFKey();
     FOXHUNT_DrawFreqBR(gTxVfo->pTX->Frequency);
 }
@@ -490,7 +474,7 @@ static void FOXHUNT_Draw(void)
     GUI_DisplaySmallestInverse("FOX HUNT", 2, 0, true, true, 34);
 
     // Battery (icon + optional percentage/voltage) top-right, as on the main screens.
-    FOXHUNT_DrawStatusBattery();
+    UI_DrawStatusBattery(gStatusLine, str);
     FOXHUNT_DrawFKey();
 
     // Gauge-mode icon (2 key), between the label and the audio icon: ascending
@@ -571,7 +555,7 @@ static void FOXHUNT_Draw(void)
 // the burst end, fox at the next repeat), so cycling any of them is safe at any time.
 
 // Wrap a 0..count-1 index one step forward (dir > 0) or backward, both ways round.
-static uint8_t FOXHUNT_WrapStep(uint8_t v, uint8_t count, int8_t dir)
+static __attribute__((noinline)) uint8_t FOXHUNT_WrapStep(uint8_t v, uint8_t count, int8_t dir)
 {
     return (uint8_t)((v + (dir > 0 ? 1u : (unsigned)(count - 1u))) % count);
 }
@@ -1317,7 +1301,7 @@ static void FOXHUNT_BeaconTick(void)
 static uint8_t foxCfgSaved[FOXHUNT_CFG_LEN];
 
 // Pack the live settings into the on-flash layout.
-static void FOXHUNT_ConfigPack(uint8_t out[FOXHUNT_CFG_LEN])
+static __attribute__((noinline)) void FOXHUNT_ConfigPack(uint8_t out[FOXHUNT_CFG_LEN])
 {
     out[0] = FOXHUNT_CFG_MAGIC;
     out[1] = attStep;

@@ -54,6 +54,29 @@ static void convertTime(uint8_t *line, uint8_t type)
 #endif
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+void UI_DrawStatusBattery(uint8_t *line, char *str)
+#else
+static __attribute__((always_inline)) inline void UI_DrawStatusBattery(uint8_t *line, char *str)
+#endif
+{
+    unsigned int x = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1);
+
+    UI_DrawBattery(line + x, gBatteryDisplayLevel, gLowBatteryBlink);
+
+    if (gSetting_battery_text == 1) {
+        const uint16_t voltage = MIN(gBatteryVoltageAverage, 999);
+        sprintf(str, "%u.%02u", voltage / 100, voltage % 100);
+    } else if (gSetting_battery_text == 2) {
+        sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
+    } else {
+        return;
+    }
+
+    x -= 7 * strlen(str);
+    UI_PrintStringSmallBufferNormal(str, line + x);
+}
+
 void UI_DisplayStatus()
 {
     gUpdateStatus = false;
@@ -314,39 +337,7 @@ void UI_DisplayStatus()
         memcpy(line + x + 1, src, size);
     }
 
-    // Battery
-    unsigned int x2 = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1) - 0;
-
-    UI_DrawBattery(line + x2, gBatteryDisplayLevel, gLowBatteryBlink);
-
-    switch (gSetting_battery_text) {
-        default:
-        case 0:
-            break;
-
-        case 1:     // voltage
-        case 2:     // percentage
-            if (gSetting_battery_text == 1) {
-                const uint16_t voltage = MIN(gBatteryVoltageAverage, 999); // limit to 9.99V
-                sprintf(str, "%u.%02u", voltage / 100, voltage % 100);
-            } else {
-                //gBatteryVoltageAverage = 999;
-                sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-            }
-
-            x2 -= (7 * strlen(str));
-            UI_PrintStringSmallBufferNormal(str, line + x2);
-            /*
-            uint8_t shift = (strlen(str) < 5) ? 92 : 88;
-            GUI_DisplaySmallest(str, shift, 1, true, true);
-
-            for (uint8_t i = shift - 2; i < 110; i++) {
-                gStatusLine[i] ^= 0x7F; // invert
-            }
-            */
-            
-            break;
-    }
+    UI_DrawStatusBattery(line, str);
 
     // **************
 

@@ -17,7 +17,11 @@
 #ifndef UI_STATUS_H
 #define UI_STATUS_H
 
+#include <stdint.h>
+
+#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+void UI_DrawStatusBattery(uint8_t *line, char *str);
+#endif
 void UI_DisplayStatus();
 
 #endif
-
