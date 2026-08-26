@@ -3,8 +3,9 @@
  * 运行：node tools/k5web/test_calc.mjs
  */
 import { strict as assert } from "node:assert";
+import satellite from "./vendor/satellite.min.js";
 import calc from "./calc.js";
-const { radialVelocity, uplinkFreq, downlinkFreq, findPass, dateToFwTime, unixToFw } = calc;
+const { radialVelocity, uplinkFreq, downlinkFreq, observerEci, findPass, dateToFwTime, unixToFw } = calc;
 
 const C = 299792.458;
 
@@ -60,6 +61,39 @@ const C = 299792.458;
   console.log("✓ 时间转换与固件一致（北京时间基准）");
 }
 
+// ---- 观测者 ECI 旋转方向（回归：曾用 Rz(+gst) 使经度反演、频偏全错） ----
+{
+  const obsGd = {
+    longitude: satellite.degreesToRadians(121.47),
+    latitude: satellite.degreesToRadians(31.23),
+    height: 0.01,
+  };
+  const obsEcf = satellite.geodeticToEcf(obsGd);
+
+  for (const date of [
+    new Date(Date.UTC(2026, 7, 17, 0, 0, 0)),
+    new Date(Date.UTC(2026, 7, 17, 12, 0, 0)),
+    new Date(Date.UTC(2026, 7, 17, 23, 59, 59)),
+  ]) {
+    const gst = satellite.gstime(date);
+    const eci = observerEci(obsEcf, date);
+
+    // 物理不变量：ECI 经度 = 地固经度 + gst（正规化到 [-π, π]）
+    const lonEcf = obsGd.longitude;
+    const lonEci = Math.atan2(eci.y, eci.x);
+    let dlon = lonEci - (lonEcf + gst);
+    dlon = Math.atan2(Math.sin(dlon), Math.cos(dlon)); // wrap
+    assert.ok(Math.abs(dlon) < 1e-9,
+      `ECI 经度不变量不成立 @${date.toISOString()}: dlon=${dlon.toFixed(6)} rad`);
+
+    // 必须与库标准转换逐元素一致（Rz(-gst)）
+    const ref = satellite.ecfToEci(obsEcf, gst);
+    assert.ok(Math.abs(eci.x - ref.x) < 1e-9 && Math.abs(eci.y - ref.y) < 1e-9,
+      `observerEci 与库 ecfToEci 不一致 @${date.toISOString()}`);
+  }
+  console.log("✓ 观测者 ECI 旋转方向正确（ECI 经度 ≡ 地固经度 + gst）");
+}
+
 // ---- 完整过境流程（用 ISS TLE 示例，跨过境窗口） ----
 {
   // TLE 数据（示例：ISS，已过时不影响流程验证）
@@ -70,30 +104,35 @@ const C = 299792.458;
     tle1, tle2,
     latDeg: 31.23, lonDeg: 121.47, altKm: 0.01, // 上海
     uplinkMHz: 145.99, downlinkMHz: 437.8,
-    minElevation: -90, // 强制全可见，验证流程（真实使用建议 0-10 度）
+    minElevation: 0, // 真实可见过境（仰角>0，才会产生真实多普勒频偏）
     searchStart: new Date(Date.now() + 60 * 60 * 1000),
     maxSearchHours: 24,
   });
   if (pass) {
     assert.ok(pass.entries.length > 0 && pass.entries.length <= 1920, "entries within bounds");
     assert.ok(pass.durationS >= pass.entries.length * 2 - 2, "duration consistent");
-    // 检查频率表单调性方向：过境中间（最接近）频偏最小
     const mid = pass.entries[Math.floor(pass.entries.length / 2)];
     const first = pass.entries[0];
     const last = pass.entries[pass.entries.length - 1];
-    // 靠近中段时 |Δf| 应小于两端（近地点/最近距离处多普勒变化最缓、频偏接近 0）
-    const df = (a, b) => Math.abs(a.downlink - b.downlink);
     console.log(`  ISS 过境：${pass.start.toISOString()} → ${pass.end.toISOString()}，时长 ${pass.durationS}s，${pass.entries.length} 条`);
-    console.log(`  下行频率范围：${first.downlink / 1e5} ~ ${mid.downlink / 1e5} MHz（首/中）`);
-    // 频率应在合理范围（400-500MHz 区间）
+
+    // 频率应在合理范围（下行 437.8±、上行 145.99±，10Hz 单位）
     for (const e of [first, mid, last]) {
-      // 10Hz 单位：437.8MHz = 4.378e7
       assert.ok(e.downlink > 4e7 && e.downlink < 5e7, `downlink in 400-500MHz range, got ${e.downlink / 1e5}`);
       assert.ok(e.uplink > 1.4e7 && e.uplink < 1.5e7, `uplink in 140-150MHz range, got ${e.uplink / 1e5}`);
     }
-    console.log("✓ 频率表数值范围合理（下行 437.8±、上行 145.99±）");
+
+    // 物理断言：可见过境（仰角>0）必须产生真实多普勒频偏（kHz 量级）。
+    // ISS 轨道速度 ~7.5 km/s → 437.8MHz 下行频偏最高 ~10kHz，过境中必有 |Δf| > 1kHz。
+    // 曾因观测者 ECI 旋转方向反了导致频偏仅 ±100Hz（错误），此断言可捕获该回归。
+    const dfHz = (a, b) => Math.abs(a.downlink - b.downlink) * 10; // 10Hz 单位 -> Hz
+    const maxDeviation = Math.max(dfHz(first, mid), dfHz(last, mid));
+    assert.ok(maxDeviation > 1000,
+      `可见过境应有 kHz 级多普勒频偏, got ${maxDeviation.toFixed(0)} Hz @ ${pass.start.toISOString()}`);
+    console.log(`  ✓ 可见过境多普勒频偏 ${maxDeviation.toFixed(0)} Hz（>1kHz，修复生效）`);
+    console.log(`  下行频率范围：${first.downlink / 1e5} ~ ${mid.downlink / 1e5} MHz（首/中）`);
   } else {
-    console.log("  注意：24h 内未找到过境（TLE 过旧时 SGP4 偏差大，跳过断言）");
+    console.log("  注意：24h 内未找到可见过境（TLE 过旧时 SGP4 偏差大，跳过断言）");
   }
 }
 

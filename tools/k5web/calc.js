@@ -19,6 +19,18 @@ let satellite = null;
 const C_KM_S = 299792.458; // 光速 km/s
 const OMEGA = 7.2921159e-5; // 地球自转角速度 rad/s
 
+/**
+ * 地固(ECF)位置 -> 惯性(ECI)位置，按时刻的格林尼治恒星时角 gst 旋转。
+ *
+ * 必须复用 satellite 库的 ecfToEci（Rz(-gst)）。ECI 相对地球已转过 +gst，
+ * 观测者转回 ECI 需 -gst；若手写成 +gst 会把经度反演、观测者位置差数千公里，
+ * 导致多普勒频偏符号/幅度全错（曾因此无法接收卫星信号）。
+ * 不变量校验：ECI 经度 ≡ 地固经度 + gst（test_calc.mjs 中回归断言）。
+ */
+function observerEci(obsEcf, date) {
+  return satellite.ecfToEci(obsEcf, satellite.gstime(date));
+}
+
 /** 观测者 ECI 速度（自转）: ω × r_obs */
 function observerEciVelocity(obsPosEci) {
   return {
@@ -74,15 +86,9 @@ function findPass({
   };
   const obsEcf = satellite.geodeticToEcf(obsGd);
 
-  // 观测者 ECI 位置随地球自转变化，按时刻精确计算：ECI = Rz(gst) * ECF
+  // 观测者 ECI 位置随地球自转变化，按时刻精确计算（见模块级 observerEci）。
   function obsEciAt(date) {
-    const gst = satellite.gstime(date);
-    const c = Math.cos(gst), s = Math.sin(gst);
-    return {
-      x: c * obsEcf.x + s * obsEcf.y,
-      y: -s * obsEcf.x + c * obsEcf.y,
-      z: obsEcf.z,
-    };
+    return observerEci(obsEcf, date);
   }
 
   function elevationAt(date) {
@@ -192,7 +198,7 @@ function unixToFw(unix1970) {
   }
 })(typeof self !== "undefined" ? self : this, function () {
   return {
-    radialVelocity, uplinkFreq, downlinkFreq,
+    radialVelocity, uplinkFreq, downlinkFreq, observerEci,
     findPass, dateToFwTime, unixToFw,
   };
 });
