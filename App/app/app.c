@@ -1970,6 +1970,11 @@ void APP_TimeSlice500ms(void)
     #ifdef ENABLE_FEAT_F4HWN_BEAM
         && !gBeamActive
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        // Doppler tracking is unattended: never sleep mid-pass, the RTC-driven
+        // retune must keep running and the screen must stay readable
+        && !DOPPLER_IsActive()
+    #endif
     )
     {
         if (gSleepModeCountdown_500ms > 0 && --gSleepModeCountdown_500ms == 0) {

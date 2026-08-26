@@ -49,9 +49,12 @@ typedef struct {
 // Valid data: name[9] == 0, printable name[0], CRC8 over the first 30
 // bytes matching crc8, sum_time > 0.
 typedef struct {
-    uint32_t start_unix;     // 0..3   pass start, seconds since 2000-01-01 00:00:00 UTC
+    uint32_t start_unix;     // 0..3   pass start, seconds since 2000-01-01 00:00:00 Beijing
+                             //        wall clock (UTC+8) - same base as the user-entered RTC
+                             //        time, NOT UTC. The web tool adds the +8h on its side.
     char     name[10];       // 4..13  satellite name, <= 9 chars + '\0'
     uint8_t  start_time[6];  // 14..19 pass start: year (2000-based)/month/day/hour/minute/second
+                             //        (Beijing wall clock, informational only - tracking uses start_unix)
     uint8_t  end_time[6];    // 20..25 pass end, same layout
     uint16_t sum_time;       // 26..27 total pass duration in seconds
     uint16_t send_ctcss;     // 28..29 TX sub-audio tone in Hz/10 (0 = none)
@@ -71,6 +74,10 @@ const DOPPLER_Satellite_t *DOPPLER_GetSatellite(void);
 // Converts a 6-byte time (year 2000-based / month / day / hour / minute /
 // second) into seconds since 2000-01-01 00:00:00.
 uint32_t DOPPLER_UnixTime(const uint8_t t[6]);
+
+// Inverse of DOPPLER_UnixTime: seconds since 2000-01-01 00:00:00 (Beijing
+// wall clock base) back into [year/month/day/hour/minute/second].
+void DOPPLER_UnixToDate(uint32_t Seconds, uint8_t t[6]);
 
 // Fetches the frequency table entry covering "unixNow". Returns true when
 // the pass is ongoing and a valid entry exists.

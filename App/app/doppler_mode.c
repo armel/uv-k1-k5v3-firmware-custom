@@ -37,6 +37,7 @@
 static DOPPLER_State_t gDopplerState = DOPPLER_STATE_OFF;
 
 static bool     gDopplerInit = false;
+static bool     gDopplerTimeSet = false;   // RTC was set this power session
 static bool     gDopplerPassed = false;
 static bool     gDopplerEntryValid = false;
 static bool     gDopplerTxOverride = false;
@@ -125,6 +126,7 @@ static void DOPPLER_EnterTracking(void)
     gDopplerTime[5] = time[2];
 
     RTC_SetUnix32(DOPPLER_UnixTime(gDopplerTime));
+    gDopplerTimeSet = true;
 
     gDopplerPassed = false;
     gDopplerEntryValid = false;
@@ -151,8 +153,21 @@ void DOPPLER_EnterMode(void)
 
     RTC_EnableSecondIT(true);
 
-    DOPPLER_SetInputIndex(0);
-    gDopplerState = DOPPLER_STATE_INPUT_DATE;
+    gDopplerPassed = false;
+    gDopplerEntryValid = false;
+
+    if (gDopplerTimeSet)
+    {
+        // RTC is still running with the time entered earlier this power
+        // session - skip the 12-digit input and go straight to tracking.
+        // Press 0 on the tracking screen to re-enter the time.
+        gDopplerState = DOPPLER_STATE_TRACKING;
+    }
+    else
+    {
+        DOPPLER_SetInputIndex(0);
+        gDopplerState = DOPPLER_STATE_INPUT_DATE;
+    }
     gRequestDisplayScreen = DISPLAY_DOPPLER;
     gUpdateDisplay = true;
 }
@@ -231,6 +246,14 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             {
                 DOPPLER_ExitMode();
             }
+            else if (Key == KEY_0)
+            {
+                // re-enter the time (e.g. after a mis-entry); the RTC keeps
+                // running while the 12 digits are typed again
+                DOPPLER_SetInputIndex(0);
+                gDopplerState = DOPPLER_STATE_INPUT_DATE;
+                gUpdateDisplay = true;
+            }
             else if (Key == KEY_PTT && !gDopplerPassed && gDopplerEntryValid)
             {
                 if (gCurrentFunction == FUNCTION_TRANSMIT)
@@ -306,26 +329,271 @@ void DOPPLER_TimeSlice(void)
             gDopplerEntryValid = true;
             // Keep the VFO struct in sync so logs/UI show the tracked frequency
             gTxVfo->freq_config_RX.Frequency = Entry.downlink;
-            BK4819_SetFrequency(Entry.downlink);
-            BK4819_PickRXFilterPathBasedOnFrequency(Entry.downlink);
-            gUpdateDisplay = true;
+            // Never retune the synthesizer mid-transmission: BK4819_SetFrequency
+            // writes the live PLL registers (REG_38/39), so calling it while
+            // transmitting would drag the TX carrier onto the downlink frequency.
+            // The TX-end path (RADIO_SetupRegisters) restores RX from the VFO
+            // struct above, which already holds the newest entry.
+            if (gCurrentFunction != FUNCTION_TRANSMIT)
+            {
+                BK4819_SetFrequency(Entry.downlink);
+                BK4819_PickRXFilterPathBasedOnFrequency(Entry.downlink);
+            }
         }
         gDopplerPassed = false;
     }
     else
     {
         gDopplerPassed = true;
-        gUpdateDisplay = true;
     }
+    // the on-screen clock/progress bar tick once per second even when the
+    // frequency entry is unchanged
+    gUpdateDisplay = true;
+}
+
+// ---------------------------------------------------------------------------
+// Tracking screen, same layout as the Losehu K5 V1 satellite screen:
+//   status line : inverse satellite name box + modulation/bandwidth
+//   FB lines 0-1: big RX frequency (downlink, Doppler-compensated)
+//   FB line 2   : live RSSI "-91dBm S1" + ticked signal bar (right half)
+//   FB line 3-4 : BK4819 AGC gains LNAs/LNA/PGA + IF register value
+//   FB line 5   : uplink frequency + countdown (inverse while transmitting)
+//   FB line 6   : current Beijing date/time + pass progress bar
+// All drawing uses the stock UI helpers, gFrameBuffer/gStatusLine and
+// read-only BK4819 register reads - no hardware-specific pokes.
+// ---------------------------------------------------------------------------
+
+// S-level thresholds, same table as the spectrum app (spectrum.h U8RssiMap)
+static uint8_t DOPPLER_Dbm2S(int16_t dBm)
+{
+    static const uint8_t rssiMap[10] = {121, 115, 109, 103, 97, 91, 85, 79, 73, 63};
+    const int16_t v = -dBm;
+    uint8_t i;
+    for (i = 0; i < ARRAY_SIZE(rssiMap); i++)
+    {
+        if (v >= rssiMap[i])
+        {
+            return i;
+        }
+    }
+    return i;
 }
 
 static void DOPPLER_RenderFrequency(const uint32_t Freq10Hz, const uint8_t Line)
 {
     char Buffer[12];
-    snprintf(Buffer, sizeof(Buffer), "%lu.%03lu", (unsigned long)(Freq10Hz / 100000u),
-             (unsigned long)((Freq10Hz % 100000u) / 100u));
+    snprintf(Buffer, sizeof(Buffer), "%lu.%05lu", (unsigned long)(Freq10Hz / 100000u),
+             (unsigned long)(Freq10Hz % 100000u));
     // UI_DisplayFrequency 的 Y 是帧缓冲行号(0-6), 大字占 Y 和 Y+1 两行
     UI_DisplayFrequency(Buffer, 0, Line, true);
+}
+
+// status line: inverse name box (Losehu style) + "FM 25k"/"FM 12k"; the
+// default status icons (battery, ...) on the right are left untouched.
+// Also called from UI_DisplayStatus() so status-bar refreshes (battery,
+// key events) redraw the name box instead of wiping it.
+void DOPPLER_RenderStatusStrip(const DOPPLER_Satellite_t *pSat)
+{
+    char Name[10];
+    uint8_t len = (uint8_t)strlen(pSat->name);
+    if (len > 9u)
+    {
+        len = 9u;
+    }
+    memcpy(Name, pSat->name, len);
+    Name[len] = 0;
+
+    const uint8_t w = (uint8_t)(len * 7u + 4u);
+    memset(gStatusLine, 0, w); // clear default icons under the name
+    UI_PrintStringSmallBufferNormal(Name, gStatusLine + 2);
+    for (uint8_t x = 0; x < w; x++)
+    {
+        gStatusLine[x] ^= 0xFF; // inverse-video name box
+    }
+
+    const char *pBw = (gTxVfo->CHANNEL_BANDWIDTH == BK4819_FILTER_BW_WIDE) ? "FM 25k" : "FM 12k";
+    UI_PrintStringSmallBufferNormal(pBw, gStatusLine + 72);
+
+    ST7565_BlitStatusLine();
+}
+
+// line 2: "-91dBm S1" + ticked signal bar (bar range -130..-50 dBm)
+static void DOPPLER_RenderRssi(void)
+{
+    char Buffer[16];
+    const bool tx = (gCurrentFunction == FUNCTION_TRANSMIT);
+
+    const uint8_t X0 = 72; // bar occupies x=72..127 (worst-case text "-127dBm S10" ends at 71)
+    memset(&gFrameBuffer[2][X0], 0b01000000, LCD_WIDTH - X0);
+    for (uint8_t i = 0; i < LCD_WIDTH - X0; i += 6)
+    {
+        gFrameBuffer[2][X0 + i] = 0b01100000; // tick marks
+    }
+
+    if (tx)
+    {
+        // RSSI is meaningless while transmitting
+        snprintf(Buffer, sizeof(Buffer), "TX");
+    }
+    else
+    {
+        const int16_t dBm = BK4819_GetRSSI_dBm();
+        snprintf(Buffer, sizeof(Buffer), "%ddBm S%u", (int)dBm, (unsigned)DOPPLER_Dbm2S(dBm));
+
+        int32_t px = ((int32_t)dBm + 130) * (LCD_WIDTH - X0) / 80;
+        if (px < 0) px = 0;
+        if (px > LCD_WIDTH - X0) px = LCD_WIDTH - X0;
+        for (uint8_t i = 0; i < (uint8_t)px; i++)
+        {
+            if (i % 6 != 0)
+            {
+                gFrameBuffer[2][X0 + i] |= 0b00001110;
+            }
+        }
+
+        // marker at the squelch-open threshold (same conversion as RSSI dBm)
+        const int16_t trigDbm = (int16_t)(gTxVfo->SquelchOpenRSSIThresh / 2) - 160;
+        int32_t txp = ((int32_t)trigDbm + 130) * (LCD_WIDTH - X0) / 80;
+        if (txp >= 0 && txp < LCD_WIDTH - X0)
+        {
+            gFrameBuffer[2][X0 + (uint8_t)txp] = 0b11111111;
+        }
+    }
+    UI_PrintStringSmallNormal(Buffer, 2, 0, 2);
+}
+
+// lines 3-4: BK4819 AGC register readback, same source as Losehu
+// (LNAs/LNA/PGA from REG_13, IF from REG_3D) - read-only, safe
+static void DOPPLER_RenderGains(void)
+{
+    const uint16_t reg13 = BK4819_ReadRegister(BK4819_REG_13);
+    const uint16_t regIf = BK4819_ReadRegister(BK4819_REG_3D);
+    char Buffer[8];
+
+    UI_PrintStringSmallNormal("LNAs", 2, 0, 3);
+    UI_PrintStringSmallNormal("LNA", 36, 0, 3);
+    UI_PrintStringSmallNormal("PGA", 70, 0, 3);
+    UI_PrintStringSmallNormal("IF", 93, 0, 3);
+
+    snprintf(Buffer, sizeof(Buffer), "%u", (unsigned)((reg13 >> 8) & 0x3u));
+    UI_PrintStringSmallNormal(Buffer, 2, 0, 4);
+    snprintf(Buffer, sizeof(Buffer), "%u", (unsigned)((reg13 >> 5) & 0x7u));
+    UI_PrintStringSmallNormal(Buffer, 36, 0, 4);
+    snprintf(Buffer, sizeof(Buffer), "%u", (unsigned)(reg13 & 0x7u));
+    UI_PrintStringSmallNormal(Buffer, 70, 0, 4);
+    snprintf(Buffer, sizeof(Buffer), "%u", (unsigned)regIf);
+    UI_PrintStringSmallNormal(Buffer, 93, 0, 4);
+}
+
+// line 5: uplink frequency + pass countdown at the right edge;
+// the line is inverse-video while transmitting
+static void DOPPLER_RenderUplink(const DOPPLER_Satellite_t *pSat, const uint32_t Now)
+{
+    char Buffer[20];
+    const bool tx = (gCurrentFunction == FUNCTION_TRANSMIT);
+
+    if (gDopplerPassed)
+    {
+        UI_PrintStringSmallNormalInverse("PASSED", 2, 0, 5);
+        return;
+    }
+
+    uint32_t up = 0;
+    if (gDopplerEntryValid)
+    {
+        up = gDopplerEntry.uplink;
+    }
+    else
+    {
+        // pass not started: preview the first table entry
+        DOPPLER_Entry_t e0;
+        if (DOPPLER_GetEntry((int32_t)pSat->start_unix, &e0))
+        {
+            up = e0.uplink;
+        }
+    }
+
+    if (up > 0)
+    {
+        // 2 decimals keeps the line clear of the countdown slot at x=93
+        snprintf(Buffer, sizeof(Buffer), "%s:%lu.%02lu", tx ? "TX" : "UPLink",
+                 (unsigned long)(up / 100000u), (unsigned long)((up % 100000u) / 1000u));
+    }
+    else
+    {
+        snprintf(Buffer, sizeof(Buffer), "%s: ---", tx ? "TX" : "UPLink");
+    }
+    if (tx)
+    {
+        UI_PrintStringSmallNormalInverse(Buffer, 2, 0, 5);
+        // while transmitting the right slot confirms the TX tone instead
+        if (pSat->send_ctcss > 0)
+        {
+            snprintf(Buffer, sizeof(Buffer), "T:%u.%u", (unsigned)(pSat->send_ctcss / 10u),
+                     (unsigned)(pSat->send_ctcss % 10u));
+            UI_PrintStringSmallNormal(Buffer, (uint8_t)(LCD_WIDTH - strlen(Buffer) * 7u), 0, 5);
+        }
+        return;
+    }
+    UI_PrintStringSmallNormal(Buffer, 2, 0, 5);
+
+    // countdown slot (max 4 chars): "Long" / "-320" / "+45"
+    const int32_t togo = (int32_t)pSat->start_unix - (int32_t)Now;
+    if (togo > 1000)
+    {
+        snprintf(Buffer, sizeof(Buffer), "Long");
+    }
+    else if (togo > 0)
+    {
+        snprintf(Buffer, sizeof(Buffer), "-%ld", (long)togo);
+    }
+    else
+    {
+        snprintf(Buffer, sizeof(Buffer), "+%ld", (long)((int32_t)pSat->sum_time + togo));
+    }
+    UI_PrintStringSmallNormal(Buffer, (uint8_t)(LCD_WIDTH - strlen(Buffer) * 7u), 0, 5);
+}
+
+// line 6: current Beijing date/time + pass progress bar (Losehu bitmap style)
+static void DOPPLER_RenderDateProgress(const DOPPLER_Satellite_t *pSat, const uint32_t Now)
+{
+    char Buffer[20];
+    uint8_t t[6];
+    DOPPLER_UnixToDate(Now, t);
+    snprintf(Buffer, sizeof(Buffer), "%02u-%02u %02u:%02u:%02u",
+             (unsigned)t[1], (unsigned)t[2], (unsigned)t[3], (unsigned)t[4], (unsigned)t[5]);
+    UI_PrintStringSmallNormal(Buffer, 2, 0, 6);
+
+    const uint8_t X0 = 101, W = 25; // bar body x=101..125, end caps at 100/126
+    memset(&gFrameBuffer[6][X0], 0b01000000, W);
+    gFrameBuffer[6][X0 - 1] = 0b00111110;
+    gFrameBuffer[6][X0 + W] = 0b00111110;
+
+    uint8_t process = 0;
+    if (gDopplerPassed)
+    {
+        process = W;
+    }
+    else
+    {
+        const int32_t togo = (int32_t)pSat->start_unix - (int32_t)Now;
+        if (togo > 0)
+        {
+            if (togo <= 1000)
+            {
+                process = (uint8_t)((uint32_t)togo * W / 1000u); // drains as AOS approaches
+            }
+        }
+        else
+        {
+            const int32_t remain = (int32_t)pSat->sum_time + togo;
+            process = (uint8_t)(W - (uint32_t)remain * W / pSat->sum_time); // fills during pass
+        }
+    }
+    for (uint8_t i = 0; i < W; i++)
+    {
+        gFrameBuffer[6][X0 + i] = (i < process) ? 0b00111110 : 0b00100010;
+    }
 }
 
 void DOPPLER_Render(void)
@@ -350,7 +618,6 @@ void DOPPLER_Render(void)
 
     // TRACKING
     const DOPPLER_Satellite_t *pSat = DOPPLER_GetSatellite();
-    char Buffer[24];
 
     if (!DOPPLER_HasData())
     {
@@ -360,56 +627,20 @@ void DOPPLER_Render(void)
         return;
     }
 
-    snprintf(Buffer, sizeof(Buffer), "%s", pSat->name);
-    UI_PrintStringSmallBold(Buffer, 0, 127, 0);
+    const uint32_t now = RTC_GetUnix32();
 
-    if (gDopplerPassed)
-    {
-        UI_PrintString("PASSED", 0, 127, 1, 8);
-    }
-    else if (gDopplerEntryValid)
-    {
-        DOPPLER_RenderFrequency(gDopplerEntry.downlink, 1);
-        DOPPLER_RenderFrequency(gDopplerEntry.uplink, 3);
+    DOPPLER_RenderStatusStrip(pSat);
 
-        if (pSat->send_ctcss > 0)
-        {
-            snprintf(Buffer, sizeof(Buffer), "CTCSS %u.%u", (unsigned)(pSat->send_ctcss / 10u),
-                     (unsigned)(pSat->send_ctcss % 10u));
-        }
-        else
-        {
-            snprintf(Buffer, sizeof(Buffer), "NO TONE");
-        }
-        UI_PrintStringSmallNormal(Buffer, 0, 127, 5);
+    // waiting: show the live VFO frequency (radio not retuned yet);
+    // tracking/passed: show the tracked (or last) downlink entry
+    const uint32_t down = gDopplerEntryValid ? gDopplerEntry.downlink
+                                             : gTxVfo->freq_config_RX.Frequency;
+    DOPPLER_RenderFrequency(down, 0);        // FB lines 0-1
 
-        // time to pass end
-        const int32_t remain = (int32_t)(pSat->start_unix + pSat->sum_time) - (int32_t)RTC_GetUnix32();
-        if (remain > 0)
-        {
-            snprintf(Buffer, sizeof(Buffer), "-%ld s", (long)remain);
-        }
-        else
-        {
-            snprintf(Buffer, sizeof(Buffer), "+%ld s", (long)(-remain));
-        }
-        UI_PrintStringSmallNormal(Buffer, 0, 127, 6);
-    }
-    else
-    {
-        UI_PrintString("WAIT", 0, 127, 1, 8);
-
-        // Countdown to pass start (T-HH:MM:SS), refreshed every second
-        const int32_t togo = (int32_t)pSat->start_unix - (int32_t)RTC_GetUnix32();
-        if (togo > 0)
-        {
-            snprintf(Buffer, sizeof(Buffer), "T-%02lu:%02lu:%02lu",
-                     (unsigned long)((uint32_t)togo / 3600u),
-                     (unsigned long)(((uint32_t)togo % 3600u) / 60u),
-                     (unsigned long)((uint32_t)togo % 60u));
-            UI_PrintStringSmallNormal(Buffer, 0, 127, 6);
-        }
-    }
+    DOPPLER_RenderRssi();                    // FB line 2
+    DOPPLER_RenderGains();                   // FB lines 3-4
+    DOPPLER_RenderUplink(pSat, now);         // FB line 5
+    DOPPLER_RenderDateProgress(pSat, now);   // FB line 6
 
     ST7565_BlitFullScreen();   // 推送 LCD
 }

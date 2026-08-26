@@ -27,6 +27,9 @@
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
     #include "app/doppler.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    #include "app/cnfont.h"
+#endif
 #include "board.h"
 #include "py32f071_ll_dma.h"
 #include "driver/backlight.h"
@@ -180,6 +183,28 @@ typedef struct {
     } Data;
 } REPLY_DOPPLER_t;
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
+
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+// Chinese font programming commands (web tool -> radio)
+typedef struct {
+    Header_t Header;
+    uint16_t SectorIndex;
+    uint16_t Padding;
+} CMD_CN_FONT_ERASE_t;
+
+typedef struct {
+    Header_t Header;
+    uint32_t Offset;
+    uint8_t  Data[244];   // 命令缓冲上限；但整帧还须 < 256B 接收环（数据实际 ≤239，见 k5web protocol.js）
+} CMD_CN_FONT_WRITE_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;   // 0 = OK, 1 = rejected
+    } Data;
+} REPLY_CN_FONT_t;
+#endif // ENABLE_FEAT_F4HWN_CN_FONT
 
 
 #ifdef ENABLE_EXTRA_UART_CMD
@@ -816,6 +841,8 @@ static void CMD_DOPPLER_ERASE(uint32_t Port, uint16_t Size)
 {
     REPLY_DOPPLER_t Reply;
 
+    gSerialConfigCountDown_500ms = 12; // 6 sec，编程会话保护（屏蔽 PTT/VOX 与 K5Viewer 注入）
+
     Reply.Header.ID   = 0x05E3;
     Reply.Header.Size = sizeof(Reply.Data);
     Reply.Data.Status = (Size == 0) ? 0 : 1;
@@ -832,6 +859,8 @@ static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_
 {
     const CMD_DOPPLER_WRITE_SAT_t *pCmd = (const CMD_DOPPLER_WRITE_SAT_t *)pBuffer;
     REPLY_DOPPLER_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
 
     Reply.Header.ID   = 0x05E4;
     Reply.Header.Size = sizeof(Reply.Data);
@@ -851,6 +880,8 @@ static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer, uint1
     const CMD_DOPPLER_WRITE_ENTRY_t *pCmd = (const CMD_DOPPLER_WRITE_ENTRY_t *)pBuffer;
     REPLY_DOPPLER_t Reply;
 
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
     Reply.Header.ID   = 0x05E5;
     Reply.Header.Size = sizeof(Reply.Data);
     Reply.Data.Status = 1;
@@ -863,6 +894,49 @@ static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer, uint1
     SendReply(Port, &Reply, sizeof(Reply));
 }
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
+
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+static void CMD_CN_FONT_ERASE(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_CN_FONT_ERASE_t *pCmd = (const CMD_CN_FONT_ERASE_t *)pBuffer;
+    REPLY_CN_FONT_t Reply;
+
+    // 编程会话保持（同 0x0514/0x051B）：6 秒内屏蔽 PTT/VOX 发射与 K5Viewer 按键注入
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05E9;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    // 逐扇区擦除：每命令一个扇区，网页端据此显示进度
+    if (Size == sizeof(pCmd->SectorIndex) + sizeof(pCmd->Padding))
+    {
+        Reply.Data.Status = CN_FONT_EraseSector(pCmd->SectorIndex) ? 0 : 1;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_CN_FONT_WRITE(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_CN_FONT_WRITE_t *pCmd = (const CMD_CN_FONT_WRITE_t *)pBuffer;
+    REPLY_CN_FONT_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05EA;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    if (Size >= sizeof(pCmd->Offset) + 1 && Size <= sizeof(pCmd->Offset) + sizeof(pCmd->Data))
+    {
+        Reply.Data.Status = CN_FONT_Write(pCmd->Offset, pCmd->Data,
+                                          Size - sizeof(pCmd->Offset)) ? 0 : 1;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+#endif // ENABLE_FEAT_F4HWN_CN_FONT
 
 void UART_HandleCommand(uint32_t Port)
 {
@@ -937,6 +1011,16 @@ void UART_HandleCommand(uint32_t Port)
 
         case 0x05E2:
             CMD_DOPPLER_WRITE_ENTRY(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+        case 0x05E6:
+            CMD_CN_FONT_ERASE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05E7:
+            CMD_CN_FONT_WRITE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 #endif
 

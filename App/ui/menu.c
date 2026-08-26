@@ -43,6 +43,12 @@
 #include "ui.h"
 #include "welcome.h"
 
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    #include "app/cnfont.h"
+    #include "cn.h"
+    #include "menu_cn.h"
+#endif
+
 
 const t_menu_item MenuList[] =
 {
@@ -149,6 +155,7 @@ const t_menu_item MenuList[] =
     {"SetLck",      MENU_SET_LCK       },
     {"SetMet",      MENU_SET_MET       },
     {"SetGUI",      MENU_SET_GUI       },
+    {"SetLng",      MENU_LANG          },
 #ifdef ENABLE_FEAT_F4HWN_AUDIO    
     {"SetRxA",      MENU_SET_AUD       },
 #endif
@@ -358,6 +365,14 @@ const char* const gSubMenu_BAT_TXT[] =
     "NONE",
     "VOLTAGE",
     "PERCENT"
+};
+
+// UI language. "Chinese" is a placeholder: selecting it is persisted but
+// Chinese rendering (font in external SPI flash) is not implemented yet.
+const char* const gSubMenu_LANG[] =
+{
+    "English",
+    "Chinese"
 };
 
 const char* const gSubMenu_BATTYP[] =
@@ -621,7 +636,7 @@ static const uint8_t CatPower[]   = {
     MENU_SET_SAV,
 #endif
 };
-static const uint8_t CatDisplay[] = { MENU_MDF, MENU_PONMSG, MENU_ABR, MENU_ABR_MIN, MENU_ABR_MAX, MENU_ABR_ON_TX_RX, MENU_SET_CTR, MENU_SET_INV, MENU_SET_MET, MENU_SET_GUI, MENU_VOL };
+static const uint8_t CatDisplay[] = { MENU_MDF, MENU_PONMSG, MENU_ABR, MENU_ABR_MIN, MENU_ABR_MAX, MENU_ABR_ON_TX_RX, MENU_SET_CTR, MENU_SET_INV, MENU_SET_MET, MENU_SET_GUI, MENU_LANG, MENU_VOL };
 static const uint8_t CatTimers[]  = { MENU_TOT, MENU_SET_TOT, MENU_SET_EOT, MENU_SET_TMR };
 static const uint8_t CatAudio[]   = {
     MENU_MIC, MENU_MIC_BAR, MENU_BEEP,
@@ -704,6 +719,70 @@ void UI_MENU_BuildCategoryScreen(void)
     }
 }
 
+// Set once per UI_DisplayMenu pass: language switched to Chinese AND a font
+// is actually programmed. Guards every name/value drawing below.
+static bool gCnMenuMode = false;
+
+static const char *UI_MENU_GetDisplayName(const t_menu_item *pItem)
+{
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    if (gCnMenuMode)
+    {
+        const char *pCn = UI_MENU_GetNameCN(pItem->menu_id);
+        if (pCn)
+        {
+            return pCn;
+        }
+    }
+#endif
+    return pItem->name;
+}
+
+// Big (16 px) name renderer. In Chinese mode a GB2312 glyph is exactly
+// 16 px tall, so it occupies the same two lines as the big ASCII font.
+static void UI_MENU_PrintNameBig(const char *pName, uint8_t Line)
+{
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    if (gCnMenuMode)
+    {
+        UI_PrintStringCN(pName, Line, 0);
+        return;
+    }
+#endif
+    UI_PrintString(pName, 0, 0, Line, 8);
+}
+
+// Small (8 px) name renderer. In Chinese mode the 16 px glyphs need two
+// lines, so callers shift Line up by one to make room below.
+static void UI_MENU_PrintNameSmall(const char *pName, uint8_t Line)
+{
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    if (gCnMenuMode)
+    {
+        UI_PrintStringCN(pName, Line, 0);
+        return;
+    }
+#endif
+    UI_PrintStringSmallNormal(pName, 0, 0, Line);
+}
+
+#ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+static const char *UI_MENU_GetCategoryName(uint8_t Cat)
+{
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    if (gCnMenuMode)
+    {
+        const char *pCn = UI_MENU_GetCategoryCN(Cat);
+        if (pCn)
+        {
+            return pCn;
+        }
+    }
+#endif
+    return CategoryNames[Cat];
+}
+#endif
+
 // Rendu de l'ecran des categories (niveau 1).
 static void UI_MENU_DrawCategories(void)
 {
@@ -725,10 +804,10 @@ static void UI_MENU_DrawCategories(void)
     int next = cur + 1; if (next >= count) next = 0;
 
     if (count > 1)
-        UI_PrintStringSmallNormal(CategoryNames[gCatOrder[prev]], 0, 0, 1);
-    UI_PrintString(CategoryNames[gCatOrder[cur]], 0, 0, 2, 8);
+        UI_MENU_PrintNameSmall(UI_MENU_GetCategoryName(gCatOrder[prev]), gCnMenuMode ? 0 : 1);
+    UI_MENU_PrintNameBig(UI_MENU_GetCategoryName(gCatOrder[cur]), 2);
     if (count > 1)
-        UI_PrintStringSmallNormal(CategoryNames[gCatOrder[next]], 0, 0, 4);
+        UI_MENU_PrintNameSmall(UI_MENU_GetCategoryName(gCatOrder[next]), 4);
 
     sprintf(str, "%02u/%02u", 1 + cur, count);
     UI_PrintStringSmallNormal(str, 6, 0, 6);
@@ -845,6 +924,10 @@ void UI_DisplayMenu(void)
     char               String[64];  // bigger cuz we can now do multi-line in one string (use '\n' char)
     char               top_right_badge[16];
 
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    gCnMenuMode = gSetting_Language && CN_FONT_Present();
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
     if (gMenuLevel == MENU_LEVEL_CAT)
     {
@@ -876,7 +959,7 @@ void UI_DisplayMenu(void)
     for (i = 0; i < 3; i++)
         if (gMenuCursor > 0 || i > 0)
             if ((gMenuListCount - 1) != gMenuCursor || i != 2)
-                UI_PrintString(MenuList[gMenuIndices[gMenuCursor + i - 1]].name, 0, 0, i * 2, 8);
+                UI_MENU_PrintNameBig(UI_MENU_GetDisplayName(&MenuList[gMenuIndices[gMenuCursor + i - 1]]), i * 2);
 
     // invert the current menu list item pixels
     for (i = 0; i < (8 * menu_list_width); i++)
@@ -912,17 +995,20 @@ void UI_DisplayMenu(void)
                 if (prev_index < 0) {
                     prev_index = menu_count - 1;
                 }
-                UI_PrintStringSmallNormal(MenuList[gMenuIndices[prev_index]].name, 0, 0, 1);
+                // 16 px Chinese glyphs take two lines: draw the previous
+                // item one line higher so it does not collide with the
+                // current (big) item
+                UI_MENU_PrintNameSmall(UI_MENU_GetDisplayName(&MenuList[gMenuIndices[prev_index]]), gCnMenuMode ? 0 : 1);
 
                 // current menu item - keep big n fat
-                UI_PrintString(MenuList[gMenuIndices[menu_index]].name, 0, 0, 2, 8);
+                UI_MENU_PrintNameBig(UI_MENU_GetDisplayName(&MenuList[gMenuIndices[menu_index]]), 2);
 
                 // trailing menu item - small text
                 int next_index = menu_index + 1;
                 if (next_index >= menu_count) {
                     next_index = 0;
                 }
-                UI_PrintStringSmallNormal(MenuList[gMenuIndices[next_index]].name, 0, 0, 4);
+                UI_MENU_PrintNameSmall(UI_MENU_GetDisplayName(&MenuList[gMenuIndices[next_index]]), 4);
 
 
                 // draw the menu index number/count
@@ -935,7 +1021,7 @@ void UI_DisplayMenu(void)
             {   
                 // current menu item
 //              strcat(String, ":");
-                UI_PrintString(MenuList[gMenuIndices[menu_index]].name, 0, 0, 0, 8);
+                UI_MENU_PrintNameBig(UI_MENU_GetDisplayName(&MenuList[gMenuIndices[menu_index]]), 0);
 //              UI_PrintStringSmallNormal(String, 0, 0, 0);
             }
 
@@ -1386,6 +1472,15 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_BAT_TXT[gSubMenuSelection]);
             break;
 
+        case MENU_LANG:
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+            if (gCnMenuMode)
+                strcpy(String, gSubMenuSelection ? UI_MENU_GetLangValueCN() : "English");
+            else
+#endif
+                strcpy(String, gSubMenu_LANG[gSubMenuSelection]);
+            break;
+
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
             gIsDtmfContactValid = DTMF_GetContact((int)gSubMenuSelection - 1, Contact);
@@ -1695,6 +1790,9 @@ void UI_DisplayMenu(void)
         unsigned int lines = 1;
         unsigned int len   = strlen(String);
         bool         small = false;
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+        bool         has_cn = false;
+#endif
 
         if (String[0] != '\0')
         {
@@ -1715,6 +1813,22 @@ void UI_DisplayMenu(void)
                     lines = 7;
             }
 
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+            if (gCnMenuMode)
+            {
+                // Chinese values render with the 16 px font; detect them so
+                // the draw loop below picks the CN renderer (big font path)
+                for (i = 0; i < len; i++)
+                {
+                    if ((uint8_t)String[i] >= 0xA1u)
+                    {
+                        has_cn = true;
+                        break;
+                    }
+                }
+            }
+#endif
+
             // center vertically'ish
             /*
             if (small)
@@ -1729,9 +1843,23 @@ void UI_DisplayMenu(void)
             for (i = 0; i < len && lines > 0; lines--)
             {
                 if (small)
+                {
                     UI_PrintStringSmallNormal(String + i, menu_item_x1, menu_item_x2, y);
+                }
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                else if (has_cn)
+                {
+                    const uint8_t w = UI_PrintStringCNWidth(String + i);
+                    uint8_t x = menu_item_x1;
+                    if (w < menu_item_x2 - menu_item_x1)
+                        x += (uint8_t)((menu_item_x2 - menu_item_x1 - w + 1) / 2);
+                    UI_PrintStringCN(String + i, (uint8_t)y, x);
+                }
+#endif
                 else
+                {
                     UI_PrintString(String + i, menu_item_x1, menu_item_x2, y, 8);
+                }
 
                 // look for start of next line
                 while (i < len && String[i] >= 32)

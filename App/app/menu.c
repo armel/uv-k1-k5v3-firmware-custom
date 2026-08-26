@@ -344,6 +344,11 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = ARRAY_SIZE(gSubMenu_BAT_TXT) - 1;
             break;
 
+        case MENU_LANG:
+            //*pMin = 0;
+            *pMax = ARRAY_SIZE(gSubMenu_LANG) - 1;
+            break;
+
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_HOLD:
             *pMin = 5;
@@ -800,6 +805,10 @@ void MENU_AcceptSetting(void)
 
         case MENU_BAT_TXT:
             gSetting_battery_text = gSubMenuSelection;
+            break;
+
+        case MENU_LANG:
+            gSetting_Language = gSubMenuSelection;
             break;
 
 #ifdef ENABLE_DTMF_CALLING
@@ -1319,6 +1328,10 @@ void MENU_ShowCurrentSetting(void)
 
         case MENU_BAT_TXT:
             gSubMenuSelection = gSetting_battery_text;
+            return;
+
+        case MENU_LANG:
+            gSubMenuSelection = gSetting_Language;
             return;
 
 #ifdef ENABLE_DTMF_CALLING

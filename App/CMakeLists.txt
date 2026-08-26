@@ -219,6 +219,11 @@ enable_feature(ENABLE_FEAT_F4HWN_DOPPLER
 enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT
     app/foxhunt.c
 )
+enable_feature(ENABLE_FEAT_F4HWN_CN_FONT
+    app/cnfont.c
+    ui/cn.c
+    ui/menu_cn.c
+)
 enable_feature(ENABLE_FEAT_F4HWN_ACTION_PICKER)
 
 if(ENABLE_FEAT_F4HWN_ACTION_PICKER AND NOT ENABLE_FEAT_F4HWN)

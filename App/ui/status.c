@@ -18,6 +18,10 @@
 
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+#include "app/doppler.h"
+#include "app/doppler_mode.h"
+#endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
 #include "app/rxtx_log.h"
 #endif
@@ -62,6 +66,23 @@ void UI_DisplayStatus()
         return;
 
     UI_StatusClear();
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    if (gScreenToDisplay == DISPLAY_DOPPLER) {
+        // The Doppler strip owns the left half of the status line (inverse
+        // satellite-name box + bandwidth). The default indicators (DWR, CL,
+        // scan, ...) occupy the same pixels, so drawing them here would wipe
+        // or overlap the satellite name; only the battery stays refreshed.
+        UI_DrawBattery(gStatusLine + LCD_WIDTH - sizeof(BITMAP_BatteryLevel1),
+                       gBatteryDisplayLevel, gLowBatteryBlink);
+        if (DOPPLER_HasData()) {
+            DOPPLER_RenderStatusStrip(DOPPLER_GetSatellite()); // blits the line
+        } else {
+            ST7565_BlitStatusLine();
+        }
+        return;
+    }
+#endif
 
     uint8_t     *line = gStatusLine;
     unsigned int x    = 0;

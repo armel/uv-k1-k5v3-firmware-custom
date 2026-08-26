@@ -28,6 +28,16 @@
     el.textContent = msg;
   };
 
+  // ---------- 选项卡切换 ----------
+  document.querySelectorAll(".tabbtn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tabbtn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".tabpanel").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      $(btn.dataset.tab).classList.add("active");
+    });
+  });
+
   // ---------- 自动获取 TLE ----------
   // 常见 FM 卫星频率表（上行/下行 MHz）
   const KNOWN_SATS = {
@@ -257,7 +267,8 @@
       passData = pass;
       const r = $("result");
       r.style.display = "block";
-      const fmt = (d) => d.toLocaleString("zh-CN", { hour12: false });
+      // 固定按 Asia/Shanghai 显示，与系统时区无关（对比 Look4Sat 时不串时区）
+      const fmt = (d) => d.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
       const first = pass.entries[0], last = pass.entries[pass.entries.length - 1];
       r.innerHTML =
         `<b>过境时间（北京时间）：</b>${fmt(pass.start)} → ${fmt(pass.end)}<br>` +
@@ -390,13 +401,308 @@
         log(`条目 ${i + n}/${total}`);
       }
       bar.style.width = "100%";
-      setStatus("✅ 星历写入完成！对讲机按 F+0 进入多普勒模式，输入当前 UTC 时间即可跟踪", "ok");
+      setStatus("✅ 星历写入完成！对讲机长按 0 进入多普勒模式，输入当前北京时间即可跟踪", "ok");
       log("全部完成");
     } catch (err) {
       setStatus("写入失败：" + err.message, "err");
       log("写入异常：" + err.message, "err");
     } finally {
       $("btnWrite").disabled = false;
+    }
+  });
+  // ---------- 中文字库刷入 ----------
+  let fontData = null;
+
+  $("fontFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    fontData = null;
+    $("btnFont").disabled = true;
+    if (!f) return;
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (buf.length > proto.CN_FONT.FLASH_SIZE) {
+      setStatus(`字库文件过大：${buf.length} 字节，应为 ${proto.CN_FONT.FLASH_SIZE}`, "err");
+      return;
+    }
+    fontData = buf;
+    $("btnFont").disabled = false;
+    log(`字库文件已加载：${f.name}（${buf.length} 字节）`);
+    if (buf.length !== proto.CN_FONT.FLASH_SIZE)
+      log("提示：文件小于标准尺寸，未覆盖区域将保持空白", "info");
+  });
+
+  $("btnFont").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!fontData) { setStatus("请先选择字库文件", "err"); return; }
+
+    $("btnFont").disabled = true;
+    $("fontProgress").style.display = "block";
+    const bar = $("fontProgressBar");
+    bar.style.width = "0%";
+    try {
+      // 1. 逐扇区擦除（70 个，进度 0~30%）
+      const sectors = proto.CN_FONT.SECTOR_COUNT;
+      log(`擦除字库区（${sectors} 个扇区）...`);
+      for (let s = 0; s < sectors; s++) {
+        const payload = new Uint8Array(4);
+        new DataView(payload.buffer).setUint16(0, s, true);
+        const r = await sendCommand(proto.CMD.CN_FONT_ERASE, payload);
+        if (r.status !== 0) throw new Error(`扇区 ${s} 擦除失败 status=${r.status}`);
+        bar.style.width = ((s + 1) / sectors * 30).toFixed(1) + "%";
+        if (s % 10 === 9 || s === sectors - 1) log(`擦除 ${s + 1}/${sectors}`);
+      }
+
+      // 2. 分块写入（240 字节/帧，进度 30~100%）
+      const total = fontData.length, chunk = proto.CN_FONT.CHUNK;
+      log("写入字库数据...");
+      for (let off = 0; off < total; off += chunk) {
+        const n = Math.min(chunk, total - off);
+        const payload = new Uint8Array(4 + n);
+        new DataView(payload.buffer).setUint32(0, off, true);
+        payload.set(fontData.subarray(off, off + n), 4);
+        const r = await sendCommand(proto.CMD.CN_FONT_WRITE, payload);
+        if (r.status !== 0) throw new Error(`偏移 0x${off.toString(16)} 写入失败 status=${r.status}`);
+        bar.style.width = (30 + (off + n) / total * 70).toFixed(1) + "%";
+        if ((off / chunk) % 100 === 99 || off + n === total) log(`写入 ${off + n}/${total}`);
+      }
+      bar.style.width = "100%";
+      setStatus("✅ 字库刷入完成！机内菜单 SetLng 选择 Chinese 即可（渲染支持随固件更新提供）", "ok");
+      log("字库刷入完成");
+    } catch (err) {
+      setStatus("字库刷入失败：" + err.message, "err");
+      log("字库刷入异常：" + err.message, "err");
+    } finally {
+      $("btnFont").disabled = false;
+    }
+  });
+  // ---------- 校准数据导出 / 导入（EEPROM 仿真区 0xB000..0xB200，512 字节） ----------
+
+  // 会话握手：发 0x0514 建立时间戳，等 0x0515 版本回复
+  async function ensureSession() {
+    const ts = new Uint8Array(4);
+    new DataView(ts.buffer).setUint32(0, proto.CALIB.TS, true);
+    await writer.write(proto.buildFrame(proto.CMD.DEV_INFO_REQ, ts));
+    const resp = await waitForMsg(proto.CMD.DEV_INFO_RESP, 1500);
+    if (!resp) throw new Error("握手超时（请确认对讲机处于正常开机状态，不是刷机模式）");
+    let ver = "";
+    for (let i = 4; i < Math.min(resp.length, 20) && resp[i] !== 0; i++) ver += String.fromCharCode(resp[i]);
+    return ver;
+  }
+
+  $("btnCalExp").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    $("btnCalExp").disabled = true;
+    try {
+      const ver = await ensureSession();
+      log(`固件版本：${ver}`);
+      const C = proto.CALIB;
+      const out = new Uint8Array(C.SIZE);
+      for (let off = 0; off < C.SIZE; off += C.READ_CHUNK) {
+        const payload = new Uint8Array(8);
+        const dv = new DataView(payload.buffer);
+        dv.setUint16(0, C.OFFSET + off, true);
+        dv.setUint8(2, C.READ_CHUNK);
+        dv.setUint32(4, C.TS, true);
+        await writer.write(proto.buildFrame(proto.CMD.READ_EEPROM, payload));
+        const resp = await waitForMsg(proto.CMD.READ_EEPROM_RESP, 1500);
+        if (!resp) throw new Error(`读取 0x${(C.OFFSET + off).toString(16)} 超时`);
+        const rdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+        if (rdv.getUint16(4, true) !== C.OFFSET + off) throw new Error("读取偏移回显不一致");
+        out.set(resp.subarray(8, 8 + C.READ_CHUNK), off);
+        log(`读取 0x${(C.OFFSET + off).toString(16)} ~ 0x${(C.OFFSET + off + C.READ_CHUNK).toString(16)}`);
+      }
+      const blob = new Blob([out], { type: "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "calibration.dat";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setStatus("✅ 校准数据已导出为 calibration.dat", "ok");
+      log("校准数据导出完成");
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    } finally {
+      $("btnCalExp").disabled = false;
+    }
+  });
+
+  let calData = null;
+
+  $("calFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    calData = null;
+    $("btnCalImp").disabled = true;
+    if (!f) return;
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (buf.length !== proto.CALIB.SIZE) {
+      setStatus(`校准文件大小无效：${buf.length} 字节，应为 ${proto.CALIB.SIZE}`, "err");
+      return;
+    }
+    calData = buf;
+    $("btnCalImp").disabled = false;
+    log(`校准文件已加载：${f.name}（${buf.length} 字节）`);
+  });
+
+  $("btnCalImp").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!calData) { setStatus("请先选择校准文件", "err"); return; }
+    if (!confirm("确认导入？写错校准数据会导致频率/功率/电量异常，请确认文件来自本机。")) return;
+
+    $("btnCalImp").disabled = true;
+    $("calProgress").style.display = "block";
+    const bar = $("calProgressBar");
+    bar.style.width = "0%";
+    try {
+      const ver = await ensureSession();
+      log(`固件版本：${ver}`);
+      const C = proto.CALIB;
+      for (let off = 0; off < C.SIZE; off += C.WRITE_CHUNK) {
+        const payload = new Uint8Array(8 + C.WRITE_CHUNK);
+        const dv = new DataView(payload.buffer);
+        dv.setUint16(0, C.OFFSET + off, true);
+        dv.setUint8(2, C.WRITE_CHUNK);
+        dv.setUint8(3, 1); // bAllowPassword 标志位（uvtools 约定）
+        dv.setUint32(4, C.TS, true);
+        payload.set(calData.subarray(off, off + C.WRITE_CHUNK), 8);
+        await writer.write(proto.buildFrame(proto.CMD.WRITE_EEPROM, payload));
+        const resp = await waitForMsg(proto.CMD.WRITE_EEPROM_RESP, 1500);
+        if (!resp) throw new Error(`写入 0x${(C.OFFSET + off).toString(16)} 超时`);
+        const wdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+        if (resp.length < 6 || wdv.getUint16(4, true) !== C.OFFSET + off)
+          throw new Error(`写入 0x${(C.OFFSET + off).toString(16)} 回显不一致`);
+        bar.style.width = ((off + C.WRITE_CHUNK) / C.SIZE * 100).toFixed(1) + "%";
+        if (off % 64 === 48) log(`写入 ${off + C.WRITE_CHUNK}/${C.SIZE}`);
+      }
+      bar.style.width = "100%";
+      log("校准数据写入完成，发送重启命令...");
+      await writer.write(proto.buildFrame(proto.CMD.REBOOT, new Uint8Array(0)));
+      setStatus("✅ 校准数据已导入，对讲机正在重启生效", "ok");
+      log("已重启");
+    } catch (err) {
+      setStatus("导入失败：" + err.message, "err");
+      log("导入异常：" + err.message, "err");
+    } finally {
+      $("btnCalImp").disabled = false;
+    }
+  });
+
+  // ---------- 固件刷写（bootloader 协议，参考 Apache-2.0 的 uvtools2/js/flash.js） ----------
+  let fwData = null;
+
+  // 从回复队列等一条指定 id 的消息，其余（广播/K5Viewer 流等）丢弃
+  async function waitForMsg(id, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (replyQueue.length) {
+        const f = replyQueue.shift();
+        if (f.length >= 2 && (f[0] | (f[1] << 8)) === id) return f;
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return null;
+  }
+
+  // 阶段 1：等设备广播（连续 5 条有效 0x0518，相邻间隔 5~1000ms）
+  async function waitDeviceInfo(maxMs) {
+    const deadline = Date.now() + maxMs;
+    let lastTime = 0, valid = 0;
+    while (Date.now() < deadline) {
+      const f = await waitForMsg(proto.FLASH_MSG.NOTIFY_DEV_INFO, 1200);
+      if (!f) return null; // 1.2s 无广播 → 不在刷机模式
+      const now = Date.now();
+      const dt = now - lastTime;
+      valid = !lastTime || (dt >= 5 && dt <= 1000) ? valid + 1 : 1;
+      lastTime = now;
+      if (valid >= 5) return f;
+    }
+    return null;
+  }
+
+  // 阶段 2：握手（收 0x0518 → 回 0x0530 版本前 4 字符，共 3 次）
+  async function flashHandshake(version) {
+    const v4 = new TextEncoder().encode(version.slice(0, 4).padEnd(4, "0"));
+    for (let i = 0; i < 3; i++) {
+      const f = await waitForMsg(proto.FLASH_MSG.NOTIFY_DEV_INFO, 1500);
+      if (!f) throw new Error("握手超时（未收到设备广播）");
+      await writer.write(proto.buildFlashFrame(proto.FLASH_MSG.NOTIFY_BL_VER, v4));
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    replyQueue.length = 0; // 排空残余广播
+  }
+
+  $("fwFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    fwData = null;
+    $("btnFlash").disabled = true;
+    if (!f) return;
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (!buf.length || buf.length > proto.FLASH_MSG.APP_MAX_SIZE) {
+      setStatus(`固件大小无效：${buf.length} 字节（应 1~${proto.FLASH_MSG.APP_MAX_SIZE}）`, "err");
+      return;
+    }
+    fwData = buf;
+    $("btnFlash").disabled = false;
+    log(`固件已加载：${f.name}（${buf.length} 字节，${Math.ceil(buf.length / 256)} 页）`);
+  });
+
+  $("btnFlash").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!fwData) { setStatus("请先选择固件文件", "err"); return; }
+
+    $("btnFlash").disabled = true;
+    $("flashProgress").style.display = "block";
+    const bar = $("flashProgressBar");
+    bar.style.width = "0%";
+    try {
+      // ① 等设备（用户需已按住 PTT 开机进入刷机模式）
+      log("等待刷机模式设备...（按住 PTT 开机）");
+      setStatus("等待刷机模式设备...（按住 PTT 开机）", "info");
+      const devMsg = await waitDeviceInfo(20000);
+      if (!devMsg) throw new Error("未检测到刷机模式设备。请断开串口，按住 PTT 键开机后重新点击开始刷写");
+      const dev = proto.parseDevInfo(devMsg);
+      if (!dev) throw new Error("设备信息解析失败");
+      log(`设备 UID：${dev.uid}`);
+      log(`Bootloader 版本：${dev.version}`);
+      if (!proto.blVersionOK(dev.version))
+        throw new Error(`Bootloader 版本过低（${dev.version}，要求 ≥ 7.00.07），请先更新 bootloader`);
+
+      // ② 握手
+      log("握手中...");
+      await flashHandshake(dev.version);
+      log("握手完成，开始分页编程");
+
+      // ③ 分页编程（256B/页，逐页 ACK，重试 3 次）
+      const PS = proto.FLASH_MSG.PAGE_SIZE;
+      const pageCount = Math.ceil(fwData.length / PS);
+      const timestamp = Date.now() >>> 0;
+      for (let i = 0; i < pageCount; i++) {
+        const page = fwData.subarray(i * PS, Math.min((i + 1) * PS, fwData.length));
+        const data = proto.buildFwPage(timestamp, i, pageCount, page);
+        let done = false, lastErr = "";
+        for (let attempt = 1; attempt <= 3 && !done; attempt++) {
+          await writer.write(proto.buildFlashFrame(proto.FLASH_MSG.PROG_FW, data));
+          const resp = await waitForMsg(proto.FLASH_MSG.PROG_FW_RESP, 3000);
+          if (!resp) { lastErr = "ACK 超时"; continue; }
+          if (resp.length < 12) { lastErr = "ACK 长度异常"; continue; }
+          const dv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+          const echoIdx = dv.getUint16(8, true);
+          const errCode = dv.getUint16(10, true);
+          if (echoIdx === i && errCode === 0) done = true;
+          else lastErr = `页号回显 ${echoIdx} 错误码 ${errCode}`;
+        }
+        if (!done) throw new Error(`第 ${i}/${pageCount} 页写入失败：${lastErr}`);
+        bar.style.width = ((i + 1) / pageCount * 100).toFixed(1) + "%";
+        if (i % 50 === 49 || i === pageCount - 1) log(`页 ${i + 1}/${pageCount}`);
+      }
+      bar.style.width = "100%";
+      setStatus("✅ 固件刷写完成！请断开串口并重新开机", "ok");
+      log("固件刷写完成，请重新开机");
+    } catch (err) {
+      setStatus("固件刷写失败：" + err.message, "err");
+      log("固件刷写异常：" + err.message, "err");
+    } finally {
+      $("btnFlash").disabled = false;
     }
   });
 })();

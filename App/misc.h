@@ -249,6 +249,9 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 extern bool                  gSetting_live_DTMF_decoder;
 extern uint8_t               gSetting_battery_text;
 
+// UI language: 0 = English, 1 = Chinese (placeholder, rendering not yet implemented)
+extern uint8_t               gSetting_Language;
+
 extern bool                  gMonitor;
 
 extern const uint32_t        gDefaultAesKey[4];

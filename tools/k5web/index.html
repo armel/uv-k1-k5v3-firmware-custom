@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>F4HWN 多普勒星历写入工具</title>
+<title>多普勒固件手台工具</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
 <style>
   body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; background: #f5f6f8; color: #222; }
@@ -20,77 +20,167 @@
   button:disabled { background: #aab; cursor: not-allowed; }
   #status { font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
   .ok { color: #1a7f37; } .err { color: #c62828; } .info { color: #444; }
-  #progress { height: 8px; background: #e0e0e0; border-radius: 4px; margin: 8px 0; overflow: hidden; display: none; }
-  #progress > div { height: 100%; width: 0%; background: #2f6fdc; transition: width .2s; }
   #log { font-family: Consolas, monospace; font-size: 12px; background: #111; color: #9f9; padding: 8px; border-radius: 4px; height: 160px; overflow-y: auto; white-space: pre-wrap; }
   .result { font-size: 13px; line-height: 1.7; }
+  .progress { height: 8px; background: #e0e0e0; border-radius: 4px; margin: 8px 0; overflow: hidden; display: none; }
+  .progress > div { height: 100%; width: 0%; background: #2f6fdc; transition: width .2s; }
+  /* 选项卡 */
+  .tabbar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tabbtn { flex: 1; padding: 10px; font-size: 15px; background: #fff; color: #444; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; }
+  .tabbtn.active { background: #2f6fdc; color: #fff; border-color: #2f6fdc; }
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+  .hint { font-size: 13px; color: #666; margin: 4px 0 0; }
 </style>
 </head>
 <body>
-<h1>🛰️ F4HWN 多普勒星历写入工具</h1>
-<p style="font-size:13px;color:#666">适用于 UV-K1 / UV-K5 V3 / UV-K6 V3（PY32F071）F4HWN 固件 + 多普勒补丁。<br>
-流程：粘贴 TLE → 计算过境 → 连接对讲机 → 写入。机内操作：<b>F+0</b> 进入多普勒模式。</p>
+<h1>多普勒固件手台工具</h1>
+<p class="hint">适用于 UV-K1 / UV-K5 V3 / UV-K6 V3（PY32F071）F4HWN 固件。选择下方功能选项卡。</p>
 
-<div class="card">
-  <h2>1. 卫星与频率</h2>
-  <div class="row">
-    <div style="flex:2"><label>选择卫星（自动获取最新 TLE）</label>
-      <select id="satSelect" disabled><option value="">— 先点"获取" —</option></select>
-    </div>
-    <div style="flex:1; display:flex; align-items:flex-end; gap:8px">
-      <button id="btnFetch" style="flex:1">⬇️ 获取 TLE</button>
-    </div>
-  </div>
-  <label>TLE（两行，也可手动粘贴）</label>
-  <textarea id="tle" placeholder="1 25544U ...&#10;2 25544  51.6400 ..."></textarea>
-  <div class="row">
-    <div><label>上行频率 (MHz)</label><input id="fUp" value="145.99"></div>
-    <div><label>下行频率 (MHz)</label><input id="fDown" value="437.8"></div>
-    <div><label>发射亚音</label>
-      <select id="ctcss">
-        <option value="0">无</option>
-        <option value="670">67.0</option><option value="719">71.9</option>
-        <option value="885">88.5</option><option value="1000">100.0</option>
-        <option value="1109">110.9</option><option value="1230">123.0</option>
-        <option value="1365">136.5</option><option value="1413">141.3</option>
-        <option value="1514">151.4</option><option value="1622">162.2</option>
-        <option value="1679">167.9</option><option value="1738">173.8</option>
-        <option value="1799">179.9</option><option value="1862">186.2</option>
-        <option value="1928">192.8</option><option value="2035">203.5</option>
-        <option value="2181">218.1</option><option value="2336">233.6</option>
-        <option value="2418">241.8</option><option value="2541">254.1</option>
-      </select>
-    </div>
-  </div>
+<div class="tabbar">
+  <button class="tabbtn active" data-tab="tabFw" type="button">📥 固件刷写</button>
+  <button class="tabbtn" data-tab="tabCalExp" type="button">📤 导出校准</button>
+  <button class="tabbtn" data-tab="tabCalImp" type="button">📥 导入校准</button>
+  <button class="tabbtn" data-tab="tabFont" type="button">🀄 中文字库</button>
+  <button class="tabbtn" data-tab="tabEphem" type="button">🛰️ 多普勒星历</button>
 </div>
 
-<div class="card">
-  <h2>2. 观测位置</h2>
-  <div class="row">
-    <div><label>纬度 (度)</label><input id="lat" value="31.23"></div>
-    <div><label>经度 (度)</label><input id="lon" value="121.47"></div>
-    <div><label>海拔 (m)</label><input id="alt" value="11"></div>
+<!-- ========== 选项卡 1：固件刷写 ========== -->
+<div id="tabFw" class="tabpanel active">
+
+  <div class="card">
+    <h2>固件刷写（Bootloader 协议，256 字节/页）</h2>
+    <p class="hint">刷写主固件（裸 .bin，写入 0x08002800）。步骤：<b>① 按住 PTT 键不放，同时开机</b>，进入刷机模式（屏幕不亮，对讲机持续广播设备信息）→ ② 本页选择固件文件 → ③ 点"开始刷写"。</p>
+    <label>固件文件（build/Fusion/f4hwn.fusion.bin，≤ 118 KB）</label>
+    <input id="fwFile" type="file" accept=".bin">
+    <div class="row" style="margin-top:8px">
+      <button id="btnFlash" disabled>📥 开始刷写</button>
+    </div>
+    <div id="flashProgress" class="progress"><div id="flashProgressBar"></div></div>
+    <p class="hint">刷写中请勿断电或拔线；完成后断开串口并重新开机。刷机失败不会变砖——保持按住 PTT 重新开机即可再次进入刷机模式重刷。</p>
   </div>
-  <div class="row" style="margin-top:8px">
-    <button id="btnMap" class="secondary" type="button" style="flex:1">📍 在地图上选点（高德）</button>
-    <button id="btnLocate" class="secondary" type="button" style="flex:1">🎯 用我的位置（GPS）</button>
-  </div>
-  <div id="mapWrap" style="display:none;margin-top:8px">
-    <div id="map" style="height:320px;border:1px solid #bbb;border-radius:6px"></div>
-    <p style="font-size:12px;color:#888;margin:4px 0 0">点击地图选点，经纬度自动填入并查询海拔（地图为高德 GCJ-02，已自动转 WGS-84）</p>
-  </div>
-  <button id="btnCalc" style="margin-top:10px">🔭 计算最近过境</button>
-  <div id="result" class="result" style="display:none"></div>
+
 </div>
 
+<!-- ========== 选项卡：导出校准数据 ========== -->
+<div id="tabCalExp" class="tabpanel">
+
+  <div class="card">
+    <h2>导出校准数据（512 字节）</h2>
+    <p class="hint">读出机内校准区（EEPROM 0xB000~0xB200：电池电压校准、RSSI 校准等），保存为 calibration.dat 文件。<b>刷写新固件前建议先导出备份。</b>对讲机保持正常开机即可，无需进刷机模式。</p>
+    <div class="row" style="margin-top:8px">
+      <button id="btnCalExp">📤 导出校准数据</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：导入校准数据 ========== -->
+<div id="tabCalImp" class="tabpanel">
+
+  <div class="card">
+    <h2>导入校准数据（512 字节）</h2>
+    <p class="hint">把之前导出的 calibration.dat 写回机内校准区。<b style="color:#c62828">警告：写错校准数据会导致频率/功率/电量显示异常</b>，请确认文件来自同一台机器。导入完成后对讲机自动重启生效。</p>
+    <label>校准文件（calibration.dat，512 字节）</label>
+    <input id="calFile" type="file" accept=".dat,.bin">
+    <div class="row" style="margin-top:8px">
+      <button id="btnCalImp" disabled>📥 导入校准数据</button>
+    </div>
+    <div id="calProgress" class="progress"><div id="calProgressBar"></div></div>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：中文字库 ========== -->
+<div id="tabFont" class="tabpanel">
+
+  <div class="card">
+    <h2>中文字库刷入（GB2312 16×16）</h2>
+    <p class="hint">字库写入外置 FLASH <code>0x020000</code>，与星历/设置/语音区互不冲突。只需刷一次，之后升级固件不受影响。</p>
+
+    <input id="fontFile" type="file" accept=".bin">
+    <div class="row" style="margin-top:8px">
+      <button id="btnFont" disabled>🀄 刷入字库</button>
+    </div>
+    <div id="fontProgress" class="progress"><div id="fontProgressBar"></div></div>
+    <p class="hint">共 70 个扇区，约需 1~3 分钟，期间请勿断电或拔线。</p>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡 3：多普勒星历 ========== -->
+<div id="tabEphem" class="tabpanel">
+
+  <div class="card">
+    <h2>1. 卫星与频率</h2>
+    <div class="row">
+      <div style="flex:2"><label>选择卫星（自动获取最新 TLE）</label>
+        <select id="satSelect" disabled><option value="">— 先点"获取" —</option></select>
+      </div>
+      <div style="flex:1; display:flex; align-items:flex-end; gap:8px">
+        <button id="btnFetch" style="flex:1">⬇️ 获取 TLE</button>
+      </div>
+    </div>
+    <label>TLE（两行，也可手动粘贴）</label>
+    <textarea id="tle" placeholder="1 25544U ...&#10;2 25544  51.6400 ..."></textarea>
+    <div class="row">
+      <div><label>上行频率 (MHz)</label><input id="fUp" value="145.99"></div>
+      <div><label>下行频率 (MHz)</label><input id="fDown" value="437.8"></div>
+      <div><label>发射亚音</label>
+        <select id="ctcss">
+          <option value="0">无</option>
+          <option value="670">67.0</option><option value="719">71.9</option>
+          <option value="885">88.5</option><option value="1000">100.0</option>
+          <option value="1109">110.9</option><option value="1230">123.0</option>
+          <option value="1365">136.5</option><option value="1413">141.3</option>
+          <option value="1514">151.4</option><option value="1622">162.2</option>
+          <option value="1679">167.9</option><option value="1738">173.8</option>
+          <option value="1799">179.9</option><option value="1862">186.2</option>
+          <option value="1928">192.8</option><option value="2035">203.5</option>
+          <option value="2181">218.1</option><option value="2336">233.6</option>
+          <option value="2418">241.8</option><option value="2541">254.1</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. 观测位置</h2>
+    <div class="row">
+      <div><label>纬度 (度)</label><input id="lat" value="31.23"></div>
+      <div><label>经度 (度)</label><input id="lon" value="121.47"></div>
+      <div><label>海拔 (m)</label><input id="alt" value="11"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnMap" class="secondary" type="button" style="flex:1">📍 在地图上选点（高德）</button>
+      <button id="btnLocate" class="secondary" type="button" style="flex:1">🎯 用我的位置（GPS）</button>
+    </div>
+    <div id="mapWrap" style="display:none;margin-top:8px">
+      <div id="map" style="height:320px;border:1px solid #bbb;border-radius:6px"></div>
+      <p style="font-size:12px;color:#888;margin:4px 0 0">点击地图选点，经纬度自动填入并查询海拔（地图为高德 GCJ-02，已自动转 WGS-84）</p>
+    </div>
+    <button id="btnCalc" style="margin-top:10px">🔭 计算最近过境</button>
+    <div id="result" class="result" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <h2>3. 写入星历</h2>
+    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入。机内操作：<b>长按 0</b> 进入多普勒模式。</p>
+    <div class="row" style="margin-top:8px">
+      <button id="btnWrite" disabled>💾 写入星历</button>
+    </div>
+    <div id="progress" class="progress"><div id="progressBar"></div></div>
+  </div>
+
+</div>
+
+<!-- ========== 公共：串口连接与日志 ========== -->
 <div class="card">
-  <h2>3. 写入对讲机（USB 线连接，Web Serial）</h2>
+  <h2>串口连接（USB 线，Web Serial）</h2>
   <div class="row">
     <button id="btnConnect" class="secondary">连接串口</button>
-    <button id="btnWrite" disabled>💾 写入星历</button>
   </div>
-  <div id="progress"><div id="progressBar"></div></div>
-  <div id="log"></div>
+  <div id="log" style="margin-top:8px"></div>
   <div id="status"></div>
 </div>
 

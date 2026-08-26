@@ -28,6 +28,8 @@
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
 
+#include "app/doppler.h"
+
 typedef enum {
     DOPPLER_STATE_OFF = 0,
     DOPPLER_STATE_INPUT_DATE,   // entering YYMMDD
@@ -52,6 +54,10 @@ void DOPPLER_TimeSlice(void);
 
 // Full-screen renderer for the Doppler mode.
 void DOPPLER_Render(void);
+
+// Status-line strip: inverse satellite-name box + bandwidth. Called by
+// DOPPLER_Render() and by UI_DisplayStatus() (which owns the status line).
+void DOPPLER_RenderStatusStrip(const DOPPLER_Satellite_t *pSat);
 
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 

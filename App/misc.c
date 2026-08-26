@@ -165,6 +165,7 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 #endif
 bool              gSetting_live_DTMF_decoder;
 uint8_t           gSetting_battery_text;
+uint8_t           gSetting_Language;
 
 bool              gMonitor = false;           // true opens the squelch
 

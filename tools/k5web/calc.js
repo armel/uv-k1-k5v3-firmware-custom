@@ -111,12 +111,15 @@ function findPass({
   }
   if (!coarseStart) return null;
 
-  // 细化窗口开始（从 coarseStart 前 2 分钟逐秒回溯，找仰角首次 > 阈值的时刻）
-  const back = new Date(coarseStart.getTime() - 120 * 1000);
+  // 细化窗口开始（从 coarseStart 逐秒向前回溯，直到仰角回落到阈值以下。
+  // 若计算时过境已在进行中，最多回溯 32 分钟找到真实 AOS，避免起点被截断
+  // 导致与 Look4Sat 的过境开始时间对不上）
+  const backLimit = new Date(coarseStart.getTime() - maxPassSeconds * 1000);
   let passStart = coarseStart;
-  for (let tt = back; tt < coarseStart; tt = new Date(tt.getTime() + 1000)) {
+  for (let tt = new Date(coarseStart.getTime() - 1000); tt >= backLimit; tt = new Date(tt.getTime() - 1000)) {
     const el = elevationAt(tt);
-    if (el !== null && el > minElevation) { passStart = tt; break; }
+    if (el === null || el <= minElevation) { passStart = new Date(tt.getTime() + 1000); break; }
+    passStart = tt;
   }
 
   // 细化窗口结束（向后逐秒，仰角回落或达到 32 分钟上限）
@@ -155,15 +158,18 @@ function findPass({
   };
 }
 
-/** Date -> 固件 6 字节时间 [年2000, 月, 日, 时, 分, 秒]（本地时间 = 北京时间 UTC+8） */
+/** Date -> 固件 6 字节时间 [年2000, 月, 日, 时, 分, 秒]（固定北京时间 UTC+8）。
+ *  显式按 UTC+8 换算北京墙钟，与浏览器/系统时区无关：
+ *  系统时区设错时结果仍与 Look4Sat（本地时区显示）和固件输入的北京时间一致。 */
 function dateToFwTime(date) {
+  const bj = new Date(date.getTime() + 8 * 3600 * 1000);
   return [
-    date.getFullYear() - 2000,
-    date.getMonth() + 1,
-    date.getDate(),
-    date.getHours(),
-    date.getMinutes(),
-    date.getSeconds(),
+    bj.getUTCFullYear() - 2000,
+    bj.getUTCMonth() + 1,
+    bj.getUTCDate(),
+    bj.getUTCHours(),
+    bj.getUTCMinutes(),
+    bj.getUTCSeconds(),
   ];
 }
 

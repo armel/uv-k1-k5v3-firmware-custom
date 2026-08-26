@@ -385,6 +385,8 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         #ifdef ENABLE_AM_FIX
             gSetting_AM_fix        = !!(Data[7] & (1u << 5));
         #endif
+    #else
+        gSetting_Language        = !!(Data[7] & (1u << 5));
     #endif
     gSetting_backlight_on_tx_rx = (Data[7] >> 6) & 3u;
 
@@ -1090,6 +1092,8 @@ void SETTINGS_SaveSettings(void)
         #ifdef ENABLE_AM_FIX
             if (!gSetting_AM_fix)            State[7] &= ~(1u << 5);
         #endif
+    #else
+        if (!gSetting_Language)              State[7] &= ~(1u << 5);
     #endif
     State[7] = (State[7] & ~(3u << 6)) | ((gSetting_backlight_on_tx_rx & 3u) << 6);
 

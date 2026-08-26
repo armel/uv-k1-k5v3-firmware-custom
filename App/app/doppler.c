@@ -125,6 +125,48 @@ uint32_t DOPPLER_UnixTime(const uint8_t t[6])
     return seconds;
 }
 
+void DOPPLER_UnixToDate(uint32_t Seconds, uint8_t t[6])
+{
+    static const uint8_t days_in_month[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    uint32_t days = Seconds / 86400u;
+    const uint32_t rem = Seconds % 86400u;
+    t[3] = (uint8_t)(rem / 3600u);
+    t[4] = (uint8_t)((rem % 3600u) / 60u);
+    t[5] = (uint8_t)(rem % 60u);
+
+    uint8_t year = 0;
+    for (;;)
+    {
+        const uint16_t yearDays = DOPPLER_IsLeapYear(year) ? 366u : 365u;
+        if (days < yearDays)
+        {
+            break;
+        }
+        days -= yearDays;
+        year++;
+    }
+    t[0] = year;
+
+    uint8_t month = 1;
+    for (;;)
+    {
+        uint8_t monthDays = days_in_month[month - 1];
+        if (month == 2 && DOPPLER_IsLeapYear(year))
+        {
+            monthDays = 29;
+        }
+        if (days < monthDays)
+        {
+            break;
+        }
+        days -= monthDays;
+        month++;
+    }
+    t[1] = month;
+    t[2] = (uint8_t)(days + 1u);
+}
+
 bool DOPPLER_GetEntry(int32_t unixNow, DOPPLER_Entry_t *pEntry)
 {
     if (!gDopplerValid || pEntry == NULL)
