@@ -1733,17 +1733,23 @@ static uint8_t GetScanStepTextWidth()
     return (sprintf(NULL, "%u", GetScanStep() / 100) + 4) * 4; // "%u.%02uk", 4 px advance per char
 }
 
+static uint8_t GetBwTextWidth()
+{
+    return (strlen(bwOptions[settings.listenBw]) * 4) + 4; // 4 px advance per char
+}
+
 static void DrawRssiTriggerLevel(const uint8_t *topY)
 {
     if (settings.rssiTriggerLevel == RSSI_MAX_VALUE || monitorMode)
         return;
     uint8_t scanStepTextWidth = GetScanStepTextWidth();
+    uint8_t bwTextWidth = GetBwTextWidth();
     uint8_t y = Rssi2Y(settings.rssiTriggerLevel);
     for (uint8_t x = 0; x < 128; x += 2)
     {
         if (SpectrumColumnAtOrAboveY(topY, x, y))
             continue;
-        if (y <= 12 && (x < scanStepTextWidth + 2 || x >= 114))
+        if (y <= 12 && (x < scanStepTextWidth + 2 || x >= 128 - bwTextWidth - 2))
             continue;
         if (gFrameBuffer[y / 8][x] & (1 << (y % 8)))
             continue;
