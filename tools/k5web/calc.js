@@ -67,7 +67,7 @@ function downlinkFreq(fDownHz, vr) {
 /**
  * 从 t0 起查找最近一次可见过境窗口（仰角 > minElevation 度）。
  * 返回 { start: Date, end: Date, entries: [{unix, uplink, downlink}] }
- * entries 每 2 秒一条（多普勒已补偿，10Hz 单位），最多 1920 条（32 分钟）。
+ * entries 每秒一条（多普勒已补偿，10Hz 单位），最多 1920 条（约 32 分钟）。
  */
 function findPass({
   tle1, tle2,
@@ -76,7 +76,7 @@ function findPass({
   minElevation = 0,
   searchStart = new Date(),
   maxSearchHours = 24,
-  maxPassSeconds = 32 * 60,
+  maxPassSeconds = 32 * 60 - 1,
 }) {
   const satrec = satellite.twoline2satrec(tle1, tle2);
   const obsGd = {
@@ -136,12 +136,12 @@ function findPass({
     if (el !== null && el <= minElevation) { passEnd = tt; break; }
   }
 
-  // 生成 2 s 步进表
+  // 生成 1 s 步进表（sum_time + 1 条，包含首尾，供固件插值）
   const entries = [];
   const durS = Math.round((passEnd.getTime() - passStart.getTime()) / 1000);
-  const count = Math.min(1920, Math.ceil(durS / 2));
+  const count = Math.min(1920, durS + 1);
   for (let i = 0; i < count; i++) {
-    const date = new Date(passStart.getTime() + i * 2000);
+    const date = new Date(passStart.getTime() + i * 1000);
     const pv = satellite.propagate(satrec, date);
     if (pv.position === undefined || pv.velocity === undefined) {
       entries.push({ unix: 0, uplink: 0, downlink: 0 });

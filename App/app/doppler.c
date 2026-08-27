@@ -66,7 +66,7 @@ static bool DOPPLER_IsValid(const DOPPLER_Satellite_t *pSat)
     {
         return false;
     }
-    if (pSat->sum_time == 0 || pSat->sum_time > 2u * DOPPLER_MAX_ENTRIES)
+    if (pSat->sum_time == 0 || pSat->sum_time >= DOPPLER_MAX_ENTRIES)
     {
         return false;
     }
@@ -180,8 +180,8 @@ bool DOPPLER_GetEntry(int32_t unixNow, DOPPLER_Entry_t *pEntry)
         return false; // pass not started yet
     }
 
-    const uint16_t entryCount = (uint16_t)((gDopplerSatellite.sum_time + 1u) >> 1);
-    const uint16_t index = (uint16_t)(diff >> 1);
+    const uint16_t entryCount = (uint16_t)(gDopplerSatellite.sum_time + 1u);
+    const uint16_t index = (uint16_t)diff;
     if (index >= entryCount || index >= DOPPLER_MAX_ENTRIES)
     {
         return false; // pass already over
@@ -195,6 +195,61 @@ bool DOPPLER_GetEntry(int32_t unixNow, DOPPLER_Entry_t *pEntry)
     {
         return false;
     }
+    return true;
+}
+
+bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t *pEntry)
+{
+    if (!gDopplerValid || pEntry == NULL || ms > 999u)
+    {
+        return false;
+    }
+
+    const int32_t diff = unixNow - (int32_t)gDopplerSatellite.start_unix;
+    if (diff < 0)
+    {
+        return false; // pass not started yet
+    }
+
+    const uint16_t entryCount = (uint16_t)(gDopplerSatellite.sum_time + 1u);
+    const uint16_t index = (uint16_t)diff;
+    if (index >= entryCount || index >= DOPPLER_MAX_ENTRIES)
+    {
+        return false; // pass already over
+    }
+
+    DOPPLER_Entry_t e0;
+    PY25Q16_ReadBuffer(DOPPLER_FLASH_TABLE + (uint32_t)index * sizeof(DOPPLER_Entry_t),
+                       &e0, sizeof(e0));
+    if (e0.uplink < DOPPLER_FREQ_MIN || e0.uplink > DOPPLER_FREQ_MAX ||
+        e0.downlink < DOPPLER_FREQ_MIN || e0.downlink > DOPPLER_FREQ_MAX)
+    {
+        return false;
+    }
+
+    const uint16_t nextIndex = index + 1u;
+    if (ms == 0 || nextIndex >= entryCount || nextIndex >= DOPPLER_MAX_ENTRIES)
+    {
+        *pEntry = e0;
+        return true;
+    }
+
+    DOPPLER_Entry_t e1;
+    PY25Q16_ReadBuffer(DOPPLER_FLASH_TABLE + (uint32_t)nextIndex * sizeof(DOPPLER_Entry_t),
+                       &e1, sizeof(e1));
+    if (e1.uplink < DOPPLER_FREQ_MIN || e1.uplink > DOPPLER_FREQ_MAX ||
+        e1.downlink < DOPPLER_FREQ_MIN || e1.downlink > DOPPLER_FREQ_MAX)
+    {
+        *pEntry = e0;
+        return true;
+    }
+
+    // Linear interpolation in 10 Hz units: e0 + (e1 - e0) * ms / 1000.
+    const int32_t deltaUp   = (int32_t)e1.uplink   - (int32_t)e0.uplink;
+    const int32_t deltaDown = (int32_t)e1.downlink - (int32_t)e0.downlink;
+    pEntry->uplink   = (uint32_t)((int32_t)e0.uplink   + (deltaUp   * (int32_t)ms) / 1000);
+    pEntry->downlink = (uint32_t)((int32_t)e0.downlink + (deltaDown * (int32_t)ms) / 1000);
+
     return true;
 }
 

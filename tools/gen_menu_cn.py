@@ -12,6 +12,14 @@ definitions (MENU_VOL, MENU_NOAA_S) take a list of (cond, text) branches.
 Usage: python tools/gen_menu_cn.py
 """
 
+import sys
+
+# 多系统环境下 stdout 可能不是 UTF-8，强制 UTF-8 避免状态信息打印报错。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # (menu_id, [(cond, text), ...])  -- text is UTF-8 source, encoded GB2312 in C
 MENU_CN = [
     # ---- main menu ----

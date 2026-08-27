@@ -804,7 +804,11 @@ void APP_StartListening(FUNCTION_Type_t function)
     if (function == FUNCTION_MONITOR)
 #endif
     {   // squelch is disabled
-        if (gScreenToDisplay != DISPLAY_MENU)     // 1of11 .. don't close the menu
+        if (gScreenToDisplay != DISPLAY_MENU
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+            && gScreenToDisplay != DISPLAY_DOPPLER
+#endif
+        )     // 1of11 .. don't close the menu
             GUI_SelectNextDisplay(DISPLAY_MAIN);
     }
     else

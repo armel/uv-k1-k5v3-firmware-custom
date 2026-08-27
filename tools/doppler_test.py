@@ -12,6 +12,12 @@ import datetime
 import struct
 import sys
 
+# 多系统环境下 stdout 可能不是 UTF-8，强制 UTF-8 避免中文状态信息打印报错。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # ---- 复刻 App/app/doppler.c 的 C 算法（必须与固件代码保持同步） ----
 
 def is_leap_year(year2000):
@@ -37,7 +43,7 @@ def unix_time(t):
     seconds += t[3] * 3600 + t[4] * 60 + t[5]
     return seconds
 
-# ---- 查表逻辑（与 DOPPLER_GetEntry 一致） ----
+# ---- 查表逻辑（与 DOPPLER_GetEntry 一致，1 s 步进） ----
 DOPPLER_MAX_ENTRIES = 1920
 
 def get_entry(start_unix, sum_time, table, unix_now):
@@ -45,11 +51,31 @@ def get_entry(start_unix, sum_time, table, unix_now):
     diff = unix_now - start_unix
     if diff < 0:
         return None
-    entry_count = (sum_time + 1) >> 1
-    index = diff >> 1
+    entry_count = sum_time + 1
+    index = diff
     if index >= entry_count or index >= DOPPLER_MAX_ENTRIES:
         return None
     return index, table[index]
+
+def get_entry_interpolated(start_unix, sum_time, table, unix_now, ms):
+    """复刻 DOPPLER_GetEntryInterpolated：线性插值"""
+    diff = unix_now - start_unix
+    if diff < 0 or ms > 999:
+        return None
+    entry_count = sum_time + 1
+    index = diff
+    if index >= entry_count or index >= DOPPLER_MAX_ENTRIES:
+        return None
+    e0 = table[index]
+    next_index = index + 1
+    if ms == 0 or next_index >= entry_count or next_index >= DOPPLER_MAX_ENTRIES:
+        return e0
+    e1 = table[next_index]
+    # 与 C 代码一致：整数除法向零截断
+    return (
+        e0[0] + int((e1[0] - e0[0]) * ms / 1000),
+        e0[1] + int((e1[1] - e0[1]) * ms / 1000),
+    )
 
 # ---- 参考实现：Python datetime ----
 EPOCH = datetime.datetime(2000, 1, 1, 0, 0, 0)
@@ -80,38 +106,55 @@ def test_unix_time():
 def test_get_entry():
     start = unix_time([26, 8, 17, 12, 0, 0])   # 2026-08-17 12:00:00
     sum_time = 600                              # 10 分钟过境
-    # 每 2 秒一条：uplink/downlink 模拟多普勒频偏
+    # 每秒一条：uplink/downlink 模拟多普勒频偏
     table = []
-    for i in range((sum_time + 1) >> 1):
+    for i in range(sum_time + 1):
         table.append((43850000 + i * 100, 43750000 - i * 100))
 
     # 1) 未开始
     assert get_entry(start, sum_time, table, start - 1) is None
     # 2) 正好开始
     assert get_entry(start, sum_time, table, start) == (0, table[0])
-    # 3) 第 1 秒（同一条）
-    assert get_entry(start, sum_time, table, start + 1) == (0, table[0])
-    # 4) 第 2 秒（下一条）
-    assert get_entry(start, sum_time, table, start + 2) == (1, table[1])
-    # 5) 最后一条（第 599 秒 -> index 299）
-    assert get_entry(start, sum_time, table, start + 599) == (299, table[299])
+    # 3) 第 1 秒（下一条）
+    assert get_entry(start, sum_time, table, start + 1) == (1, table[1])
+    # 4) 第 2 秒
+    assert get_entry(start, sum_time, table, start + 2) == (2, table[2])
+    # 5) 最后一条（第 600 秒 -> index 600）
+    assert get_entry(start, sum_time, table, start + 600) == (600, table[600])
     # 6) 过境结束
-    assert get_entry(start, sum_time, table, start + 600) is None
-    # 7) 奇数 sum_time 的边界（表长 = (601+1)>>1 = 301 条）
-    odd_table = [(43850000 + i * 100, 43750000 - i * 100) for i in range((601 + 1) >> 1)]
-    assert get_entry(start, 601, odd_table, start + 601) == (300, odd_table[300])
-    # 8) 超长过境截断（超过 MAX_ENTRIES）
-    long_sum = DOPPLER_MAX_ENTRIES * 2 + 10
+    assert get_entry(start, sum_time, table, start + 601) is None
+    # 7) 超长过境截断（超过 MAX_ENTRIES）
+    long_sum = DOPPLER_MAX_ENTRIES
     long_table = [(43850000, 43750000)] * DOPPLER_MAX_ENTRIES
-    assert get_entry(start, long_sum, long_table, start + DOPPLER_MAX_ENTRIES * 2) is None
-    print("  OK  查表边界全部通过（未开始/进行中/结束/奇数时长/超长截断）")
+    assert get_entry(start, long_sum, long_table, start + DOPPLER_MAX_ENTRIES - 1) == (DOPPLER_MAX_ENTRIES - 1, long_table[-1])
+    assert get_entry(start, long_sum, long_table, start + DOPPLER_MAX_ENTRIES) is None
+    print("  OK  查表边界全部通过（未开始/进行中/结束/超长截断）")
+
+def test_interpolation():
+    start = unix_time([26, 8, 17, 12, 0, 0])
+    sum_time = 10
+    table = [(43850000 + i * 100, 43750000 - i * 100) for i in range(sum_time + 1)]
+
+    # ms=0 与整数查表一致
+    assert get_entry_interpolated(start, sum_time, table, start, 0) == table[0]
+    # ms=500 正好在中间
+    mid = get_entry_interpolated(start, sum_time, table, start, 500)
+    assert mid == (43850000 + 50, 43750000 - 50), f"mid interpolation wrong: {mid}"
+    # ms=999 接近下一条
+    near = get_entry_interpolated(start, sum_time, table, start, 999)
+    assert near == (43850000 + 99, 43750000 - 99), f"near interpolation wrong: {near}"
+    # 最后一条无 next，直接返回 e0
+    assert get_entry_interpolated(start, sum_time, table, start + sum_time, 500) == table[-1]
+    print("  OK  插值计算通过（中间值/边界/无 next 条）")
 
 def main():
     print("== DOPPLER_UnixTime 时间换算对照 ==")
     test_unix_time()
     print("== DOPPLER_GetEntry 查表边界 ==")
     test_get_entry()
-    print("\n全部通过 ✅")
+    print("== DOPPLER_GetEntryInterpolated 插值 ==")
+    test_interpolation()
+    print("\n全部通过")
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -53,6 +53,8 @@ static uint8_t  gDopplerInputIndex = 0;
 
 static DOPPLER_Entry_t gDopplerEntry;
 
+static uint16_t gDopplerMs = 0;   // 0..999, sub-second phase synced to RTC second tick
+
 bool DOPPLER_IsActive(void)
 {
     return gDopplerState != DOPPLER_STATE_OFF;
@@ -130,6 +132,7 @@ static void DOPPLER_EnterTracking(void)
 
     gDopplerPassed = false;
     gDopplerEntryValid = false;
+    gDopplerMs = 0;
     gDopplerState = DOPPLER_STATE_TRACKING;
     gUpdateDisplay = true;
 }
@@ -305,23 +308,45 @@ void DOPPLER_TimeSlice(void)
         gDopplerTxOverride = false;
     }
 
-    if (!gRtcSecondTick)
+    // Sync our sub-second counter to the RTC 1 Hz tick and keep it running
+    // at 10 ms resolution (DOPPLER_TimeSlice is called every 10 ms).
+    bool secondTick = false;
+    if (gRtcSecondTick)
+    {
+        gRtcSecondTick = false;
+        gDopplerMs = 0;
+        secondTick = true;
+    }
+    else
+    {
+        gDopplerMs += 10;
+        if (gDopplerMs >= 1000u)
+        {
+            gDopplerMs = 0; // safety wrap, should stay synced via RTC
+        }
+    }
+
+    // Update the RX frequency at 10 Hz (every 100 ms) with 1 s table
+    // interpolation; the display only needs a 1 Hz refresh.
+    if (gDopplerMs % 100u != 0)
     {
         return;
     }
-    gRtcSecondTick = false;
 
     const uint32_t now = RTC_GetUnix32();
     const DOPPLER_Satellite_t *pSat = DOPPLER_GetSatellite();
 
     if (now < pSat->start_unix)
     {
-        gUpdateDisplay = true;   // refresh the WAIT countdown once per second
+        if (secondTick)
+        {
+            gUpdateDisplay = true;   // refresh the WAIT countdown once per second
+        }
         return; // pass not started yet
     }
 
     DOPPLER_Entry_t Entry;
-    if (DOPPLER_GetEntry(now, &Entry))
+    if (DOPPLER_GetEntryInterpolated(now, gDopplerMs, &Entry))
     {
         if (!gDopplerEntryValid || gDopplerEntry.downlink != Entry.downlink)
         {
@@ -346,9 +371,10 @@ void DOPPLER_TimeSlice(void)
     {
         gDopplerPassed = true;
     }
-    // the on-screen clock/progress bar tick once per second even when the
-    // frequency entry is unchanged
-    gUpdateDisplay = true;
+    if (secondTick)
+    {
+        gUpdateDisplay = true;
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -11,10 +11,17 @@
 
 用法：
   python make_gb2312_font.py [输出文件] [字体文件] [字号]
-  默认：gb2312_16x16.bin，自动在 C:/Windows/Fonts 找 simhei.ttf / msyh.ttc
+  默认：gb2312_16x16.bin，自动在常见系统字体路径找中文字体。
 """
 import os
 import sys
+
+# 多系统环境下 stdout 可能不是 UTF-8（例如 Windows cp1252），打印中文会报错。
+# 强制使用 UTF-8 输出，无法编码的字符用替换符代替，避免脚本直接崩溃。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -25,9 +32,23 @@ POSITIONS = 94
 BASE = 0xA1
 
 FONT_CANDIDATES = [
+    # Windows
     r"C:\Windows\Fonts\simhei.ttf",
     r"C:\Windows\Fonts\msyh.ttc",
+    r"C:\Windows\Fonts\msyhbd.ttc",
     r"C:\Windows\Fonts\simsun.ttc",
+    r"C:\Windows\Fonts\simsunb.ttf",
+    # Linux: Noto CJK / WenQuanYi
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttl",
+    # macOS
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/STHeiti Light.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
 ]
 
 

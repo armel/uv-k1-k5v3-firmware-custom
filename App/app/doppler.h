@@ -17,7 +17,7 @@
  *
  * A companion tool (web page, K5Web-like) pre-computes, from TLE orbital
  * data, the uplink/downlink frequencies (already Doppler-compensated) for
- * every 2 seconds of one satellite pass, and writes them into the external
+ * every second of one satellite pass, and writes them into the external
  * SPI Flash. This module only stores, validates and looks up that table,
  * using the current time supplied by the RTC driver.
  */
@@ -35,9 +35,9 @@
 // boot logo (0x011000) and the RF log (0x1E0000).
 #define DOPPLER_FLASH_BASE       0x1D0000u   // satellite info block
 #define DOPPLER_FLASH_TABLE      0x1D0040u   // frequency table
-#define DOPPLER_MAX_ENTRIES      1920u       // 32 min pass, one entry / 2 s
+#define DOPPLER_MAX_ENTRIES      1920u       // 32 min pass, one entry / s
 
-// One frequency table entry, stored every 2 seconds of the pass.
+// One frequency table entry, stored every second of the pass.
 typedef struct {
     uint32_t uplink;    // TX frequency, in 10 Hz units (e.g. 43850000 = 438.5 MHz)
     uint32_t downlink;  // RX frequency, in 10 Hz units
@@ -82,6 +82,12 @@ void DOPPLER_UnixToDate(uint32_t Seconds, uint8_t t[6]);
 // Fetches the frequency table entry covering "unixNow". Returns true when
 // the pass is ongoing and a valid entry exists.
 bool DOPPLER_GetEntry(int32_t unixNow, DOPPLER_Entry_t *pEntry);
+
+// Same as DOPPLER_GetEntry but linearly interpolates between the entries
+// surrounding the current time using "ms" (0..999) as the fractional part
+// of the current second.  This gives smooth sub-second tracking when called
+// from a fast periodic hook (e.g. 100 ms).
+bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t *pEntry);
 
 // Erases the whole Doppler area (4 sectors).
 void DOPPLER_Erase(void);

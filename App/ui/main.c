@@ -45,6 +45,9 @@
 #include "ui/inputbox.h"
 #include "ui/main.h"
 #include "ui/ui.h"
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    #include "ui/cn.h"
+#endif
 #include "audio.h"
 #include "menu.h"
 
@@ -1881,6 +1884,11 @@ void UI_DisplayMain(void)
 
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
                             String[10] = 0;
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                            if (CN_FONT_Present() && UI_PrintStringCNWidth(String) > 0)
+                                UI_PrintStringCN(String, line, 33);
+                            else
+#endif
                             UI_PrintString(String, 33, 0, line, 8);
                         }
                         else {
@@ -1888,16 +1896,31 @@ void UI_DisplayMain(void)
                             if (isMainOnly())
                             {
                                 String[10] = 0;
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                                if (CN_FONT_Present() && UI_PrintStringCNWidth(String) > 0)
+                                    UI_PrintStringCN(String, line, 33);
+                                else
+#endif
                                 UI_PrintString(String, 33, 0, line, 8);
                             }
                             else
                             {
                                 if(activeTxVFO == vfo_num) {
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                                    if (CN_FONT_Present() && UI_PrintStringCNWidth(String) > 0)
+                                        UI_PrintStringCN(String, line, 32 + 4);
+                                    else
+#endif
                                     UI_PrintStringSmallBold(String, 32 + 4, 0, line);
                                 }
                                 else
                                 {
-                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line);     
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                                    if (CN_FONT_Present() && UI_PrintStringCNWidth(String) > 0)
+                                        UI_PrintStringCN(String, line, 32 + 4);
+                                    else
+#endif
+                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line);
                                 }
                             }
 #else

@@ -5,6 +5,12 @@ escapes back to text, verify GB2312 validity and the 48 px column width."""
 import re
 import sys
 
+# 多系统环境下 stdout 可能不是 UTF-8，强制 UTF-8 避免中文状态信息打印报错。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 src = open("App/ui/menu_cn.c", "rb").read().decode("latin-1")
 cases = re.findall(r'case (MENU_\w+): return "((?:\\[0-7]{3}|[^"])*)";', src)
 

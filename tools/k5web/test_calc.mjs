@@ -110,7 +110,7 @@ const C = 299792.458;
   });
   if (pass) {
     assert.ok(pass.entries.length > 0 && pass.entries.length <= 1920, "entries within bounds");
-    assert.ok(pass.durationS >= pass.entries.length * 2 - 2, "duration consistent");
+    assert.ok(pass.entries.length === Math.min(1920, pass.durationS + 1), "duration consistent");
     const mid = pass.entries[Math.floor(pass.entries.length / 2)];
     const first = pass.entries[0];
     const last = pass.entries[pass.entries.length - 1];

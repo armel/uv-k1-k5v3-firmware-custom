@@ -65,6 +65,120 @@ const CN_FONT = {
   CHUNK: 232,
 };
 
+// MR 信道存储参数（EEPROM 仿真地址，经 eeprom_compat.c 1:1 映射到 SPI Flash）
+const CHAN = {
+  FREQ_BASE: 0x0000,   // MR 信道频率/参数区，1024 信道 × 16 字节
+  NAME_BASE: 0x4000,   // MR 信道名称区，1024 信道 × 16 字节
+  ATTR_BASE: 0x8000,   // MR + VFO 属性区，(1024+7) × 2 字节
+  SIZE: 16,            // 单个信道频率区长度
+  NAME_SIZE: 16,       // 单个信道名称长度
+  ATTR_SIZE: 2,        // 单个信道属性长度
+  ATTR_ALIGN: 8,       // 属性区按 8 字节块读写（固件 EEPROM_WriteBuffer 固定 8 字节）
+  MAX_COUNT: 1024,     // 最大 MR 信道数
+};
+
+// CTCSS / DCS 选项表（索引与固件 dcs.c 一致）
+const CTCSS_OPTIONS = [
+  670, 693, 719, 744, 770, 797, 825, 854, 885, 915,
+  948, 974, 1000, 1035, 1072, 1109, 1148, 1188, 1230, 1273,
+  1318, 1365, 1413, 1462, 1514, 1567, 1598, 1622, 1655, 1679,
+  1713, 1738, 1773, 1799, 1835, 1862, 1899, 1928, 1966, 1995,
+  2035, 2065, 2107, 2181, 2257, 2291, 2336, 2418, 2503, 2541,
+];
+
+const DCS_OPTIONS = [
+  0x0013, 0x0015, 0x0016, 0x0019, 0x001A, 0x001E, 0x0023, 0x0027,
+  0x0029, 0x002B, 0x002C, 0x0035, 0x0039, 0x003A, 0x003B, 0x003C,
+  0x004C, 0x004D, 0x004E, 0x0052, 0x0055, 0x0059, 0x005A, 0x005C,
+  0x0063, 0x0065, 0x006A, 0x006D, 0x006E, 0x0072, 0x0075, 0x007A,
+  0x007C, 0x0085, 0x008A, 0x0093, 0x0095, 0x0096, 0x00A3, 0x00A4,
+  0x00A5, 0x00A6, 0x00A9, 0x00AA, 0x00AD, 0x00B1, 0x00B3, 0x00B5,
+  0x00B6, 0x00B9, 0x00BC, 0x00C6, 0x00C9, 0x00CD, 0x00D5, 0x00D9,
+  0x00DA, 0x00E3, 0x00E6, 0x00E9, 0x00EE, 0x00F4, 0x00F5, 0x00F9,
+  0x0109, 0x010A, 0x010B, 0x0113, 0x0119, 0x011A, 0x0125, 0x0126,
+  0x012A, 0x012C, 0x012D, 0x0132, 0x0134, 0x0135, 0x0136, 0x0143,
+  0x0146, 0x014E, 0x0153, 0x0156, 0x015A, 0x0166, 0x0175, 0x0186,
+  0x018A, 0x0194, 0x0197, 0x0199, 0x019A, 0x01AC, 0x01B2, 0x01B4,
+  0x01C3, 0x01CA, 0x01D3, 0x01D9, 0x01DA, 0x01DC, 0x01E3, 0x01EC,
+];
+
+const CODE_TYPE = { OFF: 0, CTCSS: 1, DCS: 2, DCS_REV: 3 };
+const MODULATION = { FM: 0, AM: 1, USB: 2 };
+const TX_DIR = { OFF: 0, ADD: 1, SUB: 2 };
+const BANDWIDTH = { WIDE: 0, NARROW: 1 };
+const POWER = { USER: 0, LOW1: 1, LOW2: 2, LOW3: 3, LOW4: 4, LOW5: 5, MID: 6, HIGH: 7 };
+const STEP = {
+  "2.5": 0, "5": 1, "6.25": 2, "10": 3, "12.5": 4, "25": 5, "8.33": 6,
+  "0.01": 7, "0.05": 8, "0.1": 9, "0.25": 10, "0.5": 11, "1": 12, "1.25": 13,
+  "9": 14, "15": 15, "20": 16, "30": 17, "50": 18, "100": 19, "125": 20,
+  "200": 21, "250": 22, "500": 23,
+};
+
+// 频率 → 频段（与固件 FREQUENCY_Band_t 一致，单位 10Hz）
+function bandFromFrequency(freq10Hz) {
+  // 50~76 MHz
+  if (freq10Hz >= 5000000 && freq10Hz < 7600000) return 0;
+  // 108~137 MHz
+  if (freq10Hz >= 10800000 && freq10Hz < 13700000) return 1;
+  // 137~174 MHz
+  if (freq10Hz >= 13700000 && freq10Hz < 17400000) return 2;
+  // 174~350 MHz
+  if (freq10Hz >= 17400000 && freq10Hz < 35000000) return 3;
+  // 350~400 MHz
+  if (freq10Hz >= 35000000 && freq10Hz < 40000000) return 4;
+  // 400~470 MHz
+  if (freq10Hz >= 40000000 && freq10Hz <= 47000000) return 5;
+  // 470~600 MHz
+  if (freq10Hz > 47000000 && freq10Hz <= 60000000) return 6;
+  return 5; // 默认 UHF
+}
+
+/** 查找 CTCSS 值在表中的索引（值单位为 0.1 Hz），找不到返回 0 */
+function ctcssIndex(ctcssTenthHz) {
+  const v = Math.round(ctcssTenthHz);
+  const idx = CTCSS_OPTIONS.indexOf(v);
+  return idx >= 0 ? idx : 0;
+}
+
+/** 查找 DCS 值在表中的索引，找不到返回 0 */
+function dcsIndex(dcsCode) {
+  const v = Math.round(dcsCode);
+  const idx = DCS_OPTIONS.indexOf(v);
+  return idx >= 0 ? idx : 0;
+}
+
+/**
+ * 构建 MR 信道频率区 16 字节数据块。
+ * 字段 layout 与 SETTINGS_SaveChannel() 写入 SPI Flash 的一致。
+ * @param {Object} p
+ *   rxFreq10Hz, txFreq10Hz, rxCodeType, rxCode, txCodeType, txCode,
+ *   modulation, txDir, bandwidth, power, txLock, bcl, freqReverse, pttId, step
+ */
+function buildChannelBlock(p) {
+  const buf = new Uint8Array(16);
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(0, p.rxFreq10Hz, true);
+  dv.setUint32(4, p.txFreq10Hz, true);
+  buf[8] = p.rxCode;
+  buf[9] = p.txCode;
+  buf[10] = ((p.txCodeType & 0x0F) << 4) | (p.rxCodeType & 0x0F);
+  buf[11] = ((p.modulation & 0x0F) << 4) | (p.txDir & 0x0F);
+  buf[12] = ((p.txLock & 1) << 6) | ((p.bcl & 1) << 5) | ((p.power & 7) << 2) |
+            ((p.bandwidth & 1) << 1) | (p.freqReverse & 1);
+  buf[13] = ((p.pttId & 7) << 1);
+  buf[14] = p.step;
+  buf[15] = 0;
+  return buf;
+}
+
+/** 构建 MR 信道属性 2 字节（ChannelAttributes_t） */
+function buildChannelAttributes({ band, compander = 0, exclude = 0, scanlist = 0 }) {
+  const val = (band & 0x07) | ((compander & 0x03) << 3) | ((exclude & 1) << 7) | ((scanlist & 0xFF) << 8);
+  const buf = new Uint8Array(2);
+  new DataView(buf.buffer).setUint16(0, val, true);
+  return buf;
+}
+
 // 固件刷写消息号（bootloader 协议，参考 Apache-2.0 的 uvtools2/js/flash.js，
 // https://github.com/armel/armel.github.io/tree/master/uvtools2 ）
 const FLASH_MSG = {
@@ -279,8 +393,11 @@ function concat(a, b) {
   }
 })(typeof self !== "undefined" ? self : this, function () {
   return {
-    OBFUSCATION, CMD, CN_FONT, FLASH_MSG, CALIB, crc16, crc8,
+    OBFUSCATION, CMD, CN_FONT, FLASH_MSG, CALIB, CHAN, CTCSS_OPTIONS, DCS_OPTIONS,
+    CODE_TYPE, MODULATION, TX_DIR, BANDWIDTH, POWER, STEP,
+    crc16, crc8,
     buildSatelliteBlock, buildEntry, buildFrame, parseReply, FrameDecoder,
     buildFlashFrame, buildFwPage, parseDevInfo, blVersionOK,
+    bandFromFrequency, ctcssIndex, dcsIndex, buildChannelBlock, buildChannelAttributes,
   };
 });

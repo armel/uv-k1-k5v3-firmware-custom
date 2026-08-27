@@ -1283,6 +1283,11 @@ void UI_DisplayMenu(void)
                 }
 
                 SETTINGS_FetchChannelName(String, gSubMenuSelection);
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                if (CN_FONT_Present() && UI_PrintStringCNWidth(String) > 0)
+                    UI_PrintStringCN(String[0] ? String : "--", 2, menu_item_x1);
+                else
+#endif
                 UI_PrintString(String[0] ? String : "--", menu_item_x1, menu_item_x2, 2, 8);
                 already_printed = true;
                 break;
@@ -1307,6 +1312,11 @@ void UI_DisplayMenu(void)
                 {   // show the channel name
                     SETTINGS_FetchChannelName(String, gSubMenuSelection);
                     char *pPrintStr = String[0] ? String : "--";
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+                    if (CN_FONT_Present() && UI_PrintStringCNWidth(String) > 0)
+                        UI_PrintStringCN(pPrintStr, 2, menu_item_x1);
+                    else
+#endif
                     UI_PrintString(pPrintStr, menu_item_x1, menu_item_x2, 2, 8);
                 }
                 else

@@ -6,6 +6,38 @@ import { strict as assert } from "node:assert";
 import proto from "./protocol.js";
 const { OBFUSCATION, CMD, crc16, crc8, buildSatelliteBlock, buildEntry, buildFrame, parseReply, FrameDecoder } = proto;
 
+// ---- 写频辅助函数测试 ----
+const { CHAN, CODE_TYPE, MODULATION, TX_DIR, BANDWIDTH, POWER, bandFromFrequency, ctcssIndex, dcsIndex, buildChannelBlock, buildChannelAttributes } = proto;
+
+assert.equal(bandFromFrequency(43950000), 5, "439.5 MHz is UHF band 5");
+assert.equal(bandFromFrequency(14550000), 2, "145.5 MHz is VHF band 2");
+assert.equal(ctcssIndex(885), 8, "88.5 Hz CTCSS index");
+assert.equal(ctcssIndex(670), 0, "67.0 Hz CTCSS index");
+assert.equal(dcsIndex(0x023), 6, "DCS 023 index");
+
+const chBlock = buildChannelBlock({
+  rxFreq10Hz: 43950000, txFreq10Hz: 43450000,
+  rxCodeType: CODE_TYPE.CTCSS, rxCode: ctcssIndex(885),
+  txCodeType: CODE_TYPE.OFF, txCode: 0,
+  modulation: MODULATION.FM, txDir: TX_DIR.OFF,
+  bandwidth: BANDWIDTH.WIDE, power: POWER.HIGH,
+  txLock: 0, bcl: 0, freqReverse: 0, pttId: 0, step: 4,
+});
+const chDv = new DataView(chBlock.buffer);
+assert.equal(chDv.getUint32(0, true), 43950000, "channel RX freq");
+assert.equal(chDv.getUint32(4, true), 43450000, "channel TX freq");
+assert.equal(chBlock[10], (CODE_TYPE.OFF << 4) | CODE_TYPE.CTCSS, "tone type nibble");
+assert.equal(chBlock[11], (MODULATION.FM << 4) | TX_DIR.OFF, "modulation/dir nibble");
+assert.equal(chBlock[12], (POWER.HIGH << 2) | (BANDWIDTH.WIDE << 1), "power/bandwidth byte");
+
+const attr = buildChannelAttributes({ band: 5, compander: 0, exclude: 0, scanlist: 0 });
+const attrDv = new DataView(attr.buffer);
+assert.equal(attrDv.getUint16(0, true), 5, "attributes band = 5");
+const attr2 = buildChannelAttributes({ band: 2, compander: 1, exclude: 1, scanlist: 3 });
+const attr2Dv = new DataView(attr2.buffer);
+assert.equal(attr2Dv.getUint16(0, true), (2) | (1 << 3) | (1 << 7) | (3 << 8), "attributes full fields");
+console.log("✓ 写频辅助函数通过");
+
 // ---- CRC 已知值验证 ----
 // 固件 CRC_Calculate（crc.c）：init=0, poly=0x1021, 无反射无 xorout
 // = CRC-16/XMODEM 变体，check("123456789") = 0x31C3

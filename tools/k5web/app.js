@@ -272,7 +272,7 @@
       const first = pass.entries[0], last = pass.entries[pass.entries.length - 1];
       r.innerHTML =
         `<b>过境时间（北京时间）：</b>${fmt(pass.start)} → ${fmt(pass.end)}<br>` +
-        `时长 ${pass.durationS}s，频率表 ${pass.entries.length} 条（每 2 秒）<br>` +
+        `时长 ${pass.durationS}s，频率表 ${pass.entries.length} 条（每秒）<br>` +
         `下行 ${(first.downlink / 1e5).toFixed(5)} ~ ${(last.downlink / 1e5).toFixed(5)} MHz<br>` +
         `上行 ${(first.uplink / 1e5).toFixed(5)} ~ ${(last.uplink / 1e5).toFixed(5)} MHz<br>` +
         `<span class="ok">可以写入。写入后请在过境开始前开机，长按 0 输入当前北京时间开始跟踪。</span>`;
@@ -583,6 +583,294 @@
       log("导入异常：" + err.message, "err");
     } finally {
       $("btnCalImp").disabled = false;
+    }
+  });
+
+  // ---------- 写频（写信道） ----------
+  async function readEepromBlock(offset, size) {
+    const payload = new Uint8Array(8);
+    const dv = new DataView(payload.buffer);
+    dv.setUint16(0, offset, true);
+    dv.setUint8(2, size);
+    dv.setUint32(4, proto.CALIB.TS, true);
+    await writer.write(proto.buildFrame(proto.CMD.READ_EEPROM, payload));
+    const resp = await waitForMsg(proto.CMD.READ_EEPROM_RESP, 1500);
+    if (!resp) throw new Error(`读取 0x${offset.toString(16)} 超时`);
+    const rdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+    if (rdv.getUint16(4, true) !== offset) throw new Error("读取偏移回显不一致");
+    return resp.subarray(8, 8 + size);
+  }
+
+  async function writeEepromBlock(offset, data, flag = 1) {
+    if (data.length % 8 !== 0) throw new Error("EEPROM 写入长度必须是 8 的倍数");
+    for (let i = 0; i < data.length; i += 8) {
+      const payload = new Uint8Array(8 + 8);
+      const dv = new DataView(payload.buffer);
+      dv.setUint16(0, offset + i, true);
+      dv.setUint8(2, 8);
+      dv.setUint8(3, flag);
+      dv.setUint32(4, proto.CALIB.TS, true);
+      payload.set(data.subarray(i, i + 8), 8);
+      await writer.write(proto.buildFrame(proto.CMD.WRITE_EEPROM, payload));
+      const resp = await waitForMsg(proto.CMD.WRITE_EEPROM_RESP, 1500);
+      if (!resp) throw new Error(`写入 0x${(offset + i).toString(16)} 超时`);
+      if (resp.length < 6) throw new Error("写入回复过短");
+      const wdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+      if (wdv.getUint16(4, true) !== offset + i) throw new Error("写入偏移回显不一致");
+    }
+  }
+
+  async function writeChannel(channel, params) {
+    const C = proto.CHAN;
+    if (channel < 0 || channel >= C.MAX_COUNT) throw new Error(`信道号 ${channel} 超出范围 0~${C.MAX_COUNT - 1}`);
+
+    // 1. 写频率/参数区
+    const freqBlock = proto.buildChannelBlock(params);
+    await writeEepromBlock(channel * C.SIZE, freqBlock);
+
+    // 2. 写名称区（GB2312 编码，最多 10 字节）
+    let nameBytes;
+    const gb = window.K5WEB && window.K5WEB.gb2312;
+    if (gb) {
+      const nameEnc = gb.encode(params.name || "");
+      if (!nameEnc.ok) throw new Error(`信道名包含无法编码的字符："${nameEnc.char}"，请使用中文字库已覆盖的汉字或 ASCII`);
+      if (nameEnc.bytes.length > 10) throw new Error(`信道名编码后 ${nameEnc.bytes.length} 字节，超过 10 字节限制（中文每个字 2 字节）`);
+      nameBytes = nameEnc.bytes;
+    } else {
+      // fallback：仅 ASCII
+      const ascii = new TextEncoder().encode((params.name || "").replace(/[^\x20-\x7E]/g, ""));
+      if (ascii.length > 10) throw new Error("信道名超过 10 字节（GB2312 编码表未加载，仅支持 ASCII）");
+      nameBytes = ascii;
+    }
+    const nameBuf = new Uint8Array(C.NAME_SIZE);
+    nameBuf.set(nameBytes, 0);
+    await writeEepromBlock(C.NAME_BASE + channel * C.NAME_SIZE, nameBuf);
+
+    // 3. 属性区：8 字节对齐读写，避免跨属性覆盖
+    const attrOffset = C.ATTR_BASE + channel * C.ATTR_SIZE;
+    const alignBase = attrOffset - (attrOffset % C.ATTR_ALIGN); // 8 字节对齐基址
+    const attrInBlock = attrOffset - alignBase; // 在 8 字节块内的偏移（0 或 2）
+    const attrBlock = new Uint8Array(await readEepromBlock(alignBase, C.ATTR_ALIGN));
+    const attr = proto.buildChannelAttributes({
+      band: proto.bandFromFrequency(params.rxFreq10Hz),
+      compander: 0,
+      exclude: 0,
+      scanlist: params.scanlist || 0,
+    });
+    attrBlock.set(attr, attrInBlock);
+    await writeEepromBlock(alignBase, attrBlock);
+  }
+
+  function parseToneInput(value, type) {
+    const s = (value || "").trim();
+    if (!s || type === proto.CODE_TYPE.OFF) return { code: 0, codeType: proto.CODE_TYPE.OFF };
+    if (type === proto.CODE_TYPE.CTCSS) {
+      const hz = Math.round(parseFloat(s) * 10);
+      return { code: proto.ctcssIndex(hz), codeType: proto.CODE_TYPE.CTCSS };
+    }
+    // DCS：支持 "023" / "D023" / "023N" / "I023" / "023I"
+    const m = s.match(/^[DI]?(\d{3})$/i);
+    if (!m) return { code: 0, codeType: proto.CODE_TYPE.OFF };
+    const code = parseInt(m[1], 10);
+    const idx = proto.dcsIndex(code);
+    const codeType = (type === proto.CODE_TYPE.DCS_REV || /^I/i.test(s)) ? proto.CODE_TYPE.DCS_REV : proto.CODE_TYPE.DCS;
+    return { code: idx, codeType };
+  }
+
+  /** 从字符串自动推断亚音类型：含小数点→CTCSS；3 位数字/Dxxx/Ixxx→DCS；空→OFF */
+  function autoToneInput(value) {
+    const s = (value || "").trim();
+    if (!s) return { code: 0, codeType: proto.CODE_TYPE.OFF };
+    if (/[.,]/.test(s) || /^\d{2,3}$/.test(s) && parseInt(s, 10) > 100) {
+      const hz = Math.round(parseFloat(s.replace(",", ".")) * 10);
+      return { code: proto.ctcssIndex(hz), codeType: proto.CODE_TYPE.CTCSS };
+    }
+    const m = s.match(/^[DI]?(\d{3})$/i);
+    if (m) {
+      const idx = proto.dcsIndex(parseInt(m[1], 10));
+      const codeType = /^I/i.test(s) ? proto.CODE_TYPE.DCS_REV : proto.CODE_TYPE.DCS;
+      return { code: idx, codeType };
+    }
+    return { code: 0, codeType: proto.CODE_TYPE.OFF };
+  }
+
+  function collectChannelParams() {
+    const rxMHz = parseFloat($("chRxFreq").value);
+    let txMHz = parseFloat($("chTxFreq").value);
+    const txDir = parseInt($("chTxDir").value, 10);
+    const txOffset = parseFloat($("chTxOffset").value) || 0;
+    if (isNaN(rxMHz) || rxMHz <= 0) throw new Error("接收频率无效");
+    if (isNaN(txMHz) || txMHz <= 0) {
+      if (txDir === proto.TX_DIR.OFF) txMHz = rxMHz;
+      else txMHz = rxMHz + (txDir === proto.TX_DIR.ADD ? txOffset : -txOffset);
+    }
+    const rxTone = parseToneInput($("chRxTone").value, parseInt($("chRxToneType").value, 10));
+    const txTone = parseToneInput($("chTxTone").value, parseInt($("chTxToneType").value, 10));
+
+    return {
+      name: $("chName").value,
+      rxFreq10Hz: Math.round(rxMHz * 100000),
+      txFreq10Hz: Math.round(txMHz * 100000),
+      rxCodeType: rxTone.codeType,
+      rxCode: rxTone.code,
+      txCodeType: txTone.codeType,
+      txCode: txTone.code,
+      modulation: parseInt($("chModulation").value, 10),
+      txDir: txDir,
+      bandwidth: parseInt($("chBandwidth").value, 10),
+      power: parseInt($("chPower").value, 10),
+      txLock: 0, // 默认允许发射；如需禁用可后续扩展
+      bcl: 0,
+      freqReverse: 0,
+      pttId: 0,
+      step: parseInt($("chStep").value, 10),
+      scanlist: 0,
+    };
+  }
+
+  $("btnChProg").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const channel = parseInt($("chNum").value, 10);
+    if (isNaN(channel) || channel < 0 || channel >= proto.CHAN.MAX_COUNT) {
+      setStatus(`信道号无效，应为 0~${proto.CHAN.MAX_COUNT - 1}`, "err"); return;
+    }
+    $("btnChProg").disabled = true;
+    $("chProgProgress").style.display = "block";
+    $("chProgProgressBar").style.width = "0%";
+    $("chReadResult").style.display = "none";
+    try {
+      await ensureSession();
+      const params = collectChannelParams();
+      await writeChannel(channel, params);
+      $("chProgProgressBar").style.width = "100%";
+      setStatus(`✅ 信道 ${channel} 写入完成！建议重启对讲机或切换信道使其生效`, "ok");
+      log(`写频完成：CH${channel} ${(params.rxFreq10Hz / 100000).toFixed(5)} MHz，名称字节：${Array.from((window.K5WEB.gb2312 || { encode: () => ({ ok: true, bytes: new Uint8Array() }) }).encode(params.name || "").bytes).map(b => b.toString(16).padStart(2, "0")).join(" ") || "(空)"}`);
+    } catch (err) {
+      setStatus("写频失败：" + err.message, "err");
+      log("写频异常：" + err.message, "err");
+    } finally {
+      $("btnChProg").disabled = false;
+    }
+  });
+
+  $("btnChRead").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const channel = parseInt($("chNum").value, 10);
+    if (isNaN(channel) || channel < 0 || channel >= proto.CHAN.MAX_COUNT) {
+      setStatus(`信道号无效，应为 0~${proto.CHAN.MAX_COUNT - 1}`, "err"); return;
+    }
+    $("btnChRead").disabled = true;
+    $("chReadResult").style.display = "none";
+    try {
+      await ensureSession();
+      const C = proto.CHAN;
+      const nameBytes = await readEepromBlock(C.NAME_BASE + channel * C.NAME_SIZE, C.NAME_SIZE);
+      const freqBytes = await readEepromBlock(channel * C.SIZE, C.SIZE);
+      const rx10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(0, true);
+      const tx10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(4, true);
+      const hex = Array.from(nameBytes).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+      let decoded = "";
+      for (let i = 0; i < nameBytes.length; i++) {
+        const b = nameBytes[i];
+        if (b === 0) break;
+        if (b >= 0xA1 && i + 1 < nameBytes.length && nameBytes[i + 1] >= 0xA1) {
+          decoded += `[${b.toString(16)}${nameBytes[i + 1].toString(16)}]`;
+          i++;
+        } else if (b >= 0x20 && b < 0x7F) {
+          decoded += String.fromCharCode(b);
+        } else {
+          decoded += `?0x${b.toString(16)}`;
+        }
+      }
+      const r = $("chReadResult");
+      r.style.display = "block";
+      r.innerHTML = `
+        <b>CH${channel} 读取校验</b><br>
+        接收频率：${(rx10 / 100000).toFixed(5)} MHz<br>
+        发射频率：${(tx10 / 100000).toFixed(5)} MHz<br>
+        名称区十六进制：${hex}<br>
+        名称解析（[xxxx]=GB2312）：${decoded || "(空白)"}
+      `;
+      log(`读取 CH${channel}：RX=${(rx10 / 100000).toFixed(5)} TX=${(tx10 / 100000).toFixed(5)} 名称=[${hex}]`);
+    } catch (err) {
+      setStatus("读取失败：" + err.message, "err");
+      log("读取异常：" + err.message, "err");
+    } finally {
+      $("btnChRead").disabled = false;
+    }
+  });
+
+  // CSV 批量导入
+  let chCsvData = null;
+  $("chCsvFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    chCsvData = null;
+    $("btnChProgCsv").disabled = true;
+    if (!f) return;
+    const text = await f.text();
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    const rows = [];
+    let first = true;
+    for (const line of lines) {
+      const cols = line.split(",").map((s) => s.trim());
+      if (first && /信道|channel|freq/i.test(cols[0])) { first = false; continue; }
+      first = false;
+      if (cols.length < 4) continue;
+      const ch = parseInt(cols[0], 10);
+      const name = cols[1] || "";
+      const rx = parseFloat(cols[2]);
+      const tx = parseFloat(cols[3]);
+      if (isNaN(ch) || isNaN(rx)) continue;
+      rows.push({ ch, name, rx, tx, cols });
+    }
+    if (rows.length === 0) { setStatus("CSV 中没有可识别的信道行", "err"); return; }
+    chCsvData = rows;
+    $("btnChProgCsv").disabled = false;
+    log(`CSV 已加载：${f.name}，${rows.length} 条信道`);
+  });
+
+  $("btnChProgCsv").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!chCsvData || !chCsvData.length) { setStatus("请先选择 CSV 文件", "err"); return; }
+    $("btnChProgCsv").disabled = true;
+    $("chCsvProgress").style.display = "block";
+    const bar = $("chCsvProgressBar");
+    bar.style.width = "0%";
+    try {
+      await ensureSession();
+      const C = proto.CHAN;
+      for (let i = 0; i < chCsvData.length; i++) {
+        const row = chCsvData[i];
+        if (row.ch < 0 || row.ch >= C.MAX_COUNT) {
+          log(`跳过越界信道 ${row.ch}`, "info"); continue;
+        }
+        const rxTone = autoToneInput(row.cols[4] || "");
+        const txTone = autoToneInput(row.cols[5] || "");
+        const params = {
+          name: row.name,
+          rxFreq10Hz: Math.round(row.rx * 100000),
+          txFreq10Hz: Math.round(row.tx * 100000),
+          rxCodeType: rxTone.codeType, rxCode: rxTone.code,
+          txCodeType: txTone.codeType, txCode: txTone.code,
+          modulation: parseInt(row.cols[8] || "0", 10),
+          txDir: proto.TX_DIR.OFF,
+          bandwidth: parseInt(row.cols[6] || "0", 10),
+          power: parseInt(row.cols[7] || "7", 10),
+          txLock: 0, bcl: 0, freqReverse: 0, pttId: 0,
+          step: 4, scanlist: 0,
+        };
+        await writeChannel(row.ch, params);
+        bar.style.width = ((i + 1) / chCsvData.length * 100).toFixed(1) + "%";
+        if ((i + 1) % 10 === 0 || i === chCsvData.length - 1) log(`已写入 ${i + 1}/${chCsvData.length}`);
+      }
+      bar.style.width = "100%";
+      setStatus(`✅ CSV 批量写入完成，共 ${chCsvData.length} 条信道`, "ok");
+      log("CSV 写频完成");
+    } catch (err) {
+      setStatus("CSV 写频失败：" + err.message, "err");
+      log("CSV 写频异常：" + err.message, "err");
+    } finally {
+      $("btnChProgCsv").disabled = false;
     }
   });
 

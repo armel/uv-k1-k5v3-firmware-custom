@@ -10,7 +10,7 @@
 // Chinese menu item name for MenuId, GB2312-encoded; NULL -> English.
 const char *UI_MENU_GetNameCN(uint8_t MenuId);
 
-// "ç®€ä½“ä¸­æ–‡": the MENU_LANG value shown while Chinese is active.
+// "¼òÌåÖÐÎÄ": the MENU_LANG value shown while Chinese is active.
 const char *UI_MENU_GetLangValueCN(void);
 
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT

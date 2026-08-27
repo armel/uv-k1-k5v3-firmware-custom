@@ -43,6 +43,7 @@
   <button class="tabbtn" data-tab="tabCalImp" type="button">📥 导入校准</button>
   <button class="tabbtn" data-tab="tabFont" type="button">🀄 中文字库</button>
   <button class="tabbtn" data-tab="tabEphem" type="button">🛰️ 多普勒星历</button>
+  <button class="tabbtn" data-tab="tabChProg" type="button">📻 写频</button>
 </div>
 
 <!-- ========== 选项卡 1：固件刷写 ========== -->
@@ -174,6 +175,132 @@
 
 </div>
 
+<!-- ========== 选项卡：写频（写信道） ========== -->
+<div id="tabChProg" class="tabpanel">
+
+  <div class="card">
+    <h2>写入单个存储信道（MR）</h2>
+    <p class="hint">通过 0x051D 写 EEPROM 命令把信道参数写入 SPI Flash。对讲机保持正常开机即可。<b style="color:#c62828">注意：会覆盖指定信道现有数据</b>，建议先导出校准/信道备份。</p>
+
+    <div class="row">
+      <div style="flex:1">
+        <label>信道号（0–1023）</label>
+        <input id="chNum" type="number" min="0" max="1023" value="0">
+      </div>
+      <div style="flex:2">
+        <label>信道名称（最多 10 字节，中文每字 2 字节）</label>
+        <input id="chName" type="text" maxlength="10" placeholder="例如：ISS空间站">
+      </div>
+    </div>
+
+    <div class="row">
+      <div><label>接收频率（MHz）</label><input id="chRxFreq" value="439.500" type="number" step="0.0001"></div>
+      <div><label>发射频率（MHz）</label><input id="chTxFreq" value="434.500" type="number" step="0.0001"></div>
+    </div>
+    <p class="hint">也可只填“接收频率”+“差频方向”，系统按接收频率自动计算发射频率。</p>
+
+    <div class="row">
+      <div>
+        <label>差频方向</label>
+        <select id="chTxDir">
+          <option value="0">无</option>
+          <option value="1">上差频（+）</option>
+          <option value="2">下差频（−）</option>
+        </select>
+      </div>
+      <div><label>差频（MHz）</label><input id="chTxOffset" value="5.0000" type="number" step="0.0001"></div>
+      <div>
+        <label>调制方式</label>
+        <select id="chModulation">
+          <option value="0" selected>FM</option>
+          <option value="1">AM</option>
+          <option value="2">USB</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>带宽</label>
+        <select id="chBandwidth">
+          <option value="0" selected>宽带</option>
+          <option value="1">窄带</option>
+        </select>
+      </div>
+      <div>
+        <label>发射功率</label>
+        <select id="chPower">
+          <option value="0">USER</option>
+          <option value="1">LOW1</option>
+          <option value="2">LOW2</option>
+          <option value="3">LOW3</option>
+          <option value="4">LOW4</option>
+          <option value="5">LOW5</option>
+          <option value="6">MID</option>
+          <option value="7" selected>HIGH</option>
+        </select>
+      </div>
+      <div>
+        <label>步进（kHz）</label>
+        <select id="chStep">
+          <option value="4" selected>12.5</option>
+          <option value="3">10</option>
+          <option value="5">25</option>
+          <option value="1">5</option>
+          <option value="2">6.25</option>
+          <option value="0">2.5</option>
+          <option value="6">8.33</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>接收亚音</label>
+        <select id="chRxToneType">
+          <option value="0" selected>无</option>
+          <option value="1">CTCSS</option>
+          <option value="2">DCS</option>
+          <option value="3">DCS 反相</option>
+        </select>
+      </div>
+      <div><label>接收亚音值（CTCSS 填 67.0，DCS 填 023）</label><input id="chRxTone" value="" placeholder="无"></div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>发射亚音</label>
+        <select id="chTxToneType">
+          <option value="0" selected>无</option>
+          <option value="1">CTCSS</option>
+          <option value="2">DCS</option>
+          <option value="3">DCS 反相</option>
+        </select>
+      </div>
+      <div><label>发射亚音值（CTCSS 填 67.0，DCS 填 023）</label><input id="chTxTone" value="" placeholder="无"></div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <button id="btnChProg">💾 写入信道</button>
+      <button id="btnChRead" class="secondary">🔍 读取校验</button>
+    </div>
+    <div id="chProgProgress" class="progress"><div id="chProgProgressBar"></div></div>
+    <div id="chReadResult" class="result" style="display:none;margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>批量导入（CSV）</h2>
+    <p class="hint">每行：信道号,名称,接收频率,发射频率,接收亚音,发射亚音,带宽,功率,调制,差频方向,差频。标题行可选。名称留空则清空。</p>
+    <label>CSV 文件</label>
+    <input id="chCsvFile" type="file" accept=".csv,.txt">
+    <div class="row" style="margin-top:8px">
+      <button id="btnChProgCsv" disabled>📁 导入 CSV 并写入</button>
+    </div>
+    <div id="chCsvProgress" class="progress"><div id="chCsvProgressBar"></div></div>
+  </div>
+
+</div>
+
 <!-- ========== 公共：串口连接与日志 ========== -->
 <div class="card">
   <h2>串口连接（USB 线，Web Serial）</h2>
@@ -186,6 +313,7 @@
 
 <script src="vendor/satellite.min.js"></script>
 <script src="vendor/leaflet.js"></script>
+<script src="gb2312_table.js"></script>
 <script src="protocol.js"></script>
 <script src="coord.js"></script>
 <script src="calc.js"></script>
