@@ -73,9 +73,11 @@ Specialized presets extend Fusion for specific uses:
 
 - **Transfer** adds AirCopy and BEAM wireless channel transfer.
 - **FieldOps** adds first-responder controls, Fox Hunt and Morse Beacon support.
-- **Max** packs the broadest practical selection of features that fits safely within
-  the radio's Flash and RAM limits. It is not a strict superset of every other edition:
-  features may be exchanged between releases to preserve stability and memory headroom.
+- **Labs** is the experimental edition. It carries the broad feature selection of the
+  other releases and adds the overlay-apps platform (apps loaded from external Flash and
+  run in a 4 KiB RAM overlay) — the newest, least-settled work. Expect rough edges. It is
+  not a strict superset of every other edition: features may be exchanged between releases
+  to preserve stability and memory headroom.
 - **Custom** remains a manually configured build based directly on the hidden technical default.
 
 ### Radio and signal handling
@@ -330,7 +332,7 @@ But, they are nice toys for the price, fun to play with.
 ## Compiling and Building from Docker
 
 This project provides a Docker-based build system for the UV-K1 and UV-K5 V3.
-Everything is handled through the `compile-with-docker.sh` helper script. Fusion is
+Everything is handled through the `compile-firmware.sh` helper script. Fusion is
 the default generic preset, while specialized builds are generated in their own
 `build/<Preset>` directories.
 
@@ -341,7 +343,7 @@ the default generic preset, while specialized builds are generated in their own
 
 ### Build Script Overview
 
-The script `compile-with-docker.sh`:
+The script `compile-firmware.sh`:
 
 1. Builds the Docker image (`uvk1-uvk5v3`) if it does not already exist.
 2. Configures the selected preset with `cmake --fresh`.
@@ -351,7 +353,7 @@ The script `compile-with-docker.sh`:
 ### Usage
 
 ```bash
-./compile-with-docker.sh [Preset] [extra CMake options]
+./compile-firmware.sh [Preset] [extra CMake options]
 ```
 
 The default preset is **Fusion**. Available presets are:
@@ -360,18 +362,18 @@ The default preset is **Fusion**. Available presets are:
 - **Fusion**
 - **Transfer**
 - **FieldOps**
-- **Max**
-- **All** (Fusion, Transfer, FieldOps and Max)
+- **Labs**
+- **All** (Fusion, Transfer, FieldOps and Labs)
 
 Examples:
 
 ```bash
-./compile-with-docker.sh
-./compile-with-docker.sh Fusion
-./compile-with-docker.sh Transfer
-./compile-with-docker.sh FieldOps
-./compile-with-docker.sh Max
-./compile-with-docker.sh All
+./compile-firmware.sh
+./compile-firmware.sh Fusion
+./compile-firmware.sh Transfer
+./compile-firmware.sh FieldOps
+./compile-firmware.sh Labs
+./compile-firmware.sh All
 ```
 
 ### Passing Additional CMake Options
@@ -382,15 +384,15 @@ These are forwarded directly to `cmake --preset` inside the container.
 Examples:
 
 ```bash
-./compile-with-docker.sh FieldOps -DENABLE_VOX=OFF
-./compile-with-docker.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON
-./compile-with-docker.sh Fusion -DSQL_TONE=600
+./compile-firmware.sh FieldOps -DENABLE_VOX=OFF
+./compile-firmware.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON
+./compile-firmware.sh Fusion -DSQL_TONE=600
 ```
 
 To prepare the rolling development firmware:
 
 ```bash
-./compile-with-docker.sh Fusion -DDEV=ON
+./compile-firmware.sh Fusion -DDEV=ON
 ```
 
 This keeps the regular build output in `build/Fusion` and also updates

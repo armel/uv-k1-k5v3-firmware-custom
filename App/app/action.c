@@ -467,6 +467,16 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 #ifdef ENABLE_FMRADIO
 void ACTION_FM(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    /* Overlay apps replace the resident FM screen with the FM overlay app, so
+       this launcher is inert. Every external entry point - the assignable
+       side-key, the F+0 key, the boot-state resume - funnels through here, and
+       gFmRadioMode is only ever set from inside this function, so returning
+       early keeps the resident screen from ever opening. fm.c still links
+       against ACTION_FM; its own EXIT-path calls are unreachable because the
+       resident screen never opens. */
+    return;
+#else
     if (gCurrentFunction != FUNCTION_TRANSMIT && gCurrentFunction != FUNCTION_MONITOR)
     {
         gInputBoxIndex = 0;
@@ -505,6 +515,7 @@ void ACTION_FM(void)
 
         gRequestDisplayScreen = DISPLAY_FM;
     }
+#endif  /* !ENABLE_FEAT_F4HWN_OVERLAY_APPS */
 }
 
 static void ACTION_Scan_FM(bool bRestart)

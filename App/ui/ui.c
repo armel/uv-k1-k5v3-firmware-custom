@@ -53,8 +53,14 @@ void (*const UI_DisplayFunctions[])(void) = {
     [DISPLAY_MENU] = &UI_DisplayMenu,
     [DISPLAY_SCANNER] = &UI_DisplayScanner,
 
-#ifdef ENABLE_FMRADIO
+#if defined(ENABLE_FMRADIO) && !defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     [DISPLAY_FM] = &UI_DisplayFM,
+#elif defined(ENABLE_FMRADIO)
+    /* The FM overlay app replaces the resident FM screen (ui/fmradio.c is not
+       compiled). DISPLAY_FM still exists in the enum, so the slot must stay
+       initialised to keep ARRAY_SIZE == DISPLAY_N_ELEM; point it at a
+       never-reached stub - the resident FM screen can no longer open. */
+    [DISPLAY_FM] = &UI_DisplayMain,
 #endif
 
 #ifdef ENABLE_AIRCOPY

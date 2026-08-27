@@ -1,5 +1,5 @@
-/* Copyright 2023 Dual Tachyon
- * https://github.com/DualTachyon
+/* Copyright 2026 Armel F4HWN
+ * https://github.com/armel
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,14 +14,12 @@
  *     limitations under the License.
  */
 
-#ifndef UI_STATUS_H
-#define UI_STATUS_H
+#ifndef APPS_APP_MENU_H
+#define APPS_APP_MENU_H
 
-#include <stdint.h>
+/* Blocking "Apps" selector: scans the overlay-app slots, lists the committed
+ * ones by name, and launches the chosen one. UP/DOWN move, MENU launches, EXIT
+ * closes. Returns when the user leaves. */
+void APP_MenuOpen(void);
 
-#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
-void UI_DrawStatusBattery(uint8_t *line, char *str);
-#endif
-void UI_DisplayStatus();
-
-#endif
+#endif /* APPS_APP_MENU_H */

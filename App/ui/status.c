@@ -54,7 +54,7 @@ static void convertTime(uint8_t *line, uint8_t type)
 #endif
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 void UI_DrawStatusBattery(uint8_t *line, char *str)
 #else
 static __attribute__((always_inline)) inline void UI_DrawStatusBattery(uint8_t *line, char *str)

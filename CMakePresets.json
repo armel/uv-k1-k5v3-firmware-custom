@@ -91,6 +91,7 @@
                 "ENABLE_FEAT_F4HWN_MENU_CAT": false,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": false,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": false,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,
@@ -142,6 +143,7 @@
                 "ENABLE_FEAT_F4HWN_ACTION_PICKER": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
@@ -168,16 +170,17 @@
             }
         },
         {
-            "name": "Max",
+            "name": "Labs",
             "inherits": "Fusion",
             "cacheVariables": {
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
-                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
+                "ENABLE_FEAT_F4HWN_FOXHUNT": false,
                 "ENABLE_AIRCOPY": true,
                 "ENABLE_FEAT_F4HWN_BEAM": true,
-                "ENABLE_FEAT_F4HWN_GAME": true,
-                "EDITION_STRING": "Max",
-                "TARGET": "f4hwn.max"
+                "ENABLE_FEAT_F4HWN_GAME": false,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
+                "EDITION_STRING": "Labs",
+                "TARGET": "f4hwn.labs"
             }
         }
     ],
@@ -199,8 +202,8 @@
             "configurePreset": "FieldOps"
         },
         {
-            "name": "Max",
-            "configurePreset": "Max"
+            "name": "Labs",
+            "configurePreset": "Labs"
         }
     ]
 }

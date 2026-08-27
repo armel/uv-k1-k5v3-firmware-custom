@@ -162,8 +162,17 @@ SECTIONS
 
   /* Optional multiboot overlay. The restore stub is linked at the same RAM
      address as the 4 KiB PY25Q16 sector cache, but its load image remains in
-     FLASH and is copied into the cache only immediately before reflashing. */
-  OVERLAY : NOCROSSREFS AT (LOADADDR(.noncacheable) + SIZEOF(.noncacheable))
+     FLASH and is copied into the cache only immediately before reflashing.
+
+     The VMA is PINNED to a fixed RAM address (ORIGIN + 0x280) so a single
+     overlay-app blob runs on EVERY preset: without pinning, the sector-cache
+     VMA shifts with the per-preset .data size (Fusion 0x1dc, Transfer/Max 0x1e0,
+     ...), and a blob linked for one preset is refused by the loader's VMA guard
+     on another. 0x280 clears the ~0x1ec of RAM used before it; the assert fails
+     loudly (raise the anchor) if a preset ever needs more. */
+  ASSERT((ADDR(.noncacheable) + SIZEOF(.noncacheable)) <= (ORIGIN(RAM) + 0x280),
+         "RAM before the overlay exceeds the fixed 0x280 anchor - raise MB_OVERLAY_VMA")
+  OVERLAY (ORIGIN(RAM) + 0x280) : NOCROSSREFS AT (LOADADDR(.noncacheable) + SIZEOF(.noncacheable))
   {
     .mb_ramfunc
     {

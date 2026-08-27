@@ -117,11 +117,18 @@ endif()
 
 # ---- STOCK QUANSHENG FEATURES ----
 
+# ENABLE_FMRADIO compiles the BK1080 driver and the FM logic/helpers (fm.c).
+# The resident FM *screen* (ui/fmradio.c) is redundant with the FM overlay app,
+# so it is dropped when OVERLAY_APPS is on - the overlay app reaches the driver
+# and the fm.c helpers through the ABI instead, and ACTION_FM's launcher body is
+# neutralised in action.c so the resident screen can never open.
 enable_feature(ENABLE_FMRADIO
-    driver/bk1080.c 
-    app/fm.c 
-    ui/fmradio.c
+    driver/bk1080.c
+    app/fm.c
 )
+if(ENABLE_FMRADIO AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    target_sources(App INTERFACE ui/fmradio.c)
+endif()
 enable_feature(ENABLE_AIRCOPY
     app/aircopy.c
     ui/aircopy.c
@@ -182,9 +189,21 @@ if(NOT ENABLE_UART AND NOT ENABLE_USB)
 endif()
 
 enable_feature(ENABLE_FEAT_F4HWN)
-enable_feature(ENABLE_FEAT_F4HWN_GAME 
-    app/breakout.c
+# GAME keeps the F+7 hook; the resident breakout.c is compiled only when the
+# overlay does NOT provide Breakout as an app (that is the flash we recover).
+if(ENABLE_FEAT_F4HWN_GAME)
+    target_compile_definitions(App INTERFACE ENABLE_FEAT_F4HWN_GAME)
+    if(NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+        target_sources(App INTERFACE app/breakout.c)
+    endif()
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    apps/app_overlay.c
+    apps/app_menu.c
 )
+if(ENABLE_FEAT_F4HWN_OVERLAY_APPS AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_OVERLAY_APPS requires ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY (the 4 KiB overlay workspace).")
+endif()
 enable_feature(ENABLE_FEAT_F4HWN_K5VIEWER 
     k5viewer.c
 )

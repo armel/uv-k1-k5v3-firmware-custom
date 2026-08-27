@@ -32,6 +32,11 @@ void PY25Q16_SectorErase(uint32_t Address);
  * is also called before multiboot reuses the cache storage as a RAM overlay. */
 void PY25Q16_InvalidateCache(void);
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* The 4 KiB sector cache, reused as the overlay-app execution workspace. */
+uint8_t *PY25Q16_OverlayBuffer(void);
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
 /*
  * Multiboot per-bank config banking.

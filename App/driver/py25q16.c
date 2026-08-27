@@ -416,6 +416,16 @@ void PY25Q16_InvalidateCache(void)
     SectorCacheAddr = 0x1000000;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Expose the 4 KiB sector cache as the overlay-app workspace. It lives in
+ * .bss.mb_workspace (the overlay VMA), so an app blob linked there runs in
+ * place once copied in. The caller InvalidateCache()s around its use. */
+uint8_t *PY25Q16_OverlayBuffer(void)
+{
+    return SectorCache;
+}
+#endif
+
 static inline void WriteAddr(uint32_t Addr)
 {
     SPI_WriteByte(0xff & (Addr >> 16));
