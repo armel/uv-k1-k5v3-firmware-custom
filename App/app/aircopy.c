@@ -42,6 +42,7 @@ AIRCOPY_State_t gAircopyState;
 uint16_t gAirCopyBlockNumber;
 uint16_t gErrorsDuringAirCopy;
 bool     gAirCopyIsSendMode;
+bool     gAircopyAll;
 
 uint16_t g_FSK_Buffer[36];
 
@@ -60,24 +61,51 @@ uint16_t g_FSK_Buffer[36];
 static uint16_t AircopyCountdown;
 static uint8_t  AircopyRetries;
 
-#define AIRCOPY_NUM_MAPS        (AIRCOPY_NUM_BANKS + 1u)
 #define AIRCOPY_BANK_BLOCKS     68u
 #define AIRCOPY_SETTINGS_BLOCKS 12u
+#define AIRCOPY_ALL_BLOCKS      (AIRCOPY_NUM_BANKS * AIRCOPY_BANK_BLOCKS + AIRCOPY_SETTINGS_BLOCKS)
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-uint8_t AIRCOPY_GetTotalBlocks(void)
+uint16_t AIRCOPY_GetTotalBlocks(void)
 {
+    if (gAircopyAll)
+        return AIRCOPY_ALL_BLOCKS;                 // banks + settings, one continuous run
     return gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS
          ? AIRCOPY_SETTINGS_BLOCKS
          : AIRCOPY_BANK_BLOCKS;
 }
 
+// Resolve the map that a (possibly global, in All mode) block index lands in.
+// On return, *block is rewritten to the block index within that map.
+static uint8_t AIRCOPY_ResolveMap(uint16_t *block)
+{
+    if (!gAircopyAll)
+        return gAircopyCurrentMapIndex;
+
+    uint8_t map = 0;
+    while (map < AIRCOPY_NUM_BANKS && *block >= AIRCOPY_BANK_BLOCKS)
+    {
+        *block -= AIRCOPY_BANK_BLOCKS;
+        map++;
+    }
+    return map;   // AIRCOPY_NUM_BANKS once the banks are exhausted (settings map)
+}
+
+// Map index of the block currently in progress, for the All-mode slice label.
+uint8_t AIRCOPY_CurrentSliceMap(void)
+{
+    uint16_t block = gAirCopyBlockNumber;
+    return AIRCOPY_ResolveMap(&block);
+}
+
 static uint16_t AIRCOPY_GetBlockOffset(uint16_t block)
 {
-    if (gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS)
+    const uint8_t map = AIRCOPY_ResolveMap(&block);
+
+    if (map == AIRCOPY_NUM_BANKS)
     {
         // Settings: 6 blocks at 0xA000, 2 at 0x880E and 4 at 0x9000.
         if (block < 6u)
@@ -88,12 +116,12 @@ static uint16_t AIRCOPY_GetBlockOffset(uint16_t block)
     }
 
     // A bank contains 32 frequency, 32 name and 4 attribute blocks.
-    const uint16_t channelOffset = gAircopyCurrentMapIndex * 0x0800u;
+    const uint16_t channelOffset = map * 0x0800u;
     if (block < 32u)
         return channelOffset + block * AIRCOPY_BLOCK_SIZE;
     if (block < 64u)
         return 0x4000u + channelOffset + (block - 32u) * AIRCOPY_BLOCK_SIZE;
-    return 0x8000u + gAircopyCurrentMapIndex * 0x0100u
+    return 0x8000u + map * 0x0100u
          + (block - 64u) * AIRCOPY_BLOCK_SIZE;
 }
 
@@ -314,8 +342,9 @@ void AIRCOPY_StorePacket(void)
 
 static void AIRCOPY_InitTransfer(bool isSendMode)
 {
-    if (gAircopyCurrentMapIndex >= AIRCOPY_NUM_MAPS)
+    if (gAircopyCurrentMapIndex > AIRCOPY_ALL_INDEX)
         gAircopyCurrentMapIndex = 0;
+    gAircopyAll = (gAircopyCurrentMapIndex == AIRCOPY_ALL_INDEX);
 
     gFSKWriteIndex = 0;
     gAirCopyBlockNumber = 0;
@@ -400,10 +429,10 @@ static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
     switch(Direction)
     {
         case 1:
-            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + 1) % AIRCOPY_NUM_MAPS;
+            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + 1) % (AIRCOPY_NUM_MAPS + 1u);
             break;
         case -1:
-            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + AIRCOPY_NUM_MAPS - 1) % AIRCOPY_NUM_MAPS;
+            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + AIRCOPY_NUM_MAPS) % (AIRCOPY_NUM_MAPS + 1u);
             break;
     }
 }

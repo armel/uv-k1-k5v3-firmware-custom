@@ -37,7 +37,17 @@ void UI_DisplayAircopy(void)
     if (gAircopyState == AIRCOPY_READY) {
         pPrintStr = "AIR COPY(RDY)";
     } else if (gAircopyState == AIRCOPY_TRANSFER) {
-        pPrintStr = "AIR COPY";
+        if (gAircopyAll) {
+            // All mode: show the slice being replicated in place of the title.
+            const uint8_t m = AIRCOPY_CurrentSliceMap();
+            if (m < AIRCOPY_NUM_BANKS)
+                sprintf(String, "MEM %03u-%03u", (m * 128) + 1, (m + 1) * 128);
+            else
+                strcpy(String, "SETTINGS");
+            pPrintStr = String;
+        } else {
+            pPrintStr = "AIR COPY";
+        }
     } else if (gAircopyState == AIRCOPY_COMPLETE) {
         pPrintStr = "AIR COPY OK";
     } else {
@@ -60,7 +70,7 @@ void UI_DisplayAircopy(void)
     // show the main large frequency digits
     UI_DisplayFrequency(String, 16, 2, false);
 
-    const uint8_t totalBlocks = AIRCOPY_GetTotalBlocks();
+    const uint16_t totalBlocks = AIRCOPY_GetTotalBlocks();
     uint16_t doneBlocks = gAirCopyBlockNumber;
 
     if (doneBlocks > totalBlocks)
@@ -69,10 +79,12 @@ void UI_DisplayAircopy(void)
     // Draw memory selection
     if (gAircopyState == AIRCOPY_READY) 
     {
-        if(gAircopyCurrentMapIndex < AIRCOPY_NUM_BANKS) {   
+        if(gAircopyCurrentMapIndex < AIRCOPY_NUM_BANKS) {
             sprintf(String, "MEM %03u - %03u", (gAircopyCurrentMapIndex * 128) + 1, (gAircopyCurrentMapIndex + 1) * 128);
+        } else if(gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS) {
+            strcpy(String, "Settings");
         } else {
-            strcpy(String, "Settings");            
+            strcpy(String, "All (Mem+Set)");
         }
         UI_PrintString(String, 2, 127, 5, 8);
     } 

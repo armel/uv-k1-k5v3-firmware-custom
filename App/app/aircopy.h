@@ -28,6 +28,8 @@
 #define AIRCOPY_BLOCK_SIZE           0x0040u  // 64 bytes per AirCopy block
 #define AIRCOPY_CHANNELS_PER_BANK    128
 #define AIRCOPY_NUM_BANKS            MR_CHANNELS_MAX / AIRCOPY_CHANNELS_PER_BANK
+#define AIRCOPY_NUM_MAPS             (AIRCOPY_NUM_BANKS + 1u)  // banks + one settings map
+#define AIRCOPY_ALL_INDEX            AIRCOPY_NUM_MAPS          // selection sentinel: send/receive everything
 #define AIRCOPY_BAR_WIDTH            120      // Visible width of the progress gauge
 
 // ============================================================================
@@ -49,6 +51,7 @@ extern AIRCOPY_State_t gAircopyState;
 extern uint16_t        gAirCopyBlockNumber;
 extern uint16_t        gErrorsDuringAirCopy;
 extern bool            gAirCopyIsSendMode;
+extern bool            gAircopyAll;          // All mode: banks + settings in one pass
 
 extern uint16_t        g_FSK_Buffer[36];
 
@@ -59,7 +62,8 @@ extern uint16_t        g_FSK_Buffer[36];
 bool AIRCOPY_SendMessage(void);
 void AIRCOPY_StorePacket(void);
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
-uint8_t AIRCOPY_GetTotalBlocks(void);
+uint16_t AIRCOPY_GetTotalBlocks(void);
+uint8_t  AIRCOPY_CurrentSliceMap(void);   // map index of the block in progress (All slice label)
 
 // XOR-obfuscate `count` words of g_FSK_Buffer starting at index 1.
 // Self-inverse: applying twice restores the original buffer.
