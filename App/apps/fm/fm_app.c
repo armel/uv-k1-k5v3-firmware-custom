@@ -281,8 +281,8 @@ static void onShort(uint8_t key)
     if(fArm){ fArm=false; func(key); return; }        /* F + key */
     if(key<=APP_KEY_9){ digit(key); return; }
     switch(key){
-        case APP_KEY_UP:   upDown(+1); break;
-        case APP_KEY_DOWN: upDown(-1); break;
+        case APP_KEY_UP:
+        case APP_KEY_DOWN: upDown(A->nav_dir(key)); break;
         case APP_KEY_STAR: startManual(+1); break;
         case APP_KEY_MENU: menu(); break;
         case APP_KEY_EXIT:

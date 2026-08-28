@@ -36,11 +36,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* ABI 2: the table below (v1 core + the fields once labelled "v2 additions") is a
+/* ABI 3: the table below (v1 core + the fields once labelled "v2 additions") is a
  * single versioned layout. Any change to app_api_t - a reorder, a removal, or an
  * append - MUST bump this. Keep in sync with ABI_VERSION in pack_app.py, which
  * stamps the blob the loader checks against. */
-#define APP_ABI_VERSION   2u
+#define APP_ABI_VERSION   3u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -167,6 +167,13 @@ typedef struct app_api {
     uint16_t *fm_channels;                              /* -> gFM_Channels[APP_FM_CH_MAX], shared RAM r/w */
     void     (*fm_state)(app_fm_state_t *s, bool write);/* read/write the resident gEeprom.FM_* */
     void     (*fm_commit)(void);                        /* deferred SETTINGS_SaveFM (config + channels) */
+
+    /* ---- navigation (ABI 3) ----
+     * Convert a raw APP_KEY_UP/DOWN into a semantic value direction:
+     *   UV-K5 UP/DOWN    -> +1/-1
+     *   UV-K1 LEFT/RIGHT -> -1/+1
+     * Returns 0 for any other key. Keep get_key() raw for spatial controls. */
+    int8_t (*nav_dir)(uint8_t key);
 } app_api_t;
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */

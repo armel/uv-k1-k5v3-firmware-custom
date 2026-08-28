@@ -608,6 +608,16 @@ static void FOXHUNT_AttCycle(int8_t dir)
     FOXHUNT_RebaseMeasurements();
 }
 
+// Convert the two navigation keys into the same semantic value direction used
+// by the resident menus and by the overlay FoxHunt app:
+//   UV-K5 UP/DOWN    -> +1/-1
+//   UV-K1 LEFT/RIGHT -> -1/+1
+static int8_t FOXHUNT_NavDirection(KEY_Code_t key)
+{
+    int8_t direction = (key == KEY_UP) ? 1 : -1;
+    return gEeprom.SET_NAV ? direction : -direction;
+}
+
 // Fox identifier: MOE -> MOI -> MOS -> MOH -> MO5 -> MO -> CALL (F reverses).
 static void FOXHUNT_FoxCycle(int8_t dir)
 {
@@ -734,8 +744,8 @@ static void FOXHUNT_HandleKeys(void)
     // released only by the long-press F handled above. Keeping ATT reachable is the whole
     // point: on the final approach the sensitivity still has to be pulled down by hand.
     if (foxLocked) {
-        if (kbd.current == KEY_UP)   FOXHUNT_AttCycle(+1);   // more attenuation
-        if (kbd.current == KEY_DOWN) FOXHUNT_AttCycle(-1);   // less attenuation
+        if (kbd.current == KEY_UP || kbd.current == KEY_DOWN)
+            FOXHUNT_AttCycle(FOXHUNT_NavDirection(kbd.current));
         return;
     }
 
@@ -765,12 +775,9 @@ static void FOXHUNT_HandleKeys(void)
             FOXHUNT_AttCycle(dir);
             break;
         case KEY_UP:
-            // Attenuation up one step (also the locked-mode control).
-            FOXHUNT_AttCycle(+1);
-            break;
         case KEY_DOWN:
-            // Attenuation down one step.
-            FOXHUNT_AttCycle(-1);
+            // Follow SetNav: UP/DOWN on K5, LEFT/RIGHT on K1.
+            FOXHUNT_AttCycle(FOXHUNT_NavDirection(kbd.current));
             break;
         case KEY_MENU:
             // Reset the peak / min hold and the trend reference (before each body scan).

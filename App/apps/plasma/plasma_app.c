@@ -147,8 +147,13 @@ void app_main(const app_api_t *api)
             A->backlight_on();
             switch (key) {
                 case APP_KEY_EXIT: running = false; break;
-                case APP_KEY_UP:   if (speed < 8u) speed++; break;
-                case APP_KEY_DOWN: if (speed > 1u) speed--; break;
+                case APP_KEY_UP:
+                case APP_KEY_DOWN: {
+                    const int8_t direction = A->nav_dir(key);
+                    if (direction > 0 && speed < 8u) speed++;
+                    if (direction < 0 && speed > 1u) speed--;
+                    break;
+                }
                 case APP_KEY_MENU: paused = !paused; break;
                 case APP_KEY_STAR: bands = !bands; break;
                 case APP_KEY_F:    autoc = !autoc; break;

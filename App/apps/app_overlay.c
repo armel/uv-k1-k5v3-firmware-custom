@@ -60,6 +60,19 @@ static uint32_t app_crc32(const uint8_t *p, uint32_t len)
 static void    app_display_clear(void) { UI_DisplayClear(); }
 static void    app_status_clear(void)  { UI_StatusClear(); }
 static uint8_t app_get_key(void)       { return (uint8_t)KEYBOARD_GetKey(); }
+static int8_t  app_nav_dir(uint8_t key)
+{
+    int8_t direction;
+
+    if (key == KEY_UP)
+        direction = 1;
+    else if (key == KEY_DOWN)
+        direction = -1;
+    else
+        return 0;
+
+    return gEeprom.SET_NAV ? direction : -direction;
+}
 static void    app_led(bool on)        { BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on); }
 
 static void app_play_tone(uint16_t tone, uint16_t ms)
@@ -320,6 +333,7 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
         .fm_state       = app_fm_state,
         .fm_commit      = app_fm_commit,
 #endif
+        .nav_dir        = app_nav_dir,
     };
 
     app_run_slot = slot;   /* for cfg_load / cfg_save */

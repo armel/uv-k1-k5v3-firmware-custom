@@ -285,8 +285,7 @@ static void handleKeys(void){
     A->backlight_on();
 
     if(foxLocked){
-        if(key==APP_KEY_UP)   attCycle(+1);
-        if(key==APP_KEY_DOWN) attCycle(-1);
+        if(key==APP_KEY_UP||key==APP_KEY_DOWN) attCycle(A->nav_dir(key));
         return;
     }
     if(key==APP_KEY_F){ fArm=!fArm; return; }
@@ -300,8 +299,8 @@ static void handleKeys(void){
             if(foxAudioMode==AUDIO_BEEP){ audioTick=RATE_SLOW; }
             break;
         case APP_KEY_3: attCycle(dir); break;
-        case APP_KEY_UP: attCycle(+1); break;
-        case APP_KEY_DOWN: attCycle(-1); break;
+        case APP_KEY_UP:
+        case APP_KEY_DOWN: attCycle(A->nav_dir(key)); break;
         case APP_KEY_MENU: peakDbm=minDbm=trendRef=curDbm; break;
         default: break;
     }
