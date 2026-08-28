@@ -122,10 +122,13 @@ assert.equal(new DataView(out2[0].buffer).getUint16(0, true), CMD.DOPPLER_WRITE_
 console.log("✓ 噪声重同步通过");
 
 // ---- 中文字库命令（与 App/app/cnfont.h 一致）----
-assert.equal(proto.CN_FONT.FLASH_SIZE, 282752, "font region is 94*94*32");
-assert.equal(proto.CN_FONT.SECTOR_COUNT, 70, "font region is 70 sectors");
+assert.equal(proto.CN_FONT.GLYPH_SIZE, 32, "glyph is 16x16 = 32 bytes");
+assert.equal(proto.CN_FONT.GLYPH_COUNT, 8192, "shared font holds 8192 glyphs");
+assert.equal(proto.CN_FONT.FLASH_SIZE, 262144, "font region is 8192*32");
+assert.equal(proto.CN_FONT.SECTOR_COUNT, 64, "font region is 64 sectors");
 assert.equal(CMD.REPLY_FONT_ERASE, CMD.CN_FONT_ERASE + 3, "erase reply id = cmd + 3");
 assert.equal(CMD.REPLY_FONT_WRITE, CMD.CN_FONT_WRITE + 3, "write reply id = cmd + 3");
+assert.equal(CMD.REPLY_CN_FONT_READ, CMD.CN_FONT_READ + 3, "read reply id = cmd + 3");
 
 // 擦除帧：{u16 sectorIndex, u16 padding}
 const eraseFrame = buildFrame(CMD.CN_FONT_ERASE, new Uint8Array([69, 0, 0, 0]));
@@ -218,5 +221,20 @@ assert.equal(wMsg.getUint32(8, true), proto.CALIB.TS, "write timestamp intact");
 assert.deepEqual([...out5[1].subarray(12, 28)], new Array(16).fill(0x55), "16B write data intact");
 assert.equal(proto.CALIB.SIZE, 512, "calibration region is 512 bytes");
 console.log("✓ 校准数据读写帧构建/解码通过");
+
+const { buildRtcTimePayload } = proto;
+
+// SET_RTC 命令：4 字节小端 uint32
+const rtcPayload = buildRtcTimePayload(0x12345678);
+assert.equal(rtcPayload.length, 4, "RTC payload is 4 bytes");
+assert.equal(new DataView(rtcPayload.buffer).getUint32(0, true), 0x12345678, "RTC payload little-endian");
+const rtcFrame = buildFrame(CMD.SET_RTC, rtcPayload);
+assert.ok(rtcFrame.length < 256, `RTC frame ${rtcFrame.length}B must be < 256B RX ring`);
+const decRtc = new FrameDecoder();
+const [rtcDecoded] = decRtc.push(rtcFrame);
+assert.equal(new DataView(rtcDecoded.buffer).getUint16(0, true), CMD.SET_RTC, "SET_RTC command id");
+assert.equal(new DataView(rtcDecoded.buffer).getUint32(4, true), 0x12345678, "SET_RTC payload intact");
+assert.equal(CMD.REPLY_SET_RTC, CMD.SET_RTC + 3, "SET_RTC reply id = cmd + 3");
+console.log("✓ SET_RTC 命令帧构建/解码通过");
 
 console.log("\n全部协议测试通过 ✅");

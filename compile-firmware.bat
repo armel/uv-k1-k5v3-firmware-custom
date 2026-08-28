@@ -77,6 +77,16 @@ if errorlevel 1 (
     goto fail
 )
 
+REM Ensure .bin is generated (CMake POST_BUILD may silently skip objcopy)
+if not exist "build\%PRESET%\f4hwn.%PRESET%.bin" (
+    echo [INFO] Generating f4hwn.%PRESET%.bin ...
+    "%TOOLCHAIN%\arm-none-eabi-objcopy.exe" -O binary "build\%PRESET%\f4hwn.%PRESET%.elf" "build\%PRESET%\f4hwn.%PRESET%.bin"
+    if errorlevel 1 (
+        echo [ERROR] objcopy failed
+        goto fail
+    )
+)
+
 echo.
 echo ============================================================
 echo  Build OK. Artifacts:

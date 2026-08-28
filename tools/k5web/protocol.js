@@ -42,6 +42,10 @@ const CMD = {
   CN_FONT_WRITE: 0x05e7,   // payload {u32 offset, bytes data} -> reply 0x05ea
   REPLY_FONT_ERASE: 0x05e9,
   REPLY_FONT_WRITE: 0x05ea,
+  SET_RTC: 0x05e8,          // payload {u32 unixTime2000 Beijing} -> reply 0x05eb
+  REPLY_SET_RTC: 0x05eb,
+  CN_FONT_READ: 0x05ec,     // payload {u32 offset} -> reply 0x05ef {u32 offset, u8 data[128]}
+  REPLY_CN_FONT_READ: 0x05ef,
 };
 
 // 校准区（EEPROM 仿真地址，见 App/driver/eeprom_compat.c：0xB000..0xB200 -> SPI 0x10000）
@@ -55,10 +59,10 @@ const CALIB = {
 
 // 字库区参数（必须与 App/app/cnfont.h 一致）
 const CN_FONT = {
-  GLYPH_SIZE: 32,
-  GLYPH_COUNT: 94 * 94,
-  get FLASH_SIZE() { return this.GLYPH_SIZE * this.GLYPH_COUNT; }, // 282,752
-  get SECTOR_COUNT() { return Math.ceil(this.FLASH_SIZE / 0x1000); }, // 70
+  GLYPH_SIZE: 32,          // 16×16 源字形，与白头佬共享字库一致
+  GLYPH_COUNT: 8192,       // 截断到共享区 0xA0000..0xE0000 容量
+  get FLASH_SIZE() { return this.GLYPH_SIZE * this.GLYPH_COUNT; }, // 262,144
+  get SECTOR_COUNT() { return Math.ceil(this.FLASH_SIZE / 0x1000); }, // 64
   // 每帧数据量上限由固件 256B 接收环形缓冲决定：整帧 = 数据 + 偏移4 + 命令头4 + CRC2 + 帧头尾4 = CHUNK + 16，
   // 必须 ≤ 255。若整帧恰好 256B 填满环形缓冲，写指针回卷后与读指针重合，
   // 固件 (uart.c UART_IsCommandAvailable) 会误判"缓冲空"而丢弃整帧 → 主机回复超时。
@@ -213,6 +217,13 @@ function crc8(data) {
     }
   }
   return crc;
+}
+
+/** Builds a SET_RTC payload: 4-byte little-endian uint32 (2000-epoch Beijing seconds). */
+function buildRtcTimePayload(unix2000) {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setUint32(0, unix2000 >>> 0, true);
+  return buf;
 }
 
 /** Builds a DOPPLER_Satellite_t block (32 bytes) as stored at 0x1D0000.
@@ -399,5 +410,6 @@ function concat(a, b) {
     buildSatelliteBlock, buildEntry, buildFrame, parseReply, FrameDecoder,
     buildFlashFrame, buildFwPage, parseDevInfo, blVersionOK,
     bandFromFrequency, ctcssIndex, dcsIndex, buildChannelBlock, buildChannelAttributes,
+    buildRtcTimePayload,
   };
 });

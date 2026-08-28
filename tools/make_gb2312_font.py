@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-生成 GB2312 16x16 点阵字库（供 F4HWN Fusion 固件使用）。
+生成 GB2312 16×16 点阵字库（供 F4HWN Fusion 固件使用，与白头佬多系统共享字库兼容）。
 
 输出格式（与固件 cnfont.h 约定一致）：
-  - 94 区 x 94 位 = 8836 个字形，每字形 32 字节，共 235,328 字节
+  - 最多 8192 个字形（覆盖 GB2312 常用区），每字形 32 字节，共 262,144 字节
   - 字形索引 = (高字节 - 0xA1) * 94 + (低字节 - 0xA1)
-  - 每字形：前 16 字节为上半 8 行（每字节一列，bit n = 第 n 行，LSB 在顶），
-            后 16 字节为下半 8 行。与 ST7565 页结构/gFontBig 同序。
+  - 每字形：前 16 字节为上半个页面（第 0..7 行，每字节一列，bit n = 第 n 行，
+            LSB 在顶），后 16 字节为下半个页面（第 8..15 行）。
+            与 ST7565 页结构同序，与白头佬共享 16×16 字库格式一致。
 
 用法：
   python make_gb2312_font.py [输出文件] [字体文件] [字号]
@@ -27,6 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 SIZE = 16
 BYTES_PER_GLYPH = 32
+MAX_GLYPHS = 8192
 ZONES = 94
 POSITIONS = 94
 BASE = 0xA1
@@ -84,12 +86,13 @@ def render_glyph(font, ch):
 
 
 def pack_glyph(bits):
-    """16x16 点阵 -> 32 字节（页列式：上半 16 列字节 + 下半 16 列字节）"""
+    """16x16 点阵 -> 32 字节（上页面 16 字节：第 0..7 行 + 下页面 16 字节：第 8..15 行）"""
     out = bytearray(BYTES_PER_GLYPH)
     for x in range(SIZE):
         for y in range(8):
             if bits[y][x]:
                 out[x] |= 1 << y
+        for y in range(8):
             if bits[y + 8][x]:
                 out[SIZE + x] |= 1 << y
     return bytes(out)
@@ -101,12 +104,14 @@ def main():
     size = int(sys.argv[3]) if len(sys.argv) > 3 else SIZE
     font = load_font(font_path, size)
 
-    total = ZONES * POSITIONS
-    data = bytearray(total * BYTES_PER_GLYPH)
+    total_slots = ZONES * POSITIONS
+    data = bytearray(MAX_GLYPHS * BYTES_PER_GLYPH)
     rendered = 0
     for hi in range(BASE, BASE + ZONES):
         for lo in range(BASE, BASE + POSITIONS):
             idx = (hi - BASE) * POSITIONS + (lo - BASE)
+            if idx >= MAX_GLYPHS:
+                break  # 截断到共享字库 8192 字形上限
             try:
                 ch = bytes([hi, lo]).decode("gb2312")
             except UnicodeDecodeError:
@@ -119,7 +124,7 @@ def main():
 
     with open(out_path, "wb") as f:
         f.write(data)
-    print(f"完成: {out_path}  {len(data)} 字节, 有效字形 {rendered}/{total}")
+    print(f"完成: {out_path}  {len(data)} 字节, 有效字形 {rendered}/{MAX_GLYPHS} (GB2312 总槽位 {total_slots})")
 
 
 if __name__ == "__main__":

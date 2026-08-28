@@ -24,6 +24,7 @@
 #include "dcs.h"
 #include "driver/bk4819.h"
 #include "driver/rtc.h"
+#include "driver/rtc_save.h"
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
 #include "functions.h"
@@ -54,6 +55,10 @@ static uint8_t  gDopplerInputIndex = 0;
 static DOPPLER_Entry_t gDopplerEntry;
 
 static uint16_t gDopplerMs = 0;   // 0..999, sub-second phase synced to RTC second tick
+
+// Time adjustment state
+static uint8_t  gDopplerAdjustTime[6]; // year, month, day, hour, minute, second (Beijing)
+static uint8_t  gDopplerAdjustField = 0; // 0=year..5=second, 0..2 digits per field
 
 bool DOPPLER_IsActive(void)
 {
@@ -129,6 +134,7 @@ static void DOPPLER_EnterTracking(void)
 
     RTC_SetUnix32(DOPPLER_UnixTime(gDopplerTime));
     gDopplerTimeSet = true;
+    RTC_SaveTimeToFlash();
 
     gDopplerPassed = false;
     gDopplerEntryValid = false;
@@ -159,18 +165,13 @@ void DOPPLER_EnterMode(void)
     gDopplerPassed = false;
     gDopplerEntryValid = false;
 
-    if (gDopplerTimeSet)
+    // Never force the 12-digit entry: go straight to tracking. Time is set
+    // either from Flash at boot or via the adjust screen (key 1).
+    if (RTC_GetUnix32() >= 68000000u)
     {
-        // RTC is still running with the time entered earlier this power
-        // session - skip the 12-digit input and go straight to tracking.
-        // Press 0 on the tracking screen to re-enter the time.
-        gDopplerState = DOPPLER_STATE_TRACKING;
+        gDopplerTimeSet = true;
     }
-    else
-    {
-        DOPPLER_SetInputIndex(0);
-        gDopplerState = DOPPLER_STATE_INPUT_DATE;
-    }
+    gDopplerState = DOPPLER_STATE_TRACKING;
     gRequestDisplayScreen = DISPLAY_DOPPLER;
     gUpdateDisplay = true;
 }
@@ -207,9 +208,118 @@ void DOPPLER_ExitMode(void)
     gUpdateDisplay = true;
 }
 
+void DOPPLER_SetTimeFromUart(void)
+{
+    gDopplerTimeSet = true;
+    gDopplerPassed = false;
+    gDopplerEntryValid = false;
+    RTC_SaveTimeToFlash();
+}
+
+static void DOPPLER_EnterAdjust(void)
+{
+    uint32_t unix = RTC_GetUnix32();
+    if (unix < 68000000u)
+    {
+        // No usable time yet (fresh Flash, never set) - start from a sane
+        // default so the user can adjust every field from here.
+        const uint8_t t[6] = {26, 1, 1, 12, 0, 0}; // 2026-01-01 12:00:00
+        unix = DOPPLER_UnixTime(t);
+    }
+    DOPPLER_UnixToDate(unix, gDopplerAdjustTime);
+    gDopplerAdjustField = 0;
+    gDopplerState = DOPPLER_STATE_ADJUST;
+    gUpdateDisplay = true;
+}
+
+static void DOPPLER_SaveAdjust(void)
+{
+    RTC_SetUnix32(DOPPLER_UnixTime(gDopplerAdjustTime));
+    gDopplerTimeSet = true;
+    RTC_SaveTimeToFlash();
+    gDopplerPassed = false;
+    gDopplerEntryValid = false;
+    gDopplerState = DOPPLER_STATE_TRACKING;
+    gUpdateDisplay = true;
+}
+
+static void DOPPLER_AdjustStep(bool up)
+{
+    static const uint8_t days_in_month[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int8_t dir = up ? 1 : -1;
+    switch (gDopplerAdjustField)
+    {
+        case 0: // year
+            {
+                int16_t y = (int16_t)gDopplerAdjustTime[0] + dir;
+                if (y < 0) y = 99;
+                if (y > 99) y = 0;
+                gDopplerAdjustTime[0] = (uint8_t)y;
+                break;
+            }
+        case 1: // month
+            {
+                int16_t m = (int16_t)gDopplerAdjustTime[1] + dir;
+                if (m < 1) m = 12;
+                if (m > 12) m = 1;
+                gDopplerAdjustTime[1] = (uint8_t)m;
+                break;
+            }
+        case 2: // day
+            {
+                uint8_t maxDay = days_in_month[gDopplerAdjustTime[1] - 1];
+                if (gDopplerAdjustTime[1] == 2 && DOPPLER_IsLeapYear(gDopplerAdjustTime[0]))
+                    maxDay = 29;
+                int16_t d = (int16_t)gDopplerAdjustTime[2] + dir;
+                if (d < 1) d = maxDay;
+                if (d > maxDay) d = 1;
+                gDopplerAdjustTime[2] = (uint8_t)d;
+                break;
+            }
+        case 3: // hour
+            {
+                int16_t h = (int16_t)gDopplerAdjustTime[3] + dir;
+                if (h < 0) h = 23;
+                if (h > 23) h = 0;
+                gDopplerAdjustTime[3] = (uint8_t)h;
+                break;
+            }
+        case 4: // minute
+            {
+                int16_t m = (int16_t)gDopplerAdjustTime[4] + dir;
+                if (m < 0) m = 59;
+                if (m > 59) m = 0;
+                gDopplerAdjustTime[4] = (uint8_t)m;
+                break;
+            }
+        case 5: // second
+            {
+                int16_t s = (int16_t)gDopplerAdjustTime[5] + dir;
+                if (s < 0) s = 59;
+                if (s > 59) s = 0;
+                gDopplerAdjustTime[5] = (uint8_t)s;
+                break;
+            }
+    }
+    gUpdateDisplay = true;
+}
+
 void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-    if (bKeyHeld || !bKeyPressed)
+    if (!bKeyPressed)
+    {
+        return; // nothing to do on key release
+    }
+
+    // Key 1 (short or held) opens the time-adjust screen from tracking -
+    // this is the single place where the time is set manually.
+    if (gDopplerState == DOPPLER_STATE_TRACKING && Key == KEY_1)
+    {
+        DOPPLER_EnterAdjust();
+        return;
+    }
+
+    if (bKeyHeld)
     {
         return;
     }
@@ -244,18 +354,33 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             }
             break;
 
+        case DOPPLER_STATE_ADJUST:
+            if (Key == KEY_EXIT)
+            {
+                DOPPLER_SaveAdjust();
+            }
+            else if (Key == KEY_0)
+            {
+                // next field
+                gDopplerAdjustField++;
+                if (gDopplerAdjustField > 5)
+                    gDopplerAdjustField = 0;
+                gUpdateDisplay = true;
+            }
+            else if (Key == KEY_1)
+            {
+                DOPPLER_AdjustStep(true);
+            }
+            else if (Key == KEY_2)
+            {
+                DOPPLER_AdjustStep(false);
+            }
+            break;
+
         case DOPPLER_STATE_TRACKING:
             if (Key == KEY_EXIT)
             {
                 DOPPLER_ExitMode();
-            }
-            else if (Key == KEY_0)
-            {
-                // re-enter the time (e.g. after a mis-entry); the RTC keeps
-                // running while the 12 digits are typed again
-                DOPPLER_SetInputIndex(0);
-                gDopplerState = DOPPLER_STATE_INPUT_DATE;
-                gUpdateDisplay = true;
             }
             else if (Key == KEY_PTT && !gDopplerPassed && gDopplerEntryValid)
             {
@@ -639,6 +764,33 @@ void DOPPLER_Render(void)
         UI_PrintString(gDopplerInputStr, 0, 127, 3, 8);
         UI_PrintStringSmallNormal("EXIT QUIT", 0, 127, 6);
         ST7565_BlitFullScreen();   // 推送 LCD（渲染函数需自行 Blit）
+        return;
+    }
+
+    if (gDopplerState == DOPPLER_STATE_ADJUST)
+    {
+        // Layout (128x64, 8 text rows of 8px):
+        //   0-1 big "ADJ TIME" | 2 small date | 3 small time
+        //   4-5 big field name  | 6 small keys  | 7 small exit hint
+        // Keep every small-font string <= 18 chars (7 px/char) to stay on screen.
+        char buf[12];
+        const char *fields[6] = {"YEAR", "MON", "DAY", "HOUR", "MIN", "SEC"};
+
+        UI_PrintString("ADJ TIME", 0, 127, 0, 8);
+
+        snprintf(buf, sizeof(buf), "20%02u-%02u-%02u",
+                 gDopplerAdjustTime[0], gDopplerAdjustTime[1], gDopplerAdjustTime[2]);
+        UI_PrintStringSmallNormal(buf, 0, 127, 2);
+
+        snprintf(buf, sizeof(buf), "%02u:%02u:%02u",
+                 gDopplerAdjustTime[3], gDopplerAdjustTime[4], gDopplerAdjustTime[5]);
+        UI_PrintStringSmallNormal(buf, 0, 127, 3);
+
+        UI_PrintString(fields[gDopplerAdjustField], 0, 127, 4, 8);
+
+        UI_PrintStringSmallNormal("1+ 2- 0:NEXT", 0, 127, 6);
+        UI_PrintStringSmallNormal("EXIT=SAVE", 0, 127, 7);
+        ST7565_BlitFullScreen();
         return;
     }
 

@@ -35,6 +35,7 @@ typedef enum {
     DOPPLER_STATE_INPUT_DATE,   // entering YYMMDD
     DOPPLER_STATE_INPUT_TIME,   // entering HHMMSS
     DOPPLER_STATE_TRACKING,     // following the pass
+    DOPPLER_STATE_ADJUST,       // fine-tuning the RTC time
 } DOPPLER_State_t;
 
 // Enters the Doppler mode (initializes RTC/Flash on first use).
@@ -58,6 +59,10 @@ void DOPPLER_Render(void);
 // Status-line strip: inverse satellite-name box + bandwidth. Called by
 // DOPPLER_Render() and by UI_DisplayStatus() (which owns the status line).
 void DOPPLER_RenderStatusStrip(const DOPPLER_Satellite_t *pSat);
+
+// Marks the RTC as set for this power session (used by the UART 0x05E8
+// "set time" command so the radio skips manual entry on long-press 0).
+void DOPPLER_SetTimeFromUart(void);
 
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 

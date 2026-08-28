@@ -7,8 +7,9 @@
  *   r̂ 从观测者指向卫星，v_obs = ω × r_obs（地球自转）
  *
  *   下行（卫星 → 对讲机）：对讲机接收频率 = f_down × (1 - vr/c)
- *   上行（对讲机 → 卫星）：对讲机发射频率 = f_up / (1 + vr/c)
- *        （保证卫星端收到恰好 f_up）
+ *   上行（对讲机 → 卫星）：对讲机发射频率 = f_up / (1 - vr/c)
+ *        （卫星作为接收端同样被一阶多普勒 f_tx·(1-vr/c) 偏移，
+ *         此式保证卫星端收到恰好 f_up；AOS 时应低于标称值发射）
  *
  * 频率单位：Hz（表内存储时 /10 转 10Hz 单位）
  */
@@ -54,9 +55,9 @@ function radialVelocity(satPosEci, satVelEci, obsPosEci) {
   return (vrx * rx + vry * ry + vrz * rz) / range;
 }
 
-/** 对讲机侧需要使用的上行频率（保证卫星收到 fUp） */
+/** 对讲机侧需要使用的上行频率（保证卫星收到 fUp）；卫星接收 = f_tx·(1 - vr/c) */
 function uplinkFreq(fUpHz, vr) {
-  return fUpHz / (1 + vr / C_KM_S);
+  return fUpHz / (1 - vr / C_KM_S);
 }
 
 /** 对讲机侧收到的下行频率 */

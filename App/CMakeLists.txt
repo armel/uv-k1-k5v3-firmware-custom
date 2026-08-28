@@ -213,6 +213,7 @@ enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG
 )
 enable_feature(ENABLE_FEAT_F4HWN_DOPPLER
     driver/rtc.c
+    driver/rtc_save.c
     app/doppler.c
     app/doppler_mode.c
 )

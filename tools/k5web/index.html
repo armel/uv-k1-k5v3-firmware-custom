@@ -17,6 +17,7 @@
   .row > div { flex: 1; }
   button { padding: 8px 16px; font-size: 14px; border: none; border-radius: 4px; cursor: pointer; background: #2f6fdc; color: #fff; }
   button.secondary { background: #6c757d; }
+  button.danger { background: #c62828; }
   button:disabled { background: #aab; cursor: not-allowed; }
   #status { font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
   .ok { color: #1a7f37; } .err { color: #c62828; } .info { color: #444; }
@@ -31,6 +32,16 @@
   .tabpanel { display: none; }
   .tabpanel.active { display: block; }
   .hint { font-size: 13px; color: #666; margin: 4px 0 0; }
+  /* 卫星模糊搜索下拉 */
+  .sat-combo { position: relative; }
+  .sat-dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 1000; background: #fff; border: 1px solid #bbb; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 260px; overflow-y: auto; margin-top: 2px; }
+  .sat-item { padding: 6px 8px; font-size: 13px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sat-item .norad { color: #999; font-size: 12px; font-family: Consolas, monospace; flex-shrink: 0; }
+  .sat-item.active { background: #2f6fdc; color: #fff; }
+  .sat-item.active .norad { color: #cfe0ff; }
+  .sat-item mark { background: #ffe58f; padding: 0; }
+  .sat-item.active mark { background: rgba(255,255,255,.3); color: inherit; }
+  .sat-empty { padding: 8px; font-size: 12px; color: #888; text-align: center; }
 </style>
 </head>
 <body>
@@ -97,14 +108,25 @@
 
   <div class="card">
     <h2>中文字库刷入（GB2312 16×16）</h2>
-    <p class="hint">字库写入外置 FLASH <code>0x020000</code>，与星历/设置/语音区互不冲突。只需刷一次，之后升级固件不受影响。</p>
+    <p class="hint">字库写入外置 FLASH <code>0xA0000</code>，与白头佬多系统共享字库位置兼容，单系统同样可用。只需刷一次，之后升级固件不受影响。</p>
 
     <input id="fontFile" type="file" accept=".bin">
     <div class="row" style="margin-top:8px">
       <button id="btnFont" disabled>🀄 刷入字库</button>
     </div>
     <div id="fontProgress" class="progress"><div id="fontProgressBar"></div></div>
-    <p class="hint">共 70 个扇区，约需 1~3 分钟，期间请勿断电或拔线。</p>
+    <p class="hint">共 64 个扇区，约需 1~3 分钟，期间请勿断电或拔线。</p>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>字库查看 / 校验</h2>
+    <p class="hint">从 <code>0xA0000</code> 读取一个 16×16 字形，确认字库格式正确（白头佬共享字库亦可校验）。</p>
+    <div class="row">
+      <input id="fontViewChar" type="text" maxlength="1" placeholder="输入一个汉字" style="flex:1">
+      <button id="btnFontView" class="secondary">🔍 读取字形</button>
+      <button id="btnFontCheck" class="secondary">✅ 校验存在</button>
+    </div>
+    <pre id="fontViewGrid" style="font-family:Consolas,monospace;font-size:11px;line-height:10px;margin-top:8px"></pre>
   </div>
 
 </div>
@@ -115,8 +137,9 @@
   <div class="card">
     <h2>1. 卫星与频率</h2>
     <div class="row">
-      <div style="flex:2"><label>选择卫星（自动获取最新 TLE）</label>
-        <select id="satSelect" disabled><option value="">— 先点"获取" —</option></select>
+      <div class="sat-combo" style="flex:2"><label>选择卫星（获取后可输入关键字模糊搜索）</label>
+        <input id="satSelect" type="text" disabled placeholder='— 先点"获取 TLE" —' autocomplete="off" spellcheck="false">
+        <div id="satDropdown" class="sat-dropdown" hidden></div>
       </div>
       <div style="flex:1; display:flex; align-items:flex-end; gap:8px">
         <button id="btnFetch" style="flex:1">⬇️ 获取 TLE</button>
@@ -166,7 +189,7 @@
 
   <div class="card">
     <h2>3. 写入星历</h2>
-    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入。机内操作：<b>长按 0</b> 进入多普勒模式。</p>
+    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入（会同步写入北京时间到 RTC）。机内操作：<b>长按 0</b> 进入多普勒模式。</p>
     <div class="row" style="margin-top:8px">
       <button id="btnWrite" disabled>💾 写入星历</button>
     </div>
@@ -299,6 +322,28 @@
     <div id="chCsvProgress" class="progress"><div id="chCsvProgressBar"></div></div>
   </div>
 
+  <div class="card">
+    <h2>导出信道（CSV）</h2>
+    <p class="hint">读出机内信道并保存为 CSV，格式与批量导入一致，可直接编辑后再导入。名称自动解码中文（GB2312）；空信道自动跳过。范围较大时需要一两分钟，请保持开机连接。</p>
+    <div class="row">
+      <label>起始信道 <input id="chExpStart" type="number" value="0" min="0" max="1023" style="width:80px"></label>
+      <label>结束信道 <input id="chExpEnd" type="number" value="1023" min="0" max="1023" style="width:80px"></label>
+      <button id="btnChExpCsv">📤 导出信道 CSV</button>
+    </div>
+    <div id="chExpProgress" class="progress"><div id="chExpProgressBar"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>清空信道（危险操作）</h2>
+    <p class="hint">把范围内信道的频率、名称、属性全部恢复为出厂擦除态，固件将其视为未使用信道（切换信道/扫描自动跳过）。<b style="color:#c62828">不可恢复！</b>建议先导出 CSV 备份。大范围清空需要几分钟，<b>完成后对讲机自动重启生效</b>。</p>
+    <div class="row">
+      <label>起始信道 <input id="chClrStart" type="number" value="0" min="0" max="1023" style="width:80px"></label>
+      <label>结束信道 <input id="chClrEnd" type="number" value="1023" min="0" max="1023" style="width:80px"></label>
+      <button id="btnChClear" class="danger">🗑️ 清空信道</button>
+    </div>
+    <div id="chClrProgress" class="progress"><div id="chClrProgressBar"></div></div>
+  </div>
+
 </div>
 
 <!-- ========== 公共：串口连接与日志 ========== -->
@@ -313,10 +358,10 @@
 
 <script src="vendor/satellite.min.js"></script>
 <script src="vendor/leaflet.js"></script>
-<script src="gb2312_table.js"></script>
-<script src="protocol.js"></script>
+<script src="gb2312_table.js?v=csv1"></script>
+  <script src="protocol.js?v=16x16"></script>
 <script src="coord.js"></script>
 <script src="calc.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=csv3"></script>
 </body>
 </html>

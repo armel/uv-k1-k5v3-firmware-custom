@@ -21,5 +21,26 @@
     }
     return { ok: true, bytes: new Uint8Array(out) };
   }
-  return { encode };
+
+  // 反向解码：GB2312 字节序列 -> 字符串（信道名导出用）。
+  // NUL 视为名称结束；无法解码的字节以 "?" 代替。
+  const reverse = new Map();
+  function decode(bytes) {
+    if (!reverse.size) {
+      for (const [cp, gb] of map) reverse.set(gb, cp);
+    }
+    let out = "";
+    for (let i = 0; i < bytes.length; i++) {
+      const b = bytes[i];
+      if (b === 0) break;
+      if (b >= 0xA1 && i + 1 < bytes.length) {
+        const cp = reverse.get((b << 8) | bytes[i + 1]);
+        if (cp !== undefined) { out += String.fromCharCode(cp); i++; continue; }
+      }
+      if (b >= 0x20 && b < 0x7F) { out += String.fromCharCode(b); continue; }
+      out += "?";
+    }
+    return out;
+  }
+  return { encode, decode };
 });

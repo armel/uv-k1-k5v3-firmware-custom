@@ -26,6 +26,8 @@
 #include "app/uart.h"
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
     #include "app/doppler.h"
+    #include "app/doppler_mode.h"
+    #include "driver/rtc.h"
 #endif
 #ifdef ENABLE_FEAT_F4HWN_CN_FONT
     #include "app/cnfont.h"
@@ -182,6 +184,19 @@ typedef struct {
         uint8_t Status;   // 0 = OK, 1 = rejected
     } Data;
 } REPLY_DOPPLER_t;
+
+// Set RTC from network time: payload is 2000-epoch Beijing seconds (same base as DOPPLER start_unix)
+typedef struct {
+    Header_t Header;
+    uint32_t UnixTime2000;
+} CMD_SET_RTC_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;   // 0 = OK, 1 = rejected
+    } Data;
+} REPLY_SET_RTC_t;
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 
 #ifdef ENABLE_FEAT_F4HWN_CN_FONT
@@ -197,6 +212,19 @@ typedef struct {
     uint32_t Offset;
     uint8_t  Data[244];   // 命令缓冲上限；但整帧还须 < 256B 接收环（数据实际 ≤239，见 k5web protocol.js）
 } CMD_CN_FONT_WRITE_t;
+
+typedef struct {
+    Header_t Header;
+    uint32_t Offset;
+} CMD_CN_FONT_READ_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint32_t Offset;   // 回显读取偏移；被拒绝时为 0xFFFFFFFF
+        uint8_t  Data[128];
+    } Data;
+} REPLY_CN_FONT_READ_t;
 
 typedef struct {
     Header_t Header;
@@ -893,6 +921,33 @@ static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer, uint1
 
     SendReply(Port, &Reply, sizeof(Reply));
 }
+
+static void CMD_SET_RTC(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_SET_RTC_t *pCmd = (const CMD_SET_RTC_t *)pBuffer;
+    REPLY_SET_RTC_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05EB;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    if (Size == sizeof(pCmd->UnixTime2000))
+    {
+        // Reject obviously bogus times (before 2025-01-01 Beijing 2000-epoch)
+        // 2025-01-01 00:00:00 Beijing = (2025-2000)*365 + 6 leap days = ~789 days ~= 6.8e7 seconds
+        if (pCmd->UnixTime2000 >= 68000000u)
+        {
+            RTC_Init(); // idempotent: safe if already running; required if UART arrives before Doppler mode
+            RTC_SetUnix32(pCmd->UnixTime2000);
+            DOPPLER_SetTimeFromUart(); // mark time set so long-press 0 skips manual entry
+            Reply.Data.Status = 0;
+        }
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 
 #ifdef ENABLE_FEAT_F4HWN_CN_FONT
@@ -932,6 +987,26 @@ static void CMD_CN_FONT_WRITE(uint32_t Port, const uint8_t *pBuffer, uint16_t Si
     {
         Reply.Data.Status = CN_FONT_Write(pCmd->Offset, pCmd->Data,
                                           Size - sizeof(pCmd->Offset)) ? 0 : 1;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+// 0x05EC：读取字库区（回复 0x05EF），用于网页端字库查看/校验
+static void CMD_CN_FONT_READ(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_CN_FONT_READ_t *pCmd = (const CMD_CN_FONT_READ_t *)pBuffer;
+    REPLY_CN_FONT_READ_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID    = 0x05EF;
+    Reply.Header.Size  = sizeof(Reply.Data);
+    Reply.Data.Offset  = 0xFFFFFFFFu;
+
+    if (Size == sizeof(pCmd->Offset) && CN_FONT_Read(pCmd->Offset, Reply.Data.Data, 128))
+    {
+        Reply.Data.Offset = pCmd->Offset;
     }
 
     SendReply(Port, &Reply, sizeof(Reply));
@@ -1012,6 +1087,10 @@ void UART_HandleCommand(uint32_t Port)
         case 0x05E2:
             CMD_DOPPLER_WRITE_ENTRY(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
+
+        case 0x05E8:
+            CMD_SET_RTC(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_CN_FONT
@@ -1021,6 +1100,10 @@ void UART_HandleCommand(uint32_t Port)
 
         case 0x05E7:
             CMD_CN_FONT_WRITE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05EC:
+            CMD_CN_FONT_READ(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 #endif
 

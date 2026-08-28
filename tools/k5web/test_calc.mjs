@@ -36,10 +36,10 @@ const C = 299792.458;
   // 下行：f × (1 - vr/c) = f × (1 + 7/299792.458) → +约 10.22 kHz @437.8MHz（ISS 70cm 段典型值）
   const expectedD = fDown * (1 + 7 / C);
   assert.ok(Math.abs(d - expectedD) < 1, `downlink +2.3kHz, got ${d - fDown} Hz`);
-  // 上行：f / (1 + vr/c) = f / (1 - 7/C) → +约 3.41 kHz @145.99MHz
-  const expectedU = fUp / (1 - 7 / C);
-  assert.ok(Math.abs(u - expectedU) < 0.5, `uplink +0.78kHz, got ${u - fUp} Hz`);
-  console.log(`✓ 多普勒数值：下行 ${(d - fDown).toFixed(0)} Hz、上行 ${(u - fUp).toFixed(0)} Hz（接近时频率升高）`);
+  // 上行：f / (1 - vr/c) = f / (1 + 7/C) → 约 -3.41 kHz @145.99MHz（接近时卫星蓝移你的信号，须降低发射频率）
+  const expectedU = fUp / (1 + 7 / C);
+  assert.ok(Math.abs(u - expectedU) < 0.5, `uplink -3.41kHz, got ${u - fUp} Hz`);
+  console.log(`✓ 多普勒数值：下行 ${(d - fDown).toFixed(0)} Hz（接近升高）、上行 ${(u - fUp).toFixed(0)} Hz（接近降低）`);
 }
 
 // ---- 10Hz 单位转换 ----
