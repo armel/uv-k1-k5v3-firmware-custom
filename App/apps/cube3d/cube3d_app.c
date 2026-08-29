@@ -45,33 +45,26 @@
 
 static const app_api_t *A;
 
-/* Q14 sine: round(16384 * sin(2*pi*i/256)). cos(i) == SIN[(i + 64) & 255]. */
-static const int16_t SIN[256] = {
-         0,   402,   804,  1205,  1606,  2006,  2404,  2801,  3196,  3590,  3981,
-      4370,  4756,  5139,  5520,  5897,  6270,  6639,  7005,  7366,  7723,  8076,
-      8423,  8765,  9102,  9434,  9760, 10080, 10394, 10702, 11003, 11297, 11585,
-     11866, 12140, 12406, 12665, 12916, 13160, 13395, 13623, 13842, 14053, 14256,
-     14449, 14635, 14811, 14978, 15137, 15286, 15426, 15557, 15679, 15791, 15893,
-     15986, 16069, 16143, 16207, 16261, 16305, 16340, 16364, 16379, 16384, 16379,
-     16364, 16340, 16305, 16261, 16207, 16143, 16069, 15986, 15893, 15791, 15679,
-     15557, 15426, 15286, 15137, 14978, 14811, 14635, 14449, 14256, 14053, 13842,
-     13623, 13395, 13160, 12916, 12665, 12406, 12140, 11866, 11585, 11297, 11003,
-     10702, 10394, 10080,  9760,  9434,  9102,  8765,  8423,  8076,  7723,  7366,
-      7005,  6639,  6270,  5897,  5520,  5139,  4756,  4370,  3981,  3590,  3196,
-      2801,  2404,  2006,  1606,  1205,   804,   402,     0,  -402,  -804, -1205,
-     -1606, -2006, -2404, -2801, -3196, -3590, -3981, -4370, -4756, -5139, -5520,
-     -5897, -6270, -6639, -7005, -7366, -7723, -8076, -8423, -8765, -9102, -9434,
-     -9760,-10080,-10394,-10702,-11003,-11297,-11585,-11866,-12140,-12406,-12665,
-    -12916,-13160,-13395,-13623,-13842,-14053,-14256,-14449,-14635,-14811,-14978,
-    -15137,-15286,-15426,-15557,-15679,-15791,-15893,-15986,-16069,-16143,-16207,
-    -16261,-16305,-16340,-16364,-16379,-16384,-16379,-16364,-16340,-16305,-16261,
-    -16207,-16143,-16069,-15986,-15893,-15791,-15679,-15557,-15426,-15286,-15137,
-    -14978,-14811,-14635,-14449,-14256,-14053,-13842,-13623,-13395,-13160,-12916,
-    -12665,-12406,-12140,-11866,-11585,-11297,-11003,-10702,-10394,-10080, -9760,
-     -9434, -9102, -8765, -8423, -8076, -7723, -7366, -7005, -6639, -6270, -5897,
-     -5520, -5139, -4756, -4370, -3981, -3590, -3196, -2801, -2404, -2006, -1606,
-     -1205,  -804,  -402,
+/* One Q14 sine quadrant. Symmetry recovers the full 256-step wave while saving
+ * 382 bytes for the renderer. */
+static const int16_t SIN_Q[65] = {
+       0,  402,  804, 1205, 1606, 2006, 2404, 2801, 3196, 3590, 3981,
+    4370, 4756, 5139, 5520, 5897, 6270, 6639, 7005, 7366, 7723, 8076,
+    8423, 8765, 9102, 9434, 9760,10080,10394,10702,11003,11297,11585,
+   11866,12140,12406,12665,12916,13160,13395,13623,13842,14053,14256,
+   14449,14635,14811,14978,15137,15286,15426,15557,15679,15791,15893,
+   15986,16069,16143,16207,16261,16305,16340,16364,16379,16384
 };
+
+static int sin8(uint8_t angle)
+{
+    const uint8_t quadrant = angle >> 6;
+    uint8_t i = angle & 63u;
+    if (quadrant & 1u)
+        i = (uint8_t)(64u - i);
+    const int value = SIN_Q[i];
+    return quadrant >= 2u ? -value : value;
+}
 
 /* A face is a polygon of up to 6 vertex indices, wound CCW as seen from outside
  * (generated offline by the hull extractor, so the signed-area cull sign is the
@@ -125,6 +118,13 @@ static const shape_t SHAPES[NSHAPE] = {
 
 /* Per-frame projected screen coords + rotated depth of each vertex. */
 static int16_t px[MAXV], py[MAXV], pz[MAXV];
+
+/* Quarter-half-units per frame. The low end has fractional angular steps;
+ * level 16 reaches the old 16 half-units/frame once divided by four. */
+static const uint8_t ROT_RATE[16] = {
+     1,  2,  3,  4,  6,  8, 10, 12,
+    16, 20, 24, 30, 36, 44, 52, 64
+};
 
 /* Set one pixel across the full 64 rows: 0..7 -> status line, 8..63 -> fb. */
 static void set_pixel(int x, int y)
@@ -187,20 +187,20 @@ void app_main(const app_api_t *api)
     A->backlight_on();
     A->status_clear();
 
-    uint16_t ax = 0, ay = 0, az = 0;   /* angles in half-units (512 = full turn) */
+    uint16_t ax = 0, ay = 0, az = 0;   /* Q2 half-units: 2048 = full turn */
     uint8_t shape   = 0;
-    uint8_t speed   = 6;               /* 1..16, in half-units (6 == old default 3) */
+    uint8_t speed   = 4;               /* 1..16, shared by all three rotation axes */
     bool    paused  = false;
-    bool    wire    = false;           /* false = solid (hidden-line)       */
+    bool    wire    = true;           /* false = solid (hidden-line)       */
     bool    running = true;
     uint8_t prevKey = APP_KEY_INVALID;
 
     while (running) {
         const shape_t *s = &SHAPES[shape];
-        const uint8_t ia = (uint8_t)(ax >> 1), ib = (uint8_t)(ay >> 1), ic = (uint8_t)(az >> 1);
-        const int cx = SIN[(uint8_t)(ia + 64)], sxr = SIN[ia];
-        const int cy = SIN[(uint8_t)(ib + 64)], syr = SIN[ib];
-        const int cz = SIN[(uint8_t)(ic + 64)], szr = SIN[ic];
+        const uint8_t ia = (uint8_t)(ax >> 3), ib = (uint8_t)(ay >> 3), ic = (uint8_t)(az >> 3);
+        const int cx = sin8((uint8_t)(ia + 64u)), sxr = sin8(ia);
+        const int cy = sin8((uint8_t)(ib + 64u)), syr = sin8(ib);
+        const int cz = sin8((uint8_t)(ic + 64u)), szr = sin8(ic);
 
         for (uint8_t i = 0; i < s->nv; i++) {
             int x = s->v[i][0], y = s->v[i][1], z = s->v[i][2];
@@ -243,9 +243,10 @@ void app_main(const app_api_t *api)
         A->blit_full();
 
         if (!paused) {
-            ax += speed;                        /* half-units/frame (level 1..16) */
-            ay += (uint16_t)(speed + 2u);       /* one full unit faster, as before */
-            az += 2u;                           /* fixed 1 unit/frame tumble        */
+            const uint16_t rate = ROT_RATE[speed - 1u];
+            ax += rate;
+            ay += (uint16_t)(rate + rate / 2u);
+            az += (uint16_t)((rate + 1u) / 2u);
         }
 
         const uint8_t key = A->get_key();
@@ -282,5 +283,6 @@ void app_main(const app_api_t *api)
         }
         prevKey = key;
         A->backlight_update();
+        A->delay_ms((uint32_t)(32u - speed * 2u)); /* slow low end, no added delay at level 16 */
     }
 }

@@ -85,7 +85,7 @@ void app_main(const app_api_t *api)
     uint16_t autoCtr = 0;
     uint8_t  speed = 3;
     uint8_t  var   = 0;
-    bool     bands = false;
+    bool     bands = true;
     bool     autoc = false;
     bool     paused = false;
     bool     running = true;
