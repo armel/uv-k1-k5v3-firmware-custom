@@ -125,6 +125,24 @@ bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t 
 // Erases one slot (4 sectors).
 void DOPPLER_EraseSlot(uint8_t Slot);
 
+// --- Automatic pass scheduling helpers (used by doppler_mode.c) ---
+
+// Reads and validates one slot's satellite block without changing the
+// active slot. Returns true and copies the block when the slot is valid.
+bool DOPPLER_SlotGetInfo(uint8_t Slot, DOPPLER_Satellite_t *pOut);
+
+// Returns the slot whose pass window covers "now"
+// (start_unix <= now <= start_unix + sum_time), or -1 when none.
+int DOPPLER_FindPassing(uint32_t now);
+
+// Returns the valid slot with the smallest start_unix >= now (the next
+// upcoming pass), or -1 when none.
+int DOPPLER_FindNext(uint32_t now);
+
+// Erases every slot whose pass window has fully elapsed
+// (now > start_unix + sum_time). Returns the number of erased slots.
+int DOPPLER_EraseExpired(uint32_t now);
+
 // Writes the satellite info block (CRC8 is computed internally).
 bool DOPPLER_WriteSatellite(uint8_t Slot, const DOPPLER_Satellite_t *pSat);
 

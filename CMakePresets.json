@@ -81,13 +81,13 @@
                 "ENABLE_FEAT_F4HWN_LOGO": false,
                 "ENABLE_FEAT_F4HWN_LOGO_SAV": false,
                 "ENABLE_FEAT_F4HWN_MENU_CAT": false,
-                "ENABLE_FEAT_F4HWN_DOPPLER": false,
+                "ENABLE_FEAT_F4HWN_DOPPLER": true,
                 "ENABLE_FEAT_F4HWN_CN_FONT": true,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,
                 "VERSION_STRING_1": "v0.22",
-                "VERSION_STRING_2": "v5.9.8"
+                "VERSION_STRING_2": "v5.9.10"
             }
         },
         {
@@ -200,7 +200,7 @@
                 "ENABLE_VOX": true,
                 "ENABLE_AIRCOPY": true,
                 "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": true,
+                "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_PMR": true,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,

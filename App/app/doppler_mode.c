@@ -26,6 +26,7 @@
 #include "driver/rtc.h"
 #include "driver/rtc_save.h"
 #include "driver/st7565.h"
+#include "driver/system.h"
 #include "external/printf/printf.h"
 #include "functions.h"
 #include "misc.h"
@@ -43,8 +44,11 @@ static bool     gDopplerPassed = false;
 static bool     gDopplerEntryValid = false;
 static bool     gDopplerTxOverride = false;
 static bool     gDopplerShowExtra = false; // key 2 toggles supplementary orbit info
+static bool     gDopplerShowSlots = false; // key 3 shows all slot names
 static bool     gDopplerFSlotArm = false;  // F key pressed, waiting for a slot digit (1..4)
 static uint8_t  gDopplerLedTicks = 0;      // green RX LED flash countdown (10 ms ticks)
+static uint8_t  gDopplerWarn60Mask = 0;    // per-slot bit: AOS-60 s reminder already played
+static uint8_t  gDopplerWarn10Mask = 0;    // per-slot bit: AOS-10 s reminder already played
 
 static uint32_t gDopplerSavedRxFreq = 0;
 static uint32_t gDopplerSavedTxFreq = 0;
@@ -154,17 +158,33 @@ void DOPPLER_EnterMode(void)
         gDopplerInit = true;
     }
 
-    // If the default slot (0) is empty, jump to the first slot that holds a
-    // valid pass, so the user immediately sees data after writing any slot.
+    // Passes that elapsed while the radio was off get cleaned up first.
+    const uint32_t enterNow = RTC_GetUnix32();
+    DOPPLER_EraseExpired(enterNow);
+
+    // If the default slot (0) is empty, prefer a pass that is underway right
+    // now, then the one starting next, then any valid slot.
     if (!DOPPLER_HasData())
     {
-        for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+        int pick = DOPPLER_FindPassing(enterNow);
+        if (pick < 0)
         {
-            if (DOPPLER_SlotHasData(s))
+            pick = DOPPLER_FindNext(enterNow);
+        }
+        if (pick < 0)
+        {
+            for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
             {
-                DOPPLER_SelectSlot(s);
-                break;
+                if (DOPPLER_SlotHasData(s))
+                {
+                    pick = (int)s;
+                    break;
+                }
             }
+        }
+        if (pick >= 0)
+        {
+            DOPPLER_SelectSlot((uint8_t)pick);
         }
     }
 
@@ -216,6 +236,7 @@ void DOPPLER_ExitMode(void)
 
     // Ensure the slot-switch LED flash does not stay stuck on: TimeSlice
     // (which would turn it off) stops running once we leave the mode.
+    // The reminder blink finishes inside DOPPLER_NotifyPass() itself.
     if (gDopplerLedTicks > 0)
     {
         gDopplerLedTicks = 0;
@@ -224,6 +245,7 @@ void DOPPLER_ExitMode(void)
 
     gDopplerState = DOPPLER_STATE_OFF;
     gDopplerShowExtra = false;
+    gDopplerShowSlots = false;
     gRequestDisplayScreen = DISPLAY_MAIN;
     gUpdateDisplay = true;
 }
@@ -404,7 +426,9 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             break;
 
         case DOPPLER_STATE_ADJUST:
-            if (Key == KEY_EXIT)
+            // EXIT and M both save the fine-tuned time and jump back to the
+            // main tracking page.
+            if (Key == KEY_EXIT || Key == KEY_MENU)
             {
                 DOPPLER_SaveAdjust();
             }
@@ -429,7 +453,12 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         case DOPPLER_STATE_TRACKING:
             if (Key == KEY_EXIT)
             {
-                if (gDopplerShowExtra)
+                if (gDopplerShowSlots)
+                {
+                    gDopplerShowSlots = false;
+                    gUpdateDisplay = true;
+                }
+                else if (gDopplerShowExtra)
                 {
                     gDopplerShowExtra = false;
                     gUpdateDisplay = true;
@@ -439,9 +468,30 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                     DOPPLER_ExitMode();
                 }
             }
+            else if (Key == KEY_MENU)
+            {
+                // M returns to the main tracking page from any sub-page.
+                if (gDopplerShowSlots)
+                {
+                    gDopplerShowSlots = false;
+                    gUpdateDisplay = true;
+                }
+                else if (gDopplerShowExtra)
+                {
+                    gDopplerShowExtra = false;
+                    gUpdateDisplay = true;
+                }
+            }
             else if (Key == KEY_2)
             {
                 gDopplerShowExtra = !gDopplerShowExtra;
+                gDopplerShowSlots = false;
+                gUpdateDisplay = true;
+            }
+            else if (Key == KEY_3)
+            {
+                gDopplerShowSlots = !gDopplerShowSlots;
+                gDopplerShowExtra = false;
                 gUpdateDisplay = true;
             }
             else if (Key == KEY_PTT && !gDopplerPassed && gDopplerEntryValid)
@@ -479,6 +529,136 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     }
 }
 
+// Pass reminder: 3 beeps with the green LED lit for exactly the duration
+// of each tone, so the blink pattern matches the beeps one-to-one.
+//   fast=false (AOS-60 s): 400 ms on / 200 ms off - calm "get ready" pace
+//   fast=true  (AOS-10 s / pass underway): 200 ms on / 100 ms off - urgent
+// Plays synchronously on purpose: gBeepToPlay is only consumed inside
+// APP_ProcessKey() (i.e. when a key is pressed), so a reminder queued
+// there would stay silent until the next key press. The sequence blocks
+// ~0.9-2 s; the RTC hardware keeps ticking meanwhile, only the on-screen
+// clock refresh pauses and jumps to the correct time right after.
+// Same audio-path sequence as AUDIO_PlayBeep().
+static void DOPPLER_NotifyPass(bool fast)
+{
+    const unsigned int onMs  = fast ? 200u : 400u;
+    const unsigned int offMs = fast ? 100u : 200u;
+
+    AUDIO_AudioPathOff();
+
+    if (gCurrentFunction == FUNCTION_POWER_SAVE && gRxIdleMode)
+    {
+        BK4819_RX_TurnOn();
+    }
+
+    SYSTEM_DelayMs(20);
+
+    const uint16_t toneCfg = BK4819_ReadRegister(BK4819_REG_71);
+    BK4819_PrepareToPlayTone(true);
+    SYSTEM_DelayMs(2);
+    AUDIO_AudioPathOn();
+    SYSTEM_DelayMs(60);
+
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+        BK4819_PlayToneRaw(880, onMs);  // beep, LED lit the whole time
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        SYSTEM_DelayMs(offMs);
+    }
+
+    AUDIO_AudioPathOff();
+    SYSTEM_DelayMs(5);
+    BK4819_TurnsOffTones_TurnsOnRX();
+    SYSTEM_DelayMs(5);
+    BK4819_WriteRegister(BK4819_REG_71, toneCfg);
+
+    if (gEnableSpeaker)
+    {
+        AUDIO_AudioPathOn();
+    }
+}
+
+// A UART write/erase changed a slot's contents: re-arm its reminders so a
+// freshly written pass beeps again even if the old one was already played.
+void DOPPLER_ResetReminders(uint8_t Slot)
+{
+    if (Slot >= DOPPLER_SLOT_COUNT)
+    {
+        return;
+    }
+    const uint8_t bit = (uint8_t)(1u << Slot);
+    gDopplerWarn60Mask &= (uint8_t)~bit;
+    gDopplerWarn10Mask &= (uint8_t)~bit;
+}
+
+// Scans every slot once per second. At AOS-60 s and AOS-10 s the reminder
+// (triple beep + green LED x3) plays once per slot per pass AND the radio
+// automatically jumps to that slot. A pass that is already underway and was
+// never notified (late mode entry) also notifies once. The masks are
+// re-armed by DOPPLER_ResetReminders() on UART write/erase.
+static void DOPPLER_CheckReminders(uint32_t now)
+{
+    for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+    {
+        DOPPLER_Satellite_t sat;
+        if (!DOPPLER_SlotGetInfo(s, &sat))
+        {
+            continue;
+        }
+        const uint8_t slotBit = (uint8_t)(1u << s);
+        bool notify = false;
+        bool fast   = false;
+
+        if (now < sat.start_unix)
+        {
+            const uint32_t togo = sat.start_unix - now;
+            if (togo <= 60u && !(gDopplerWarn60Mask & slotBit))
+            {
+                gDopplerWarn60Mask |= slotBit;
+                // Already inside the 10 s window too: this beep doubles as
+                // the final warning instead of beeping twice back to back,
+                // and uses the urgent pace.
+                if (togo <= 10u)
+                {
+                    gDopplerWarn10Mask |= slotBit;
+                    fast = true;
+                }
+                notify = true;
+            }
+            else if (togo <= 10u && !(gDopplerWarn10Mask & slotBit))
+            {
+                gDopplerWarn10Mask |= slotBit;
+                notify = true;
+                fast   = true;
+            }
+        }
+        else if (now <= sat.start_unix + (uint32_t)sat.sum_time &&
+                 !(gDopplerWarn60Mask & slotBit))
+        {
+            // Pass already underway but never notified: late entry - urgent.
+            gDopplerWarn60Mask |= slotBit;
+            gDopplerWarn10Mask |= slotBit;
+            notify = true;
+            fast   = true;
+        }
+
+        if (notify)
+        {
+            // Jump to the slot whose pass is about to start (or underway).
+            if (s != DOPPLER_GetSlot())
+            {
+                gDopplerEntryValid = false;
+                gDopplerPassed = false;
+                DOPPLER_SelectSlot(s);
+                gUpdateDisplay = true;
+            }
+            DOPPLER_NotifyPass(fast);
+            return; // one reminder per second is enough
+        }
+    }
+}
+
 void DOPPLER_TimeSlice(void)
 {
     if (gDopplerState != DOPPLER_STATE_TRACKING)
@@ -486,7 +666,9 @@ void DOPPLER_TimeSlice(void)
         return;
     }
 
-    // Turn the green LED back off once the slot-switch flash expires
+    // Turn the green LED back off once the slot-switch flash expires.
+    // (The pass reminder blinks the LED synchronously inside
+    // DOPPLER_NotifyPass() and does not use this countdown.)
     if (gDopplerLedTicks > 0 && --gDopplerLedTicks == 0)
     {
         BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
@@ -527,6 +709,54 @@ void DOPPLER_TimeSlice(void)
     }
 
     const uint32_t now = RTC_GetUnix32();
+
+    // Once-per-second housekeeping: erase expired passes, auto-select the
+    // slot whose pass is underway, and play the 60 s / 10 s reminders.
+    if (secondTick)
+    {
+        // 1. Erase every slot whose pass window has fully elapsed (this is
+        //    also how a finished pass gets deleted one second after LOS).
+        //    When the ACTIVE slot is the one that just got erased, hop to
+        //    the slot whose pass starts next. A manually selected empty
+        //    slot is left alone (hadData was already false).
+        const bool hadData = DOPPLER_HasData();
+        if (DOPPLER_EraseExpired(now) > 0)
+        {
+            gUpdateDisplay = true;
+            if (hadData && !DOPPLER_HasData())
+            {
+                const int next = DOPPLER_FindNext(now);
+                if (next >= 0)
+                {
+                    gDopplerEntryValid = false;
+                    gDopplerPassed = false;
+                    DOPPLER_SelectSlot((uint8_t)next);
+                    gUpdateDisplay = true;
+                }
+            }
+        }
+
+        // 2. Hop to another slot whose pass is underway while ours is not.
+        const DOPPLER_Satellite_t *pCur = DOPPLER_GetSatellite();
+        const bool curInPass = DOPPLER_HasData()
+            && now >= pCur->start_unix
+            && now <= pCur->start_unix + (uint32_t)pCur->sum_time;
+        if (!curInPass)
+        {
+            const int passing = DOPPLER_FindPassing(now);
+            if (passing >= 0 && passing != (int)DOPPLER_GetSlot())
+            {
+                gDopplerEntryValid = false;
+                gDopplerPassed = false;
+                DOPPLER_SelectSlot((uint8_t)passing);
+                gUpdateDisplay = true;
+            }
+        }
+
+        // 3. Pre-pass reminders; also covers late entry / automatic switch.
+        DOPPLER_CheckReminders(now);
+    }
+
     const DOPPLER_Satellite_t *pSat = DOPPLER_GetSatellite();
 
     if (now < pSat->start_unix)
@@ -824,6 +1054,27 @@ static void __attribute__((noinline)) DOPPLER_RenderDateProgress(const DOPPLER_S
     DOPPLER_DrawProgressBar(pSat, Now, 6, 101, 25); // bar body x=101..125
 }
 
+// Slot summary screen shown when key 3 is pressed in tracking mode.
+static void DOPPLER_RenderSlotSummary(void)
+{
+    char buffer[20];
+    DOPPLER_Satellite_t sat;
+
+    UI_PrintStringSmallNormal("SLOTS", 0, 127, 0);
+    for (uint8_t slot = 0; slot < DOPPLER_SLOT_COUNT; slot++)
+    {
+        if (DOPPLER_SlotGetInfo(slot, &sat))
+        {
+            snprintf(buffer, sizeof(buffer), "SLOT%u: %s", (unsigned)(slot + 1u), sat.name);
+        }
+        else
+        {
+            snprintf(buffer, sizeof(buffer), "SLOT%u: EMPTY", (unsigned)(slot + 1u));
+        }
+        UI_PrintStringSmallNormal(buffer, 2, 0, (uint8_t)(slot + 1u));
+    }
+}
+
 // supplementary info screen shown when key 2 is pressed in tracking mode
 static void DOPPLER_RenderExtraInfo(const DOPPLER_Satellite_t *pSat, const DOPPLER_Entry_t *pEntry, bool entryValid, const uint32_t Now)
 {
@@ -920,13 +1171,20 @@ void DOPPLER_Render(void)
         UI_PrintString(fields[gDopplerAdjustField], 0, 127, 4, 8);
 
         UI_PrintStringSmallNormal("1+ 2- 0:NEXT", 0, 127, 6);
-        UI_PrintStringSmallNormal("EXIT=SAVE", 0, 127, 7);
+        UI_PrintStringSmallNormal("M:MAIN EXIT=SAVE", 0, 127, 7);
         ST7565_BlitFullScreen();
         return;
     }
 
     // TRACKING
     const DOPPLER_Satellite_t *pSat = DOPPLER_GetSatellite();
+
+    if (gDopplerShowSlots)
+    {
+        DOPPLER_RenderSlotSummary();
+        ST7565_BlitFullScreen();
+        return;
+    }
 
     if (!DOPPLER_HasData())
     {

@@ -306,6 +306,77 @@ void DOPPLER_EraseSlot(uint8_t Slot)
     }
 }
 
+bool DOPPLER_SlotGetInfo(uint8_t Slot, DOPPLER_Satellite_t *pOut)
+{
+    if (pOut == NULL)
+    {
+        return false;
+    }
+    DOPPLER_Satellite_t sat;
+    if (!DOPPLER_LoadSlot(Slot, &sat))
+    {
+        return false;
+    }
+    memcpy(pOut, &sat, sizeof(sat));
+    return true;
+}
+
+int DOPPLER_FindPassing(uint32_t now)
+{
+    DOPPLER_Satellite_t sat;
+    for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+    {
+        if (!DOPPLER_SlotGetInfo(s, &sat))
+        {
+            continue;
+        }
+        if (now >= sat.start_unix && now <= sat.start_unix + (uint32_t)sat.sum_time)
+        {
+            return (int)s;
+        }
+    }
+    return -1;
+}
+
+int DOPPLER_FindNext(uint32_t now)
+{
+    int best = -1;
+    uint32_t bestStart = UINT32_MAX;
+    DOPPLER_Satellite_t sat;
+    for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+    {
+        if (!DOPPLER_SlotGetInfo(s, &sat))
+        {
+            continue;
+        }
+        if (sat.start_unix >= now && sat.start_unix < bestStart)
+        {
+            best = (int)s;
+            bestStart = sat.start_unix;
+        }
+    }
+    return best;
+}
+
+int DOPPLER_EraseExpired(uint32_t now)
+{
+    int erased = 0;
+    DOPPLER_Satellite_t sat;
+    for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+    {
+        if (!DOPPLER_SlotGetInfo(s, &sat))
+        {
+            continue;
+        }
+        if (now > sat.start_unix + (uint32_t)sat.sum_time)
+        {
+            DOPPLER_EraseSlot(s);
+            erased++;
+        }
+    }
+    return erased;
+}
+
 bool DOPPLER_WriteSatellite(uint8_t Slot, const DOPPLER_Satellite_t *pSat)
 {
     if (pSat == NULL || Slot >= DOPPLER_SLOT_COUNT)

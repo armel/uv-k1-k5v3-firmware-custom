@@ -17,6 +17,7 @@
  *   0x05E0 erase one slot {u8 slot, u8 pad} -> reply 0x05E3 {status}
  *   0x05E1 write satellite block {32B sat, u8 slot, u8 pad} -> reply 0x05E4 {status}
  *   0x05E2 write table entry {u16 index, u16 slot, 16B entry} -> reply 0x05E5 {status}
+ *   0x05ED read satellite block {u8 slot, u8 pad} -> reply 0x05F0 {status, slot, pad[2], 32B sat}
  *   status: 0 = OK, 1 = rejected
  */
 
@@ -47,6 +48,8 @@ const CMD = {
   REPLY_SET_RTC: 0x05eb,
   CN_FONT_READ: 0x05ec,     // payload {u32 offset} -> reply 0x05ef {u32 offset, u8 data[128]}
   REPLY_CN_FONT_READ: 0x05ef,
+  DOPPLER_READ_SAT: 0x05ed, // payload {u8 slot, u8 pad} -> reply 0x05f0
+  REPLY_READ_SAT: 0x05f0,   // {u8 status, u8 slot, u8 pad[2], 32B satellite}
 };
 
 // 校准区（EEPROM 仿真地址，见 App/driver/eeprom_compat.c：0xB000..0xB200 -> SPI 0x10000）
@@ -155,15 +158,18 @@ function dcsIndex(dcsCode) {
 /**
  * 构建 MR 信道频率区 16 字节数据块。
  * 字段 layout 与 SETTINGS_SaveChannel() 写入 SPI Flash 的一致。
+ * 注意：offset 4 存的是“频差值”（TX_OFFSET_FREQUENCY，10Hz 单位），
+ * 不是绝对发射频率；实际发射频率由固件按 接收频率±频差 计算
+ * （radio.c RADIO_ApplyOffset），方向由 byte11 低半字节 txDir 决定。
  * @param {Object} p
- *   rxFreq10Hz, txFreq10Hz, rxCodeType, rxCode, txCodeType, txCode,
+ *   rxFreq10Hz, txOffsetFreq10Hz, rxCodeType, rxCode, txCodeType, txCode,
  *   modulation, txDir, bandwidth, power, txLock, bcl, freqReverse, pttId, step
  */
 function buildChannelBlock(p) {
   const buf = new Uint8Array(16);
   const dv = new DataView(buf.buffer);
   dv.setUint32(0, p.rxFreq10Hz, true);
-  dv.setUint32(4, p.txFreq10Hz, true);
+  dv.setUint32(4, p.txOffsetFreq10Hz, true);
   buf[8] = p.rxCode;
   buf[9] = p.txCode;
   buf[10] = ((p.txCodeType & 0x0F) << 4) | (p.rxCodeType & 0x0F);

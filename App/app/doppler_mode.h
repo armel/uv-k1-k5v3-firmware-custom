@@ -64,6 +64,11 @@ void DOPPLER_RenderStatusStrip(const DOPPLER_Satellite_t *pSat);
 // "set time" command so the radio skips manual entry on long-press 0).
 void DOPPLER_SetTimeFromUart(void);
 
+// Re-arms the AOS-60 s / AOS-10 s reminders of one slot. Called by the
+// UART 0x05E0/0x05E1 handlers so a freshly written or erased pass beeps
+// again on its next pass window.
+void DOPPLER_ResetReminders(uint8_t Slot);
+
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 
 #endif // APP_DOPPLER_MODE_H

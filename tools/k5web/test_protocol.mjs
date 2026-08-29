@@ -15,19 +15,20 @@ assert.equal(ctcssIndex(885), 8, "88.5 Hz CTCSS index");
 assert.equal(ctcssIndex(670), 0, "67.0 Hz CTCSS index");
 assert.equal(dcsIndex(0x023), 6, "DCS 023 index");
 
+// 439.500 收 / 434.500 发 → 下差频 5 MHz；offset 4 存的是频差值（与固件 SETTINGS_SaveChannel 一致）
 const chBlock = buildChannelBlock({
-  rxFreq10Hz: 43950000, txFreq10Hz: 43450000,
+  rxFreq10Hz: 43950000, txOffsetFreq10Hz: 50000,
   rxCodeType: CODE_TYPE.CTCSS, rxCode: ctcssIndex(885),
   txCodeType: CODE_TYPE.OFF, txCode: 0,
-  modulation: MODULATION.FM, txDir: TX_DIR.OFF,
+  modulation: MODULATION.FM, txDir: TX_DIR.SUB,
   bandwidth: BANDWIDTH.WIDE, power: POWER.HIGH,
   txLock: 0, bcl: 0, freqReverse: 0, pttId: 0, step: 4,
 });
 const chDv = new DataView(chBlock.buffer);
 assert.equal(chDv.getUint32(0, true), 43950000, "channel RX freq");
-assert.equal(chDv.getUint32(4, true), 43450000, "channel TX freq");
+assert.equal(chDv.getUint32(4, true), 50000, "channel TX offset value (not absolute TX freq)");
 assert.equal(chBlock[10], (CODE_TYPE.OFF << 4) | CODE_TYPE.CTCSS, "tone type nibble");
-assert.equal(chBlock[11], (MODULATION.FM << 4) | TX_DIR.OFF, "modulation/dir nibble");
+assert.equal(chBlock[11], (MODULATION.FM << 4) | TX_DIR.SUB, "modulation/dir nibble");
 assert.equal(chBlock[12], (POWER.HIGH << 2) | (BANDWIDTH.WIDE << 1), "power/bandwidth byte");
 
 const attr = buildChannelAttributes({ band: 5, compander: 0, exclude: 0, scanlist: 0 });

@@ -185,6 +185,23 @@ typedef struct {
     DOPPLER_Entry_t Entry;
 } CMD_DOPPLER_WRITE_ENTRY_t;
 
+// Same wire layout as CMD_DOPPLER_ERASE_t.
+typedef struct {
+    Header_t Header;
+    uint8_t Slot;
+    uint8_t Padding;
+} CMD_DOPPLER_READ_SAT_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;                // 0 = OK, 1 = rejected / slot empty
+        uint8_t Slot;                  // echoed slot, 0xFF when rejected
+        uint8_t Padding[2];            // keeps Satellite 4-byte aligned
+        DOPPLER_Satellite_t Satellite; // valid only when Status == 0
+    } Data;
+} REPLY_DOPPLER_READ_SAT_t;
+
 // Layout contract with the web tool (protocol.js / app.js): member offsets
 // must match the wire payload exactly. The 32-byte satellite block carries a
 // u32, so it must sit at a 4-byte-aligned offset - it is placed right after
@@ -194,6 +211,7 @@ _Static_assert(offsetof(CMD_DOPPLER_ERASE_t, Slot) == 4, "CMD_DOPPLER_ERASE layo
 _Static_assert(offsetof(CMD_DOPPLER_WRITE_SAT_t, Satellite) == 4, "CMD_DOPPLER_WRITE_SAT layout");
 _Static_assert(offsetof(CMD_DOPPLER_WRITE_SAT_t, Slot) == 36, "CMD_DOPPLER_WRITE_SAT layout");
 _Static_assert(offsetof(CMD_DOPPLER_WRITE_ENTRY_t, Entry) == 8, "CMD_DOPPLER_WRITE_ENTRY layout");
+_Static_assert(offsetof(REPLY_DOPPLER_READ_SAT_t, Data.Satellite) == 8, "REPLY_DOPPLER_READ_SAT layout");
 
 typedef struct {
     Header_t Header;
@@ -554,6 +572,7 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
     if (!bIsLocked)
     {
         unsigned int i;
+        bool bAttrWritten = false;
         for (i = 0; i < (pCmd->Size / 8); i++)
         {
             const uint16_t Offset = pCmd->Offset + (i * 8U);
@@ -563,10 +582,18 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
                     bReloadEeprom = true;
 
             if ((Offset < 0x0E98 || Offset >= 0x0EA0) || !bIsInLockScreen || pCmd->bAllowPassword)
-            {    
+            {
                 EEPROM_WriteBuffer(Offset, &pCmd->Data[i * 8U]);
+
+                // 信道属性区（0x8000~0x886E）被串口改写后作废 MR 属性缓存，
+                // 否则上下键导航仍使用开机时缓存的旧属性（新写信道不可达）
+                if (Offset >= 0x8000 && Offset < 0x886E)
+                    bAttrWritten = true;
             }
         }
+
+        if (bAttrWritten)
+            MR_InvalidateChannelAttributesCache();
 
         if (bReloadEeprom)
             SETTINGS_InitEEPROM();
@@ -897,6 +924,7 @@ static void CMD_DOPPLER_ERASE(uint32_t Port, const uint8_t *pBuffer, uint16_t Si
     if (Reply.Data.Status == 0)
     {
         DOPPLER_EraseSlot(pCmd->Slot);
+        DOPPLER_ResetReminders(pCmd->Slot);
     }
 
     SendReply(Port, &Reply, sizeof(Reply));
@@ -918,6 +946,38 @@ static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_
         pCmd->Slot < DOPPLER_SLOT_COUNT)
     {
         Reply.Data.Status = DOPPLER_WriteSatellite(pCmd->Slot, &pCmd->Satellite) ? 0 : 1;
+        if (Reply.Data.Status == 0)
+        {
+            DOPPLER_ResetReminders(pCmd->Slot);
+        }
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+// 0x05ED: read back one slot's satellite info block (reply 0x05F0).
+// Used by the web tool's slot-rename feature.
+static void CMD_DOPPLER_READ_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_DOPPLER_READ_SAT_t *pCmd = (const CMD_DOPPLER_READ_SAT_t *)pBuffer;
+    REPLY_DOPPLER_READ_SAT_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05F0;
+    Reply.Header.Size = sizeof(Reply.Data);
+    memset(&Reply.Data, 0, sizeof(Reply.Data));
+    Reply.Data.Status = 1;
+    Reply.Data.Slot   = 0xFF;
+
+    if (Size == sizeof(pCmd->Slot) + sizeof(pCmd->Padding) &&
+        pCmd->Slot < DOPPLER_SLOT_COUNT)
+    {
+        Reply.Data.Slot = pCmd->Slot;
+        if (DOPPLER_SlotGetInfo(pCmd->Slot, &Reply.Data.Satellite))
+        {
+            Reply.Data.Status = 0;
+        }
     }
 
     SendReply(Port, &Reply, sizeof(Reply));
@@ -1111,6 +1171,10 @@ void UART_HandleCommand(uint32_t Port)
 
         case 0x05E8:
             CMD_SET_RTC(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05ED:
+            CMD_DOPPLER_READ_SAT(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 #endif
 

@@ -617,6 +617,80 @@
       btn.disabled = false;
     }
   });
+
+  // ---------- 槽位名称编辑（读-改-写回卫星块，其他字段不变） ----------
+  let slotEditBlock = null; // 读取到的 32 字节卫星块缓存（写回时保持其他字段）
+
+  // 切槽时丢弃缓存，防止把槽 A 的数据改名后误写到槽 B
+  $("slotEditSelect").addEventListener("change", () => {
+    slotEditBlock = null;
+    $("slotNameInput").value = "";
+    $("btnSlotRename").disabled = true;
+  });
+
+  $("btnSlotRead").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const slot = parseInt($("slotEditSelect").value, 10) - 1;
+    const btn = $("btnSlotRead");
+    btn.disabled = true;
+    try {
+      const reply = await sendAndWaitRaw(proto.CMD.DOPPLER_READ_SAT, new Uint8Array([slot, 0]));
+      const dv = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
+      if (dv.getUint16(0, true) !== proto.CMD.REPLY_READ_SAT) throw new Error("回复 ID 不符");
+      // payload: header(4) + status(1) + slot(1) + pad(2) + satellite(32)
+      if (reply[4] !== 0) throw new Error(`槽位 ${slot + 1} 无有效星历数据`);
+      slotEditBlock = reply.slice(8, 40);
+      let name = "";
+      for (const b of slotEditBlock.subarray(4, 14)) {
+        if (b === 0) break;
+        name += String.fromCharCode(b);
+      }
+      $("slotNameInput").value = name;
+      $("btnSlotRename").disabled = false;
+      log(`槽位 ${slot + 1} 当前名称："${name}"`);
+      setStatus(`槽位 ${slot + 1} 已读取，可编辑名称`, "ok");
+    } catch (err) {
+      slotEditBlock = null;
+      $("slotNameInput").value = "";
+      $("btnSlotRename").disabled = true;
+      setStatus("读取失败：" + err.message, "err");
+      log("读取槽位异常：" + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("btnSlotRename").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!slotEditBlock) { setStatus("请先读取槽位", "err"); return; }
+    const slot = parseInt($("slotEditSelect").value, 10) - 1;
+    const name = $("slotNameInput").value.trim();
+    if (!name) { setStatus("名称不能为空", "err"); return; }
+    const btn = $("btnSlotRename");
+    btn.disabled = true;
+    try {
+      const block = new Uint8Array(slotEditBlock); // 副本，改完才写回
+      // name 字段：偏移 4..13，最多 9 字符 + '\0'（name[9] 必须为 0，见 doppler.h 有效性校验）
+      block.fill(0, 4, 14);
+      const nb = new TextEncoder().encode(name.slice(0, 9));
+      block.set(nb, 4);
+      block[30] = proto.crc8(block.subarray(0, 30)); // 重算 CRC8
+      block[31] = 0;
+      const payload = new Uint8Array(34); // 卫星块 32B + slot + pad（与写入星历的 satPayload 布局一致）
+      payload.set(block, 0);
+      payload[32] = slot;
+      const r = await sendCommand(proto.CMD.DOPPLER_WRITE_SAT, payload);
+      if (r.status !== 0) throw new Error("写回失败 status=" + r.status);
+      slotEditBlock = block;
+      setStatus(`✅ 槽位 ${slot + 1} 名称已改为"${name.slice(0, 9)}"，机内 F+${slot + 1} 重新选中即可看到`, "ok");
+      log(`槽位 ${slot + 1} 名称已更新为"${name.slice(0, 9)}"`);
+    } catch (err) {
+      setStatus("保存失败：" + err.message, "err");
+      log("保存名称异常：" + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
   // ---------- 写入精确时间（联网获取北京时间写入 RTC） ----------
   // 优先访问本机 NTP 代理（time_proxy.py），获取真正的 NTP 时间；
   // 代理未启动或失败时，回退到 HTTP Date 头 / worldtimeapi / 本机时间。
@@ -1037,7 +1111,7 @@
 
   async function writeChannel(channel, params) {
     const C = proto.CHAN;
-    if (channel < 0 || channel >= C.MAX_COUNT) throw new Error(`信道号 ${channel} 超出范围 0~${C.MAX_COUNT - 1}`);
+    if (channel < 0 || channel >= C.MAX_COUNT) throw new Error(`信道号 ${channel + 1} 超出范围 1~${C.MAX_COUNT}`);
 
     // 1. 写频率/参数区
     const freqBlock = proto.buildChannelBlock(params);
@@ -1112,20 +1186,26 @@
   function collectChannelParams() {
     const rxMHz = parseFloat($("chRxFreq").value);
     let txMHz = parseFloat($("chTxFreq").value);
-    const txDir = parseInt($("chTxDir").value, 10);
-    const txOffset = parseFloat($("chTxOffset").value) || 0;
+    const dirSel = parseInt($("chTxDir").value, 10);
+    const offsetMHz = parseFloat($("chTxOffset").value) || 0;
     if (isNaN(rxMHz) || rxMHz <= 0) throw new Error("接收频率无效");
     if (isNaN(txMHz) || txMHz <= 0) {
-      if (txDir === proto.TX_DIR.OFF) txMHz = rxMHz;
-      else txMHz = rxMHz + (txDir === proto.TX_DIR.ADD ? txOffset : -txOffset);
+      if (dirSel === proto.TX_DIR.OFF) txMHz = rxMHz;
+      else txMHz = rxMHz + (dirSel === proto.TX_DIR.ADD ? offsetMHz : -offsetMHz);
+      if (txMHz <= 0) throw new Error("按差频计算的发射频率无效");
     }
+    // 固件 offset 4 存的是频差值（不是绝对发射频率），方向存 byte11 低半字节；
+    // 由 RX/TX 反推，保证两者始终一致
+    const rxFreq10Hz = Math.round(rxMHz * 100000);
+    const diff10Hz = Math.round(txMHz * 100000) - rxFreq10Hz;
+    const txDir = diff10Hz > 0 ? proto.TX_DIR.ADD : diff10Hz < 0 ? proto.TX_DIR.SUB : proto.TX_DIR.OFF;
     const rxTone = parseToneInput($("chRxTone").value, parseInt($("chRxToneType").value, 10));
     const txTone = parseToneInput($("chTxTone").value, parseInt($("chTxToneType").value, 10));
 
     return {
       name: $("chName").value,
-      rxFreq10Hz: Math.round(rxMHz * 100000),
-      txFreq10Hz: Math.round(txMHz * 100000),
+      rxFreq10Hz: rxFreq10Hz,
+      txOffsetFreq10Hz: Math.abs(diff10Hz),
       rxCodeType: rxTone.codeType,
       rxCode: rxTone.code,
       txCodeType: txTone.codeType,
@@ -1143,11 +1223,41 @@
     };
   }
 
+  // 发射频率 ↔ 差频方向+差频 联动：改一边自动算另一边。
+  // chFreqLink 记录最后编辑的字段组，接收频率变化时以该组为准重算另一边。
+  let chFreqLink = "tx"; // "tx"=发射频率为准, "offset"=差频方向+差频为准
+  function updateOffsetFieldState() {
+    // 方向为“无”时差频值无意义，禁止编辑
+    $("chTxOffset").disabled = parseInt($("chTxDir").value, 10) === proto.TX_DIR.OFF;
+  }
+  function syncOffsetFromTx() {
+    const rx = parseFloat($("chRxFreq").value);
+    const tx = parseFloat($("chTxFreq").value);
+    if (isNaN(rx) || rx <= 0 || isNaN(tx) || tx <= 0) return;
+    const diff = tx - rx;
+    $("chTxDir").value = diff > 0 ? "1" : diff < 0 ? "2" : "0";
+    $("chTxOffset").value = Math.abs(diff).toFixed(4);
+    updateOffsetFieldState();
+  }
+  function syncTxFromOffset() {
+    const rx = parseFloat($("chRxFreq").value);
+    if (isNaN(rx) || rx <= 0) return;
+    const dir = parseInt($("chTxDir").value, 10);
+    const off = parseFloat($("chTxOffset").value) || 0;
+    const tx = dir === proto.TX_DIR.OFF ? rx : rx + (dir === proto.TX_DIR.ADD ? off : -off);
+    if (tx > 0) $("chTxFreq").value = tx.toFixed(5);
+  }
+  $("chRxFreq").addEventListener("input", () => { chFreqLink === "offset" ? syncTxFromOffset() : syncOffsetFromTx(); });
+  $("chTxFreq").addEventListener("input", () => { chFreqLink = "tx"; syncOffsetFromTx(); });
+  $("chTxDir").addEventListener("change", () => { chFreqLink = "offset"; updateOffsetFieldState(); syncTxFromOffset(); });
+  $("chTxOffset").addEventListener("input", () => { chFreqLink = "offset"; syncTxFromOffset(); });
+  syncOffsetFromTx(); // 初始化：按默认 RX/TX 推出方向+差频，并设置差频框可编辑状态
+
   $("btnChProg").addEventListener("click", async () => {
     if (!port) { setStatus("请先连接串口", "err"); return; }
-    const channel = parseInt($("chNum").value, 10);
+    const channel = parseInt($("chNum").value, 10) - 1;
     if (isNaN(channel) || channel < 0 || channel >= proto.CHAN.MAX_COUNT) {
-      setStatus(`信道号无效，应为 0~${proto.CHAN.MAX_COUNT - 1}`, "err"); return;
+      setStatus(`信道号无效，应为 1~${proto.CHAN.MAX_COUNT}`, "err"); return;
     }
     $("btnChProg").disabled = true;
     $("chProgProgress").style.display = "block";
@@ -1158,8 +1268,8 @@
       const params = collectChannelParams();
       await writeChannel(channel, params);
       $("chProgProgressBar").style.width = "100%";
-      setStatus(`✅ 信道 ${channel} 写入完成！建议重启对讲机或切换信道使其生效`, "ok");
-      log(`写频完成：CH${channel} ${(params.rxFreq10Hz / 100000).toFixed(5)} MHz，名称字节：${Array.from((window.K5WEB.gb2312 || { encode: () => ({ ok: true, bytes: new Uint8Array() }) }).encode(params.name || "").bytes).map(b => b.toString(16).padStart(2, "0")).join(" ") || "(空)"}`);
+      setStatus(`✅ 信道 ${channel + 1} 写入完成！建议重启对讲机或切换信道使其生效`, "ok");
+      log(`写频完成：CH${channel + 1} ${(params.rxFreq10Hz / 100000).toFixed(5)} MHz，名称字节：${Array.from((window.K5WEB.gb2312 || { encode: () => ({ ok: true, bytes: new Uint8Array() }) }).encode(params.name || "").bytes).map(b => b.toString(16).padStart(2, "0")).join(" ") || "(空)"}`);
     } catch (err) {
       setStatus("写频失败：" + err.message, "err");
       log("写频异常：" + err.message, "err");
@@ -1170,9 +1280,9 @@
 
   $("btnChRead").addEventListener("click", async () => {
     if (!port) { setStatus("请先连接串口", "err"); return; }
-    const channel = parseInt($("chNum").value, 10);
+    const channel = parseInt($("chNum").value, 10) - 1;
     if (isNaN(channel) || channel < 0 || channel >= proto.CHAN.MAX_COUNT) {
-      setStatus(`信道号无效，应为 0~${proto.CHAN.MAX_COUNT - 1}`, "err"); return;
+      setStatus(`信道号无效，应为 1~${proto.CHAN.MAX_COUNT}`, "err"); return;
     }
     $("btnChRead").disabled = true;
     $("chReadResult").style.display = "none";
@@ -1182,7 +1292,13 @@
       const nameBytes = await readEepromBlock(C.NAME_BASE + channel * C.NAME_SIZE, C.NAME_SIZE);
       const freqBytes = await readEepromBlock(channel * C.SIZE, C.SIZE);
       const rx10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(0, true);
-      const tx10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(4, true);
+      // offset 4 是频差值（10Hz），方向在 byte11 低半字节；发射频率 = 接收 ± 频差
+      let off10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(4, true);
+      const txDir = freqBytes[11] & 0x0F;
+      if (off10 === 0xFFFFFFFF) off10 = 0;
+      if (off10 >= 100000000) off10 = 1000000; // 与固件 radio.c 的上限一致
+      const tx10 = txDir === proto.TX_DIR.ADD ? rx10 + off10 : txDir === proto.TX_DIR.SUB ? rx10 - off10 : rx10;
+      const dirText = txDir === proto.TX_DIR.ADD ? "上差频（+）" : txDir === proto.TX_DIR.SUB ? "下差频（−）" : "无";
       const hex = Array.from(nameBytes).map((b) => b.toString(16).padStart(2, "0")).join(" ");
       let decoded = "";
       for (let i = 0; i < nameBytes.length; i++) {
@@ -1200,13 +1316,14 @@
       const r = $("chReadResult");
       r.style.display = "block";
       r.innerHTML = `
-        <b>CH${channel} 读取校验</b><br>
+        <b>CH${channel + 1} 读取校验</b><br>
         接收频率：${(rx10 / 100000).toFixed(5)} MHz<br>
+        差频方向：${dirText}　差频：${(off10 / 100000).toFixed(4)} MHz<br>
         发射频率：${(tx10 / 100000).toFixed(5)} MHz<br>
         名称区十六进制：${hex}<br>
         名称解析（[xxxx]=GB2312）：${decoded || "(空白)"}
       `;
-      log(`读取 CH${channel}：RX=${(rx10 / 100000).toFixed(5)} TX=${(tx10 / 100000).toFixed(5)} 名称=[${hex}]`);
+      log(`读取 CH${channel + 1}：RX=${(rx10 / 100000).toFixed(5)} 频差=${dirText} ${(off10 / 100000).toFixed(4)} TX=${(tx10 / 100000).toFixed(5)} 名称=[${hex}]`);
     } catch (err) {
       setStatus("读取失败：" + err.message, "err");
       log("读取异常：" + err.message, "err");
@@ -1231,7 +1348,7 @@
       if (first && /信道|channel|freq/i.test(cols[0])) { first = false; continue; }
       first = false;
       if (cols.length < 4) continue;
-      const ch = parseInt(cols[0], 10);
+      const ch = parseInt(cols[0], 10) - 1;
       const name = cols[1] || "";
       const rx = parseFloat(cols[2]);
       const tx = parseFloat(cols[3]);
@@ -1257,18 +1374,28 @@
       for (let i = 0; i < chCsvData.length; i++) {
         const row = chCsvData[i];
         if (row.ch < 0 || row.ch >= C.MAX_COUNT) {
-          log(`跳过越界信道 ${row.ch}`, "info"); continue;
+          log(`跳过越界信道 ${row.ch + 1}`, "info"); continue;
         }
         const rxTone = autoToneInput(row.cols[4] || "");
         const txTone = autoToneInput(row.cols[5] || "");
+        // 固件 offset 4 存频差值：优先由 RX/TX 反推；TX 留空时用“差频方向,差频”列
+        const rx10 = Math.round(row.rx * 100000);
+        let diff10Hz;
+        if (!isNaN(row.tx) && row.tx > 0) {
+          diff10Hz = Math.round(row.tx * 100000) - rx10;
+        } else {
+          const csvDir = parseInt(row.cols[9] || "0", 10);
+          const csvOff = Math.round((parseFloat(row.cols[10]) || 0) * 100000);
+          diff10Hz = csvDir === proto.TX_DIR.ADD ? csvOff : csvDir === proto.TX_DIR.SUB ? -csvOff : 0;
+        }
         const params = {
           name: row.name,
-          rxFreq10Hz: Math.round(row.rx * 100000),
-          txFreq10Hz: Math.round(row.tx * 100000),
+          rxFreq10Hz: rx10,
+          txOffsetFreq10Hz: Math.abs(diff10Hz),
           rxCodeType: rxTone.codeType, rxCode: rxTone.code,
           txCodeType: txTone.codeType, txCode: txTone.code,
           modulation: parseInt(row.cols[8] || "0", 10),
-          txDir: proto.TX_DIR.OFF,
+          txDir: diff10Hz > 0 ? proto.TX_DIR.ADD : diff10Hz < 0 ? proto.TX_DIR.SUB : proto.TX_DIR.OFF,
           bandwidth: parseInt(row.cols[6] || "0", 10),
           power: parseInt(row.cols[7] || "7", 10),
           txLock: 0, bcl: 0, freqReverse: 0, pttId: 0,
@@ -1322,10 +1449,10 @@
   $("btnChExpCsv").addEventListener("click", async () => {
     if (!port) { setStatus("请先连接串口", "err"); return; }
     const C = proto.CHAN;
-    const start = parseInt($("chExpStart").value, 10);
-    const end = parseInt($("chExpEnd").value, 10);
+    const start = parseInt($("chExpStart").value, 10) - 1;
+    const end = parseInt($("chExpEnd").value, 10) - 1;
     if (isNaN(start) || isNaN(end) || start < 0 || end >= C.MAX_COUNT || start > end) {
-      setStatus(`信道范围无效，应为 0~${C.MAX_COUNT - 1}`, "err"); return;
+      setStatus(`信道范围无效，应为 1~${C.MAX_COUNT}`, "err"); return;
     }
     $("btnChExpCsv").disabled = true;
     $("chExpProgress").style.display = "block";
@@ -1343,20 +1470,24 @@
         (p) => { bar.style.width = (45 + p * 45).toFixed(1) + "%"; });
 
       const gb = window.K5WEB && window.K5WEB.gb2312;
-      const lines = ["信道号,名称,接收频率,发射频率,接收亚音,发射亚音,带宽,功率,调制"];
+      const lines = ["信道号,名称,接收频率,发射频率,接收亚音,发射亚音,带宽,功率,调制,差频方向,差频"];
       let exported = 0;
       for (let i = 0; i < count; i++) {
         const fdv = new DataView(freqAll.buffer, i * C.SIZE, C.SIZE);
         const rx10 = fdv.getUint32(0, true);
-        let tx10 = fdv.getUint32(4, true);
         if (rx10 === 0 || rx10 === 0xFFFFFFFF) continue;   // 空信道（未写入/擦除态）
-        if (tx10 === 0 || tx10 === 0xFFFFFFFF) tx10 = rx10; // 发射未写按同频导出
+        // offset 4 是频差值（10Hz），方向在 byte11 低半字节；发射频率 = 接收 ± 频差
+        let off10 = fdv.getUint32(4, true);
+        if (off10 === 0xFFFFFFFF) off10 = 0;
+        if (off10 >= 100000000) off10 = 1000000;           // 与固件 radio.c 的上限一致
+        const txDir = fdv.getUint8(11) & 0x0F;
+        const tx10 = txDir === proto.TX_DIR.ADD ? rx10 + off10 : txDir === proto.TX_DIR.SUB ? rx10 - off10 : rx10;
         const nameBytes = nameAll.subarray(i * C.NAME_SIZE, (i + 1) * C.NAME_SIZE);
         let ascii = "";
         for (const b of nameBytes) { if (!b) break; if (b >= 0x20 && b < 0x7F) ascii += String.fromCharCode(b); }
         const name = gb ? gb.decode(nameBytes) : ascii;
         lines.push([
-          start + i,
+          start + i + 1,
           csvEscape(gb ? name : ascii),
           (rx10 / 100000).toFixed(5),
           (tx10 / 100000).toFixed(5),
@@ -1365,6 +1496,8 @@
           (fdv.getUint8(12) >> 1) & 1,
           (fdv.getUint8(12) >> 2) & 7,
           (fdv.getUint8(11) >> 4) & 0x0F,
+          txDir <= proto.TX_DIR.SUB ? txDir : 0,
+          (off10 / 100000).toFixed(4),
         ].join(","));
         exported++;
         bar.style.width = (90 + exported / count * 10).toFixed(1) + "%";
@@ -1379,7 +1512,7 @@
       a.click();
       URL.revokeObjectURL(a.href);
       bar.style.width = "100%";
-      setStatus(`✅ 已导出 ${exported} 条信道（范围 ${start}~${end}），文件 k5_channels_*.csv`, "ok");
+      setStatus(`✅ 已导出 ${exported} 条信道（范围 ${start + 1}~${end + 1}），文件 k5_channels_*.csv`, "ok");
       log(`信道导出完成：${exported}/${count} 条有效`);
     } catch (err) {
       setStatus("导出失败：" + err.message, "err");
@@ -1393,13 +1526,13 @@
   $("btnChClear").addEventListener("click", async () => {
     if (!port) { setStatus("请先连接串口", "err"); return; }
     const C = proto.CHAN;
-    const start = parseInt($("chClrStart").value, 10);
-    const end = parseInt($("chClrEnd").value, 10);
+    const start = parseInt($("chClrStart").value, 10) - 1;
+    const end = parseInt($("chClrEnd").value, 10) - 1;
     if (isNaN(start) || isNaN(end) || start < 0 || end >= C.MAX_COUNT || start > end) {
-      setStatus(`信道范围无效，应为 0~${C.MAX_COUNT - 1}`, "err"); return;
+      setStatus(`信道范围无效，应为 1~${C.MAX_COUNT}`, "err"); return;
     }
     const count = end - start + 1;
-    if (!confirm(`确定清空信道 ${start}~${end}（共 ${count} 个）吗？\n\n频率、名称、属性将全部恢复为出厂擦除态，此操作不可恢复！\n建议先导出 CSV 备份。\n\n清空完成后对讲机将自动重启以立即生效。`)) return;
+    if (!confirm(`确定清空信道 ${start + 1}~${end + 1}（共 ${count} 个）吗？\n\n频率、名称、属性将全部恢复为出厂擦除态，此操作不可恢复！\n建议先导出 CSV 备份。\n\n清空完成后对讲机将自动重启以立即生效。`)) return;
 
     $("btnChClear").disabled = true;
     $("chClrProgress").style.display = "block";
@@ -1435,7 +1568,7 @@
       // 不重启的话切换信道仍按旧属性表工作，必须重启才重新加载
       log("清空完成，发送重启命令...");
       await writer.write(proto.buildFrame(proto.CMD.REBOOT, new Uint8Array(0)));
-      setStatus(`✅ 已清空信道 ${start}~${end}（共 ${count} 个），对讲机正在重启生效`, "ok");
+      setStatus(`✅ 已清空信道 ${start + 1}~${end + 1}（共 ${count} 个），对讲机正在重启生效`, "ok");
       log("已重启");
     } catch (err) {
       setStatus("清空失败：" + err.message, "err");
