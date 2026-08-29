@@ -42,6 +42,9 @@ static bool     gDopplerTimeSet = false;   // RTC was set this power session
 static bool     gDopplerPassed = false;
 static bool     gDopplerEntryValid = false;
 static bool     gDopplerTxOverride = false;
+static bool     gDopplerShowExtra = false; // key 2 toggles supplementary orbit info
+static bool     gDopplerFSlotArm = false;  // F key pressed, waiting for a slot digit (1..4)
+static uint8_t  gDopplerLedTicks = 0;      // green RX LED flash countdown (10 ms ticks)
 
 static uint32_t gDopplerSavedRxFreq = 0;
 static uint32_t gDopplerSavedTxFreq = 0;
@@ -69,12 +72,6 @@ static void DOPPLER_SetInputIndex(uint8_t Index)
 {
     gDopplerInputIndex = Index;
     gDopplerInputStr[Index] = 0;
-}
-
-static bool DOPPLER_IsLeapYear(uint8_t Year2000)
-{
-    const uint16_t year = (uint16_t)2000 + Year2000;
-    return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
 }
 
 // Validates the 12 entered digits (YYMMDDHHMMSS) before they reach the RTC.
@@ -157,6 +154,20 @@ void DOPPLER_EnterMode(void)
         gDopplerInit = true;
     }
 
+    // If the default slot (0) is empty, jump to the first slot that holds a
+    // valid pass, so the user immediately sees data after writing any slot.
+    if (!DOPPLER_HasData())
+    {
+        for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+        {
+            if (DOPPLER_SlotHasData(s))
+            {
+                DOPPLER_SelectSlot(s);
+                break;
+            }
+        }
+    }
+
     gDopplerSavedRxFreq = gTxVfo->freq_config_RX.Frequency;
     gDopplerTxOverride = false;
 
@@ -203,7 +214,16 @@ void DOPPLER_ExitMode(void)
 
     RTC_EnableSecondIT(false);
 
+    // Ensure the slot-switch LED flash does not stay stuck on: TimeSlice
+    // (which would turn it off) stops running once we leave the mode.
+    if (gDopplerLedTicks > 0)
+    {
+        gDopplerLedTicks = 0;
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+    }
+
     gDopplerState = DOPPLER_STATE_OFF;
+    gDopplerShowExtra = false;
     gRequestDisplayScreen = DISPLAY_MAIN;
     gUpdateDisplay = true;
 }
@@ -311,6 +331,35 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return; // nothing to do on key release
     }
 
+    // F + 1..4 switches the active satellite slot. The F press arms the
+    // combination; the next digit key selects the slot. Runs before the
+    // KEY_1 time-adjust check so F+1 always switches instead of adjusting.
+    if (Key == KEY_F)
+    {
+        gDopplerFSlotArm = true;
+        return;
+    }
+    if (gDopplerFSlotArm && Key >= KEY_1 && Key <= KEY_4)
+    {
+        gDopplerFSlotArm = false;
+        gDopplerEntryValid = false;
+        gDopplerPassed = false;
+        if (DOPPLER_SelectSlot((uint8_t)(Key - KEY_1)))
+        {
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        }
+        else
+        {
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        }
+        // flash the green RX LED for ~150 ms as visual feedback
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+        gDopplerLedTicks = 15;
+        gUpdateDisplay = true;
+        return;
+    }
+    gDopplerFSlotArm = false;
+
     // Key 1 (short or held) opens the time-adjust screen from tracking -
     // this is the single place where the time is set manually.
     if (gDopplerState == DOPPLER_STATE_TRACKING && Key == KEY_1)
@@ -380,7 +429,20 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         case DOPPLER_STATE_TRACKING:
             if (Key == KEY_EXIT)
             {
-                DOPPLER_ExitMode();
+                if (gDopplerShowExtra)
+                {
+                    gDopplerShowExtra = false;
+                    gUpdateDisplay = true;
+                }
+                else
+                {
+                    DOPPLER_ExitMode();
+                }
+            }
+            else if (Key == KEY_2)
+            {
+                gDopplerShowExtra = !gDopplerShowExtra;
+                gUpdateDisplay = true;
             }
             else if (Key == KEY_PTT && !gDopplerPassed && gDopplerEntryValid)
             {
@@ -422,6 +484,12 @@ void DOPPLER_TimeSlice(void)
     if (gDopplerState != DOPPLER_STATE_TRACKING)
     {
         return;
+    }
+
+    // Turn the green LED back off once the slot-switch flash expires
+    if (gDopplerLedTicks > 0 && --gDopplerLedTicks == 0)
+    {
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
     }
 
     // Restore the TX frequency once a Doppler transmission has ended
@@ -545,16 +613,20 @@ static void DOPPLER_RenderFrequency(const uint32_t Freq10Hz, const uint8_t Line)
 // key events) redraw the name box instead of wiping it.
 void DOPPLER_RenderStatusStrip(const DOPPLER_Satellite_t *pSat)
 {
-    char Name[10];
+    // "N:NAME" - slot digit prefix; the name is truncated so the inverse
+    // box (max 67 px) stays clear of the bandwidth label at x=72.
+    char Name[12];
+    Name[0] = (char)('1' + DOPPLER_GetSlot());
+    Name[1] = ':';
     uint8_t len = (uint8_t)strlen(pSat->name);
-    if (len > 9u)
+    if (len > 7u)
     {
-        len = 9u;
+        len = 7u;
     }
-    memcpy(Name, pSat->name, len);
-    Name[len] = 0;
+    memcpy(&Name[2], pSat->name, len);
+    Name[2 + len] = 0;
 
-    const uint8_t w = (uint8_t)(len * 7u + 4u);
+    const uint8_t w = (uint8_t)((len + 2u) * 7u + 4u);
     memset(gStatusLine, 0, w); // clear default icons under the name
     UI_PrintStringSmallBufferNormal(Name, gStatusLine + 2);
     for (uint8_t x = 0; x < w; x++)
@@ -658,7 +730,7 @@ static void DOPPLER_RenderUplink(const DOPPLER_Satellite_t *pSat, const uint32_t
     {
         // pass not started: preview the first table entry
         DOPPLER_Entry_t e0;
-        if (DOPPLER_GetEntry((int32_t)pSat->start_unix, &e0))
+        if (DOPPLER_GetEntryInterpolated((int32_t)pSat->start_unix, 0, &e0))
         {
             up = e0.uplink;
         }
@@ -705,21 +777,9 @@ static void DOPPLER_RenderUplink(const DOPPLER_Satellite_t *pSat, const uint32_t
     UI_PrintStringSmallNormal(Buffer, (uint8_t)(LCD_WIDTH - strlen(Buffer) * 7u), 0, 5);
 }
 
-// line 6: current Beijing date/time + pass progress bar (Losehu bitmap style)
-static void DOPPLER_RenderDateProgress(const DOPPLER_Satellite_t *pSat, const uint32_t Now)
+// Draw progress bar; AOS bar empties from W to 0, pass bar fills from 0 to W.
+static void __attribute__((noinline)) DOPPLER_DrawProgressBar(const DOPPLER_Satellite_t *pSat, const uint32_t Now, const uint8_t Line, const uint8_t X0, const uint8_t W)
 {
-    char Buffer[20];
-    uint8_t t[6];
-    DOPPLER_UnixToDate(Now, t);
-    snprintf(Buffer, sizeof(Buffer), "%02u-%02u %02u:%02u:%02u",
-             (unsigned)t[1], (unsigned)t[2], (unsigned)t[3], (unsigned)t[4], (unsigned)t[5]);
-    UI_PrintStringSmallNormal(Buffer, 2, 0, 6);
-
-    const uint8_t X0 = 101, W = 25; // bar body x=101..125, end caps at 100/126
-    memset(&gFrameBuffer[6][X0], 0b01000000, W);
-    gFrameBuffer[6][X0 - 1] = 0b00111110;
-    gFrameBuffer[6][X0 + W] = 0b00111110;
-
     uint8_t process = 0;
     if (gDopplerPassed)
     {
@@ -731,20 +791,91 @@ static void DOPPLER_RenderDateProgress(const DOPPLER_Satellite_t *pSat, const ui
         if (togo > 0)
         {
             if (togo <= 1000)
-            {
-                process = (uint8_t)((uint32_t)togo * W / 1000u); // drains as AOS approaches
-            }
+                process = (uint8_t)((uint32_t)togo * W / 1000u);
         }
         else
         {
             const int32_t remain = (int32_t)pSat->sum_time + togo;
-            process = (uint8_t)(W - (uint32_t)remain * W / pSat->sum_time); // fills during pass
+            if (remain > 0)
+                process = (uint8_t)(W - (uint32_t)remain * W / pSat->sum_time);
+            else
+                process = W;
         }
     }
+
+    memset(&gFrameBuffer[Line][X0], 0b01000000, W);
+    gFrameBuffer[Line][X0 - 1] = 0b00111110;
+    gFrameBuffer[Line][X0 + W] = 0b00111110;
     for (uint8_t i = 0; i < W; i++)
     {
-        gFrameBuffer[6][X0 + i] = (i < process) ? 0b00111110 : 0b00100010;
+        gFrameBuffer[Line][X0 + i] = (i < process) ? 0b00111110 : 0b00100010;
     }
+}
+
+static void __attribute__((noinline)) DOPPLER_RenderDateProgress(const DOPPLER_Satellite_t *pSat, const uint32_t Now)
+{
+    char Buffer[20];
+    uint8_t t[6];
+    DOPPLER_UnixToDate(Now, t);
+    snprintf(Buffer, sizeof(Buffer), "%02u-%02u %02u:%02u:%02u",
+             (unsigned)t[1], (unsigned)t[2], (unsigned)t[3], (unsigned)t[4], (unsigned)t[5]);
+    UI_PrintStringSmallNormal(Buffer, 2, 0, 6);
+
+    DOPPLER_DrawProgressBar(pSat, Now, 6, 101, 25); // bar body x=101..125
+}
+
+// supplementary info screen shown when key 2 is pressed in tracking mode
+static void DOPPLER_RenderExtraInfo(const DOPPLER_Satellite_t *pSat, const DOPPLER_Entry_t *pEntry, bool entryValid, const uint32_t Now)
+{
+    char Buffer[20];
+
+    // line 0: satellite name (with slot prefix)
+    snprintf(Buffer, sizeof(Buffer), "SAT%u: %s", DOPPLER_GetSlot() + 1u, pSat->name);
+    UI_PrintStringSmallNormal(Buffer, 0, 127, 0);
+
+    // line 1-4: altitude, distance, azimuth, elevation
+    if (entryValid)
+    {
+        const uint16_t az = pEntry->azimuth_0_1deg;
+        const int16_t el = pEntry->elevation_0_1deg;
+        snprintf(Buffer, sizeof(Buffer), "ALT %4ukm", (unsigned)pEntry->altitude_km);
+        UI_PrintStringSmallNormal(Buffer, 0, 127, 1);
+        snprintf(Buffer, sizeof(Buffer), "DIS %4ukm", (unsigned)pEntry->distance_km);
+        UI_PrintStringSmallNormal(Buffer, 0, 127, 2);
+        snprintf(Buffer, sizeof(Buffer), "AZ  %3u.%1u", az / 10u, az % 10u);
+        UI_PrintStringSmallNormal(Buffer, 0, 127, 3);
+        snprintf(Buffer, sizeof(Buffer), "EL  %3u.%1u",
+                 (unsigned)(el / 10), (unsigned)(el < 0 ? -(el % 10) : (el % 10)));
+        UI_PrintStringSmallNormal(Buffer, 0, 127, 4);
+    }
+    else
+    {
+        UI_PrintStringSmallNormal("ALT ----km", 0, 127, 1);
+        UI_PrintStringSmallNormal("DIS ----km", 0, 127, 2);
+        UI_PrintStringSmallNormal("AZ  ----",   0, 127, 3);
+        UI_PrintStringSmallNormal("EL  ----",   0, 127, 4);
+    }
+
+    // line 5: countdown to AOS or LOS in xxHxxMxxS format
+    const int32_t togo = (int32_t)pSat->start_unix - (int32_t)Now;
+    const int32_t remain = (int32_t)pSat->sum_time + togo;
+    if (gDopplerPassed || remain <= 0)
+    {
+        UI_PrintStringSmallNormalInverse("PASSED", 0, 127, 5);
+    }
+    else
+    {
+        uint32_t secs = (togo > 0) ? (uint32_t)togo : (uint32_t)remain;
+        uint8_t  h = (uint8_t)(secs / 3600u);
+        uint8_t  m = (uint8_t)((secs / 60u) % 60u);
+        uint8_t  s = (uint8_t)(secs % 60u);
+        const char *label = (togo > 0) ? "AOS" : "LOS";
+        snprintf(Buffer, sizeof(Buffer), "%s %02uH%02uM%02uS", label, h, m, s);
+        UI_PrintStringSmallNormal(Buffer, 0, 127, 5);
+    }
+
+    // line 6: keep the familiar date/progress bar
+    DOPPLER_RenderDateProgress(pSat, Now);
 }
 
 void DOPPLER_Render(void)
@@ -800,7 +931,43 @@ void DOPPLER_Render(void)
     if (!DOPPLER_HasData())
     {
         UI_PrintString("NO DATA", 0, 127, 1, 8);
-        UI_PrintStringSmallNormal("WRITE DATA FIRST", 0, 127, 3);
+        char buf[20];
+        snprintf(buf, sizeof(buf), "SLOT%u EMPTY", DOPPLER_GetSlot() + 1u);
+        UI_PrintStringSmallNormal(buf, 0, 127, 3);
+        // slot map: list the slots that actually hold a pass
+        snprintf(buf, sizeof(buf), "DATA IN:");
+        uint8_t found = 0;
+        for (uint8_t s = 0; s < DOPPLER_SLOT_COUNT; s++)
+        {
+            if (DOPPLER_SlotHasData(s))
+            {
+                const size_t l = strlen(buf);
+                snprintf(buf + l, sizeof(buf) - l, " %u", (unsigned)(s + 1u));
+                found++;
+            }
+        }
+        if (found == 0)
+        {
+            // Nothing valid anywhere: dump slot 1 raw fields to pinpoint why.
+            DOPPLER_Diag_t d;
+            if (DOPPLER_DiagSlot(0, &d))
+            {
+                snprintf(buf, sizeof(buf), "S1 n%u s%u", (unsigned)d.name0, (unsigned)d.sum_time);
+                UI_PrintStringSmallNormal(buf, 0, 127, 4);
+                snprintf(buf, sizeof(buf), "CRC %02X/%02X", (unsigned)d.crc_calc, (unsigned)d.crc_stored);
+                UI_PrintStringSmallNormal(buf, 0, 127, 5);
+            }
+            else
+            {
+                snprintf(buf, sizeof(buf), "ALL SLOTS EMPTY");
+                UI_PrintStringSmallNormal(buf, 0, 127, 4);
+            }
+        }
+        else
+        {
+            UI_PrintStringSmallNormal(buf, 0, 127, 4);
+        }
+        UI_PrintStringSmallNormal("F+1-4 SEL", 0, 127, 6);
         ST7565_BlitFullScreen();
         return;
     }
@@ -808,6 +975,13 @@ void DOPPLER_Render(void)
     const uint32_t now = RTC_GetUnix32();
 
     DOPPLER_RenderStatusStrip(pSat);
+
+    if (gDopplerShowExtra)
+    {
+        DOPPLER_RenderExtraInfo(pSat, &gDopplerEntry, gDopplerEntryValid, now);
+        ST7565_BlitFullScreen();
+        return;
+    }
 
     // waiting: show the live VFO frequency (radio not retuned yet);
     // tracking/passed: show the tracked (or last) downlink entry

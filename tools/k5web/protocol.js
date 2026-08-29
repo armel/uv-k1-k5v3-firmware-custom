@@ -12,10 +12,11 @@
  *   - payload is obfuscated with a 16-byte XOR key before transmission
  *   - Footer ID 0xBADC
  *
- * Doppler commands (see App/app/uart.c):
- *   0x05E0 erase Doppler area           -> reply 0x05E3 {status}
- *   0x05E1 write satellite block (32B)  -> reply 0x05E4 {status}
- *   0x05E2 write table entry (12B)      -> reply 0x05E5 {status}
+ * Doppler commands (see App/app/uart.c). Every command carries a slot
+ * (0..3) selecting one of the four 16 KB slots:
+ *   0x05E0 erase one slot {u8 slot, u8 pad} -> reply 0x05E3 {status}
+ *   0x05E1 write satellite block {32B sat, u8 slot, u8 pad} -> reply 0x05E4 {status}
+ *   0x05E2 write table entry {u16 index, u16 slot, 16B entry} -> reply 0x05E5 {status}
  *   status: 0 = OK, 1 = rejected
  */
 
@@ -226,7 +227,7 @@ function buildRtcTimePayload(unix2000) {
   return buf;
 }
 
-/** Builds a DOPPLER_Satellite_t block (32 bytes) as stored at 0x1D0000.
+/** Builds a DOPPLER_Satellite_t block (32 bytes) as stored at 0x1E8000.
  *  Layout (must match doppler.h, no padding):
  *    0..3 start_unix u32 | 4..13 name | 14..19 start_time | 20..25 end_time
  *    26..27 sum_time u16 | 28..29 send_ctcss u16 | 30 crc8 | 31 reserved */
@@ -246,12 +247,19 @@ function buildSatelliteBlock({ name, startTime, endTime, sumTime, sendCtcss, sta
   return buf;
 }
 
-/** Builds a DOPPLER_Entry_t (8 bytes): uplink/downlink in 10 Hz units. */
-function buildEntry(uplink10Hz, downlink10Hz) {
-  const buf = new Uint8Array(8);
+/** Builds a DOPPLER_Entry_t (16 bytes): uplink/downlink in 10 Hz units,
+ *  plus altitude (km), distance (km), azimuth (0.1 deg), elevation (0.1 deg). */
+function buildEntry(uplink10Hz, downlink10Hz, altitudeKm = 0, distanceKm = 0, azimuthDeg = 0, elevationDeg = 0) {
+  const buf = new Uint8Array(16);
   const dv = new DataView(buf.buffer);
   dv.setUint32(0, uplink10Hz, true);
   dv.setUint32(4, downlink10Hz, true);
+  dv.setUint16(8, Math.max(0, Math.round(altitudeKm)), true);
+  dv.setUint16(10, Math.max(0, Math.round(distanceKm)), true);
+  let az = Math.round(azimuthDeg * 10) % 3600;
+  if (az < 0) az += 3600;
+  dv.setUint16(12, az, true);
+  dv.setInt16(14, Math.round(elevationDeg * 10), true);
   return buf;
 }
 

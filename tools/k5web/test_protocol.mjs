@@ -67,17 +67,23 @@ assert.equal(crc8(sat.subarray(0, 30)), sat[30], "CRC8 matches");
 console.log("✓ 卫星块构建通过");
 
 // ---- 条目构建 ----
-// 43850000 = 0x029D1910, 43750000 = 0x029B9270 (LE)
-const entry = buildEntry(43850000, 43750000);
-assert.deepEqual([...entry], [16, 25, 157, 2, 112, 146, 155, 2]);
-console.log("✓ 条目构建通过 (438.5 MHz / 437.5 MHz)");
+const entry = buildEntry(43850000, 43750000, 400, 1234, 123.4, 45.6);
+assert.equal(entry.length, 16, "entry is 16 bytes");
+const edv = new DataView(entry.buffer);
+assert.equal(edv.getUint32(0, true), 43850000, "entry uplink");
+assert.equal(edv.getUint32(4, true), 43750000, "entry downlink");
+assert.equal(edv.getUint16(8, true), 400, "entry altitude");
+assert.equal(edv.getUint16(10, true), 1234, "entry distance");
+assert.equal(edv.getUint16(12, true), 1234, "entry azimuth 123.4 deg stored as 1234");
+assert.equal(edv.getInt16(14, true), 456, "entry elevation 45.6 deg stored as 456");
+console.log("✓ 条目构建通过 (16 B：freq + altitude/distance/azimuth/elevation)");
 
 // ---- 命令帧构建 + 解码往返 ----
 const frames = [];
 frames.push(buildFrame(CMD.DOPPLER_ERASE, new Uint8Array(0)));
 frames.push(buildFrame(CMD.DOPPLER_WRITE_SAT, sat));
 frames.push(buildFrame(CMD.DOPPLER_WRITE_ENTRY, (() => {
-  const b = new Uint8Array(12);
+  const b = new Uint8Array(20);
   const dv = new DataView(b.buffer);
   dv.setUint16(0, 5, true); // index 5
   b.set(entry, 4);
@@ -103,7 +109,7 @@ assert.deepEqual([...satReply.subarray(4)], [...sat], "satellite payload intact"
 // entry 帧
 const entReply = decoded[2];
 assert.equal(new DataView(entReply.buffer).getUint16(4, true), 5, "entry index intact");
-assert.deepEqual([...entReply.subarray(8)], [...entry], "entry payload intact");
+assert.deepEqual([...entReply.subarray(8, 24)], [...entry], "entry payload intact");
 console.log("✓ 命令帧构建/分片解码往返通过");
 
 // ---- 回复解析 ----

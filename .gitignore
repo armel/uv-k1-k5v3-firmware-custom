@@ -19,3 +19,10 @@ __pycache__/
 AGENTS.md
 
 .zcode/
+
+# Windows build artifacts
+*.exe
+*.obj
+*.pdb
+*.ilk
+nul

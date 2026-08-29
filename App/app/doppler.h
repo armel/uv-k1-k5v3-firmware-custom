@@ -30,20 +30,30 @@
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
 
-// External SPI Flash layout (0x1D0000..0x1D4000, 4 sectors).
-// Kept clear of the settings area (<= 0x00A170), calibration (0x010000),
-// boot logo (0x011000) and the RF log (0x1E0000).
-#define DOPPLER_FLASH_BASE       0x1D0000u   // satellite info block
-#define DOPPLER_FLASH_TABLE      0x1D0040u   // frequency table
-#define DOPPLER_MAX_ENTRIES      1920u       // 32 min pass, one entry / s
+// External SPI Flash layout: 4 slots of 16 KB each (0x1E8000..0x1F8000).
+// Sits immediately after the RF log (0x1E0000-0x1E8000) in the flash tail,
+// clear of the settings area (<= 0x00A170), calibration (0x010000),
+// boot logo (0x011000), the multiboot voice-data region (0x14C000-0x1E2520)
+// and the RTC save block (0x1FB000).
+#define DOPPLER_SLOT_COUNT       4u          // 4 independent satellite passes
+#define DOPPLER_SLOT_SIZE        0x4000u     // 16 KB per slot (4 sectors)
+#define DOPPLER_FLASH_BASE       0x1E8000u   // first slot base
+#define DOPPLER_FLASH_TABLE_OFF  0x40u       // table offset inside a slot
+#define DOPPLER_SLOT_BASE(Slot)  (DOPPLER_FLASH_BASE + (uint32_t)(Slot) * DOPPLER_SLOT_SIZE)
+#define DOPPLER_MAX_ENTRIES      1020u       // (16 KB - 64 B) / 16 B, ~17 min pass
 
 // One frequency table entry, stored every second of the pass.
 typedef struct {
-    uint32_t uplink;    // TX frequency, in 10 Hz units (e.g. 43850000 = 438.5 MHz)
-    uint32_t downlink;  // RX frequency, in 10 Hz units
+    uint32_t uplink;          // TX frequency, in 10 Hz units (e.g. 43850000 = 438.5 MHz)
+    uint32_t downlink;        // RX frequency, in 10 Hz units
+    uint16_t altitude_km;     // satellite altitude above sea level, km
+    uint16_t distance_km;     // straight-line range from observer to satellite, km
+    uint16_t azimuth_0_1deg;  // azimuth, 0..3600 (0.1 deg)
+    int16_t  elevation_0_1deg; // elevation, -900..900 (0.1 deg); during pass >= 0
 } DOPPLER_Entry_t;
 
-// Satellite info block, 32 bytes, stored at DOPPLER_FLASH_BASE.
+// Satellite info block, 32 bytes, stored at the base of each slot
+// (DOPPLER_SLOT_BASE(Slot)).
 // Field order keeps start_unix (u32) 4-byte aligned so there is NO padding:
 // sizeof(DOPPLER_Satellite_t) == 32 exactly (the UART size check depends on it).
 // Valid data: name[9] == 0, printable name[0], CRC8 over the first 30
@@ -62,11 +72,33 @@ typedef struct {
     uint8_t  reserved;       // 31     0
 } DOPPLER_Satellite_t;
 
-// Loads and validates the satellite info block. Call once at startup.
+// Loads and validates slot 0. Call once at startup.
 void DOPPLER_Init(void);
 
-// True when a valid satellite pass is stored in Flash.
+// Selects the active slot (0..3): reloads and validates its satellite block.
+// Returns true when the slot holds valid data (DOPPLER_HasData() reflects it).
+bool DOPPLER_SelectSlot(uint8_t Slot);
+
+// Current active slot number (0..3).
+uint8_t DOPPLER_GetSlot(void);
+
+// True when a valid satellite pass is stored in the active slot.
 bool DOPPLER_HasData(void);
+
+// True when the given slot (0..3) holds a valid pass. Read-only: does not
+// change the active slot.
+bool DOPPLER_SlotHasData(uint8_t Slot);
+
+// Diagnostics for the "ALL SLOTS EMPTY" screen: dumps the raw satellite
+// block fields of one slot so a failed validation can be pinpointed.
+typedef struct {
+    uint8_t  name0;       // name[0] as stored
+    uint8_t  name9;       // name[9] as stored (must be 0)
+    uint16_t sum_time;    // as stored (must be 1..1019)
+    uint8_t  crc_calc;    // CRC-8 recomputed over the stored 30 bytes
+    uint8_t  crc_stored;  // crc8 field as stored
+} DOPPLER_Diag_t;
+bool DOPPLER_DiagSlot(uint8_t Slot, DOPPLER_Diag_t *pDiag);
 
 // Returns a pointer to the in-RAM copy of the satellite info block.
 const DOPPLER_Satellite_t *DOPPLER_GetSatellite(void);
@@ -75,28 +107,29 @@ const DOPPLER_Satellite_t *DOPPLER_GetSatellite(void);
 // second) into seconds since 2000-01-01 00:00:00.
 uint32_t DOPPLER_UnixTime(const uint8_t t[6]);
 
+// Leap-year helper, shared with doppler_mode.c.
+bool DOPPLER_IsLeapYear(uint8_t Year2000);
+
 // Inverse of DOPPLER_UnixTime: seconds since 2000-01-01 00:00:00 (Beijing
 // wall clock base) back into [year/month/day/hour/minute/second].
 void DOPPLER_UnixToDate(uint32_t Seconds, uint8_t t[6]);
 
-// Fetches the frequency table entry covering "unixNow". Returns true when
-// the pass is ongoing and a valid entry exists.
-bool DOPPLER_GetEntry(int32_t unixNow, DOPPLER_Entry_t *pEntry);
-
-// Same as DOPPLER_GetEntry but linearly interpolates between the entries
-// surrounding the current time using "ms" (0..999) as the fractional part
-// of the current second.  This gives smooth sub-second tracking when called
-// from a fast periodic hook (e.g. 100 ms).
+// Fetches the frequency/orbit table entry covering "unixNow". When ms==0
+// it returns the exact entry (no interpolation), so it can also replace the
+// old DOPPLER_GetEntry() call site.  For ms>0 it linearly interpolates
+// between the entries surrounding the current time using ms (0..999) as the
+// fractional part of the current second, giving smooth sub-second tracking
+// when called from a fast periodic hook (e.g. 100 ms).
 bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t *pEntry);
 
-// Erases the whole Doppler area (4 sectors).
-void DOPPLER_Erase(void);
+// Erases one slot (4 sectors).
+void DOPPLER_EraseSlot(uint8_t Slot);
 
 // Writes the satellite info block (CRC8 is computed internally).
-bool DOPPLER_WriteSatellite(const DOPPLER_Satellite_t *pSat);
+bool DOPPLER_WriteSatellite(uint8_t Slot, const DOPPLER_Satellite_t *pSat);
 
 // Writes one frequency table entry. Used by the serial programming tool.
-bool DOPPLER_WriteEntry(uint16_t Index, const DOPPLER_Entry_t *pEntry);
+bool DOPPLER_WriteEntry(uint8_t Slot, uint16_t Index, const DOPPLER_Entry_t *pEntry);
 
 #endif // ENABLE_FEAT_F4HWN_DOPPLER
 

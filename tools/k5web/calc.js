@@ -19,6 +19,7 @@ let satellite = null;
 
 const C_KM_S = 299792.458; // 光速 km/s
 const OMEGA = 7.2921159e-5; // 地球自转角速度 rad/s
+const EARTH_RADIUS_KM = 6371.0; // 地球平均半径，用于海拔近似
 
 /**
  * 地固(ECF)位置 -> 惯性(ECI)位置，按时刻的格林尼治恒星时角 gst 旋转。
@@ -55,6 +56,42 @@ function radialVelocity(satPosEci, satVelEci, obsPosEci) {
   return (vrx * rx + vry * ry + vrz * rz) / range;
 }
 
+/** 从地固(ECF)卫星位置、观测者位置计算高度/距离/方位角/仰角。
+ *  azimuth: 0..360 deg, elevation: -90..90 deg.
+ */
+function lookAngles(satPosEcf, obsPosEcf, obsLonRad, obsLatRad) {
+  const dx = satPosEcf.x - obsPosEcf.x;
+  const dy = satPosEcf.y - obsPosEcf.y;
+  const dz = satPosEcf.z - obsPosEcf.z;
+
+  const range = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (range < 1e-9) {
+    return { altitudeKm: 0, distanceKm: 0, azimuthDeg: 0, elevationDeg: 0 };
+  }
+
+  const sinLon = Math.sin(obsLonRad);
+  const cosLon = Math.cos(obsLonRad);
+  const sinLat = Math.sin(obsLatRad);
+  const cosLat = Math.cos(obsLatRad);
+
+  // ENU (East-North-Up) from ECF difference
+  const east = -sinLon * dx + cosLon * dy;
+  const north = -sinLat * cosLon * dx - sinLat * sinLon * dy + cosLat * dz;
+  const up = cosLat * cosLon * dx + cosLat * sinLon * dy + sinLat * dz;
+
+  let azimuthDeg = satellite.radiansToDegrees(Math.atan2(east, north));
+  if (azimuthDeg < 0) azimuthDeg += 360;
+  const elevationDeg = satellite.radiansToDegrees(Math.asin(up / range));
+  const altitudeKm = Math.sqrt(satPosEcf.x * satPosEcf.x + satPosEcf.y * satPosEcf.y + satPosEcf.z * satPosEcf.z) - EARTH_RADIUS_KM;
+
+  return {
+    altitudeKm: Math.round(altitudeKm),
+    distanceKm: Math.round(range),
+    azimuthDeg,
+    elevationDeg,
+  };
+}
+
 /** 对讲机侧需要使用的上行频率（保证卫星收到 fUp）；卫星接收 = f_tx·(1 - vr/c) */
 function uplinkFreq(fUpHz, vr) {
   return fUpHz / (1 - vr / C_KM_S);
@@ -68,7 +105,8 @@ function downlinkFreq(fDownHz, vr) {
 /**
  * 从 t0 起查找最近一次可见过境窗口（仰角 > minElevation 度）。
  * 返回 { start: Date, end: Date, entries: [{unix, uplink, downlink}] }
- * entries 每秒一条（多普勒已补偿，10Hz 单位），最多 1920 条（约 32 分钟）。
+ * entries 每秒一条（多普勒已补偿，10Hz 单位），最多 1020 条（约 17 分钟，
+ * 与固件单个 16 KB 星历槽的容量一致）。
  */
 function findPass({
   tle1, tle2,
@@ -77,7 +115,7 @@ function findPass({
   minElevation = 0,
   searchStart = new Date(),
   maxSearchHours = 24,
-  maxPassSeconds = 32 * 60 - 1,
+  maxPassSeconds = 17 * 60 - 1,
 }) {
   const satrec = satellite.twoline2satrec(tle1, tle2);
   const obsGd = {
@@ -139,20 +177,26 @@ function findPass({
 
   // 生成 1 s 步进表（sum_time + 1 条，包含首尾，供固件插值）
   const entries = [];
-  const durS = Math.round((passEnd.getTime() - passStart.getTime()) / 1000);
-  const count = Math.min(1920, durS + 1);
+  const durS = Math.min(1019, Math.round((passEnd.getTime() - passStart.getTime()) / 1000));
+  const count = Math.min(1020, durS + 1);
   for (let i = 0; i < count; i++) {
     const date = new Date(passStart.getTime() + i * 1000);
     const pv = satellite.propagate(satrec, date);
     if (pv.position === undefined || pv.velocity === undefined) {
-      entries.push({ unix: 0, uplink: 0, downlink: 0 });
+      entries.push({ unix: 0, uplink: 0, downlink: 0, altitudeKm: 0, distanceKm: 0, azimuthDeg: 0, elevationDeg: 0 });
       continue;
     }
     const vr = radialVelocity(pv.position, pv.velocity, obsEciAt(date));
+    const posEcf = satellite.eciToEcf(pv.position, satellite.gstime(date));
+    const look = lookAngles(posEcf, obsEcf, obsGd.longitude, obsGd.latitude);
     entries.push({
       unix: Math.round(date.getTime() / 1000),
       uplink: Math.round(uplinkFreq(uplinkMHz * 1e6, vr) / 10),
       downlink: Math.round(downlinkFreq(downlinkMHz * 1e6, vr) / 10),
+      altitudeKm: look.altitudeKm,
+      distanceKm: look.distanceKm,
+      azimuthDeg: look.azimuthDeg,
+      elevationDeg: look.elevationDeg,
     });
   }
 
@@ -199,7 +243,7 @@ function unixToFw(unix1970) {
   }
 })(typeof self !== "undefined" ? self : this, function () {
   return {
-    radialVelocity, uplinkFreq, downlinkFreq, observerEci,
+    radialVelocity, uplinkFreq, downlinkFreq, observerEci, lookAngles,
     findPass, dateToFwTime, unixToFw,
   };
 });

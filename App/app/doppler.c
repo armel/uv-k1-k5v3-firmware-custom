@@ -26,11 +26,12 @@
 
 static DOPPLER_Satellite_t gDopplerSatellite;
 static bool gDopplerValid = false;
+static uint8_t gDopplerSlot = 0;   // active slot 0..3
 
 // 布局契约: 结构体必须恰好 32 字节 (无填充), 否则 UART Size 校验与
 // 网页工具 (protocol.js) 的紧凑布局会错位. start_unix 已在偏移 0 保证对齐.
 _Static_assert(sizeof(DOPPLER_Satellite_t) == 32, "DOPPLER_Satellite_t must be 32 bytes");
-_Static_assert(sizeof(DOPPLER_Entry_t) == 8, "DOPPLER_Entry_t must be 8 bytes");
+_Static_assert(sizeof(DOPPLER_Entry_t) == 16, "DOPPLER_Entry_t must be 16 bytes");
 
 // Valid frequency range, in 10 Hz units (100 MHz .. 1 GHz)
 #define DOPPLER_FREQ_MIN 10000000u
@@ -50,7 +51,7 @@ static uint8_t DOPPLER_Crc8(const uint8_t *pBuffer, uint16_t Size)
     return crc;
 }
 
-static bool DOPPLER_IsLeapYear(uint8_t Year2000)
+bool DOPPLER_IsLeapYear(uint8_t Year2000)
 {
     uint16_t year = (uint16_t)2000 + Year2000;
     return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
@@ -78,15 +79,71 @@ static bool DOPPLER_IsValid(const DOPPLER_Satellite_t *pSat)
     return DOPPLER_Crc8((const uint8_t *)pSat, 30) == pSat->crc8;
 }
 
+// Reads and validates the satellite info block of one slot.
+static bool DOPPLER_LoadSlot(uint8_t Slot, DOPPLER_Satellite_t *pSat)
+{
+    if (Slot >= DOPPLER_SLOT_COUNT)
+    {
+        return false;
+    }
+    PY25Q16_ReadBuffer(DOPPLER_SLOT_BASE(Slot), pSat, sizeof(*pSat));
+    return DOPPLER_IsValid(pSat);
+}
+
 void DOPPLER_Init(void)
 {
-    PY25Q16_ReadBuffer(DOPPLER_FLASH_BASE, &gDopplerSatellite, sizeof(gDopplerSatellite));
-    gDopplerValid = DOPPLER_IsValid(&gDopplerSatellite);
+    gDopplerSlot = 0;
+    gDopplerValid = DOPPLER_LoadSlot(0, &gDopplerSatellite);
+}
+
+uint8_t DOPPLER_GetSlot(void)
+{
+    return gDopplerSlot;
+}
+
+bool DOPPLER_SelectSlot(uint8_t Slot)
+{
+    if (Slot >= DOPPLER_SLOT_COUNT)
+    {
+        return false;
+    }
+
+    DOPPLER_Satellite_t sat;
+    const bool valid = DOPPLER_LoadSlot(Slot, &sat);
+    gDopplerSlot = Slot;
+    if (valid)
+    {
+        memcpy(&gDopplerSatellite, &sat, sizeof(sat));
+    }
+    gDopplerValid = valid;
+    return valid;
 }
 
 bool DOPPLER_HasData(void)
 {
     return gDopplerValid;
+}
+
+bool DOPPLER_SlotHasData(uint8_t Slot)
+{
+    DOPPLER_Satellite_t sat;
+    return DOPPLER_LoadSlot(Slot, &sat);
+}
+
+bool DOPPLER_DiagSlot(uint8_t Slot, DOPPLER_Diag_t *pDiag)
+{
+    if (Slot >= DOPPLER_SLOT_COUNT || pDiag == NULL)
+    {
+        return false;
+    }
+    DOPPLER_Satellite_t sat;
+    PY25Q16_ReadBuffer(DOPPLER_SLOT_BASE(Slot), &sat, sizeof(sat));
+    pDiag->name0     = (uint8_t)sat.name[0];
+    pDiag->name9     = (uint8_t)sat.name[9];
+    pDiag->sum_time  = sat.sum_time;
+    pDiag->crc_stored = sat.crc8;
+    pDiag->crc_calc  = DOPPLER_Crc8((const uint8_t *)&sat, 30);
+    return true;
 }
 
 const DOPPLER_Satellite_t *DOPPLER_GetSatellite(void)
@@ -167,37 +224,6 @@ void DOPPLER_UnixToDate(uint32_t Seconds, uint8_t t[6])
     t[2] = (uint8_t)(days + 1u);
 }
 
-bool DOPPLER_GetEntry(int32_t unixNow, DOPPLER_Entry_t *pEntry)
-{
-    if (!gDopplerValid || pEntry == NULL)
-    {
-        return false;
-    }
-
-    const int32_t diff = unixNow - (int32_t)gDopplerSatellite.start_unix;
-    if (diff < 0)
-    {
-        return false; // pass not started yet
-    }
-
-    const uint16_t entryCount = (uint16_t)(gDopplerSatellite.sum_time + 1u);
-    const uint16_t index = (uint16_t)diff;
-    if (index >= entryCount || index >= DOPPLER_MAX_ENTRIES)
-    {
-        return false; // pass already over
-    }
-
-    PY25Q16_ReadBuffer(DOPPLER_FLASH_TABLE + (uint32_t)index * sizeof(DOPPLER_Entry_t),
-                       pEntry, sizeof(DOPPLER_Entry_t));
-
-    if (pEntry->uplink < DOPPLER_FREQ_MIN || pEntry->uplink > DOPPLER_FREQ_MAX ||
-        pEntry->downlink < DOPPLER_FREQ_MIN || pEntry->downlink > DOPPLER_FREQ_MAX)
-    {
-        return false;
-    }
-    return true;
-}
-
 bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t *pEntry)
 {
     if (!gDopplerValid || pEntry == NULL || ms > 999u)
@@ -218,8 +244,9 @@ bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t 
         return false; // pass already over
     }
 
+    const uint32_t tableBase = DOPPLER_SLOT_BASE(gDopplerSlot) + DOPPLER_FLASH_TABLE_OFF;
     DOPPLER_Entry_t e0;
-    PY25Q16_ReadBuffer(DOPPLER_FLASH_TABLE + (uint32_t)index * sizeof(DOPPLER_Entry_t),
+    PY25Q16_ReadBuffer(tableBase + (uint32_t)index * sizeof(DOPPLER_Entry_t),
                        &e0, sizeof(e0));
     if (e0.uplink < DOPPLER_FREQ_MIN || e0.uplink > DOPPLER_FREQ_MAX ||
         e0.downlink < DOPPLER_FREQ_MIN || e0.downlink > DOPPLER_FREQ_MAX)
@@ -235,7 +262,7 @@ bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t 
     }
 
     DOPPLER_Entry_t e1;
-    PY25Q16_ReadBuffer(DOPPLER_FLASH_TABLE + (uint32_t)nextIndex * sizeof(DOPPLER_Entry_t),
+    PY25Q16_ReadBuffer(tableBase + (uint32_t)nextIndex * sizeof(DOPPLER_Entry_t),
                        &e1, sizeof(e1));
     if (e1.uplink < DOPPLER_FREQ_MIN || e1.uplink > DOPPLER_FREQ_MAX ||
         e1.downlink < DOPPLER_FREQ_MIN || e1.downlink > DOPPLER_FREQ_MAX)
@@ -244,27 +271,44 @@ bool DOPPLER_GetEntryInterpolated(int32_t unixNow, uint16_t ms, DOPPLER_Entry_t 
         return true;
     }
 
-    // Linear interpolation in 10 Hz units: e0 + (e1 - e0) * ms / 1000.
+    // Linear interpolation: e0 + (e1 - e0) * ms / 1000.
     const int32_t deltaUp   = (int32_t)e1.uplink   - (int32_t)e0.uplink;
     const int32_t deltaDown = (int32_t)e1.downlink - (int32_t)e0.downlink;
     pEntry->uplink   = (uint32_t)((int32_t)e0.uplink   + (deltaUp   * (int32_t)ms) / 1000);
     pEntry->downlink = (uint32_t)((int32_t)e0.downlink + (deltaDown * (int32_t)ms) / 1000);
 
+    const int32_t deltaAlt = (int32_t)e1.altitude_km - (int32_t)e0.altitude_km;
+    const int32_t deltaDst = (int32_t)e1.distance_km - (int32_t)e0.distance_km;
+    const int32_t deltaAz  = (int32_t)e1.azimuth_0_1deg - (int32_t)e0.azimuth_0_1deg;
+    const int32_t deltaEl  = (int32_t)e1.elevation_0_1deg - (int32_t)e0.elevation_0_1deg;
+    pEntry->altitude_km    = (uint16_t)((int32_t)e0.altitude_km    + (deltaAlt * (int32_t)ms) / 1000);
+    pEntry->distance_km    = (uint16_t)((int32_t)e0.distance_km    + (deltaDst * (int32_t)ms) / 1000);
+    pEntry->azimuth_0_1deg = (uint16_t)((int32_t)e0.azimuth_0_1deg + (deltaAz  * (int32_t)ms) / 1000);
+    pEntry->elevation_0_1deg = (int16_t)((int32_t)e0.elevation_0_1deg + (deltaEl * (int32_t)ms) / 1000);
+
     return true;
 }
 
-void DOPPLER_Erase(void)
+void DOPPLER_EraseSlot(uint8_t Slot)
 {
-    for (uint32_t addr = DOPPLER_FLASH_BASE; addr < DOPPLER_FLASH_BASE + 4u * 0x1000u; addr += 0x1000u)
+    if (Slot >= DOPPLER_SLOT_COUNT)
+    {
+        return;
+    }
+    const uint32_t base = DOPPLER_SLOT_BASE(Slot);
+    for (uint32_t addr = base; addr < base + 4u * 0x1000u; addr += 0x1000u)
     {
         PY25Q16_SectorErase(addr);
     }
-    gDopplerValid = false;
+    if (Slot == gDopplerSlot)
+    {
+        gDopplerValid = false;
+    }
 }
 
-bool DOPPLER_WriteSatellite(const DOPPLER_Satellite_t *pSat)
+bool DOPPLER_WriteSatellite(uint8_t Slot, const DOPPLER_Satellite_t *pSat)
 {
-    if (pSat == NULL)
+    if (pSat == NULL || Slot >= DOPPLER_SLOT_COUNT)
     {
         return false;
     }
@@ -275,23 +319,27 @@ bool DOPPLER_WriteSatellite(const DOPPLER_Satellite_t *pSat)
     copy.reserved = 0;
     copy.crc8 = DOPPLER_Crc8((const uint8_t *)&copy, 30);
 
-    PY25Q16_WriteBuffer(DOPPLER_FLASH_BASE, &copy, sizeof(copy), false);
+    PY25Q16_WriteBuffer(DOPPLER_SLOT_BASE(Slot), &copy, sizeof(copy), false);
 
     // 数据完整性由 CRC8 保证 (DOPPLER_IsValid 校验), 无需写后回读。
     // 注: 写后立即用 DMA 回读 (SPI_ReadBuf) 数据不可靠, 不用它做校验。
-    memcpy(&gDopplerSatellite, &copy, sizeof(copy));
-    gDopplerValid = DOPPLER_IsValid(&gDopplerSatellite);
-    return gDopplerValid;
+    if (Slot == gDopplerSlot)
+    {
+        memcpy(&gDopplerSatellite, &copy, sizeof(copy));
+        gDopplerValid = DOPPLER_IsValid(&gDopplerSatellite);
+    }
+    return true;
 }
 
-bool DOPPLER_WriteEntry(uint16_t Index, const DOPPLER_Entry_t *pEntry)
+bool DOPPLER_WriteEntry(uint8_t Slot, uint16_t Index, const DOPPLER_Entry_t *pEntry)
 {
-    if (pEntry == NULL || Index >= DOPPLER_MAX_ENTRIES)
+    if (pEntry == NULL || Slot >= DOPPLER_SLOT_COUNT || Index >= DOPPLER_MAX_ENTRIES)
     {
         return false;
     }
 
-    const uint32_t addr = DOPPLER_FLASH_TABLE + (uint32_t)Index * sizeof(DOPPLER_Entry_t);
+    const uint32_t addr = DOPPLER_SLOT_BASE(Slot) + DOPPLER_FLASH_TABLE_OFF
+                          + (uint32_t)Index * sizeof(DOPPLER_Entry_t);
     PY25Q16_WriteBuffer(addr, pEntry, sizeof(DOPPLER_Entry_t), false);
     return true;
 }

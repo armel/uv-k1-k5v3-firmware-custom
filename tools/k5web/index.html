@@ -174,6 +174,7 @@
       <div><label>纬度 (度)</label><input id="lat" value="31.23"></div>
       <div><label>经度 (度)</label><input id="lon" value="121.47"></div>
       <div><label>海拔 (m)</label><input id="alt" value="11"></div>
+      <div><label>最低仰角 (度)</label><input id="minEl" value="0" type="number" step="0.5"></div>
     </div>
     <div class="row" style="margin-top:8px">
       <button id="btnMap" class="secondary" type="button" style="flex:1">📍 在地图上选点（高德）</button>
@@ -189,9 +190,18 @@
 
   <div class="card">
     <h2>3. 写入星历</h2>
-    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入（会同步写入北京时间到 RTC）。机内操作：<b>长按 0</b> 进入多普勒模式。</p>
+    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入（会同步写入北京时间到 RTC）。机内操作：<b>长按 0</b> 进入多普勒模式，<b>F+1~4</b> 切换 4 个星历槽位。</p>
     <div class="row" style="margin-top:8px">
-      <button id="btnWrite" disabled>💾 写入星历</button>
+      <div style="display:flex; align-items:center; gap:8px">
+        <label for="slotSelect">写入槽位</label>
+        <select id="slotSelect">
+          <option value="1">槽 1</option>
+          <option value="2">槽 2</option>
+          <option value="3">槽 3</option>
+          <option value="4">槽 4</option>
+        </select>
+      </div>
+      <button id="btnWrite" disabled style="margin-left:auto">💾 写入星历</button>
     </div>
     <div id="progress" class="progress"><div id="progressBar"></div></div>
   </div>

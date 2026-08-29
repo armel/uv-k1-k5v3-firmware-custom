@@ -16,6 +16,7 @@
  */
 
 #include <string.h>
+#include <stddef.h>
 
 #if !defined(ENABLE_OVERLAY)
     #include "py32f0xx.h"
@@ -161,22 +162,38 @@ typedef struct {
 } REPLY_052D_t;
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
-// Doppler satellite data programming commands (web tool -> radio)
+// Doppler satellite data programming commands (web tool -> radio).
+// Every command carries a Slot field (0..3) selecting the 16 KB slot.
 typedef struct {
     Header_t Header;
+    uint8_t Slot;
+    uint8_t Padding;
 } CMD_DOPPLER_ERASE_t;
 
 typedef struct {
-    Header_t Header;
-    DOPPLER_Satellite_t Satellite;
+    Header_t Header;              // 0..3
+    DOPPLER_Satellite_t Satellite; // 4..35 (kept first so it stays 4-byte aligned:
+                                   // the trailing Slot/Padding avoid compiler padding)
+    uint8_t Slot;                 // 36
+    uint8_t Padding;              // 37
 } CMD_DOPPLER_WRITE_SAT_t;
 
 typedef struct {
     Header_t Header;
     uint16_t Index;
-    uint16_t Padding;
+    uint16_t Slot;      // 0..3
     DOPPLER_Entry_t Entry;
 } CMD_DOPPLER_WRITE_ENTRY_t;
+
+// Layout contract with the web tool (protocol.js / app.js): member offsets
+// must match the wire payload exactly. The 32-byte satellite block carries a
+// u32, so it must sit at a 4-byte-aligned offset - it is placed right after
+// Header for that reason (a Slot field before it would insert 2 bytes of
+// compiler padding and shift every field).
+_Static_assert(offsetof(CMD_DOPPLER_ERASE_t, Slot) == 4, "CMD_DOPPLER_ERASE layout");
+_Static_assert(offsetof(CMD_DOPPLER_WRITE_SAT_t, Satellite) == 4, "CMD_DOPPLER_WRITE_SAT layout");
+_Static_assert(offsetof(CMD_DOPPLER_WRITE_SAT_t, Slot) == 36, "CMD_DOPPLER_WRITE_SAT layout");
+_Static_assert(offsetof(CMD_DOPPLER_WRITE_ENTRY_t, Entry) == 8, "CMD_DOPPLER_WRITE_ENTRY layout");
 
 typedef struct {
     Header_t Header;
@@ -865,19 +882,21 @@ bool UART_IsCommandAvailable(uint32_t Port)
 }
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
-static void CMD_DOPPLER_ERASE(uint32_t Port, uint16_t Size)
+static void CMD_DOPPLER_ERASE(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
 {
+    const CMD_DOPPLER_ERASE_t *pCmd = (const CMD_DOPPLER_ERASE_t *)pBuffer;
     REPLY_DOPPLER_t Reply;
 
     gSerialConfigCountDown_500ms = 12; // 6 sec，编程会话保护（屏蔽 PTT/VOX 与 K5Viewer 注入）
 
     Reply.Header.ID   = 0x05E3;
     Reply.Header.Size = sizeof(Reply.Data);
-    Reply.Data.Status = (Size == 0) ? 0 : 1;
+    Reply.Data.Status = (Size == sizeof(pCmd->Slot) + sizeof(pCmd->Padding) &&
+                         pCmd->Slot < DOPPLER_SLOT_COUNT) ? 0 : 1;
 
     if (Reply.Data.Status == 0)
     {
-        DOPPLER_Erase();
+        DOPPLER_EraseSlot(pCmd->Slot);
     }
 
     SendReply(Port, &Reply, sizeof(Reply));
@@ -895,9 +914,10 @@ static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_
     Reply.Data.Status = 1;
 
     // Reject truncated/malformed payloads: never write stale buffer data to flash
-    if (Size == sizeof(pCmd->Satellite))
+    if (Size == sizeof(pCmd->Slot) + sizeof(pCmd->Padding) + sizeof(pCmd->Satellite) &&
+        pCmd->Slot < DOPPLER_SLOT_COUNT)
     {
-        Reply.Data.Status = DOPPLER_WriteSatellite(&pCmd->Satellite) ? 0 : 1;
+        Reply.Data.Status = DOPPLER_WriteSatellite(pCmd->Slot, &pCmd->Satellite) ? 0 : 1;
     }
 
     SendReply(Port, &Reply, sizeof(Reply));
@@ -914,9 +934,10 @@ static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer, uint1
     Reply.Header.Size = sizeof(Reply.Data);
     Reply.Data.Status = 1;
 
-    if (Size == sizeof(pCmd->Index) + sizeof(pCmd->Padding) + sizeof(pCmd->Entry))
+    if (Size == sizeof(pCmd->Index) + sizeof(pCmd->Slot) + sizeof(pCmd->Entry) &&
+        pCmd->Slot < DOPPLER_SLOT_COUNT)
     {
-        Reply.Data.Status = DOPPLER_WriteEntry(pCmd->Index, &pCmd->Entry) ? 0 : 1;
+        Reply.Data.Status = DOPPLER_WriteEntry(pCmd->Slot, pCmd->Index, &pCmd->Entry) ? 0 : 1;
     }
 
     SendReply(Port, &Reply, sizeof(Reply));
@@ -1077,7 +1098,7 @@ void UART_HandleCommand(uint32_t Port)
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
         case 0x05E0:
-            CMD_DOPPLER_ERASE(Port, pUART_Command->Header.Size);
+            CMD_DOPPLER_ERASE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 
         case 0x05E1:

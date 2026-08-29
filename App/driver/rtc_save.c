@@ -24,7 +24,7 @@
 
 #ifdef ENABLE_FEAT_F4HWN_DOPPLER
 
-#define RTC_SAVE_FLASH_ADDR   0x00B000u   // free physical sector, clear of settings/log/data maps
+#define RTC_SAVE_FLASH_ADDR   0x001FB000u  // 4 KB aligned, inside 0x1E2520-0x1FFFFF free tail area
 #define RTC_SAVE_MAGIC        0x52544353u // "RTCS"
 #define RTC_SAVE_RESERVED     0u
 
@@ -51,6 +51,20 @@ static uint8_t RTC_SaveCrc8(const uint8_t *pBuffer, uint16_t Size)
     return crc;
 }
 
+static bool RTC_LoadBlockFromAddress(uint32_t address, RTC_SaveBlock_t *pBlock)
+{
+    PY25Q16_ReadBuffer(address, (uint8_t *)pBlock, sizeof(*pBlock));
+
+    if (pBlock->magic != RTC_SAVE_MAGIC)
+        return false;
+    if (RTC_SaveCrc8((const uint8_t *)pBlock, 7) != pBlock->crc8)
+        return false;
+    if (pBlock->seconds < 68000000u) // reject pre-2025 timestamps
+        return false;
+
+    return true;
+}
+
 void RTC_SaveTimeToFlash(void)
 {
     RTC_SaveBlock_t block;
@@ -67,13 +81,8 @@ void RTC_SaveTimeToFlash(void)
 bool RTC_LoadTimeFromFlash(void)
 {
     RTC_SaveBlock_t block;
-    PY25Q16_ReadBuffer(RTC_SAVE_FLASH_ADDR, (uint8_t *)&block, sizeof(block));
 
-    if (block.magic != RTC_SAVE_MAGIC)
-        return false;
-    if (RTC_SaveCrc8((const uint8_t *)&block, 7) != block.crc8)
-        return false;
-    if (block.seconds < 68000000u) // reject pre-2025 timestamps
+    if (!RTC_LoadBlockFromAddress(RTC_SAVE_FLASH_ADDR, &block))
         return false;
 
     RTC_Init();

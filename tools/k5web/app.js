@@ -397,6 +397,11 @@
       showErr("观测位置经纬度无效（纬度 -90~90，经度 -180~180）");
       return;
     }
+    const minEl = parseFloat($("minEl").value);
+    if (isNaN(minEl) || minEl < 0 || minEl > 90) {
+      showErr("最低仰角无效（0~90）");
+      return;
+    }
     const btn = $("btnCalc");
     btn.disabled = true;
     btn.textContent = "⏳ 计算中...";
@@ -408,9 +413,10 @@
         tle2: tle[1],
         latDeg: lat,
         lonDeg: lon,
-        altKm: (parseFloat($("alt").value) || 0) / 1000, // 输入为米，内部用 km
+        altKm: (parseFloat($("alt").value) || 0) / 1000,
         uplinkMHz: parseFloat($("fUp").value),
         downlinkMHz: parseFloat($("fDown").value),
+        minElevation: parseFloat($("minEl").value) || 0,
         searchStart: new Date(),
         maxSearchHours: 24,
         maxPassSeconds: 32 * 60,
@@ -518,9 +524,15 @@
     const bar = $("progressBar");
     bar.style.width = "0%";
     try {
-      // 1. 擦除
-      log("擦除多普勒数据区...");
-      const e = await sendCommand(proto.CMD.DOPPLER_ERASE, new Uint8Array(0));
+      // 0. 目标槽位（0..3），每槽 16 KB / 最多 1020 条（约 17 分钟过境）
+      const slot = parseInt($("slotSelect").value, 10) - 1;
+      if (passData.entries.length > 1020) {
+        throw new Error(`过境 ${passData.durationS} 秒超过单槽上限 1020 秒（约 17 分钟），请更换过境窗口`);
+      }
+
+      // 1. 擦除目标槽位
+      log(`擦除槽位 ${slot + 1}...`);
+      const e = await sendCommand(proto.CMD.DOPPLER_ERASE, new Uint8Array([slot, 0]));
       if (e.status !== 0) throw new Error("擦除失败 status=" + e.status);
       log("擦除完成");
 
@@ -535,8 +547,14 @@
         sendCtcss: parseInt($("ctcss").value, 10),
         startUnix: calc.unixToFw(Math.round(start.getTime() / 1000)),
       });
-      log("写入卫星信息块...");
-      const s = await sendCommand(proto.CMD.DOPPLER_WRITE_SAT, sat);
+      log(`写入卫星信息块（槽位 ${slot + 1}）... sumTime=${passData.durationS} entries=${passData.entries.length}`);
+      // payload layout must match CMD_DOPPLER_WRITE_SAT_t: satellite block
+      // first (4-byte aligned), then slot + padding at the end
+      const satPayload = new Uint8Array(sat.length + 2);
+      satPayload.set(sat, 0);
+      satPayload[sat.length] = slot;
+      satPayload[sat.length + 1] = 0;
+      const s = await sendCommand(proto.CMD.DOPPLER_WRITE_SAT, satPayload);
       if (s.status !== 0) throw new Error("卫星块写入失败 status=" + s.status);
       log("卫星块完成");
 
@@ -547,10 +565,11 @@
         const n = Math.min(batch, total - i);
         for (let j = 0; j < n; j++) {
           const en = passData.entries[i + j];
-          const payload = new Uint8Array(12);
+          const payload = new Uint8Array(20);
           const dv = new DataView(payload.buffer);
           dv.setUint16(0, i + j, true); // index
-          payload.set(proto.buildEntry(en.uplink, en.downlink), 4);
+          dv.setUint16(2, slot, true);  // slot (0..3)
+          payload.set(proto.buildEntry(en.uplink, en.downlink, en.altitudeKm, en.distanceKm, en.azimuthDeg, en.elevationDeg), 4);
           const r = await sendCommand(proto.CMD.DOPPLER_WRITE_ENTRY, payload);
           if (r.status !== 0) throw new Error(`条目 ${i + j} 写入失败`);
         }
@@ -567,7 +586,7 @@
       const rtc = await sendCommand(proto.CMD.SET_RTC, rtcPayload);
       if (rtc.status !== 0) throw new Error("星历已写入，但 RTC 写入被拒 status=" + rtc.status);
 
-      setStatus("✅ 星历 + 北京时间写入完成！对讲机长按 0 进入多普勒模式即可跟踪", "ok");
+      setStatus(`✅ 星历已写入槽 ${slot + 1}，北京时间已同步！机内长按 0 进入多普勒模式，F+1~4 切换槽位`, "ok");
       log("全部完成");
     } catch (err) {
       setStatus("写入失败：" + err.message, "err");
