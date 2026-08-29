@@ -190,7 +190,7 @@
 
   <div class="card">
     <h2>3. 写入星历</h2>
-    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入（会同步写入北京时间到 RTC）。机内操作：<b>长按 0</b> 进入多普勒模式，<b>F+1~4</b> 切换 4 个星历槽位。</p>
+    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入（会同步写入北京时间到 RTC）。机内操作：<b>长按 0</b> 进入多普勒模式，<b>F+1~4</b> 切换 4 个星历槽位。<b style="color:#c62828">"删除全部星历"会清空 1-4 槽位数据，不可恢复。</b></p>
     <div class="row" style="margin-top:8px">
       <div style="display:flex; align-items:center; gap:8px">
         <label for="slotSelect">写入槽位</label>
@@ -201,7 +201,8 @@
           <option value="4">槽 4</option>
         </select>
       </div>
-      <button id="btnWrite" disabled style="margin-left:auto">💾 写入星历</button>
+      <button id="btnEraseAll" class="danger" type="button" style="margin-left:auto">🗑️ 删除全部星历</button>
+      <button id="btnWrite" disabled>💾 写入星历</button>
     </div>
     <div id="progress" class="progress"><div id="progressBar"></div></div>
   </div>

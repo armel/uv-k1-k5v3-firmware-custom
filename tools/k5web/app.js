@@ -595,6 +595,28 @@
       $("btnWrite").disabled = false;
     }
   });
+
+  // ---------- 删除全部星历（1-4 槽） ----------
+  $("btnEraseAll").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!confirm("将删除 1-4 槽位的全部星历数据，此操作不可恢复。确定继续？")) return;
+    const btn = $("btnEraseAll");
+    btn.disabled = true;
+    try {
+      for (let slot = 0; slot < 4; slot++) {
+        log(`删除槽位 ${slot + 1}...`);
+        const e = await sendCommand(proto.CMD.DOPPLER_ERASE, new Uint8Array([slot, 0]));
+        if (e.status !== 0) throw new Error(`槽位 ${slot + 1} 删除失败 status=${e.status}`);
+        log(`槽位 ${slot + 1} 删除完成`);
+      }
+      setStatus("✅ 1-4 槽位星历已全部删除", "ok");
+    } catch (err) {
+      setStatus("删除失败：" + err.message, "err");
+      log("删除异常：" + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
   // ---------- 写入精确时间（联网获取北京时间写入 RTC） ----------
   // 优先访问本机 NTP 代理（time_proxy.py），获取真正的 NTP 时间；
   // 代理未启动或失败时，回退到 HTTP Date 头 / worldtimeapi / 本机时间。
