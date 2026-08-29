@@ -26,16 +26,48 @@
 #include "driver/gpio.h"
 #include "ui/helper.h"
 
-/* Highlight a row (same rounded-invert look as the multiboot selector). */
-static void app_invert_row(uint8_t line)
+/* "F4HWN APPS" banner and the same thin separator used by the multiboot
+ * selector.  Bit 3 leaves room for the selected-row capsule's top edge. */
+static void app_status_bar(void)
 {
-    gFrameBuffer[line][0] ^= 0x7Fu;
-    for (uint8_t x = 1u; x < LCD_WIDTH - 1u; x++)
+    UI_StatusClear();
+    GUI_DisplaySmallestInverse("F4HWN APPS", 44, 0, true, true, 84);
+
+    for (uint8_t x = 2u; x < LCD_WIDTH - 2u; x++)
+        gFrameBuffer[0][x] |= 0x08u;
+}
+
+/* Bottom key hints, matching the multiboot selector. */
+static void app_key_hints(void)
+{
+    const uint8_t sp = 6u;
+    const char *act_exit = "QUIT";
+    const uint8_t ae = (uint8_t)strlen(act_exit);
+    const uint8_t xm = 4u;
+    const uint8_t xe = (uint8_t)(124u - ae * 4u - sp - 16u);
+
+    GUI_DisplaySmallestInverse("MENU", xm, 6, false, true, (uint8_t)(xm + 16u));
+    GUI_DisplaySmallest("RUN", (uint8_t)(xm + 16u + sp), 49, false, true);
+
+    GUI_DisplaySmallestInverse("EXIT", xe, 6, false, true, (uint8_t)(xe + 16u));
+    GUI_DisplaySmallest(act_exit, (uint8_t)(xe + 16u + sp), 49, false, true);
+}
+
+/* Fixed selection capsule around the primary information (the app name).
+ * Slot number stays in the normal font; size is plain 3x5 metadata. */
+#define APP_NAME_BOX_START 12u
+#define APP_NAME_BOX_END   102u
+#define APP_NAME_TEXT_X    14u
+
+static void app_invert_name(uint8_t line)
+{
+    gFrameBuffer[line][APP_NAME_BOX_START] ^= 0x7Fu;
+    for (uint8_t x = APP_NAME_BOX_START + 1u; x < APP_NAME_BOX_END; x++)
     {
         gFrameBuffer[line][x]      ^= 0xFFu;
         gFrameBuffer[line - 1u][x] ^= 0x80u;
     }
-    gFrameBuffer[line][LCD_WIDTH - 1u] ^= 0x7Fu;
+    gFrameBuffer[line][APP_NAME_BOX_END] ^= 0x7Fu;
 }
 
 /* Debounced blocking key read, then wait for release (mirrors mb_get_key). */
@@ -82,6 +114,26 @@ static void app_copy(char *dst, uint8_t cap, const char *src, uint8_t src_cap)
     dst[n] = '\0';
 }
 
+/* Display the code payload rounded up to 0.1 KiB, so the compact value never
+ * understates the space occupied by the app.  The space before "KB" is omitted
+ * because this secondary value is rendered in the tiny 3x5 font. */
+static void app_format_size(char out[6], uint32_t bytes)
+{
+    if (bytes > APP_OVERLAY_MAX)
+    {
+        memcpy(out, "--KB", 5u);
+        return;
+    }
+
+    const uint16_t tenths = (uint16_t)((bytes * 10u + 1023u) / 1024u);
+    out[0] = (char)('0' + tenths / 10u);
+    out[1] = '.';
+    out[2] = (char)('0' + tenths % 10u);
+    out[3] = 'K';
+    out[4] = 'B';
+    out[5] = '\0';
+}
+
 /* Human-readable reason for an APP_LaunchOverlay / APP_ValidateSlot failure. */
 static const char *app_err_text(uint8_t rc)
 {
@@ -118,64 +170,78 @@ static void app_show_error(const char *name, uint8_t rc)
     app_get_key();   /* blocking: dismiss on any key */
 }
 
-/* Visible app rows (framebuffer lines 1..APP_MENU_ROWS; line 0 is the header). */
-#define APP_MENU_ROWS 6u
+/* Five visible slots; line 0 holds the separator and line 6 the key hints. */
+#define APP_MENU_ROWS 5u
+#define APP_MENU_SLOT_COUNT 8u
+
+_Static_assert(APP_MENU_SLOT_COUNT <= APP_SLOT_COUNT,
+               "APP_MENU_SLOT_COUNT exceeds the physical app slot count");
 
 void APP_MenuOpen(void)
 {
-    /* Apps are installed from UV Studio (0x073x) into physical slots 0..N-1
-     * (shown to the user as 1..N there). Scan them all; the list is empty until
-     * the user pushes one ("No apps installed"). */
-    app_header_t hdr[APP_SLOT_COUNT];
-    uint8_t list[APP_SLOT_COUNT];   /* slot indices of the committed apps */
-    uint8_t count = 0;
+    /* Apps are installed from UV Studio (0x073x) into physical slots 0..N-1,
+     * shown here as 1..N.  Keep empty slots in the list so their location is
+     * visible and selectable while scrolling. */
+    app_header_t hdr[APP_MENU_SLOT_COUNT];
+    bool installed[APP_MENU_SLOT_COUNT];
 
-    for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++)
+    for (uint8_t slot = 0; slot < APP_MENU_SLOT_COUNT; slot++)
     {
-        if (APP_SlotInfo(slot, &hdr[slot]) == APP_OK &&
-            (hdr[slot].flags & APP_FLAG_COMMITTED))
-            list[count++] = slot;
+        installed[slot] = APP_SlotInfo(slot, &hdr[slot]) == APP_OK &&
+                          (hdr[slot].flags & APP_FLAG_COMMITTED);
     }
 
-    /* Remember the cursor across open/close of the Apps menu. Clamp in case the
-     * installed-app set changed since we were last here. */
+    /* Remember the physical slot and scrolling window across menu openings. */
     static uint8_t sel = 0;
     static uint8_t top = 0;             /* first visible row of the scrolling window */
-    if (count == 0u || sel >= count)
+    if (sel >= APP_MENU_SLOT_COUNT || top > APP_MENU_SLOT_COUNT - APP_MENU_ROWS)
         sel = top = 0u;
     app_wait_release();
 
     for (;;)
     {
         UI_DisplayClear();
-        UI_StatusClear();   /* wipe the VFO status line (DW, battery, ...) first */
-        /* 10 glyphs x ~4 px = 40 px wide, centred: x=(128-40)/2=44, endX=x+40. */
-        GUI_DisplaySmallestInverse("F4HWN APPS", 44, 0, true, true, 84);
+        app_status_bar();   /* also wipes the VFO status line (DW, battery, ...) */
 
-        if (count == 0)
-        {
-            UI_PrintStringSmallNormal("No apps installed", 2, 126, 3);
-        }
-        else
-        {
-            /* Scrolling window: slide [top, top+APP_MENU_ROWS) so it always holds
-             * the selection, keeping all APP_SLOT_COUNT apps reachable - not just
-             * the first APP_MENU_ROWS. */
-            if (sel < top)
-                top = sel;
-            else if (sel >= (uint8_t)(top + APP_MENU_ROWS))
-                top = (uint8_t)(sel - APP_MENU_ROWS + 1u);
+        /* Slide [top, top+APP_MENU_ROWS) so it always contains the selection. */
+        if (sel < top)
+            top = sel;
+        else if (sel >= (uint8_t)(top + APP_MENU_ROWS))
+            top = (uint8_t)(sel - APP_MENU_ROWS + 1u);
 
-            for (uint8_t i = top; i < count && (uint8_t)(i - top) < APP_MENU_ROWS; i++)
+        for (uint8_t slot = top;
+             slot < APP_MENU_SLOT_COUNT && (uint8_t)(slot - top) < APP_MENU_ROWS;
+             slot++)
+        {
+            char number[2];
+            char name[14];
+            char size[6];
+            const uint8_t visible_number = (uint8_t)(slot + 1u);
+            const uint8_t fbLine = (uint8_t)(slot - top + 1u);
+
+            number[0] = (char)('0' + visible_number);
+            number[1] = '\0';
+
+            UI_PrintStringSmallNormal(number, 2u, 0, fbLine);
+            if (installed[slot])
             {
-                char line[19];
-                app_copy(line, sizeof(line), hdr[list[i]].name, APP_NAME_LEN);
-                const uint8_t fbLine = (uint8_t)(i - top + 1u);
-                UI_PrintStringSmallNormal(line, 2, 0, fbLine);
-                if (i == sel)
-                    app_invert_row(fbLine);
+                app_copy(name, sizeof(name), hdr[slot].name, APP_NAME_LEN);
+                app_format_size(size, hdr[slot].code_size);
+                UI_PrintStringSmallNormal(name, APP_NAME_TEXT_X, 0, fbLine);
+                GUI_DisplaySmallest(size,
+                                    (uint8_t)(LCD_WIDTH - 2u - strlen(size) * 4u),
+                                    (uint8_t)(fbLine * 8u + 1u), false, true);
             }
+            else
+            {
+                UI_PrintStringSmallNormal("Empty", APP_NAME_TEXT_X, 0, fbLine);
+            }
+
+            if (slot == sel)
+                app_invert_name(fbLine);
         }
+
+        app_key_hints();
 
         ST7565_BlitStatusLine();
         ST7565_BlitFullScreen();
@@ -183,22 +249,23 @@ void APP_MenuOpen(void)
         const KEY_Code_t key = app_get_key();
         if (key == KEY_EXIT)
             return;
-        if (count == 0)
-            continue;
 
         switch (key)
         {
             case KEY_UP:
-                sel = (sel == 0u) ? (uint8_t)(count - 1u) : (uint8_t)(sel - 1u);
+                sel = (sel == 0u) ? (uint8_t)(APP_MENU_SLOT_COUNT - 1u) : (uint8_t)(sel - 1u);
                 break;
             case KEY_DOWN:
-                sel = (uint8_t)((sel + 1u) % count);
+                sel = (uint8_t)((sel + 1u) % APP_MENU_SLOT_COUNT);
                 break;
             case KEY_MENU:
             {
-                const uint8_t rc = APP_LaunchOverlay(list[sel]);  /* runs until the app exits */
+                if (!installed[sel])
+                    break;
+
+                const uint8_t rc = APP_LaunchOverlay(sel);  /* runs until the app exits */
                 if (rc != APP_OK)
-                    app_show_error(hdr[list[sel]].name, rc);      /* no longer silent */
+                    app_show_error(hdr[sel].name, rc);      /* no longer silent */
                 app_wait_release();
                 break;
             }

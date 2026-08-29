@@ -85,6 +85,8 @@ static uint8_t mb_copy_slot_version(char *dst, uint8_t cap, const mb_slot_header
             header->fw_version[i + 1u] >= '0' &&
             header->fw_version[i + 1u] <= '9')
         {
+            if (n + 1u < cap)
+                dst[n++] = 'v';
             i++;
             while (n + 1u < cap && i < MB_VERSION_LEN)
             {
@@ -136,15 +138,21 @@ static void mb_key_hints(const char *act_menu, const char *act_exit)
     GUI_DisplaySmallest(act_exit, (uint8_t)(xe + 16u + sp), 49, false, true);
 }
 
-static void mb_invert_rounded_row(uint8_t line)
+/* Fixed selection capsule around the firmware name.  The slot index stays in
+ * the normal font while the version is plain 3x5 metadata. */
+#define MB_NAME_BOX_START 12u
+#define MB_NAME_BOX_END   96u
+#define MB_NAME_TEXT_X    14u
+
+static void mb_invert_name(uint8_t line)
 {
-    gFrameBuffer[line][0] ^= 0x7Fu;
-    for (uint8_t x = 1u; x < LCD_WIDTH - 1u; x++)
+    gFrameBuffer[line][MB_NAME_BOX_START] ^= 0x7Fu;
+    for (uint8_t x = MB_NAME_BOX_START + 1u; x < MB_NAME_BOX_END; x++)
     {
         gFrameBuffer[line][x] ^= 0xFFu;
         gFrameBuffer[line - 1u][x] ^= 0x80u;
     }
-    gFrameBuffer[line][LCD_WIDTH - 1u] ^= 0x7Fu;
+    gFrameBuffer[line][MB_NAME_BOX_END] ^= 0x7Fu;
 }
 
 static void mb_show_message(const char *line1, const char *line2, const char *line3)
@@ -218,8 +226,8 @@ static void mb_render_slots(uint8_t selected,
                             const mb_slot_header_t headers[MB_SLOT_COUNT],
                             const uint8_t status[MB_SLOT_COUNT])
 {
-    char line[19]; /* 18 glyphs max: 18 * 7 px fits from x=2 to x=126. */
-    char version[MB_VERSION_LEN];
+    char name[13];
+    char version[8]; /* v + up to six version digits/dots in the 3x5 column. */
 
     UI_DisplayClear();
     mb_status_bar();
@@ -227,50 +235,40 @@ static void mb_render_slots(uint8_t selected,
     for (uint8_t slot = 0; slot < MB_SLOT_COUNT; slot++)
     {
         const uint8_t fbLine = (uint8_t)(slot + 1u); /* page 1 stays blank */
+        char index[2];
         uint8_t version_len = 0;
         uint8_t version_x = 0;
 
-        memset(line, 0, sizeof(line));
+        memset(name, 0, sizeof(name));
         memset(version, 0, sizeof(version));
         /* Slot 0 is the auto-backed-up main firmware: label it 'M' (Main) so it
          * reads apart from the numbered user slots 1..4. */
-        line[0] = (slot == 0u) ? 'M' : (char)('0' + slot);
-        line[1] = ' ';
-        line[2] = ' ';
+        index[0] = (slot == 0u) ? 'M' : (char)('0' + slot);
+        index[1] = '\0';
 
         if (status[slot] == MB_OK)
         {
-            uint8_t name_cap = sizeof(line) - 3u;
-
             version_len = mb_copy_slot_version(version, sizeof(version), &headers[slot]);
             if (version_len)
-            {
-                const uint8_t name_x = 2u + 3u * 7u;
-                uint8_t available;
-
-                version_x = (uint8_t)(LCD_WIDTH - 2u - version_len * 7u);
-                available = version_x > name_x
-                    ? (uint8_t)((version_x - name_x) / 7u)
-                    : 0u;
-                if (available + 1u < name_cap)
-                    name_cap = available + 1u;
-            }
+                version_x = (uint8_t)(LCD_WIDTH - 2u - version_len * 4u);
 
             if (headers[slot].name[0])
-                mb_copy_label(&line[3], name_cap, headers[slot].name, MB_NAME_LEN);
+                mb_copy_label(name, sizeof(name), headers[slot].name, MB_NAME_LEN);
             else if (!version_len)
-                mb_copy_label(&line[3], name_cap, headers[slot].fw_version, MB_VERSION_LEN);
+                mb_copy_label(name, sizeof(name), headers[slot].fw_version, MB_VERSION_LEN);
         }
         else
-            mb_copy_label(&line[3], sizeof(line) - 3u, mb_error_text(status[slot]), 20u);
+            mb_copy_label(name, sizeof(name), mb_error_text(status[slot]), 20u);
 
-        UI_PrintStringSmallNormal(line, 2, 0, fbLine);
+        UI_PrintStringSmallNormal(index, 2u, 0, fbLine);
+        UI_PrintStringSmallNormal(name, MB_NAME_TEXT_X, 0, fbLine);
         if (version_len)
-            UI_PrintStringSmallNormal(version, version_x, 0, fbLine);
+            GUI_DisplaySmallest(version, version_x,
+                                (uint8_t)(fbLine * 8u + 1u), false, true);
 
-        /* Selected row: full-width rounded inverse capsule. */
+        /* Selected row: fixed rounded inverse capsule around the name only. */
         if (slot == selected)
-            mb_invert_rounded_row(fbLine);
+            mb_invert_name(fbLine);
     }
 
     mb_key_hints("SELECT", "QUIT");
