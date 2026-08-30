@@ -103,6 +103,9 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header);
  * Returns when the app exits; the internal flash is never touched. */
 uint8_t APP_LaunchOverlay(uint8_t slot);
 
+/* Find the first valid app with this exact header name and launch it. */
+uint8_t APP_LaunchOverlayByName(const char *name);
+
 /* Host-tool slot management (external flash only, never brick-critical). */
 uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header);
 uint8_t APP_SlotErase(uint8_t slot);

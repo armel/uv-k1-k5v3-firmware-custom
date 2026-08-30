@@ -633,6 +633,19 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
     return APP_OK;
 }
 
+uint8_t APP_LaunchOverlayByName(const char *name)
+{
+    app_header_t h;
+
+    for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
+        if (APP_ValidateSlot(slot, &h) == APP_OK &&
+            strncmp(h.name, name, APP_NAME_LEN) == 0)
+            return APP_LaunchOverlay(slot);
+    }
+
+    return APP_ERR_MAGIC;
+}
+
 uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header)
 {
     if (slot >= APP_SLOT_COUNT)
