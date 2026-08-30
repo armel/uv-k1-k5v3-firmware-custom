@@ -35,6 +35,7 @@
 #include "driver/backlight.h"
 #include "app/app.h"
 #include "ui/helper.h"
+#include "ui/main.h"
 #include "ui/status.h"
 #include "board.h"
 #include "audio.h"
@@ -276,7 +277,8 @@ static void app_trivfo_get(uint8_t index, app_trivfo_info_t *info)
 #endif
     info->code_type  = vfo->pRX->CodeType;
     info->code       = vfo->pRX->Code;
-    info->offset_direction = vfo->TX_OFFSET_FREQUENCY_DIRECTION;
+    info->offset_direction = (vfo->freq_config_RX.Frequency != vfo->freq_config_TX.Frequency)
+                           ? vfo->TX_OFFSET_FREQUENCY_DIRECTION : 0u;
     info->reverse    = vfo->FrequencyReverse;
     info->squelch    = gEeprom.SQUELCH_LEVEL;
     if (index == app_trivfo_selected) info->flags |= APP_TRIVFO_SELECTED;
@@ -640,6 +642,7 @@ static const app_api_t app_api = {
     .battery_sample   = app_battery_sample,
     .backlight_on     = BACKLIGHT_TurnOn,
     .backlight_update = BACKLIGHT_Update,
+    .audio_scope      = UI_DisplayAudioScopeOverlay,
     .status_line      = gStatusLine,
     .tx_state         = app_tx_state,
     .tx_set_params    = app_tx_set_params,

@@ -104,9 +104,10 @@ static char     str[16];
 static uint8_t slen(const char *s){ uint8_t n=0; while(s[n])n++; return n; }
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
 static char *puti(char *o,int v){
-    if(v<0){*o++='-';v=-v;}
+    uint32_t u;
+    if(v<0){*o++='-';u=(uint32_t)(-v);} else u=(uint32_t)v;
     char t[6]; int8_t n=0;
-    do{t[n++]=(char)('0'+v%10);v/=10;}while(v&&n<6);
+    do{t[n++]=(char)('0'+u%10u);u/=10u;}while(u&&n<6);
     while(n--)*o++=t[n];
     return o;
 }
@@ -131,7 +132,11 @@ static void setAudio(void){
 static int32_t lerp(int16_t dbm,int32_t lo,int32_t hi){
     if(dbm<=DBM_FLOOR) return lo;
     if(dbm>=DBM_CEIL)  return hi;
-    return lo + ((int32_t)(dbm-DBM_FLOOR)*(hi-lo))/(DBM_CEIL-DBM_FLOOR);
+    const int32_t delta = hi - lo;
+    const uint32_t distance = ((uint32_t)(dbm-DBM_FLOOR) *
+                               (uint32_t)(delta < 0 ? -delta : delta)) /
+                              (uint32_t)(DBM_CEIL-DBM_FLOOR);
+    return lo + (delta < 0 ? -(int32_t)distance : (int32_t)distance);
 }
 static void blip(uint16_t freq){
     A->prepare_tone();
@@ -144,23 +149,37 @@ static void blip(uint16_t freq){
 static uint8_t fillCount(int16_t dbm){
     int16_t n;
     if(dbm<-141) return 0;
-    if(dbm<=-93) n=1+(dbm+141)/6;
-    else         n=9+(dbm+93)/10;
+    if(dbm<=-93) n=(int16_t)(1u+(uint16_t)(dbm+141)/6u);
+    else         n=(int16_t)(9u+(uint16_t)(dbm+93)/10u);
     if(n>SEG_COUNT) n=SEG_COUNT;
     return (uint8_t)n;
 }
 static void buildS(char *out,int16_t dbm){
     if(dbm>=-93){ int16_t o=dbm-(-93); if(o>40)o=40; char *p=put(out,"S9+"); if(o<10)*p++='0'; i2str(p,o); }
     else if(dbm<-141) put(out,"S0")[0]='\0';
-    else { char *p=put(out,"S"); i2str(p,(dbm+147)/6); }
+    else { char *p=put(out,"S"); i2str(p,(int)((uint16_t)(dbm+147)/6u)); }
+}
+
+static int16_t div_trunc_pow2(int32_t v, uint8_t shift)
+{
+    if (v < 0)
+        return (int16_t)-((uint32_t)(-v) >> shift);
+    return (int16_t)((uint32_t)v >> shift);
+}
+
+static uint8_t cycleIndex(uint8_t value, uint8_t count, int8_t dir)
+{
+    if (dir > 0)
+        return ++value < count ? value : 0u;
+    return value > 0u ? (uint8_t)(value - 1u) : (uint8_t)(count - 1u);
 }
 
 static void histSample(void){
-    histEma += ((int16_t)curDbm*8 - histEma)/4;
+    histEma += div_trunc_pow2((int32_t)curDbm * 8 - histEma, 2u);
     if(++histTick<HIST_DECIM) return;
     histTick=0;
-    histBuf[histHead]=fillCount((int16_t)(histEma/8));
-    histHead=(uint8_t)((histHead+1)%HIST_LEN);
+    histBuf[histHead]=fillCount(div_trunc_pow2(histEma, 3u));
+    if(++histHead>=HIST_LEN) histHead=0;
 }
 static void rebase(void){
     curDbm=A->rssi_dbm();
@@ -171,7 +190,7 @@ static void rebase(void){
     histHead=0; histTick=0; histEma=(int16_t)(curDbm*8);
 }
 static void attCycle(int8_t dir){
-    attStep=(uint8_t)((attStep + (dir>0?1:ATT_COUNT-1))%ATT_COUNT);
+    attStep=cycleIndex(attStep,ATT_COUNT,dir);
     applyAtt();
     A->delay_ms(ATT_SETTLE);
     rebase();
@@ -198,7 +217,7 @@ static void drawHist(void){
         uint8_t lvl=histBuf[idx]; if(++idx>=HIST_LEN)idx=0;
         if(lvl>SEG_COUNT)lvl=SEG_COUNT;
         uint8_t x=GRAPH_X0+c;
-        uint8_t y=(uint8_t)(floorY-(lvl*span)/SEG_COUNT);
+        uint8_t y=(uint8_t)(floorY-((uint32_t)lvl*span)/(uint32_t)SEG_COUNT);
         for(uint8_t yy=y+1;yy<=floorY;yy++) if(((x+yy)&1)==0) A->draw_line(A->fb,x,yy,x,yy,true);
         if(c==0){ A->draw_line(A->fb,x,y,x,y,true); }
         else { uint8_t lo=(y<prevY)?y:prevY, hi=(y<prevY)?prevY:y; A->draw_line(A->fb,x,lo,x,hi,true); }
@@ -240,7 +259,7 @@ static void draw(void){
     i2str(put(str,"PK "),peakDbm);
     tag(str,4,2);
     i2str(put(str,"MN "),minDbm);
-    tag(str,(uint8_t)((LCD_WIDTH-slen(str)*4)/2),2);
+    tag(str,(uint8_t)(((uint32_t)LCD_WIDTH-(uint32_t)slen(str)*4u)/2u),2);
     buildS(sMeter,curDbm);
     A->print_inverse(sMeter,(uint8_t)(126-slen(sMeter)*4),2,false,true,125);
 
@@ -295,7 +314,7 @@ static void handleKeys(void){
         case APP_KEY_EXIT: running=false; break;
         case APP_KEY_1: foxGraphMode^=1; break;
         case APP_KEY_2:
-            foxAudioMode=(uint8_t)((foxAudioMode+(dir>0?1:2))%3); setAudio();
+            foxAudioMode=cycleIndex(foxAudioMode,3u,dir); setAudio();
             if(foxAudioMode==AUDIO_BEEP){ audioTick=RATE_SLOW; }
             break;
         case APP_KEY_3: attCycle(dir); break;

@@ -14,17 +14,13 @@
 #define CFG_MAGIC    0xC3u
 #define VFO_COUNT       3u
 #define MR_MAX       1024u
-#define SCOPE_SAMPLES   43u
-#define SCOPE_FLOOR    200u
 
 static const app_api_t *A;
 static app_trivfo_info_t vi[VFO_COUNT];
 static uint8_t selected, state;
 static uint16_t cChannel;
 static bool running, fArm, txDenied, channelLabelOn, showFrequency;
-static uint16_t scopeBuf[SCOPE_SAMPLES], scopeFloor;
-static uint8_t scopeWrite, scopeReady, batteryTicks;
-static bool scopeTx;
+static uint8_t batteryTicks;
 static char text[16];
 
 /* Resident status.c uses this exact 8-column inverted glyph at x=69.  Keep
@@ -75,7 +71,6 @@ static void formatCode(char *s,const app_trivfo_info_t *v){
     } else return formatStep(s,v->step);
     *o='\0';
 }
-
 static void drawMeter(const app_trivfo_info_t *v){
     int16_t dbm=v->rssi_dbm; if(dbm>-53)dbm=-53;
     uint8_t s=0,over=0;
@@ -95,37 +90,6 @@ static void drawMeter(const app_trivfo_info_t *v){
     for(uint8_t i=0;i<level;i++){
         uint8_t *p=&A->fb[0][62u+i*5u];
         p[0]=0x3e; p[1]=(i<9u)?0x3e:0x22; p[2]=(i<9u)?0x3e:0x22; p[3]=0x3e;
-    }
-}
-
-static void drawAudioScope(void){
-    if(!scopeTx){
-        for(uint8_t i=0;i<SCOPE_SAMPLES;i++) scopeBuf[i]=SCOPE_FLOOR;
-        scopeFloor=SCOPE_FLOOR; scopeWrite=scopeReady=0; scopeTx=true;
-    }
-
-    if(scopeReady>=7u) scopeBuf[scopeWrite]=A->bk_read(0x64u);
-    else scopeReady++;
-    if(scopeBuf[scopeWrite]==0u) scopeBuf[scopeWrite]=SCOPE_FLOOR;
-    scopeWrite=(uint8_t)((scopeWrite+1u)%SCOPE_SAMPLES);
-
-    uint16_t min=scopeBuf[0], max=scopeBuf[0];
-    for(uint8_t i=1;i<SCOPE_SAMPLES;i++){
-        if(scopeBuf[i]<min) min=scopeBuf[i];
-        if(scopeBuf[i]>max) max=scopeBuf[i];
-    }
-    if(scopeFloor>min) scopeFloor=(uint16_t)(scopeFloor-((scopeFloor-min)>>3)-1u);
-    else scopeFloor=(uint16_t)(scopeFloor+2u);
-    uint16_t range=max>scopeFloor?(uint16_t)(max-scopeFloor):0u;
-
-    for(uint8_t i=0;i<SCOPE_SAMPLES;i++){
-        uint8_t idx=(uint8_t)((scopeWrite+i)%SCOPE_SAMPLES), height=0;
-        if(range>=50u){
-            uint16_t value=scopeBuf[idx]>scopeFloor?(uint16_t)(scopeBuf[idx]-scopeFloor):0u;
-            height=(uint8_t)((uint32_t)value*7u/range);
-        }
-        uint8_t mask=height?(uint8_t)((0x7fu<<(7u-height))&0x7fu):0x40u;
-        A->fb[0][i*3u]=mask; A->fb[0][i*3u+1u]=mask;
     }
 }
 
@@ -151,22 +115,18 @@ static void drawVfo(uint8_t n){
 
     const char *mod=v->modulation==0u?"FM":v->modulation==1u?"AM":v->modulation==2u?"USB":v->modulation==3u?"BYP":v->modulation==4u?"RAW":"?";
     A->print_tiny(mod,3,techY,false,true);
-
     static const char *const power[7]={"LOW1","LOW2","LOW3","LOW4","LOW5","MID","HIGH"};
     uint8_t p=(v->power>=1u&&v->power<=7u)?(uint8_t)(v->power-1u):0u;
     A->print_tiny(power[p],24,techY,false,true);
     if(v->flags&APP_TRIVFO_USER_POWER){
         A->fb[techLine][19]=0x3e; A->fb[techLine][20]=0x1c; A->fb[techLine][21]=0x08;
     }
-
     if(v->offset_direction==1u) A->print_normal("+",41,0,techLine);
     else if(v->offset_direction==2u) A->print_normal("-",41,0,techLine);
     if(v->reverse) A->print_tiny("R",51,techY,false,true);
-
     if(v->code_type==1u){ A->print_tiny("CT",58,techY,false,true); formatCode(text,v); A->print_tiny(text,68,techY,false,true); }
     else if(v->code_type==2u||v->code_type==3u){ A->print_tiny("DC",58,techY,false,true); formatCode(text,v); A->print_tiny(text,68,techY,false,true); }
     else { formatStep(text,v->step); A->print_tiny(text,58,techY,false,true); }
-
     A->print_tiny(v->bandwidth==0u?"WIDE":v->bandwidth==1u?"NAR":"NAR+",91,techY,false,true);
     text[0]='S'; text[1]='Q'; text[2]='L'; text[3]=(char)('0'+(v->squelch%10u)); text[4]='\0';
     A->print_tiny(text,110,techY,false,true);
@@ -187,9 +147,9 @@ static void draw(void){
     if(fArm){ for(uint8_t i=0;i<8u;i++) A->status_line[69u+i]=fontF[i]; }
     for(uint8_t i=0;i<VFO_COUNT;i++) drawVfo(i);
     if(state==APP_TRIVFO_TX_STATE&&(vi[selected].flags&APP_TRIVFO_AUDIO_BAR))
-        drawAudioScope();
+        A->audio_scope(0u,true);
     else {
-        scopeTx=false;
+        A->audio_scope(0u,false);
         for(uint8_t i=0;i<VFO_COUNT;i++)
             if(vi[i].flags&APP_TRIVFO_RECEIVING){ drawMeter(&vi[i]); break; }
     }
@@ -205,7 +165,7 @@ static void saveCfg(void){ uint8_t c[3]={CFG_MAGIC,(uint8_t)cChannel,(uint8_t)(c
 
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
-    A=api; running=true; fArm=false; txDenied=false; channelLabelOn=true; showFrequency=false; selected=scopeWrite=scopeReady=batteryTicks=0; scopeTx=false; scopeFloor=SCOPE_FLOOR; loadCfg();
+    A=api; running=true; fArm=false; txDenied=false; channelLabelOn=true; showFrequency=false; selected=batteryTicks=0; loadCfg();
     cChannel=A->trivfo_enter(cChannel); A->trivfo_select(0); A->backlight_on();
 
     uint8_t held=APP_KEY_INVALID, blinkTicks=0; uint16_t heldMs=0; bool longDone=false, ptt=false;

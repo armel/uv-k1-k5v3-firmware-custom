@@ -843,15 +843,14 @@ void UI_DisplayAudioBar(void)
 }
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
-
+#if defined(ENABLE_FEAT_F4HWN_AUDIO_SCOPE) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 #define SCOPE_SAMPLES        43   // number of columns (43 × 3px = 128px wide)
 #define SCOPE_NOISE_GATE     50u  // minimum range below which the display shows baseline
 #define SCOPE_FLOOR_RISE     2u   // floor rise per frame (+100 units/s at 20ms/frame)
 #define SCOPE_FLOOR_DROP_SHR 3u   // floor drop IIR shift: drop by (floor-min) >> N per frame (~160ms to halve)
 #define SCOPE_VOLUME_MIN     200u // let's assume that the sound level in silence is 200
 
-void UI_DisplayAudioScope(void)
+void UI_DisplayAudioScopeOverlay(const uint8_t line, const bool active)
 {
     static uint16_t g_scope_buf[SCOPE_SAMPLES];
     static uint8_t  g_scope_write      = 0;
@@ -865,21 +864,10 @@ void UI_DisplayAudioScope(void)
 
     static bool s_was_tx = false;
 
-    if (gCurrentFunction != FUNCTION_TRANSMIT) {
+    if (!active) {
         s_was_tx = false;
         return;
     }
-
-    // This prevents a sudden spike on the bar caused by release the PTT button
-    if (!GPIO_IsPttPressed()
-#ifdef ENABLE_VOX
-    && !gEeprom.VOX_SWITCH
-#endif
-#ifdef ENABLE_FEAT_F4HWN
-    && !gSetting_set_ptt_session
-#endif
-    )
-    return;
 
     if (!s_was_tx) {
         // TX entry: full reset so every new transmission starts from a clean state
@@ -902,32 +890,6 @@ void UI_DisplayAudioScope(void)
         g_scope_buf[g_scope_write] =  SCOPE_VOLUME_MIN;
 
     g_scope_write = (g_scope_write + 1u) % SCOPE_SAMPLES;
-
-// --------------------------------- Refresh display ---------------------------------
-
-    if (gLowBattery && !gLowBatteryConfirmed)
-        return;
-
-    if (gScreenToDisplay != DISPLAY_MAIN
-#ifdef ENABLE_DTMF_CALLING
-        || gDTMF_CallState != DTMF_CALL_STATE_NONE
-#endif
-        )
-        return;
-
-#ifdef ENABLE_TX1750
-    if (gTx1750Active)
-        return;
-#endif
-
-#ifdef ENABLE_FEAT_F4HWN
-    RxBlinkLed = 0;
-    RxBlinkLedCounter = 0;
-    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
-    const unsigned int line = isMainOnly() ? 5 : 3;
-#else
-    const unsigned int line = 3;
-#endif
 
     uint8_t *p_line = gFrameBuffer[line];
     memset(p_line, 0, LCD_WIDTH);
@@ -968,9 +930,50 @@ void UI_DisplayAudioScope(void)
 
     }
 
+}
+
+#ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
+void UI_DisplayAudioScope(void)
+{
+    const unsigned int line = isMainOnly() ? 5u : 3u;
+
+    /* Keep MAIN's original gating and side effects outside the shared renderer. */
+    if (gCurrentFunction != FUNCTION_TRANSMIT) {
+        UI_DisplayAudioScopeOverlay((uint8_t)line, false);
+        return;
+    }
+    if (!GPIO_IsPttPressed()
+#ifdef ENABLE_VOX
+        && !gEeprom.VOX_SWITCH
+#endif
+#ifdef ENABLE_FEAT_F4HWN
+        && !gSetting_set_ptt_session
+#endif
+        )
+        return;
+    if (gLowBattery && !gLowBatteryConfirmed)
+        return;
+    if (gScreenToDisplay != DISPLAY_MAIN
+#ifdef ENABLE_DTMF_CALLING
+        || gDTMF_CallState != DTMF_CALL_STATE_NONE
+#endif
+        )
+        return;
+#ifdef ENABLE_TX1750
+    if (gTx1750Active)
+        return;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN
+    RxBlinkLed = 0;
+    RxBlinkLedCounter = 0;
+    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+#endif
+    UI_DisplayAudioScopeOverlay((uint8_t)line, true);
     ST7565_BlitLine(line);
 }
-#endif  // ENABLE_FEAT_F4HWN_AUDIO_SCOPE
+#endif
+#endif  // ENABLE_FEAT_F4HWN_AUDIO_SCOPE || ENABLE_FEAT_F4HWN_OVERLAY_APPS
 
 void DisplayRSSIBar(const bool now)
 {
@@ -2086,9 +2089,6 @@ void UI_DisplayMain(void)
             }
 
             GUI_DisplaySmallest(String, 68 + shift, line == 0 ? 17 : 49, false, true);
-
-            //sprintf(String, "%d.%02u", vfoInfo->StepFrequency / 100, vfoInfo->StepFrequency % 100);
-            //GUI_DisplaySmallest(String, 91, line == 0 ? 2 : 34, false, true);
         }
 #else
         UI_PrintStringSmallNormal(s, LCD_WIDTH + 24, 0, line + 1);
@@ -2123,8 +2123,6 @@ void UI_DisplayMain(void)
             else
             {
                 const char pwr_long[][5] = {"LOW1", "LOW2", "LOW3", "LOW4", "LOW5", "MID", "HIGH"};
-                //sprintf(String, "%s", pwr_long[currentPower]);
-                //GUI_DisplaySmallest(String, 24, line == 0 ? 17 : 49, false, true);
                 GUI_DisplaySmallest(pwr_long[currentPower], 24, line == 0 ? 17 : 49, false, true);
             }
 
@@ -2162,9 +2160,7 @@ void UI_DisplayMain(void)
         {
             #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
             if(i == 3)
-            {
                 GUI_DisplaySmallest(dir_list[i], 43, line == 0 ? 17 : 49, false, true);
-            }
             else
             {
             #endif

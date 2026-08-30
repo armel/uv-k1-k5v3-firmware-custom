@@ -47,6 +47,9 @@ extern center_line_t center_line;
 #ifdef ENABLE_AUDIO_BAR
 void UI_DisplayAudioBar(void);
 #endif
+#if defined(ENABLE_FEAT_F4HWN_AUDIO_SCOPE) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+void UI_DisplayAudioScopeOverlay(uint8_t line, bool active);
+#endif
 #ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
 void UI_DisplayAudioScope(void);
 #endif

@@ -40,7 +40,7 @@
  * reorder, a removal, or an append - MUST bump this. Keep in sync with the
  * value read by pack_app.py, which
  * stamps the blob the loader checks against. */
-#define APP_ABI_VERSION   5u
+#define APP_ABI_VERSION   6u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -174,6 +174,7 @@ typedef struct app_api {
     void (*battery_sample)(void);    /* periodic ADC sample so the level stays live */
     void (*backlight_on)(void);      /* BACKLIGHT_TurnOn                          */
     void (*backlight_update)(void);  /* BACKLIGHT_Update (fade step)              */
+    void (*audio_scope)(uint8_t line, bool active); /* shared MAIN microphone scope */
 
     uint8_t *status_line;            /* -> gStatusLine (for status-bar icons)     */
 
