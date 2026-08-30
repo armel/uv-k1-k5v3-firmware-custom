@@ -225,8 +225,9 @@ static uint16_t app_trivfo_enter(uint16_t c_channel)
             app_trivfo_load_memory(&app_trivfo_c, c_channel);
     }
 
-    app_trivfo_selected = 0;
-    app_trivfo_pre_rx_selected = 0;
+    const uint8_t initial_vfo = gEeprom.TX_VFO < 2u ? gEeprom.TX_VFO : 0u;
+    app_trivfo_selected = initial_vfo;
+    app_trivfo_pre_rx_selected = initial_vfo;
     app_trivfo_restore_selection = false;
     app_trivfo_hold = 0;
     app_trivfo_running = true;
@@ -234,7 +235,7 @@ static uint16_t app_trivfo_enter(uint16_t c_channel)
     app_trivfo_onepush_stop_armed = false;
     app_trivfo_ab_dirty = false;
     app_trivfo_freq_dirty = 0;
-    app_trivfo_tune(0);
+    app_trivfo_tune(initial_vfo);
     return c_channel;
 }
 

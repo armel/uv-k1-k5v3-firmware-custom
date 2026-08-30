@@ -200,7 +200,7 @@ static void saveCfg(void){ uint8_t c[3]={CFG_MAGIC,(uint8_t)cChannel,(uint8_t)(c
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     A=api; running=true; fArm=false; txDenied=false; channelLabelOn=true; showFrequency=false; selected=batteryTicks=0; loadCfg();
-    cChannel=A->trivfo_enter(cChannel); A->trivfo_select(0); A->backlight_on();
+    cChannel=A->trivfo_enter(cChannel); A->backlight_on(); draw();
 
     uint8_t held=APP_KEY_INVALID, blinkTicks=0; uint16_t heldMs=0; bool longDone=false, ptt=false;
     while(running){
