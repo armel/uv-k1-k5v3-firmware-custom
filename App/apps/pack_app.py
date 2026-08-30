@@ -30,7 +30,8 @@ MAGIC          = cdefine("app_overlay.h", "APP_MAGIC").to_bytes(4, "little")  # 
 HDR_VERSION    = cdefine("app_overlay.h", "APP_HDR_VERSION")
 ABI_VERSION    = cdefine("app_api.h",     "APP_ABI_VERSION")
 OVERLAY_MAX    = cdefine("app_overlay.h", "APP_OVERLAY_MAX")   # 4 KiB overlay budget
-FLAG_COMMITTED = 1                                             # APP_FLAG_COMMITTED, bit 0
+FLAG_COMMITTED = cdefine("app_overlay.h", "APP_FLAG_COMMITTED")
+FLAG_SCREEN_SAVER = cdefine("app_overlay.h", "APP_FLAG_SCREEN_SAVER")
 
 def field(s: str, n: int) -> bytes:
     b = s.encode("ascii", "strict")[: n - 1]
@@ -45,6 +46,8 @@ def main():
     ap.add_argument("--entry", type=lambda x: int(x, 0), default=0)
     ap.add_argument("--vma", type=lambda x: int(x, 0), required=True,
                     help="RAM VMA the app was linked at (must match the firmware overlay)")
+    ap.add_argument("--screensaver", action="store_true",
+                    help="allow the resident BLTime screen saver while this app is idle")
     a = ap.parse_args()
 
     code = open(a.infile, "rb").read()
@@ -54,10 +57,11 @@ def main():
         sys.exit(f"code {len(code)} B exceeds overlay budget {OVERLAY_MAX} B")
 
     crc = zlib.crc32(code) & 0xFFFFFFFF
+    flags = FLAG_COMMITTED | (FLAG_SCREEN_SAVER if a.screensaver else 0)
     header = struct.pack(
         "<4sHHIIHH16s16sI8s",
         MAGIC, HDR_VERSION, ABI_VERSION,
-        len(code), crc, a.entry, FLAG_COMMITTED,
+        len(code), crc, a.entry, flags,
         field(a.name, 16), field(a.ver, 16), a.vma, b"\x00" * 8,
     )
     assert len(header) == 64, len(header)

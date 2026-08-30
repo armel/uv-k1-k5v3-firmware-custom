@@ -303,6 +303,7 @@ __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api)
 {
     A=api;
+    A->backlight_on();
     ch=A->fm_channels;
     A->fm_state(&st,false);          /* inherit the resident FM state */
     if(st.band>3) st.band=0;
@@ -326,13 +327,20 @@ void app_main(const app_api_t *api)
         uint8_t key=A->get_key();
         bool rep=(key==APP_KEY_UP||key==APP_KEY_DOWN);
 
-        if(key==APP_KEY_INVALID){
+        if(key==APP_KEY_SAVER){
+            held=APP_KEY_INVALID; heldMs=0; firedLong=false;
+            A->delay_ms(10); A->backlight_update();
+            continue;
+        } else if(key==APP_KEY_WAKE||key==APP_KEY_PTT){
+            held=APP_KEY_INVALID; heldMs=0; firedLong=false; dirty=true;
+        } else if(key==APP_KEY_INVALID){
             if(held!=APP_KEY_INVALID && !firedLong &&
                held!=APP_KEY_UP && held!=APP_KEY_DOWN){
                 onShort(held); dirty=true;
             }
             held=APP_KEY_INVALID; heldMs=0; firedLong=false;
         } else if(key!=held){
+            A->backlight_on();
             held=key; heldMs=0; firedLong=false;
             if(rep){ onShort(key); dirty=true; }       /* immediate first step */
         } else {
@@ -346,13 +354,20 @@ void app_main(const app_api_t *api)
 
         /* non-blocking scan: one step each time the settle timer expires */
         if(scanState){
+            /* Match resident FM: an active scan keeps the display awake. */
+            A->backlight_on();
             if(scanTimer<=50) scanStep();
             else scanTimer=(uint16_t)(scanTimer-50);
             dirty=true;
         }
 
         if(dirty){ show(); dirty=false; }
-        A->delay_ms(50);
+        /* Keep the resident 10 ms fade cadence while retaining this app's
+         * existing 50 ms key/scan state-machine tick. */
+        for(uint8_t i=0;i<5u;i++){
+            A->delay_ms(10);
+            A->backlight_update();
+        }
     }
 
     /* push our state back to the resident FM and persist (config + 48 channels) */

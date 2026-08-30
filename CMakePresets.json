@@ -186,6 +186,21 @@
                 "EDITION_STRING": "Labs",
                 "TARGET": "f4hwn.labs"
             }
+        },
+        {
+            "name": "Max",
+            "inherits": "Fusion",
+            "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
+                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
+                "ENABLE_FEAT_F4HWN_BEACON": true,
+                "ENABLE_AIRCOPY": true,
+                "ENABLE_FEAT_F4HWN_BEAM": true,
+                "ENABLE_FEAT_F4HWN_GAME": true,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
+                "EDITION_STRING": "Max",
+                "TARGET": "f4hwn.max"
+            }
         }
     ],
     "buildPresets": [
@@ -208,6 +223,10 @@
         {
             "name": "Labs",
             "configurePreset": "Labs"
+        },
+        {
+            "name": "Max",
+            "configurePreset": "Max"
         }
     ]
 }

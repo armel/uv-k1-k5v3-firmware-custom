@@ -53,6 +53,20 @@
 _Static_assert(sizeof(app_header_t) == 64, "app_header_t must be 64 bytes");
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
+static bool app_allow_screen_saver;
+static bool app_screen_saver_wake;
+
+static void app_backlight_on(void)
+{
+    APP_ModalScreenSaverExit();
+    BACKLIGHT_TurnOn();
+}
+
+static void app_backlight_update(void)
+{
+    APP_ModalBacklightTick(app_allow_screen_saver);
+}
+
 static uint8_t app_get_key(void)
 {
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -60,7 +74,26 @@ static uint8_t app_get_key(void)
      * injection alive while an app owns the foreground loop. */
     K5VIEWER_ParseInput();
 #endif
-    return (uint8_t)KEYBOARD_GetKey();
+    const KEY_Code_t key = KEYBOARD_GetKey();
+
+    if (app_screen_saver_wake) {
+        if (key == KEY_INVALID)
+            app_screen_saver_wake = false;
+        return APP_KEY_INVALID;
+    }
+
+    if (!APP_IsScreenSaverDisplayed())
+        return (uint8_t)key;
+
+    if (key == KEY_INVALID)
+        return APP_KEY_SAVER;
+
+    app_backlight_on();
+    if (key == KEY_PTT)
+        return APP_KEY_PTT;
+
+    app_screen_saver_wake = true;
+    return APP_KEY_WAKE;
 }
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -72,6 +105,7 @@ static void app_blit_full(void)
     K5VIEWER_Update(false);
 }
 #endif
+
 static int8_t  app_nav_dir(uint8_t key)
 {
     int8_t direction;
@@ -749,8 +783,8 @@ static const app_api_t app_api = {
     .cfg_save         = app_cfg_save,
     .draw_battery     = app_draw_battery,
     .battery_sample   = app_battery_sample,
-    .backlight_on     = BACKLIGHT_TurnOn,
-    .backlight_update = BACKLIGHT_Update,
+    .backlight_on     = app_backlight_on,
+    .backlight_update = app_backlight_update,
     .audio_scope      = UI_DisplayAudioScopeOverlay,
     .status_line      = gStatusLine,
     .tx_state         = app_tx_state,
@@ -820,6 +854,11 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     app_fm_dirty = false;
 #endif
 
+    app_allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
+    app_screen_saver_wake = false;
+    APP_ModalScreenSaverExit();
+    BACKLIGHT_TurnOn();
+
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     /* The caller enters from a debounced key event, so the resident key state
      * still contains that trigger while the modal app is running. Clear it so
@@ -844,6 +883,10 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 
     app_entry_t entry = (app_entry_t)(((uint32_t)ws + h.entry_off) | 1u);
     entry(&app_api);
+
+    APP_ModalScreenSaverExit();
+    app_allow_screen_saver = false;
+    app_screen_saver_wake = false;
 
     /* A defensive leave also covers an app returning through an error path. */
     app_trivfo_leave();

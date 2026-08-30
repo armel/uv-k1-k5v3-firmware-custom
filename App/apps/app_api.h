@@ -63,6 +63,8 @@ enum {
     APP_KEY_F       = 15,
     APP_KEY_PTT     = 16,
     APP_KEY_INVALID = 19,
+    APP_KEY_SAVER   = 0xFD, /* virtual: saver active, skip this app frame       */
+    APP_KEY_WAKE    = 0xFE, /* virtual: saver dismissed, redraw without action */
 };
 
 /* The framebuffer is the resident gFrameBuffer[FRAME_LINES][128]; the app draws
@@ -175,7 +177,7 @@ typedef struct app_api {
     void (*draw_battery)(void);      /* UI_DrawStatusBattery into the status line */
     void (*battery_sample)(void);    /* periodic ADC sample so the level stays live */
     void (*backlight_on)(void);      /* BACKLIGHT_TurnOn                          */
-    void (*backlight_update)(void);  /* BACKLIGHT_Update (fade step)              */
+    void (*backlight_update)(void);  /* resident fade + BLTime service            */
     void (*audio_scope)(uint8_t line, bool active); /* shared MAIN microphone scope */
 
     uint8_t *status_line;            /* -> gStatusLine (for status-bar icons)     */

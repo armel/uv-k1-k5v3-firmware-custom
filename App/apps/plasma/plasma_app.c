@@ -92,6 +92,39 @@ void app_main(const app_api_t *api)
     prevKey = APP_KEY_INVALID;
 
     while (running) {
+        uint8_t key = A->get_key();
+        if (key == APP_KEY_SAVER) {
+            prevKey = APP_KEY_INVALID;
+            A->delay_ms(10);
+            A->backlight_update();
+            continue;
+        }
+        if (key == APP_KEY_WAKE)
+            key = APP_KEY_INVALID;
+        if (key != prevKey && key != APP_KEY_INVALID) {
+            A->backlight_on();
+            switch (key) {
+                case APP_KEY_EXIT: running = false; break;
+                case APP_KEY_UP:
+                case APP_KEY_DOWN: {
+                    const int8_t direction = A->nav_dir(key);
+                    if (direction > 0 && speed < 8u) speed++;
+                    if (direction < 0 && speed > 1u) speed--;
+                    break;
+                }
+                case APP_KEY_MENU: paused = !paused; break;
+                case APP_KEY_STAR: bands = !bands; break;
+                case APP_KEY_F:    autoc = !autoc; break;
+                case APP_KEY_1: case APP_KEY_2: case APP_KEY_3:
+                case APP_KEY_4: case APP_KEY_5:
+                    var = (uint8_t)(key - APP_KEY_1); autoc = false; break;
+                default: break;
+            }
+        }
+        prevKey = key;
+        if (!running)
+            break;
+
         const uint8_t sx = VAR[var][0], sy = VAR[var][1];
         const uint8_t sd = VAR[var][2], rsh = VAR[var][3];
 
@@ -142,28 +175,6 @@ void app_main(const app_api_t *api)
             if (autoc && ++autoCtr >= 400u) { autoCtr = 0; var = (uint8_t)((var + 1u) % NVAR); }
         }
 
-        const uint8_t key = A->get_key();
-        if (key != prevKey && key != APP_KEY_INVALID) {
-            A->backlight_on();
-            switch (key) {
-                case APP_KEY_EXIT: running = false; break;
-                case APP_KEY_UP:
-                case APP_KEY_DOWN: {
-                    const int8_t direction = A->nav_dir(key);
-                    if (direction > 0 && speed < 8u) speed++;
-                    if (direction < 0 && speed > 1u) speed--;
-                    break;
-                }
-                case APP_KEY_MENU: paused = !paused; break;
-                case APP_KEY_STAR: bands = !bands; break;
-                case APP_KEY_F:    autoc = !autoc; break;
-                case APP_KEY_1: case APP_KEY_2: case APP_KEY_3:
-                case APP_KEY_4: case APP_KEY_5:
-                    var = (uint8_t)(key - APP_KEY_1); autoc = false; break;
-                default: break;
-            }
-        }
-        prevKey = key;
         A->backlight_update();
     }
 }

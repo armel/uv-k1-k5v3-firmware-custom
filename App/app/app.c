@@ -234,7 +234,7 @@ static void ScreenSaverUpdateViewer(void)
 #endif
 }
 
-static bool ScreenSaverCanDisplay(void)
+static bool ScreenSaverCanDisplay(bool modal)
 {
     if (gSetting_set_sav == SET_SAV_OFF ||
         gEeprom.BACKLIGHT_TIME == 0 ||
@@ -257,7 +257,7 @@ static bool ScreenSaverCanDisplay(void)
         return false;
     }
 
-    if (gScreenToDisplay == DISPLAY_MAIN)
+    if (modal || gScreenToDisplay == DISPLAY_MAIN)
         return true;
 
 #ifdef ENABLE_FMRADIO
@@ -268,9 +268,9 @@ static bool ScreenSaverCanDisplay(void)
     return false;
 }
 
-static void ScreenSaverTryDisplay(void)
+static void ScreenSaverTryDisplay(bool modal)
 {
-    if (!ScreenSaverCanDisplay())
+    if (!ScreenSaverCanDisplay(modal))
         return;
 
     if (gSetting_set_sav == SET_SAV_LOGO)
@@ -295,6 +295,28 @@ static void ScreenSaverExit(void)
         gUpdateStatus = true;
     }
 }
+
+static bool ScreenSaverAnimate(void)
+{
+    if (!gScreenSaverDisplayed)
+        return false;
+
+    if (gSetting_set_sav == SET_SAV_MATRIX) {
+        if (++gScreenSaverTick >= 8u) {
+            gScreenSaverTick = 0;
+            ScreenSaverRenderMatrix(false);
+            return true;
+        }
+    } else if (gSetting_set_sav == SET_SAV_LOGO_PLUS) {
+        if (++gScreenSaverTick >= 16u) {
+            gScreenSaverTick = 0;
+            ScreenSaverRenderLogoPlus(false);
+            return true;
+        }
+    }
+
+    return false;
+}
 #endif
 
 bool APP_IsScreenSaverDisplayed(void)
@@ -303,6 +325,47 @@ bool APP_IsScreenSaverDisplayed(void)
     return gScreenSaverDisplayed;
 #else
     return false;
+#endif
+}
+
+/* Modal foreground loops (resident tools and overlay apps) bypass APP_Update()
+ * and therefore also bypass the normal 10 ms fade and 500 ms BLTime service.
+ * Keep that service resident so every overlay app gets identical timing without
+ * extending the app ABI.  Only selected modal screens opt into the saver; the
+ * others still fade from BLMax to BLMin when BLTime expires. */
+void APP_ModalBacklightTick(bool allowScreenSaver)
+{
+    if (gNextTimeslice) {
+        gNextTimeslice = false;
+        BACKLIGHT_Update();
+
+#ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+        if (ScreenSaverAnimate())
+            ScreenSaverUpdateViewer();
+#endif
+    }
+
+    if (!gNextTimeslice_500ms)
+        return;
+    gNextTimeslice_500ms = false;
+
+    if (gBacklightCountdown_500ms > 0 &&
+        gEeprom.BACKLIGHT_TIME < 61 &&
+        --gBacklightCountdown_500ms == 0)
+        BACKLIGHT_TurnOff();
+
+#ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+    if (allowScreenSaver && gBacklightCountdown_500ms == 0)
+        ScreenSaverTryDisplay(true);
+#else
+    (void)allowScreenSaver;
+#endif
+}
+
+void APP_ModalScreenSaverExit(void)
+{
+#ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+    ScreenSaverExit();
 #endif
 }
 
@@ -1667,22 +1730,10 @@ void APP_TimeSlice10ms(void)
             gUpdateStatus = false;
         }
 
-        if (gSetting_set_sav == SET_SAV_MATRIX) {
-            if (++gScreenSaverTick >= 8u) {
-                gScreenSaverTick = 0;
-                ScreenSaverRenderMatrix(false);
+        if (ScreenSaverAnimate()) {
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-                screenSaverRendered = true;
+            screenSaverRendered = true;
 #endif
-            }
-        } else if (gSetting_set_sav == SET_SAV_LOGO_PLUS) {
-            if (++gScreenSaverTick >= 16u) {
-                gScreenSaverTick = 0;
-                ScreenSaverRenderLogoPlus(false);
-#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-                screenSaverRendered = true;
-#endif
-            }
         }
     }
 #endif
@@ -1895,7 +1946,7 @@ void APP_TimeSlice500ms(void)
     ) {
         BACKLIGHT_TurnOff();
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
-        ScreenSaverTryDisplay();
+        ScreenSaverTryDisplay(false);
 #endif
     }
 
@@ -2101,7 +2152,7 @@ void APP_TimeSlice500ms(void)
         !gAskToSave &&
         !gCssBackgroundScan)
     {
-        ScreenSaverTryDisplay();
+        ScreenSaverTryDisplay(false);
     }
 #endif
 

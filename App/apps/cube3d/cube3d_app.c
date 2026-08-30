@@ -196,6 +196,50 @@ void app_main(const app_api_t *api)
     uint8_t prevKey = APP_KEY_INVALID;
 
     while (running) {
+        uint8_t key = A->get_key();
+        if (key == APP_KEY_SAVER) {
+            prevKey = APP_KEY_INVALID;
+            A->delay_ms(10);
+            A->backlight_update();
+            continue;
+        }
+        if (key == APP_KEY_WAKE)
+            key = APP_KEY_INVALID;
+        if (key != prevKey && key != APP_KEY_INVALID) {
+            A->backlight_on();
+            switch (key) {
+                case APP_KEY_EXIT:
+                    running = false;
+                    break;
+                case APP_KEY_UP:
+                case APP_KEY_DOWN: {
+                    const int8_t dir = A->nav_dir(key);
+                    if (dir > 0 && speed < 16u) speed++;
+                    if (dir < 0 && speed > 1u) speed--;
+                    break;
+                }
+                case APP_KEY_MENU:
+                    paused = !paused;
+                    break;
+                case APP_KEY_STAR:
+                    shape = (uint8_t)((shape + 1u) % NSHAPE);
+                    break;
+                case APP_KEY_F:
+                    wire = !wire;
+                    break;
+                case APP_KEY_1: case APP_KEY_2: case APP_KEY_3: case APP_KEY_4:
+                case APP_KEY_5: case APP_KEY_6: case APP_KEY_7: case APP_KEY_8:
+                    if ((uint8_t)(key - APP_KEY_1) < NSHAPE)
+                        shape = (uint8_t)(key - APP_KEY_1);
+                    break;
+                default:
+                    break;
+            }
+        }
+        prevKey = key;
+        if (!running)
+            break;
+
         const shape_t *s = &SHAPES[shape];
         const uint8_t ia = (uint8_t)(ax >> 3), ib = (uint8_t)(ay >> 3), ic = (uint8_t)(az >> 3);
         const int cx = sin8((uint8_t)(ia + 64u)), sxr = sin8(ia);
@@ -249,39 +293,6 @@ void app_main(const app_api_t *api)
             az += (uint16_t)((rate + 1u) / 2u);
         }
 
-        const uint8_t key = A->get_key();
-        if (key != prevKey && key != APP_KEY_INVALID) {
-            A->backlight_on();
-            switch (key) {
-                case APP_KEY_EXIT:
-                    running = false;
-                    break;
-                case APP_KEY_UP:
-                case APP_KEY_DOWN: {
-                    const int8_t dir = A->nav_dir(key);
-                    if (dir > 0 && speed < 16u) speed++;
-                    if (dir < 0 && speed > 1u) speed--;
-                    break;
-                }
-                case APP_KEY_MENU:
-                    paused = !paused;
-                    break;
-                case APP_KEY_STAR:
-                    shape = (uint8_t)((shape + 1u) % NSHAPE);
-                    break;
-                case APP_KEY_F:
-                    wire = !wire;
-                    break;
-                case APP_KEY_1: case APP_KEY_2: case APP_KEY_3: case APP_KEY_4:
-                case APP_KEY_5: case APP_KEY_6: case APP_KEY_7: case APP_KEY_8:
-                    if ((uint8_t)(key - APP_KEY_1) < NSHAPE)
-                        shape = (uint8_t)(key - APP_KEY_1);
-                    break;
-                default:
-                    break;
-            }
-        }
-        prevKey = key;
         A->backlight_update();
         A->delay_ms((uint32_t)(32u - speed * 2u)); /* slow low end, no added delay at level 16 */
     }

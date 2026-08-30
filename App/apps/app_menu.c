@@ -20,6 +20,8 @@
 
 #include <string.h>
 #include "apps/app_menu.h"
+#include "app/app.h"
+#include "driver/backlight.h"
 #include "driver/st7565.h"
 #include "driver/keyboard.h"
 #include "driver/system.h"
@@ -62,6 +64,8 @@ static void app_key_hints(void)
 #define APP_NAME_BOX_END   102u
 #define APP_NAME_TEXT_X    14u
 
+static void app_wait_release(void);
+
 static void app_invert_name(uint8_t line)
 {
     gFrameBuffer[line][APP_NAME_BOX_START] ^= 0x7Fu;
@@ -82,6 +86,24 @@ static KEY_Code_t app_get_key(void)
         /* APP_MenuOpen() is modal and does not return to APP_Update(). Keep
          * serial key injection and the viewer connection alive while waiting. */
         K5VIEWER_ParseInput();
+#endif
+        APP_ModalBacklightTick(true);
+
+        if (APP_IsScreenSaverDisplayed())
+        {
+            if (KEYBOARD_GetKey() != KEY_INVALID)
+            {
+                APP_ModalScreenSaverExit();
+                BACKLIGHT_TurnOn();
+                app_wait_release();
+                return KEY_INVALID;
+            }
+
+            SYSTEM_DelayMs(10);
+            continue;
+        }
+
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
         K5VIEWER_Update(false);
 #endif
         KEY_Code_t key = KEYBOARD_Poll();
@@ -90,8 +112,12 @@ static KEY_Code_t app_get_key(void)
             SYSTEM_DelayMs(30);
             if (KEYBOARD_Poll() == key)
             {
+                BACKLIGHT_TurnOn();
                 while (KEYBOARD_Poll() != KEY_INVALID)
+                {
                     SYSTEM_DelayMs(10);
+                    APP_ModalBacklightTick(false);
+                }
                 return key;
             }
         }
@@ -109,6 +135,7 @@ static void app_wait_release(void)
         else
             stable = 0;
         SYSTEM_DelayMs(10);
+        APP_ModalBacklightTick(true);
     }
 }
 
@@ -188,6 +215,9 @@ _Static_assert(APP_MENU_SLOT_COUNT <= APP_SLOT_COUNT,
 
 void APP_MenuOpen(void)
 {
+    APP_ModalScreenSaverExit();
+    BACKLIGHT_TurnOn();
+
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     /* Detach the modal selector from the key state that triggered F+7. The
      * normal K5Viewer updater suppresses frames while a key is held; without

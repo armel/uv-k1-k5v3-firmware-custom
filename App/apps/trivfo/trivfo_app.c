@@ -205,6 +205,19 @@ void app_main(const app_api_t *api){
     uint8_t held=APP_KEY_INVALID, blinkTicks=0; uint16_t heldMs=0; bool longDone=false, ptt=false;
     while(running){
         uint8_t key=A->get_key();
+        if(key==APP_KEY_SAVER){
+            state=A->trivfo_tick();
+            if(state==APP_TRIVFO_RX){
+                A->backlight_on();
+                draw();
+            }
+            for(uint8_t i=0;i<TICK_MS/10u;i++){
+                A->delay_ms(10); A->backlight_update();
+            }
+            continue;
+        }
+        if(key!=APP_KEY_INVALID&&key!=APP_KEY_WAKE) A->backlight_on();
+        if(key==APP_KEY_WAKE) key=APP_KEY_INVALID;
         if(key==APP_KEY_PTT){
             if(!ptt){ ptt=true; txDenied=A->trivfo_ptt(true)!=0; }
         } else if(ptt){ ptt=false; A->trivfo_ptt(false); txDenied=false; }
@@ -233,6 +246,8 @@ void app_main(const app_api_t *api){
         }
 
         state=A->trivfo_tick();
+        if(state==APP_TRIVFO_RX||state==APP_TRIVFO_TX_STATE)
+            A->backlight_on();
         if(state==APP_TRIVFO_RX){
             if(++blinkTicks>=25u){ blinkTicks=0; channelLabelOn=!channelLabelOn; }
         } else { blinkTicks=0; channelLabelOn=true; }

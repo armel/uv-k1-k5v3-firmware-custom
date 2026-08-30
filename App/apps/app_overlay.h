@@ -66,7 +66,8 @@
 /* ---- blob header (64 bytes, little-endian; see App/apps/pack_app.py) ---- */
 #define APP_MAGIC         0x31504146u   /* "FAP1"                                */
 #define APP_HDR_VERSION   1u
-#define APP_FLAG_COMMITTED (1u << 0)
+#define APP_FLAG_COMMITTED   0x0001u
+#define APP_FLAG_SCREEN_SAVER 0x0002u
 #define APP_NAME_LEN      16
 #define APP_VERSION_LEN   16
 

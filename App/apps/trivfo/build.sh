@@ -13,7 +13,7 @@ LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} -Wl,-
 rm -f ./*.app ./*.elf ./*.bin
 "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
-python3 ../pack_app.py "${APP}.bin" "${OUT}.app" --name "$APP_NAME" --ver "$APP_VER" --vma "${APP_VMA}" >/dev/null
+python3 ../pack_app.py "${APP}.bin" "${OUT}.app" --name "$APP_NAME" --ver "$APP_VER" --vma "${APP_VMA}" --screensaver >/dev/null
 BYTES=$(wc -c < "${APP}.bin")
 test "$BYTES" -le 4096
 printf '  ✅ %-13s %4d B  (%d%% of 4 KiB)  ->  %s.app\n' \
