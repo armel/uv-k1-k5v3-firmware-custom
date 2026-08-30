@@ -33,6 +33,9 @@
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "driver/backlight.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "k5viewer.h"
+#endif
 #include "app/app.h"
 #include "ui/helper.h"
 #include "ui/main.h"
@@ -50,7 +53,25 @@
 _Static_assert(sizeof(app_header_t) == 64, "app_header_t must be 64 bytes");
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
-static uint8_t app_get_key(void)       { return (uint8_t)KEYBOARD_GetKey(); }
+static uint8_t app_get_key(void)
+{
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    /* Overlay apps run synchronously outside APP_Update(). Keep serial key
+     * injection alive while an app owns the foreground loop. */
+    K5VIEWER_ParseInput();
+#endif
+    return (uint8_t)KEYBOARD_GetKey();
+}
+
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+static void app_blit_full(void)
+{
+    ST7565_BlitFullScreen();
+    /* The normal loop mirrors completed frames after drawing. Overlay apps
+     * bypass that loop, so publish the frame from this ABI wrapper. */
+    K5VIEWER_Update(false);
+}
+#endif
 static int8_t  app_nav_dir(uint8_t key)
 {
     int8_t direction;
@@ -635,7 +656,11 @@ static const app_api_t app_api = {
     .draw_rect        = UI_DrawRectangleBuffer,
     .print_bold       = UI_PrintStringSmallBold,
     .print_tiny       = GUI_DisplaySmallest,
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    .blit_full        = app_blit_full,
+#else
     .blit_full        = ST7565_BlitFullScreen,
+#endif
     .blit_line        = ST7565_BlitLine,
     .blit_status      = ST7565_BlitStatusLine,
     .get_key          = app_get_key,
@@ -728,6 +753,14 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     app_cfg_len  = 0;
 #ifdef ENABLE_FMRADIO
     app_fm_dirty = false;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    /* The caller enters from a debounced key event, so the resident key state
+     * still contains that trigger while the modal app is running. Clear it so
+     * K5Viewer is allowed to mirror overlay frames immediately. */
+    gKeyReading0 = KEY_INVALID;
+    gKeyReading1 = KEY_INVALID;
 #endif
 
     /* Pin RX to the user-selected VFO before the app runs. Under dual watch
