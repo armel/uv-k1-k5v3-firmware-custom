@@ -84,6 +84,11 @@ enum {
     MB_ERR_RAM_LOAD      /* restore stub RAM copy mismatch    */
 };
 
+/* CRC-32 (zlib) over a resident memory buffer.  Multiboot and overlay apps
+ * share this implementation; keeping it here avoids carrying two identical
+ * bitwise CRC loops in the MCU flash. */
+uint32_t MB_Crc32Bytes(const uint8_t *data, uint32_t len);
+
 /* Multi-slot API used by the boot selector. Validation always covers the full
  * image CRC before restore. progress_line may point to a 128-byte LCD page; the
  * RAM copier then fills it while reflashing. Pass NULL to disable LCD updates.

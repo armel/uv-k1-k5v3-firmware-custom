@@ -91,7 +91,10 @@ static bool settingKey(uint8_t key,int8_t dir){
     switch(key){
         case APP_KEY_1: beaconTx  =rangeStep(beaconTx,  TX_MIN,  TX_MAX,  TX_STEP,  dir); return true;
         case APP_KEY_2: beaconIdle=rangeStep(beaconIdle,IDLE_MIN,IDLE_MAX,IDLE_STEP,dir); return true;
-        case APP_KEY_3: foxFox=(uint8_t)((foxFox+(dir>0?1:FOX_COUNT-1))%FOX_COUNT);       return true;
+        case APP_KEY_3:
+            if(dir>0){ if(++foxFox>=FOX_COUNT) foxFox=0; }
+            else foxFox=foxFox?(uint8_t)(foxFox-1u):(uint8_t)(FOX_COUNT-1u);
+            return true;
         default: return false;
     }
 }

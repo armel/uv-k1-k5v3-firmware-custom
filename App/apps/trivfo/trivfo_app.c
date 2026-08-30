@@ -80,7 +80,10 @@ static void drawMeter(const app_trivfo_info_t *v){
     int16_t dbm=v->rssi_dbm; if(dbm>-53)dbm=-53;
     uint8_t s=0,over=0;
     if(dbm>=-93){ s=9; over=(uint8_t)(dbm+93); if(over>40)over=40; }
-    else if(dbm>=-141) s=(uint8_t)((dbm+147)/6);
+    /* dbm + 147 is non-negative in this branch.  Keep the division unsigned:
+     * otherwise GCC pulls the ~460-byte signed division helper into the 4 KiB
+     * overlay even though no signed quotient is required. */
+    else if(dbm>=-141) s=(uint8_t)((uint16_t)(dbm+147)/6u);
 
     char *o=text; if(dbm>-100)*o++=' '; o=puti(o,dbm); o=put(o," dBm"); *o='\0';
     A->print_tiny(text,2,1,false,true);

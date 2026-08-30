@@ -242,9 +242,12 @@ void app_main(const app_api_t *api) {
     kbdPrev = APP_KEY_INVALID; kbdCur = APP_KEY_INVALID;
     uint8_t swap = 0;
 
-    srand_custom(api->seed);
+    /* The low BK4819 counter bits vary continuously; mix them with the tuned
+     * frequency instead of carrying a launch-only seed field in every ABI
+     * table. */
+    srand_custom(((uint32_t)A->bk_read(0x67u) << 16) ^ A->rx_freq());
     A->led(false);
-    A->backlight_tick();
+    A->backlight_on();
 
     A->display_clear();
     reset(); initWall(); initRacket(); initBall();

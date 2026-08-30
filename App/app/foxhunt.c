@@ -683,10 +683,7 @@ static void FOXHUNT_IdleHousekeeping(void)
     // hunt loop, and the beacon idle gap, never a burst), so the reading is not
     // pulled down by TX load — keeping the status icon live and letting the
     // beacon's battery gate react to a pack draining under a long run.
-    BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);
-    if (gBatteryVoltageIndex > 3)
-        gBatteryVoltageIndex = 0;
-    BATTERY_GetReadings(false);
+    BATTERY_Sample(false);
 
     // Persist any changed setting within ~0.5 s, so it survives a power-off (not
     // just a clean EXIT). No-op when nothing changed.

@@ -1985,10 +1985,14 @@ void APP_TimeSlice500ms(void)
 
         if ((gBatteryCheckCounter & 1) == 0)
         {
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT)
+            BATTERY_Sample(true);
+#else
             BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);
             if (gBatteryVoltageIndex > 3)
                 gBatteryVoltageIndex = 0;
             BATTERY_GetReadings(true);
+#endif
         }
     }
 

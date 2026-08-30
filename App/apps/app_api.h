@@ -40,7 +40,7 @@
  * reorder, a removal, or an append - MUST bump this. Keep in sync with the
  * value read by pack_app.py, which
  * stamps the blob the loader checks against. */
-#define APP_ABI_VERSION   4u
+#define APP_ABI_VERSION   5u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -139,14 +139,9 @@ typedef struct app_api {
     /* ---- input / system ---- */
     uint8_t (*get_key)(void);       /* KEYBOARD_GetKey, returns an APP_KEY_* code */
     void    (*delay_ms)(uint32_t ms);                              /* SYSTEM_DelayMs        */
-    void    (*backlight_tick)(void);                               /* BACKLIGHT_UpdateTickless */
-
     /* ---- audio / indicator ---- */
     void (*play_tone)(uint16_t tone, uint16_t ms);  /* full BK4819 tone burst + AF path */
     void (*led)(bool on);                           /* green GPIO indicator             */
-
-    /* ---- data provided at launch ---- */
-    uint32_t seed;                  /* resident-computed PRNG seed              */
 
     /* ==== appended when the ABI moved 1 -> 2; now an integral part of ABI 2.
      * A firmware and an app that agree on abi_version agree on this whole layout,
@@ -197,7 +192,6 @@ typedef struct app_api {
     void     (*fm_enter)(uint16_t freq, uint8_t band);  /* BK1080_Init + antenna filter + audio on */
     void     (*fm_exit)(void);                          /* audio off + BK1080_Init0 + restore filter */
     void     (*fm_set_freq)(uint16_t freq, uint8_t band);/* BK1080_SetFrequency (freq in 0.1 MHz) */
-    uint16_t (*fm_read)(uint8_t reg);                   /* BK1080_ReadRegister (RSSI / valid) */
     uint16_t (*fm_lo)(uint8_t band);                    /* band low  limit (0.1 MHz) */
     uint16_t (*fm_hi)(uint8_t band);                    /* band high limit (0.1 MHz) */
     void     (*fm_mute)(bool mute);                     /* BK1080_Mute                */

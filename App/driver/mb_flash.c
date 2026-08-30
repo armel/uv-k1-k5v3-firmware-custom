@@ -790,7 +790,7 @@ _Static_assert(offsetof(mb_state_t, firmware_slot) == 16u,
 _Static_assert(offsetof(mb_state_t, state_crc32) == 20u,
                "state CRC must cover the first 20 bytes (magic..bank_inv)");
 
-static uint32_t mb_crc32_bytes(const uint8_t *p, uint32_t len)
+uint32_t MB_Crc32Bytes(const uint8_t *p, uint32_t len)
 {
     uint32_t crc = 0xFFFFFFFFu;
 
@@ -848,7 +848,7 @@ static mb_mark_status_t mb_read_state_copy(uint32_t base, mb_state_t *st)
             return MB_MARK_CORRUPT;
         if (st->image_size == 0u || st->image_size > MB_INT_APP_SIZE)
             return MB_MARK_CORRUPT;
-        if (mb_crc32_bytes((const uint8_t *)st,
+        if (MB_Crc32Bytes((const uint8_t *)st,
                            sizeof(*st) - sizeof(st->state_crc32)) != st->state_crc32)
             return MB_MARK_CORRUPT;
 
@@ -857,7 +857,7 @@ static mb_mark_status_t mb_read_state_copy(uint32_t base, mb_state_t *st)
         st->slot_inv      = (uint8_t)~legacy_index;
         st->config_bank   = legacy_index;
         st->bank_inv      = (uint8_t)~legacy_index;
-        st->state_crc32   = mb_crc32_bytes((const uint8_t *)st,
+        st->state_crc32   = MB_Crc32Bytes((const uint8_t *)st,
                                            sizeof(*st) - sizeof(st->state_crc32));
         return MB_MARK_VALID;
     }
@@ -871,7 +871,7 @@ static mb_mark_status_t mb_read_state_copy(uint32_t base, mb_state_t *st)
     if (st->config_bank >= MB_BANK_COUNT)      return MB_MARK_CORRUPT;
     if (st->image_size == 0u ||
         st->image_size > MB_INT_APP_SIZE)         return MB_MARK_CORRUPT;
-    if (mb_crc32_bytes((const uint8_t *)st,
+    if (MB_Crc32Bytes((const uint8_t *)st,
                        sizeof(*st) - sizeof(st->state_crc32)) != st->state_crc32)
                                                     return MB_MARK_CORRUPT;
     return MB_MARK_VALID;
@@ -965,7 +965,7 @@ static uint8_t mb_commit_state(mb_state_t *st,
     st->generation  = (current_status == MB_MARK_VALID) ? current->generation + 1u : 0u;
     st->slot_inv    = (uint8_t)~st->firmware_slot;
     st->bank_inv    = (uint8_t)~st->config_bank;
-    st->state_crc32 = mb_crc32_bytes((const uint8_t *)st,
+    st->state_crc32 = MB_Crc32Bytes((const uint8_t *)st,
                                      sizeof(*st) - sizeof(st->state_crc32));
 
     const uint32_t target_base = ((current_status == MB_MARK_VALID ||
@@ -1089,7 +1089,7 @@ static void mb_copy_str(char *dst, uint8_t cap, const char *src)
 static uint32_t mb_int_image_crc32(uint32_t len)
 {
     const uint8_t *p = (const uint8_t *)MB_INT_APP_BASE;
-    return mb_crc32_bytes(p, len);
+    return MB_Crc32Bytes(p, len);
 }
 
 static bool mb_internal_matches(uint32_t image_size, uint32_t image_crc32)

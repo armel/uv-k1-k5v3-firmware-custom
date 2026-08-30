@@ -402,12 +402,12 @@ void UI_DisplayPopup(const char *string)
     UI_PrintStringSmallNormal("Press EXIT", 9, 118, 6);
 }
 
-void UI_DisplayClear()
+void UI_DisplayClear(void)
 {
     memset(gFrameBuffer, 0, sizeof(gFrameBuffer));
 }
 
-void UI_StatusClear()
+void UI_StatusClear(void)
 {
     memset(gStatusLine, 0, sizeof(gStatusLine));
 }

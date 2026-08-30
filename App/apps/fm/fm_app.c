@@ -238,7 +238,11 @@ static void menu(void)
 static void upDown(int8_t step)
 {
     if(scanState){ scanState=step; scanTuneNext(); return; }   /* continue scan, new direction */
-    if(askSave){ savePos=(uint8_t)((savePos+step+CHMAX)%CHMAX); return; }
+    if(askSave){
+        if(step>0){ if(++savePos>=CHMAX) savePos=0; }
+        else savePos=savePos?(uint8_t)(savePos-1u):(uint8_t)(CHMAX-1u);
+        return;
+    }
     if(st.is_mr){
         uint8_t c=findNext((uint8_t)(st.sel_ch+step),step);
         if(c!=0xFF && c!=st.sel_ch){ st.sel_ch=c; st.freq_playing=ch[c]; tune(); }
