@@ -156,47 +156,36 @@ function findPass({
   }
   if (!coarseStart) return null;
 
-  // 细化窗口开始（从 coarseStart 逐秒向前回溯，直到仰角回落到阈值以下。
-  // 若计算时过境已在进行中，最多回溯 32 分钟找到真实 AOS，避免起点被截断
-  // 导致与 Look4Sat 的过境开始时间对不上）。
-  // 找到跨越 minElevation 的相邻两点后线性插值，AOS/LOS 精度 ~0.1s
-  // （AOS 附近仰角近似线性，插值误差 <0.1s；Look4Sat 用 500ms 步进细化）。
+  // 细化窗口开始（Look4Sat 同款算法：500ms 步进找首个越过 minElevation 的格点，
+  // 不插值；再四舍五入到整秒。若计算时过境已在进行中，最多回溯 32 分钟找到真实 AOS）。
   const backLimit = new Date(coarseStart.getTime() - maxPassSeconds * 1000);
   let passStart = coarseStart;
-  let prevEl = elevationAt(coarseStart); // 粗扫保证 > minElevation
-  let prevT = coarseStart;
-  for (let tt = new Date(coarseStart.getTime() - 1000); tt >= backLimit; tt = new Date(tt.getTime() - 1000)) {
+  for (let tt = new Date(coarseStart.getTime() - 500); tt >= backLimit; tt = new Date(tt.getTime() - 500)) {
     const el = elevationAt(tt);
-    if (el === null) { passStart = new Date(tt.getTime() + 1000); break; }
+    if (el === null) { passStart = new Date(tt.getTime() + 500); break; }
     if (el <= minElevation) {
-      // 跨越点: el(tt) <= 阈值 < el(prevT)，按仰角比例插值到亚秒
-      const f = (minElevation - el) / (prevEl - el); // 0..1，从 tt 向 prevT
-      passStart = new Date(tt.getTime() + f * (prevT.getTime() - tt.getTime()));
+      // 取跨越点之后的第一个格点（首个 > minElevation 的 500ms 格点）
+      passStart = new Date(tt.getTime() + 500);
       break;
     }
-    prevEl = el;
-    prevT = tt;
     passStart = tt;
   }
+  // Look4Sat: aos = 1000 * ((time + 500) / 1000)，四舍五入到整秒
+  passStart = new Date(Math.round(passStart.getTime() / 1000) * 1000);
 
-  // 细化窗口结束（向后逐秒，仰角回落或达到 32 分钟上限；同样插值到亚秒）
+  // 细化窗口结束（Look4Sat 同款：500ms 步进，首个回落格点，四舍五入到整秒）
   const maxEnd = new Date(passStart.getTime() + maxPassSeconds * 1000);
   let passEnd = maxEnd;
-  let prevElLos = null; // 前一个整秒（更早）的仰角
-  for (let tt = new Date(Math.floor(passStart.getTime() / 1000) * 1000 + 1000); tt < maxEnd; tt = new Date(tt.getTime() + 1000)) {
+  for (let tt = new Date(passStart.getTime() + 500); tt < maxEnd; tt = new Date(tt.getTime() + 500)) {
     const el = elevationAt(tt);
-    if (el === null) { prevElLos = null; continue; }
+    if (el === null) { continue; }
     if (el <= minElevation) {
-      if (prevElLos !== null && prevElLos > minElevation) {
-        const f = (minElevation - prevElLos) / (el - prevElLos); // 0..1，从 tt-1s 向 tt
-        passEnd = new Date(tt.getTime() - 1000 + f * 1000);
-      } else {
-        passEnd = tt;
-      }
+      passEnd = tt;
       break;
     }
-    prevElLos = el;
   }
+  // Look4Sat: los = 1000 * ((time + 500) / 1000)，四舍五入到整秒
+  passEnd = new Date(Math.round(passEnd.getTime() / 1000) * 1000);
 
   // 生成 1 s 步进表（sum_time + 1 条，包含首尾，供固件插值）。
   // 表起点 floor 到整秒：start_unix 是整秒，固件按整秒索引（index = now - start_unix），

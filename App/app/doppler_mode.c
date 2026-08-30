@@ -55,6 +55,16 @@ static uint32_t gDopplerSavedTxFreq = 0;
 static uint8_t  gDopplerSavedTxCodeType = 0;
 static uint8_t  gDopplerSavedTxCode = 0;
 
+// Saved squelch thresholds so we can force SQL 0 during a pass and restore
+// the user's global setting before/after the pass.
+static uint8_t  gDopplerSavedSqlOpenRssi = 0;
+static uint8_t  gDopplerSavedSqlCloseRssi = 0;
+static uint8_t  gDopplerSavedSqlOpenNoise = 0;
+static uint8_t  gDopplerSavedSqlCloseNoise = 0;
+static uint8_t  gDopplerSavedSqlCloseGlitch = 0;
+static uint8_t  gDopplerSavedSqlOpenGlitch = 0;
+static bool     gDopplerSqlForcedOpen = false;
+
 static uint8_t  gDopplerTime[6];          // year(2000-based)..second
 static char     gDopplerInputStr[13];     // 12-digit entry (YYMMDDHHMMSS + '\0')
 static uint8_t  gDopplerInputIndex = 0;
@@ -70,6 +80,55 @@ static uint8_t  gDopplerAdjustField = 0; // 0=year..5=second, 0..2 digits per fi
 bool DOPPLER_IsActive(void)
 {
     return gDopplerState != DOPPLER_STATE_OFF;
+}
+
+// Capture the current VFO squelch thresholds from the active RX VFO.
+static void DOPPLER_SaveSquelch(void)
+{
+    gDopplerSavedSqlOpenRssi     = gRxVfo->SquelchOpenRSSIThresh;
+    gDopplerSavedSqlCloseRssi    = gRxVfo->SquelchCloseRSSIThresh;
+    gDopplerSavedSqlOpenNoise    = gRxVfo->SquelchOpenNoiseThresh;
+    gDopplerSavedSqlCloseNoise   = gRxVfo->SquelchCloseNoiseThresh;
+    gDopplerSavedSqlCloseGlitch  = gRxVfo->SquelchCloseGlitchThresh;
+    gDopplerSavedSqlOpenGlitch   = gRxVfo->SquelchOpenGlitchThresh;
+}
+
+// Restore the previously saved VFO squelch thresholds to chip and VFO struct.
+static void DOPPLER_RestoreSquelch(void)
+{
+    gRxVfo->SquelchOpenRSSIThresh    = gDopplerSavedSqlOpenRssi;
+    gRxVfo->SquelchCloseRSSIThresh   = gDopplerSavedSqlCloseRssi;
+    gRxVfo->SquelchOpenNoiseThresh   = gDopplerSavedSqlOpenNoise;
+    gRxVfo->SquelchCloseNoiseThresh  = gDopplerSavedSqlCloseNoise;
+    gRxVfo->SquelchCloseGlitchThresh = gDopplerSavedSqlCloseGlitch;
+    gRxVfo->SquelchOpenGlitchThresh  = gDopplerSavedSqlOpenGlitch;
+
+    BK4819_SetupSquelch(
+        gRxVfo->SquelchOpenRSSIThresh,    gRxVfo->SquelchCloseRSSIThresh,
+        gRxVfo->SquelchOpenNoiseThresh,   gRxVfo->SquelchCloseNoiseThresh,
+        gRxVfo->SquelchCloseGlitchThresh, gRxVfo->SquelchOpenGlitchThresh);
+}
+
+// Force squelch fully open (SQL 0) for the duration of a pass.
+static void DOPPLER_ForceSquelchOpen(void)
+{
+    if (gDopplerSqlForcedOpen)
+    {
+        return;
+    }
+    DOPPLER_SaveSquelch();
+    gDopplerSqlForcedOpen = true;
+
+    // These values match RADIO_ConfigureSquelchAndOutputPower() for
+    // gEeprom.SQUELCH_LEVEL == 0 (squelch off / fully open).
+    gRxVfo->SquelchOpenRSSIThresh    = 0;
+    gRxVfo->SquelchCloseRSSIThresh   = 0;
+    gRxVfo->SquelchOpenNoiseThresh   = 127;
+    gRxVfo->SquelchCloseNoiseThresh  = 127;
+    gRxVfo->SquelchCloseGlitchThresh = 255;
+    gRxVfo->SquelchOpenGlitchThresh  = 255;
+
+    BK4819_SetupSquelch(0, 0, 127, 127, 255, 255);
 }
 
 static void DOPPLER_SetInputIndex(uint8_t Index)
@@ -190,11 +249,15 @@ void DOPPLER_EnterMode(void)
 
     gDopplerSavedRxFreq = gTxVfo->freq_config_RX.Frequency;
     gDopplerTxOverride = false;
+    gDopplerSqlForcedOpen = false;
 
     RTC_EnableSecondIT(true);
 
     gDopplerPassed = false;
     gDopplerEntryValid = false;
+
+    // Squelch follows the global setting until a pass actually starts.
+    DOPPLER_RestoreSquelch();
 
     // Never force the 12-digit entry: go straight to tracking. Time is set
     // either from Flash at boot or via the adjust screen (key 1).
@@ -241,6 +304,13 @@ void DOPPLER_ExitMode(void)
     {
         gDopplerLedTicks = 0;
         BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+    }
+
+    // Restore the user's global squelch setting before leaving Doppler mode.
+    if (gDopplerSqlForcedOpen)
+    {
+        DOPPLER_RestoreSquelch();
+        gDopplerSqlForcedOpen = false;
     }
 
     gDopplerState = DOPPLER_STATE_OFF;
@@ -714,6 +784,22 @@ void DOPPLER_TimeSlice(void)
     // slot whose pass is underway, and play the 60 s / 10 s reminders.
     if (secondTick)
     {
+        // 0. Update squelch according to whether the active slot is in pass:
+        //    outside a pass -> follow global SQL setting; during a pass -> SQL 0.
+        const DOPPLER_Satellite_t *pSqlSat = DOPPLER_GetSatellite();
+        const bool sqlInPass = DOPPLER_HasData()
+            && now >= pSqlSat->start_unix
+            && now <= pSqlSat->start_unix + (uint32_t)pSqlSat->sum_time;
+        if (sqlInPass)
+        {
+            DOPPLER_ForceSquelchOpen();
+        }
+        else if (gDopplerSqlForcedOpen)
+        {
+            DOPPLER_RestoreSquelch();
+            gDopplerSqlForcedOpen = false;
+        }
+
         // 1. Erase every slot whose pass window has fully elapsed (this is
         //    also how a finished pass gets deleted one second after LOS).
         //    When the ACTIVE slot is the one that just got erased, hop to

@@ -3,13 +3,73 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>多普勒固件手台工具</title>
+<title>K5Web - 多普勒固件手台工具</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
 <style>
-  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; background: #f5f6f8; color: #222; }
-  h1 { font-size: 20px; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8; color: #222;
+    display: flex; flex-direction: column;
+  }
+  a { color: #2f6fdc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* 顶部标题栏 */
+  .topbar {
+    height: 56px; background: #fff; border-bottom: 1px solid #ddd;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; flex-shrink: 0;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar .brand { font-size: 18px; font-weight: 600; color: #111; }
+  .topbar .top-actions { display: flex; align-items: center; gap: 12px; }
+  .topbar .link { font-size: 14px; color: #444; cursor: pointer; }
+  .topbar .link:hover { color: #2f6fdc; }
+  .btn-connect { padding: 7px 18px; font-size: 14px; border: none; border-radius: 4px; cursor: pointer; background: #2f6fdc; color: #fff; }
+  .btn-connect.secondary { background: #6c757d; }
+  .top-status { font-size: 13px; color: #444; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top-status.ok { color: #1a7f37; }
+  .top-status.err { color: #c62828; }
+
+  /* 主体：左侧边栏 + 内容区 */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* 左侧导航栏 */
+  .sidebar {
+    width: 200px; background: #fff; border-right: 1px solid #ddd;
+    display: flex; flex-direction: column; flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .nav-group { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+  .nav-title {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; font-size: 14px; color: #333; font-weight: 500; cursor: pointer;
+  }
+  .nav-title:hover { background: #f7f8fa; }
+  .nav-title .arrow { font-size: 12px; color: #999; transition: transform .2s; }
+  .nav-title.collapsed .arrow { transform: rotate(-90deg); }
+  .nav-items { display: flex; flex-direction: column; }
+  .nav-items.hidden { display: none; }
+  .nav-item {
+    padding: 10px 16px 10px 32px; font-size: 14px; color: #555; cursor: pointer;
+    border-left: 3px solid transparent; white-space: nowrap;
+  }
+  .nav-item:hover { background: #f7f8fa; color: #2f6fdc; }
+  .nav-item.active { background: #eef4ff; color: #2f6fdc; border-left-color: #2f6fdc; }
+  .sidebar-footer { margin-top: auto; padding: 12px 16px; font-size: 12px; color: #999; }
+
+  /* 内容区 */
+  .content {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+    max-width: 900px; margin: 0 auto; width: 100%;
+  }
+  .page-title { font-size: 20px; margin: 0 0 16px; }
+  .welcome { font-size: 16px; color: #333; margin-bottom: 24px; }
   h2 { font-size: 15px; margin: 18px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
-  .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2:first-child { margin-top: 0; }
   label { display: block; font-size: 13px; margin: 8px 0 2px; color: #444; }
   input, select, textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 14px; border: 1px solid #bbb; border-radius: 4px; }
   textarea { font-family: Consolas, monospace; font-size: 12px; height: 52px; }
@@ -19,18 +79,13 @@
   button.secondary { background: #6c757d; }
   button.danger { background: #c62828; }
   button:disabled { background: #aab; cursor: not-allowed; }
-  #status { font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
-  .ok { color: #1a7f37; } .err { color: #c62828; } .info { color: #444; }
-  #log { font-family: Consolas, monospace; font-size: 12px; background: #111; color: #9f9; padding: 8px; border-radius: 4px; height: 160px; overflow-y: auto; white-space: pre-wrap; }
+  #log {
+    font-family: Consolas, monospace; font-size: 12px; background: #111; color: #9f9;
+    padding: 8px; border-radius: 4px; height: 160px; overflow-y: auto; white-space: pre-wrap;
+  }
   .result { font-size: 13px; line-height: 1.7; }
   .progress { height: 8px; background: #e0e0e0; border-radius: 4px; margin: 8px 0; overflow: hidden; display: none; }
   .progress > div { height: 100%; width: 0%; background: #2f6fdc; transition: width .2s; }
-  /* 选项卡 */
-  .tabbar { display: flex; gap: 8px; margin-bottom: 12px; }
-  .tabbtn { flex: 1; padding: 10px; font-size: 15px; background: #fff; color: #444; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; }
-  .tabbtn.active { background: #2f6fdc; color: #fff; border-color: #2f6fdc; }
-  .tabpanel { display: none; }
-  .tabpanel.active { display: block; }
   .hint { font-size: 13px; color: #666; margin: 4px 0 0; }
   /* 卫星模糊搜索下拉 */
   .sat-combo { position: relative; }
@@ -42,23 +97,91 @@
   .sat-item mark { background: #ffe58f; padding: 0; }
   .sat-item.active mark { background: rgba(255,255,255,.3); color: inherit; }
   .sat-empty { padding: 8px; font-size: 12px; color: #888; text-align: center; }
+
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+
+  /* 移动端适配 */
+  .menu-toggle { display: none; font-size: 20px; background: none; border: none; color: #444; padding: 4px 8px; margin-right: 8px; }
+  @media (max-width: 768px) {
+    .menu-toggle { display: inline-block; }
+    .sidebar {
+      position: fixed; left: 0; top: 56px; bottom: 0; z-index: 99;
+      transform: translateX(-100%); transition: transform .2s;
+      box-shadow: 2px 0 8px rgba(0,0,0,.1);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .content { padding: 16px; }
+    .overlay { display: none; position: fixed; inset: 56px 0 0 0; background: rgba(0,0,0,.3); z-index: 98; }
+    .overlay.show { display: block; }
+  }
 </style>
 </head>
 <body>
-<h1>多普勒固件手台工具</h1>
-<p class="hint">适用于 UV-K1 / UV-K5 V3 / UV-K6 V3（PY32F071）F4HWN 固件。选择下方功能选项卡。</p>
 
-<div class="tabbar">
-  <button class="tabbtn active" data-tab="tabFw" type="button">📥 固件刷写</button>
-  <button class="tabbtn" data-tab="tabCalExp" type="button">📤 导出校准</button>
-  <button class="tabbtn" data-tab="tabCalImp" type="button">📥 导入校准</button>
-  <button class="tabbtn" data-tab="tabFont" type="button">🀄 中文字库</button>
-  <button class="tabbtn" data-tab="tabEphem" type="button">🛰️ 多普勒星历</button>
-  <button class="tabbtn" data-tab="tabChProg" type="button">📻 写频</button>
+<!-- 顶部标题栏 -->
+<header class="topbar">
+  <div style="display:flex;align-items:center">
+    <button class="menu-toggle" id="menuToggle">☰</button>
+    <span class="brand">多普勒固件手台工具</span>
+  </div>
+  <div class="top-actions">
+    <span class="link">问题反馈</span>
+    <button id="btnConnect" class="btn-connect">连接</button>
+    <span id="status" class="top-status"></span>
+  </div>
+</header>
+
+<!-- 主体 -->
+<div class="main">
+  <!-- 左侧导航 -->
+  <nav class="sidebar" id="sidebar">
+    <div class="nav-group">
+      <div class="nav-title" data-group="gWrite">写频 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gWrite">
+        <div class="nav-item active" data-tab="tabHome" type="button">首页</div>
+        <div class="nav-item" data-tab="tabChProg" type="button">信道管理</div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title" data-group="gTool">工具 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gTool">
+        <div class="nav-item" data-tab="tabFw" type="button">固件刷写</div>
+        <div class="nav-item" data-tab="tabCalExp" type="button">导出校准</div>
+        <div class="nav-item" data-tab="tabCalImp" type="button">导入校准</div>
+        <div class="nav-item" data-tab="tabFont" type="button">中文字库</div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title" data-group="gDoppler">多普勒 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gDoppler">
+        <div class="nav-item" data-tab="tabEphem" type="button">星历写入</div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title" data-group="gLog">日志 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gLog">
+        <div class="nav-item" data-tab="tabLog" type="button">运行日志</div>
+      </div>
+    </div>
+    <div class="sidebar-footer">K5Web - V0.1</div>
+  </nav>
+  <div class="overlay" id="overlay"></div>
+
+  <!-- 右侧内容 -->
+  <main class="content">
+
+<!-- ========== 首页 ========== -->
+<div id="tabHome" class="tabpanel active">
+  <h1 class="page-title">多普勒固件手台工具</h1>
+  <div class="card">
+    <p class="hint">适用于 UV-K1 / UV-K5 V3 / UV-K6 V3（PY32F071）F4HWN 固件。选择左侧功能菜单开始使用。</p>
+  </div>
 </div>
 
-<!-- ========== 选项卡 1：固件刷写 ========== -->
-<div id="tabFw" class="tabpanel active">
+<!-- ========== 选项卡：固件刷写 ========== -->
+<div id="tabFw" class="tabpanel">
+  <h1 class="page-title">固件刷写</h1>
 
   <div class="card">
     <h2>固件刷写（Bootloader 协议，256 字节/页）</h2>
@@ -76,6 +199,7 @@
 
 <!-- ========== 选项卡：导出校准数据 ========== -->
 <div id="tabCalExp" class="tabpanel">
+  <h1 class="page-title">导出校准数据</h1>
 
   <div class="card">
     <h2>导出校准数据（512 字节）</h2>
@@ -89,6 +213,7 @@
 
 <!-- ========== 选项卡：导入校准数据 ========== -->
 <div id="tabCalImp" class="tabpanel">
+  <h1 class="page-title">导入校准数据</h1>
 
   <div class="card">
     <h2>导入校准数据（512 字节）</h2>
@@ -105,6 +230,7 @@
 
 <!-- ========== 选项卡：中文字库 ========== -->
 <div id="tabFont" class="tabpanel">
+  <h1 class="page-title">中文字库</h1>
 
   <div class="card">
     <h2>中文字库刷入（GB2312 16×16）</h2>
@@ -131,8 +257,9 @@
 
 </div>
 
-<!-- ========== 选项卡 3：多普勒星历 ========== -->
+<!-- ========== 选项卡：多普勒星历 ========== -->
 <div id="tabEphem" class="tabpanel">
+  <h1 class="page-title">多普勒星历</h1>
 
   <div class="card">
     <h2>1. 卫星与频率</h2>
@@ -244,6 +371,7 @@
 
 <!-- ========== 选项卡：写频（写信道） ========== -->
 <div id="tabChProg" class="tabpanel">
+  <h1 class="page-title">信道管理</h1>
 
   <div class="card">
     <h2>写入单个存储信道（MR）</h2>
@@ -390,14 +518,16 @@
 
 </div>
 
-<!-- ========== 公共：串口连接与日志 ========== -->
-<div class="card">
-  <h2>串口连接（USB 线，Web Serial）</h2>
-  <div class="row">
-    <button id="btnConnect" class="secondary">连接串口</button>
+<!-- ========== 公共：运行日志 ========== -->
+<div id="tabLog" class="tabpanel">
+  <h1 class="page-title">运行日志</h1>
+  <div class="card">
+    <h2>运行日志</h2>
+    <div id="log" style="margin-top:8px"></div>
   </div>
-  <div id="log" style="margin-top:8px"></div>
-  <div id="status"></div>
+</div>
+
+  </main>
 </div>
 
 <script src="vendor/satellite.min.js"></script>
@@ -408,5 +538,41 @@
 <script src="calc.js"></script>
 <script src="freqdb.js"></script>
 <script src="app.js?v=csv3"></script>
+<script>
+  // 侧边栏展开/折叠
+  document.querySelectorAll('.nav-title').forEach(title => {
+    title.addEventListener('click', () => {
+      const group = document.getElementById(title.dataset.group);
+      title.classList.toggle('collapsed');
+      group.classList.toggle('hidden');
+    });
+  });
+  // 侧边栏菜单切换
+  function switchTab(tabId) {
+    document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const target = document.getElementById(tabId);
+    if (target) target.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.dataset.tab === tabId) n.classList.add('active');
+    });
+    // 移动端自动收起侧边栏
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  }
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => switchTab(item.dataset.tab));
+  });
+  // 汉堡菜单
+  document.getElementById('menuToggle').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('show');
+  });
+  document.getElementById('overlay').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  });
+  window.switchTab = switchTab;
+</script>
 </body>
 </html>

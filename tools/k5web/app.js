@@ -25,19 +25,11 @@
   };
   const setStatus = (msg, cls) => {
     const el = $("status");
-    el.className = cls || "info";
+    el.className = "top-status " + (cls || "info");
     el.textContent = msg;
   };
 
-  // ---------- 选项卡切换 ----------
-  document.querySelectorAll(".tabbtn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tabbtn").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".tabpanel").forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      $(btn.dataset.tab).classList.add("active");
-    });
-  });
+  // ---------- 选项卡切换（由 index.html 内联脚本统一处理） ----------
 
   // ---------- 自动获取 TLE ----------
   // 常见 FM 卫星频率表（上行/下行 MHz）——手工精选优先于 SatNOGS，
@@ -715,7 +707,8 @@
       try { if (writer) { writer.releaseLock(); writer = null; } } catch (e) { /* ignore */ }
       try { await port.close(); } catch (e) { /* ignore */ }
       port = null;
-      $("btnConnect").textContent = "连接串口";
+      $("btnConnect").textContent = "连接";
+      $("btnConnect").classList.remove("secondary");
       log("串口已断开");
       return;
     }
@@ -729,7 +722,8 @@
       writer = port.writable.getWriter();
       reader = port.readable.getReader();
       readLoop();
-      $("btnConnect").textContent = "断开串口";
+      $("btnConnect").textContent = "断开";
+      $("btnConnect").classList.add("secondary");
       setStatus("串口已连接 ✓", "ok");
       log("串口已连接");
     } catch (e) {
