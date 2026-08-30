@@ -24,9 +24,21 @@
 #include "driver/system.h"
 #include "ui/helper.h"
 #include "ui/multiboot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "k5viewer.h"
+#endif
 
 static uint8_t gRunningSlot = 0xFFu;
 static uint8_t gActiveBank  = 0u;
+
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+static void mb_k5viewer_service(void)
+{
+    /* The Multiboot selector is modal and does not return to APP_Update(). */
+    K5VIEWER_ParseInput();
+    K5VIEWER_Update(false);
+}
+#endif
 
 static uint8_t mb_remember_boot_state(uint8_t slot, uint8_t bank)
 {
@@ -164,6 +176,9 @@ static void mb_show_message(const char *line1, const char *line2, const char *li
     if (line3) UI_PrintStringSmallNormal(line3, 2, 126, 6);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    mb_k5viewer_service();
+#endif
 }
 
 static void mb_wait_release(void)
@@ -183,6 +198,9 @@ static KEY_Code_t mb_get_key(void)
 {
     for (;;)
     {
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        mb_k5viewer_service();
+#endif
         KEY_Code_t key = KEYBOARD_Poll();
         if (key != KEY_INVALID)
         {
@@ -202,6 +220,10 @@ static KEY_Code_t mb_get_key(void)
  * NOT paint the "F4HWN MULTIBOOT" status banner - just a plain acknowledged message. */
 void UI_MultibootShowConfigError(uint8_t err)
 {
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    gKeyReading0 = KEY_INVALID;
+    gKeyReading1 = KEY_INVALID;
+#endif
     UI_DisplayClear();
     UI_StatusClear();
     UI_PrintStringSmallNormal("CFG ERROR", 2, 126, 2);
@@ -209,6 +231,9 @@ void UI_MultibootShowConfigError(uint8_t err)
     UI_PrintStringSmallNormal("Press any key", 2, 126, 6);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    mb_k5viewer_service();
+#endif
     /* The MENU press that confirmed SetCfg may still be down; wait for a clean
      * release first so it isn't consumed as the acknowledgement immediately. */
     mb_wait_release();
@@ -301,6 +326,9 @@ __attribute__((noinline)) static void mb_prepare_progress_screen(const char *tit
     mb_draw_progress_outline();
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    mb_k5viewer_service();
+#endif
 }
 
 static void mb_prepare_progress(uint8_t slot)
@@ -365,6 +393,13 @@ void UI_MultibootSelector(void)
     mb_slot_header_t headers[MB_SLOT_COUNT];
     uint8_t status[MB_SLOT_COUNT];
     uint8_t selected = 0;
+
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    /* The selector is entered from a boot key event. Clear that stale key so
+     * K5Viewer is allowed to publish the first selector frame immediately. */
+    gKeyReading0 = KEY_INVALID;
+    gKeyReading1 = KEY_INVALID;
+#endif
 
     /* Clear + blit the LCD BEFORE the backlight comes on, otherwise it reveals
      * the random power-on contents of the display RAM for a moment. */
