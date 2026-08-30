@@ -107,6 +107,8 @@ enum {
     APP_TRIVFO_TX        = 1u << 3,
     APP_TRIVFO_USER_POWER = 1u << 4,
     APP_TRIVFO_AUDIO_BAR = 1u << 5,
+    APP_TRIVFO_GUI_CLASSIC = 1u << 6,
+    APP_TRIVFO_PTT_ONEPUSH = 1u << 7,
 };
 
 enum {
@@ -218,7 +220,7 @@ typedef struct app_api {
     void     (*trivfo_select)(uint8_t vfo);
     uint16_t (*trivfo_step)(uint8_t vfo, int8_t direction);
     uint8_t  (*trivfo_tick)(void);
-    uint8_t  (*trivfo_ptt)(bool pressed); /* 0 OK; non-zero TX denial/timeout */
+    uint8_t  (*trivfo_ptt)(bool pressed); /* physical PTT edge; resident applies SetPTT */
 } app_api_t;
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */

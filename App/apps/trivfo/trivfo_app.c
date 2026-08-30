@@ -14,6 +14,7 @@
 #define CFG_MAGIC    0xC3u
 #define VFO_COUNT       3u
 #define MR_MAX       1024u
+#define STATUS_PTT_X   54u
 
 static const app_api_t *A;
 static app_trivfo_info_t vi[VFO_COUNT];
@@ -28,6 +29,16 @@ static char text[16];
  * polarity as every other firmware screen. */
 static const uint8_t fontF[8] = {
     0x7f, 0x00, 0x76, 0x76, 0x76, 0x76, 0x7e, 0x7f
+};
+
+/* Same two 2x6 glyphs and same x=54 slot as UI_DisplayStatus(). */
+static const uint8_t fontPttOnePush[12] = {
+    0x00, 0x3e, 0x41, 0x41, 0x41, 0x3e,
+    0x00, 0x7f, 0x09, 0x09, 0x09, 0x06
+};
+static const uint8_t fontPttClassic[12] = {
+    0x00, 0x3e, 0x41, 0x41, 0x41, 0x22,
+    0x00, 0x7f, 0x40, 0x40, 0x40, 0x40
 };
 
 static uint8_t slen(const char *s){ uint8_t n=0; while(s[n])n++; return n; }
@@ -93,6 +104,11 @@ static void drawMeter(const app_trivfo_info_t *v){
     }
 }
 
+static void drawPttStatus(void){
+    const uint8_t *glyph=(vi[0].flags&APP_TRIVFO_PTT_ONEPUSH)?fontPttOnePush:fontPttClassic;
+    for(uint8_t i=0;i<12u;i++) A->status_line[STATUS_PTT_X+i]=glyph[i];
+}
+
 static void drawVfo(uint8_t n){
     const app_trivfo_info_t *v=&vi[n];
     uint8_t mainLine=(uint8_t)(n*2u+1u), techLine=(uint8_t)(mainLine+1u);
@@ -114,22 +130,39 @@ static void drawVfo(uint8_t n){
     }
 
     const char *mod=v->modulation==0u?"FM":v->modulation==1u?"AM":v->modulation==2u?"USB":v->modulation==3u?"BYP":v->modulation==4u?"RAW":"?";
-    A->print_tiny(mod,3,techY,false,true);
     static const char *const power[7]={"LOW1","LOW2","LOW3","LOW4","LOW5","MID","HIGH"};
     uint8_t p=(v->power>=1u&&v->power<=7u)?(uint8_t)(v->power-1u):0u;
-    A->print_tiny(power[p],24,techY,false,true);
-    if(v->flags&APP_TRIVFO_USER_POWER){
-        A->fb[techLine][19]=0x3e; A->fb[techLine][20]=0x1c; A->fb[techLine][21]=0x08;
+    if(v->flags&APP_TRIVFO_GUI_CLASSIC){
+        A->print_normal(mod,2,0,techLine);
+        if(v->modulation==0u&&v->code_type==1u) A->print_normal("CT",22,0,techLine);
+        else if(v->modulation==0u&&(v->code_type==2u||v->code_type==3u)) A->print_normal("DC",22,0,techLine);
+        static const char *const powerShort[7]={"L1","L2","L3","L4","L5","M","H"};
+        A->print_normal(powerShort[p],42,0,techLine);
+        if(v->flags&APP_TRIVFO_USER_POWER){
+            A->fb[techLine][38]=0x3e; A->fb[techLine][39]=0x1c; A->fb[techLine][40]=0x08;
+        }
+        if(v->offset_direction==1u) A->print_normal("+",60,0,techLine);
+        else if(v->offset_direction==2u) A->print_normal("-",60,0,techLine);
+        if(v->reverse) A->print_normal("R",68,0,techLine);
+        A->print_normal(v->bandwidth==0u?"W":v->bandwidth==1u?"N":"N+",80,0,techLine);
+        text[0]='S'; text[1]='Q'; text[2]='L'; text[3]=(char)('0'+(v->squelch%10u)); text[4]='\0';
+        A->print_normal(text,98,0,techLine);
+    } else {
+        A->print_tiny(mod,3,techY,false,true);
+        A->print_tiny(power[p],24,techY,false,true);
+        if(v->flags&APP_TRIVFO_USER_POWER){
+            A->fb[techLine][19]=0x3e; A->fb[techLine][20]=0x1c; A->fb[techLine][21]=0x08;
+        }
+        if(v->offset_direction==1u) A->print_normal("+",41,0,techLine);
+        else if(v->offset_direction==2u) A->print_normal("-",41,0,techLine);
+        if(v->reverse) A->print_tiny("R",51,techY,false,true);
+        if(v->code_type==1u){ A->print_tiny("CT",58,techY,false,true); formatCode(text,v); A->print_tiny(text,68,techY,false,true); }
+        else if(v->code_type==2u||v->code_type==3u){ A->print_tiny("DC",58,techY,false,true); formatCode(text,v); A->print_tiny(text,68,techY,false,true); }
+        else { formatStep(text,v->step); A->print_tiny(text,58,techY,false,true); }
+        A->print_tiny(v->bandwidth==0u?"WIDE":v->bandwidth==1u?"NAR":"NAR+",91,techY,false,true);
+        text[0]='S'; text[1]='Q'; text[2]='L'; text[3]=(char)('0'+(v->squelch%10u)); text[4]='\0';
+        A->print_tiny(text,110,techY,false,true);
     }
-    if(v->offset_direction==1u) A->print_normal("+",41,0,techLine);
-    else if(v->offset_direction==2u) A->print_normal("-",41,0,techLine);
-    if(v->reverse) A->print_tiny("R",51,techY,false,true);
-    if(v->code_type==1u){ A->print_tiny("CT",58,techY,false,true); formatCode(text,v); A->print_tiny(text,68,techY,false,true); }
-    else if(v->code_type==2u||v->code_type==3u){ A->print_tiny("DC",58,techY,false,true); formatCode(text,v); A->print_tiny(text,68,techY,false,true); }
-    else { formatStep(text,v->step); A->print_tiny(text,58,techY,false,true); }
-    A->print_tiny(v->bandwidth==0u?"WIDE":v->bandwidth==1u?"NAR":"NAR+",91,techY,false,true);
-    text[0]='S'; text[1]='Q'; text[2]='L'; text[3]=(char)('0'+(v->squelch%10u)); text[4]='\0';
-    A->print_tiny(text,110,techY,false,true);
 }
 
 static void draw(void){
@@ -144,6 +177,7 @@ static void draw(void){
     /* Keep the application title in the resident upper-left position. */
     A->draw_battery();
     A->print_inverse("TRIPLE VFO",2,0,true,true,42);
+    drawPttStatus();
     if(fArm){ for(uint8_t i=0;i<8u;i++) A->status_line[69u+i]=fontF[i]; }
     for(uint8_t i=0;i<VFO_COUNT;i++) drawVfo(i);
     if(state==APP_TRIVFO_TX_STATE&&(vi[selected].flags&APP_TRIVFO_AUDIO_BAR))

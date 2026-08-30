@@ -101,7 +101,10 @@ static bool        app_trivfo_ctcss_ok;
 static bool        app_trivfo_cdcss_ok;
 static bool        app_trivfo_ab_dirty;
 static bool        app_trivfo_restore_selection;
+static bool        app_trivfo_onepush_stop_armed;
 static uint8_t     app_trivfo_freq_dirty;
+
+static void app_trivfo_end_tx(void);
 
 static VFO_Info_t *app_trivfo_vfo(uint8_t vfo)
 {
@@ -228,6 +231,7 @@ static uint16_t app_trivfo_enter(uint16_t c_channel)
     app_trivfo_hold = 0;
     app_trivfo_running = true;
     app_trivfo_transmitting = false;
+    app_trivfo_onepush_stop_armed = false;
     app_trivfo_ab_dirty = false;
     app_trivfo_freq_dirty = 0;
     app_trivfo_tune(0);
@@ -238,10 +242,8 @@ static void app_trivfo_leave(void)
 {
     if (!app_trivfo_running)
         return;
-    if (app_trivfo_transmitting) {
-        BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
-        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
-    }
+    if (app_trivfo_transmitting)
+        app_trivfo_end_tx();
     AUDIO_AudioPathOff();
     gEnableSpeaker = false;
     app_trivfo_running = false;
@@ -289,6 +291,8 @@ static void app_trivfo_get(uint8_t index, app_trivfo_info_t *info)
 #ifdef ENABLE_AUDIO_BAR
     if (gSetting_mic_bar) info->flags |= APP_TRIVFO_AUDIO_BAR;
 #endif
+    if (gSetting_set_gui) info->flags |= APP_TRIVFO_GUI_CLASSIC;
+    if (gSetting_set_ptt_session) info->flags |= APP_TRIVFO_PTT_ONEPUSH;
     if (IS_MR_CHANNEL(vfo->CHANNEL_SAVE))
         memcpy(info->name, vfo->Name, sizeof(info->name) - 1u);
 }
@@ -340,7 +344,17 @@ static uint16_t app_trivfo_step(uint8_t index, int8_t direction)
     return channel;
 }
 
-static uint8_t app_trivfo_ptt(bool pressed);
+static void app_trivfo_end_tx(void)
+{
+    if (!app_trivfo_transmitting)
+        return;
+    RADIO_SendEndOfTransmission();
+    app_trivfo_transmitting = false;
+    app_trivfo_onepush_stop_armed = false;
+    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+    app_trivfo_hold = APP_TRIVFO_TX_HOLD_TICKS;
+    app_trivfo_tune(app_trivfo_selected);
+}
 
 static uint8_t app_trivfo_tick(void)
 {
@@ -349,7 +363,7 @@ static uint8_t app_trivfo_tick(void)
     if (app_trivfo_transmitting) {
         const uint32_t timeout = ((uint32_t)gEeprom.TX_TIMEOUT_TIMER + 1u) * 250u;
         if (++app_trivfo_tx_ticks >= timeout) {
-            app_trivfo_ptt(false);
+            app_trivfo_end_tx();
             return APP_TRIVFO_HOLD;
         }
         return APP_TRIVFO_TX_STATE;
@@ -420,15 +434,18 @@ static uint8_t app_trivfo_ptt(bool pressed)
     if (!pressed) {
         if (!app_trivfo_transmitting)
             return 0;
-        RADIO_SendEndOfTransmission();
-        app_trivfo_transmitting = false;
-        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
-        app_trivfo_hold = APP_TRIVFO_TX_HOLD_TICKS;
-        app_trivfo_tune(app_trivfo_selected);
+        /* ONEPUSH mirrors the resident PTT sequence: the first release keeps
+         * TX keyed; the release following the second press ends TX. */
+        if (gSetting_set_ptt_session && !app_trivfo_onepush_stop_armed)
+            return 0;
+        app_trivfo_end_tx();
         return 0;
     }
-    if (app_trivfo_transmitting)
+    if (app_trivfo_transmitting) {
+        if (gSetting_set_ptt_session)
+            app_trivfo_onepush_stop_armed = true;
         return 0;
+    }
 
     VFO_Info_t *vfo = app_trivfo_vfo(app_trivfo_selected);
     if ((TX_freq_check(vfo->pTX->Frequency) != 0 && vfo->TX_LOCK) ||
@@ -447,6 +464,7 @@ static uint8_t app_trivfo_ptt(bool pressed)
     app_trivfo_current = app_trivfo_selected;
     app_trivfo_receiving = false;
     app_trivfo_transmitting = true;
+    app_trivfo_onepush_stop_armed = false;
     app_trivfo_tx_ticks = 0;
     return 0;
 }
