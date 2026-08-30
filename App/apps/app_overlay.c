@@ -32,10 +32,14 @@
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "driver/backlight.h"
+#include "app/app.h"
 #include "ui/helper.h"
 #include "ui/status.h"
 #include "board.h"
 #include "audio.h"
+#include "dcs.h"
+#include "functions.h"
+#include "frequencies.h"
 #include "radio.h"
 #include "helper/battery.h"
 #include "settings.h"
@@ -91,6 +95,382 @@ static uint32_t app_make_seed(void)
            * gEeprom.VfoInfo[0].pRX->Frequency;
 }
 
+/* ---- ABI 4: resident triple-VFO engine ---------------------------------
+ * The overlay owns the UI and key timing, while this resident engine owns all
+ * radio details.  Keeping VFO_Info_t and BK4819 sequencing on this side makes
+ * the app independent of feature-dependent firmware layouts. */
+#define APP_TRIVFO_COUNT          3u
+#define APP_TRIVFO_TUNE_TICKS     5u    /* 100 ms at one tick / 20 ms */
+#define APP_TRIVFO_TX_HOLD_TICKS 125u   /* keep the existing 2.5 s TX return */
+
+static VFO_Info_t  app_trivfo_c;
+static VFO_Info_t *app_trivfo_saved_rx;
+static VFO_Info_t *app_trivfo_saved_tx;
+static VFO_Info_t *app_trivfo_saved_current;
+static uint8_t     app_trivfo_selected;
+static uint8_t     app_trivfo_pre_rx_selected;
+static uint8_t     app_trivfo_current;
+static uint8_t     app_trivfo_settle;
+static uint16_t    app_trivfo_hold;
+static uint8_t     app_trivfo_candidate_wait;
+static uint32_t    app_trivfo_tx_ticks;
+static bool        app_trivfo_running;
+static bool        app_trivfo_receiving;
+static bool        app_trivfo_transmitting;
+static bool        app_trivfo_sql_open;
+static bool        app_trivfo_ctcss_ok;
+static bool        app_trivfo_cdcss_ok;
+static bool        app_trivfo_ab_dirty;
+static bool        app_trivfo_restore_selection;
+static uint8_t     app_trivfo_freq_dirty;
+
+static VFO_Info_t *app_trivfo_vfo(uint8_t vfo)
+{
+    return vfo < 2u ? &gEeprom.VfoInfo[vfo] : &app_trivfo_c;
+}
+
+static bool app_trivfo_load_memory(VFO_Info_t *vfo, uint16_t channel)
+{
+    ChannelScanDisplayInfo_t info;
+    if (!IS_MR_CHANNEL(channel) ||
+        !SETTINGS_FetchChannelScanDisplayInfo(channel, &info))
+        return false;
+
+    RADIO_InitInfo(vfo, channel, info.rx.Frequency);
+    vfo->freq_config_RX              = info.rx;
+    vfo->freq_config_TX              = info.tx;
+    vfo->TX_OFFSET_FREQUENCY         = info.offset;
+    vfo->StepFrequency               = info.stepFrequency;
+    vfo->STEP_SETTING                = info.stepSetting;
+    vfo->Modulation                  = info.modulation;
+    vfo->TX_OFFSET_FREQUENCY_DIRECTION = info.txOffsetFrequencyDirection;
+    vfo->OUTPUT_POWER                = info.outputPower;
+    vfo->FrequencyReverse            = info.frequencyReverse;
+    vfo->CHANNEL_BANDWIDTH           = info.channelBandwidth;
+    vfo->BUSY_CHANNEL_LOCK           = info.busyChannelLock;
+    vfo->TX_LOCK                     = info.txLock;
+#ifdef ENABLE_DTMF_CALLING
+    vfo->DTMF_DECODING_ENABLE        = info.dtmfDecodingEnable;
+#endif
+    vfo->DTMF_PTT_ID_TX_MODE         = info.dtmfPttIdTxMode;
+    vfo->Band                        = FREQUENCY_GetBand(vfo->freq_config_RX.Frequency);
+    vfo->Compander                   = MR_GetChannelAttributes(channel)->compander;
+    SETTINGS_FetchChannelName(vfo->Name, channel);
+    vfo->pRX = vfo->FrequencyReverse ? &vfo->freq_config_TX : &vfo->freq_config_RX;
+    vfo->pTX = vfo->FrequencyReverse ? &vfo->freq_config_RX : &vfo->freq_config_TX;
+    RADIO_ConfigureSquelchAndOutputPower(vfo);
+    return true;
+}
+
+static uint16_t app_trivfo_next_channel(uint16_t channel, int8_t direction, uint8_t vfo)
+{
+    if (direction == 0)
+        direction = 1;
+    channel = RADIO_FindNextChannel((uint16_t)(channel + direction), direction,
+                                    false, vfo < 2u ? vfo : 0u);
+    return channel;
+}
+
+static void app_trivfo_tune(uint8_t vfo)
+{
+    app_trivfo_current = vfo % APP_TRIVFO_COUNT;
+    gRxVfo = app_trivfo_vfo(app_trivfo_current);
+    gCurrentVfo = gRxVfo;
+    app_trivfo_receiving = false;
+    app_trivfo_sql_open = false;
+    app_trivfo_ctcss_ok = false;
+    app_trivfo_cdcss_ok = false;
+    app_trivfo_candidate_wait = 0;
+    app_trivfo_settle = APP_TRIVFO_TUNE_TICKS;
+    AUDIO_AudioPathOff();
+    gEnableSpeaker = false;
+    RADIO_SetupRegisters(false);
+    FUNCTION_Init();
+}
+
+static void app_trivfo_poll_irq(void)
+{
+    while (BK4819_ReadRegister(BK4819_REG_0C) & 1u) {
+        BK4819_WriteRegister(BK4819_REG_02, 0);
+        const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
+        if (irq & BK4819_REG_02_SQUELCH_LOST)  app_trivfo_sql_open = true;
+        if (irq & BK4819_REG_02_SQUELCH_FOUND) {
+            app_trivfo_sql_open = false;
+            app_trivfo_ctcss_ok = false;
+            app_trivfo_cdcss_ok = false;
+        }
+
+        /* A BK4819 CSS interrupt is a transition, not a persistent level.
+         * Depending on the silicon revision and the configured polarity, the
+         * first transition can be reported as FOUND or LOST.  MAIN keeps the
+         * decoder state across both transitions; do the same here and use any
+         * CSS transition as proof that the configured decoder has acquired the
+         * signal.  A wrong CTCSS/DCS does not generate either transition. */
+        if (irq & (BK4819_REG_02_CTCSS_LOST | BK4819_REG_02_CTCSS_FOUND))
+            app_trivfo_ctcss_ok = true;
+        if (irq & (BK4819_REG_02_CDCSS_LOST | BK4819_REG_02_CDCSS_FOUND))
+            app_trivfo_cdcss_ok = true;
+    }
+}
+
+static bool app_trivfo_qualified(void)
+{
+    const VFO_Info_t *vfo = app_trivfo_vfo(app_trivfo_current);
+    if (!app_trivfo_sql_open)
+        return false;
+    if (vfo->Modulation != MODULATION_FM || vfo->pRX->CodeType == CODE_TYPE_OFF)
+        return true;
+    if (vfo->pRX->CodeType == CODE_TYPE_CONTINUOUS_TONE)
+        return app_trivfo_ctcss_ok;
+    return app_trivfo_cdcss_ok;
+}
+
+static uint16_t app_trivfo_enter(uint16_t c_channel)
+{
+    app_trivfo_saved_rx      = gRxVfo;
+    app_trivfo_saved_tx      = gTxVfo;
+    app_trivfo_saved_current = gCurrentVfo;
+
+    if (!IS_MR_CHANNEL(c_channel) ||
+        !SETTINGS_FetchChannelScanInfo(c_channel, NULL, NULL)) {
+        uint16_t start = IS_MR_CHANNEL(gEeprom.ScreenChannel[1])
+                       ? gEeprom.ScreenChannel[1] : gEeprom.MrChannel[1];
+        c_channel = app_trivfo_next_channel(start, 1, 2);
+    }
+    if (c_channel == 0xFFFFu || !app_trivfo_load_memory(&app_trivfo_c, c_channel)) {
+        c_channel = RADIO_FindNextChannel(MR_CHANNEL_FIRST, RADIO_CHANNEL_UP, false, 0);
+        if (c_channel != 0xFFFFu)
+            app_trivfo_load_memory(&app_trivfo_c, c_channel);
+    }
+
+    app_trivfo_selected = 0;
+    app_trivfo_pre_rx_selected = 0;
+    app_trivfo_restore_selection = false;
+    app_trivfo_hold = 0;
+    app_trivfo_running = true;
+    app_trivfo_transmitting = false;
+    app_trivfo_ab_dirty = false;
+    app_trivfo_freq_dirty = 0;
+    app_trivfo_tune(0);
+    return c_channel;
+}
+
+static void app_trivfo_leave(void)
+{
+    if (!app_trivfo_running)
+        return;
+    if (app_trivfo_transmitting) {
+        BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+    }
+    AUDIO_AudioPathOff();
+    gEnableSpeaker = false;
+    app_trivfo_running = false;
+    app_trivfo_transmitting = false;
+    gRxVfo = app_trivfo_saved_rx;
+    gTxVfo = app_trivfo_saved_tx;
+    gCurrentVfo = app_trivfo_saved_current;
+}
+
+static void app_trivfo_get(uint8_t index, app_trivfo_info_t *info)
+{
+    if (info == NULL || index >= APP_TRIVFO_COUNT)
+        return;
+    const VFO_Info_t *vfo = app_trivfo_vfo(index);
+    memset(info, 0, sizeof(*info));
+    info->frequency  = vfo->pRX->Frequency;
+    info->channel    = vfo->CHANNEL_SAVE;
+    info->step       = vfo->StepFrequency;
+    if (vfo->pRX->CodeType == CODE_TYPE_CONTINUOUS_TONE)
+        info->code_value = CTCSS_Options[vfo->pRX->Code];
+    else if (vfo->pRX->CodeType == CODE_TYPE_DIGITAL ||
+             vfo->pRX->CodeType == CODE_TYPE_REVERSE_DIGITAL)
+        info->code_value = DCS_Options[vfo->pRX->Code];
+    info->rssi_dbm   = (index == app_trivfo_current)
+                     ? BK4819_GetRSSI_dBm() + dBmCorrTable[vfo->Band] : -160;
+    info->modulation = vfo->Modulation;
+    info->power      = vfo->OUTPUT_POWER == OUTPUT_POWER_USER
+                     ? (uint8_t)(gSetting_set_pwr + 1u) : vfo->OUTPUT_POWER;
+    info->bandwidth  = vfo->CHANNEL_BANDWIDTH;
+#ifdef ENABLE_FEAT_F4HWN_NARROWER
+    if (info->bandwidth == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
+        info->bandwidth++;
+#endif
+    info->code_type  = vfo->pRX->CodeType;
+    info->code       = vfo->pRX->Code;
+    info->offset_direction = vfo->TX_OFFSET_FREQUENCY_DIRECTION;
+    info->reverse    = vfo->FrequencyReverse;
+    info->squelch    = gEeprom.SQUELCH_LEVEL;
+    if (index == app_trivfo_selected) info->flags |= APP_TRIVFO_SELECTED;
+    if (index == app_trivfo_current)  info->flags |= APP_TRIVFO_TUNED;
+    if (index == app_trivfo_current && app_trivfo_receiving) info->flags |= APP_TRIVFO_RECEIVING;
+    if (index == app_trivfo_selected && app_trivfo_transmitting) info->flags |= APP_TRIVFO_TX;
+    if (vfo->OUTPUT_POWER == OUTPUT_POWER_USER) info->flags |= APP_TRIVFO_USER_POWER;
+#ifdef ENABLE_AUDIO_BAR
+    if (gSetting_mic_bar) info->flags |= APP_TRIVFO_AUDIO_BAR;
+#endif
+    if (IS_MR_CHANNEL(vfo->CHANNEL_SAVE))
+        memcpy(info->name, vfo->Name, sizeof(info->name) - 1u);
+}
+
+static void app_trivfo_select(uint8_t vfo)
+{
+    if (vfo < APP_TRIVFO_COUNT)
+        app_trivfo_selected = vfo;
+}
+
+static uint16_t app_trivfo_step(uint8_t index, int8_t direction)
+{
+    if (index >= APP_TRIVFO_COUNT || app_trivfo_transmitting)
+        return 0xFFFFu;
+    VFO_Info_t *vfo = app_trivfo_vfo(index);
+
+    if (IS_FREQ_CHANNEL(vfo->CHANNEL_SAVE)) {
+        if (direction == 0)
+            direction = 1;
+        const uint32_t frequency = APP_SetFrequencyByStep(vfo, direction);
+        if (RX_freq_check(frequency) < 0)
+            return 0xFFFFu;
+
+        vfo->freq_config_RX.Frequency = frequency;
+        RADIO_ApplyOffset(vfo);
+        RADIO_ConfigureSquelchAndOutputPower(vfo);
+        if (index < 2u)
+            app_trivfo_freq_dirty |= (uint8_t)(1u << index);
+        app_trivfo_hold = 0;
+        app_trivfo_tune(index);
+        return vfo->CHANNEL_SAVE;
+    }
+
+    uint16_t base = IS_MR_CHANNEL(vfo->CHANNEL_SAVE) ? vfo->CHANNEL_SAVE
+                  : (index < 2u ? gEeprom.MrChannel[index] : gEeprom.MrChannel[1]);
+    const uint16_t channel = app_trivfo_next_channel(base, direction, index);
+    if (channel == 0xFFFFu)
+        return channel;
+    if (index < 2u) {
+        gEeprom.ScreenChannel[index] = channel;
+        gEeprom.MrChannel[index] = channel;
+        RADIO_ConfigureChannel(index, VFO_CONFIGURE_RELOAD);
+        app_trivfo_ab_dirty = true;
+    } else {
+        app_trivfo_load_memory(&app_trivfo_c, channel);
+    }
+    app_trivfo_hold = 0;
+    app_trivfo_tune(index);
+    return channel;
+}
+
+static uint8_t app_trivfo_ptt(bool pressed);
+
+static uint8_t app_trivfo_tick(void)
+{
+    if (!app_trivfo_running)
+        return APP_TRIVFO_SCAN;
+    if (app_trivfo_transmitting) {
+        const uint32_t timeout = ((uint32_t)gEeprom.TX_TIMEOUT_TIMER + 1u) * 250u;
+        if (++app_trivfo_tx_ticks >= timeout) {
+            app_trivfo_ptt(false);
+            return APP_TRIVFO_HOLD;
+        }
+        return APP_TRIVFO_TX_STATE;
+    }
+
+    app_trivfo_poll_irq();
+    if (app_trivfo_settle > 0) {
+        app_trivfo_settle--;
+        return APP_TRIVFO_SCAN;
+    }
+
+    const bool qualified = app_trivfo_qualified();
+    if (qualified) {
+        app_trivfo_hold = 0;
+        if (!app_trivfo_receiving) {
+            if (app_trivfo_selected != app_trivfo_current) {
+                app_trivfo_pre_rx_selected = app_trivfo_selected;
+                app_trivfo_restore_selection = true;
+                app_trivfo_selected = app_trivfo_current;
+            }
+            app_trivfo_receiving = true;
+            AUDIO_AudioPathOn();
+            gEnableSpeaker = true;
+            BK4819_SetRxAudioGain();
+            /* BK4819_SetupSquelch() ends by selecting AF_MUTE. Mirror
+             * APP_StartListening(): restore the channel demodulator only once
+             * the carrier/CSS has qualified. */
+            RADIO_SetModulation(gRxVfo->Modulation);
+            BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
+        }
+        return APP_TRIVFO_RX;
+    }
+
+    if (app_trivfo_receiving) {
+        app_trivfo_receiving = false;
+        AUDIO_AudioPathOff();
+        gEnableSpeaker = false;
+        BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+        /* Use the same receive-response dwell as resident DWR.  The resident
+         * value is expressed in 10 ms ticks; Triple VFO ticks every 20 ms. */
+        app_trivfo_hold = (dual_watch_count_after_2_10ms + 1u) / 2u;
+        app_trivfo_candidate_wait = 50u;
+    }
+    if (app_trivfo_hold > 0) {
+        app_trivfo_hold--;
+        if (app_trivfo_hold == 0 && app_trivfo_restore_selection) {
+            app_trivfo_selected = app_trivfo_pre_rx_selected;
+            app_trivfo_restore_selection = false;
+        }
+        return APP_TRIVFO_HOLD;
+    }
+
+    /* Like resident dual watch, give a coded carrier time to acquire its CSS.
+     * A wrong tone/code must not monopolise the receiver indefinitely. */
+    if (app_trivfo_sql_open && app_trivfo_candidate_wait < 50u) {
+        app_trivfo_candidate_wait++;
+        return APP_TRIVFO_HOLD;
+    }
+
+    app_trivfo_tune((uint8_t)((app_trivfo_current + 1u) % APP_TRIVFO_COUNT));
+    return APP_TRIVFO_SCAN;
+}
+
+static uint8_t app_trivfo_ptt(bool pressed)
+{
+    if (!app_trivfo_running)
+        return 1;
+    if (!pressed) {
+        if (!app_trivfo_transmitting)
+            return 0;
+        RADIO_SendEndOfTransmission();
+        app_trivfo_transmitting = false;
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+        app_trivfo_hold = APP_TRIVFO_TX_HOLD_TICKS;
+        app_trivfo_tune(app_trivfo_selected);
+        return 0;
+    }
+    if (app_trivfo_transmitting)
+        return 0;
+
+    VFO_Info_t *vfo = app_trivfo_vfo(app_trivfo_selected);
+    if ((TX_freq_check(vfo->pTX->Frequency) != 0 && vfo->TX_LOCK) ||
+        vfo->Modulation != MODULATION_FM ||
+        (vfo->BUSY_CHANNEL_LOCK && app_trivfo_receiving) ||
+        gBatteryDisplayLevel == 0 || gBatteryDisplayLevel > 6)
+        return 1;
+
+    AUDIO_AudioPathOff();
+    gEnableSpeaker = false;
+    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
+    gRxVfo = gTxVfo = gCurrentVfo = vfo;
+    RADIO_SetTxParameters();
+    BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+    BK4819_DisableScramble();
+    app_trivfo_current = app_trivfo_selected;
+    app_trivfo_receiving = false;
+    app_trivfo_transmitting = true;
+    app_trivfo_tx_ticks = 0;
+    return 0;
+}
+
 /* ---- v2 radio wrappers ---- */
 static int16_t  app_rssi_dbm(void)     { return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]; }
 static uint16_t app_bk_read(uint8_t r) { return BK4819_ReadRegister((BK4819_REGISTER_t)r); }
@@ -133,6 +513,12 @@ static void app_draw_battery(void)
 }
 static void app_battery_sample(void)
 {
+    /* The resident scheduler deliberately skips ADC battery updates while the
+     * PA is keyed.  Do the same for Triple VFO: sampling the loaded voltage as
+     * capacity made an 80% pack appear to fall immediately to about 16%. */
+    if (app_trivfo_transmitting)
+        return;
+
     BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);
     if (gBatteryVoltageIndex > 3)
         gBatteryVoltageIndex = 0;
@@ -334,6 +720,13 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
         .fm_commit      = app_fm_commit,
 #endif
         .nav_dir        = app_nav_dir,
+        .trivfo_enter   = app_trivfo_enter,
+        .trivfo_leave   = app_trivfo_leave,
+        .trivfo_get     = app_trivfo_get,
+        .trivfo_select  = app_trivfo_select,
+        .trivfo_step    = app_trivfo_step,
+        .trivfo_tick    = app_trivfo_tick,
+        .trivfo_ptt     = app_trivfo_ptt,
     };
 
     app_run_slot = slot;   /* for cfg_load / cfg_save */
@@ -359,6 +752,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     app_entry_t entry = (app_entry_t)(((uint32_t)ws + h.entry_off) | 1u);
     entry(&api);
 
+    /* A defensive leave also covers an app returning through an error path. */
+    app_trivfo_leave();
+
     /* Restore the resident RX/dual-watch tuning the app ran on top of. */
     gEeprom.RX_VFO = saved_rx_vfo;
     gRxVfo         = saved_rx;
@@ -366,6 +762,18 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 
     /* The overlay held app code, not a valid config sector. */
     PY25Q16_InvalidateCache();
+
+    if (app_trivfo_ab_dirty) {
+        SETTINGS_SaveVfoIndices();
+        app_trivfo_ab_dirty = false;
+    }
+
+    for (uint8_t i = 0; i < 2u; i++) {
+        if (app_trivfo_freq_dirty & (1u << i))
+            SETTINGS_SaveChannel(gEeprom.VfoInfo[i].CHANNEL_SAVE, i,
+                                 &gEeprom.VfoInfo[i], 1);
+    }
+    app_trivfo_freq_dirty = 0;
 
     /* Commit any deferred config the app staged (RMW keeps the slot header). */
     if (app_cfg_len) {
