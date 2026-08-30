@@ -130,7 +130,7 @@ unsigned int BATTERY_VoltsToPercent(const unsigned int voltage_10mV)
     return 0;
 }
 
-#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT)
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
 void BATTERY_Sample(const bool bDisplayBatteryLevel)
 {
     BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);

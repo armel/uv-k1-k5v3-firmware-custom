@@ -495,7 +495,8 @@ const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
     {"BEAM",            ACTION_OPT_BEAM},
     {"POWER\nHIGH",     ACTION_OPT_POWER_HIGH},
     {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
-    {"FOX HUNT\nBEACON", ACTION_OPT_FOXHUNT},
+    {"FOX HUNT",        ACTION_OPT_FOXHUNT},
+    {"BEACON",          ACTION_OPT_BEACON},
 };
 
 const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);

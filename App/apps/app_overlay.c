@@ -633,8 +633,60 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
     return APP_OK;
 }
 
+static bool app_shortcuts_cached;
+static uint8_t app_shortcut_mask;
+static uint8_t app_shortcut_slots[3];
+
+static int8_t app_shortcut_index(const char *name)
+{
+    if (strncmp(name, "Broadcast FM", APP_NAME_LEN) == 0) return 0;
+    if (strncmp(name, "FoxHunt",      APP_NAME_LEN) == 0) return 1;
+    if (strncmp(name, "Beacon",       APP_NAME_LEN) == 0) return 2;
+    return -1;
+}
+
+static void app_cache_shortcuts(void)
+{
+    if (app_shortcuts_cached)
+        return;
+
+    app_shortcut_mask = 0;
+    const uint32_t overlay_vma = (uint32_t)PY25Q16_OverlayBuffer();
+
+    for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
+        app_header_t h;
+        if (APP_ValidateSlot(slot, &h) != APP_OK || h.link_vma != overlay_vma)
+            continue;
+
+        const int8_t index = app_shortcut_index(h.name);
+        if (index >= 0) {
+            const uint8_t bit = (uint8_t)(1u << index);
+            if (!(app_shortcut_mask & bit)) {
+                app_shortcut_mask |= bit;
+                app_shortcut_slots[index] = slot;
+            }
+        }
+    }
+
+    app_shortcuts_cached = true;
+}
+
+uint8_t APP_OverlayShortcutMask(void)
+{
+    app_cache_shortcuts();
+    return app_shortcut_mask;
+}
+
 uint8_t APP_LaunchOverlayByName(const char *name)
 {
+    const int8_t index = app_shortcut_index(name);
+    if (index >= 0) {
+        app_cache_shortcuts();
+        return (app_shortcut_mask & (1u << index))
+             ? APP_LaunchOverlay(app_shortcut_slots[index])
+             : APP_ERR_MAGIC;
+    }
+
     app_header_t h;
 
     for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
@@ -840,6 +892,7 @@ uint8_t APP_SlotErase(uint8_t slot)
     for (uint32_t off = 0; off < APP_SLOT_STRIDE; off += APP_SECTOR_SIZE)
         PY25Q16_SectorErase(base + off);
     PY25Q16_InvalidateCache();
+    app_shortcuts_cached = false;
     return APP_OK;
 }
 
@@ -851,6 +904,7 @@ uint8_t APP_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32
         return APP_ERR_SIZE;
     PY25Q16_WriteBuffer(APP_SLOT_BASE(slot) + offset, data, len, false);
     PY25Q16_InvalidateCache();
+    app_shortcuts_cached = false;
     return APP_OK;
 }
 

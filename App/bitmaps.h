@@ -45,7 +45,7 @@ extern const uint8_t BITMAP_compand[6];
 
 extern const uint8_t BITMAP_NOAA[12];
 
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
     extern const uint8_t BITMAP_FoxHuntSignal[10];
     extern const uint8_t BITMAP_FoxHuntSpeaker[10];
     extern const uint8_t BITMAP_FoxHuntUp[11];

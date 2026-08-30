@@ -301,7 +301,7 @@ const uint8_t BITMAP_NOAA[12] =
 };
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
 const uint8_t BITMAP_FoxHuntSignal[10] =
 {   // point source + the speaker bitmap's two sound waves, oriented horizontally
     0b00001000,

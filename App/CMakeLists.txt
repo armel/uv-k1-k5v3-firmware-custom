@@ -234,9 +234,11 @@ enable_feature(ENABLE_FEAT_F4HWN_BEAM
 enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG
     app/rxtx_log.c
 )
-enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT
-    app/foxhunt.c
-)
+enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT)
+enable_feature(ENABLE_FEAT_F4HWN_BEACON)
+if(ENABLE_FEAT_F4HWN_FOXHUNT OR ENABLE_FEAT_F4HWN_BEACON)
+    target_sources(App INTERFACE app/foxhunt.c)
+endif()
 enable_feature(ENABLE_FEAT_F4HWN_ACTION_PICKER)
 
 if(ENABLE_FEAT_F4HWN_ACTION_PICKER AND NOT ENABLE_FEAT_F4HWN)

@@ -70,6 +70,10 @@
 #define APP_NAME_LEN      16
 #define APP_VERSION_LEN   16
 
+#define APP_SHORTCUT_FM       (1u << 0)
+#define APP_SHORTCUT_FOXHUNT  (1u << 1)
+#define APP_SHORTCUT_BEACON   (1u << 2)
+
 typedef struct __attribute__((packed)) {
     uint32_t magic;                    /* APP_MAGIC                              */
     uint16_t hdr_version;              /* APP_HDR_VERSION                        */
@@ -105,6 +109,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot);
 
 /* Find the first valid app with this exact header name and launch it. */
 uint8_t APP_LaunchOverlayByName(const char *name);
+
+/* Cached availability of apps exposed as resident quick actions. */
+uint8_t APP_OverlayShortcutMask(void);
 
 /* Host-tool slot management (external flash only, never brick-critical). */
 uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header);

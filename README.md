@@ -187,7 +187,7 @@ Specialized presets extend Fusion for specific uses:
   - selectable RF attenuation,
   - silent, Geiger-style and received-audio modes,
   - long-press `F` keypad lock (attenuation stays adjustable with the arrow keys).
-- Integrated Morse Beacon transmitter with:
+- Independent Morse Beacon transmitter with:
   - `MOE`, `MOI`, `MOS`, `MOH`, `MO5` and `MO` identifiers,
   - optional callsign identification,
   - configurable TX and idle periods,
@@ -264,7 +264,8 @@ Specialized presets extend Fusion for specific uses:
   - offset removal,
   - BEAM,
   - RF Log,
-  - Fox Hunt / Beacon.
+  - Fox Hunt,
+  - Beacon.
 
 ### Reliability and optimization
 

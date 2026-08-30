@@ -51,7 +51,7 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     #include "app/foxhunt.h"
 #endif
 #ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
@@ -119,8 +119,11 @@ void (*const action_opt_table[ACTION_OPT_LEN])(void) = {
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     [ACTION_OPT_RXTX_LOG] = &ACTION_RxTxLog,
 #endif
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     [ACTION_OPT_FOXHUNT] = &ACTION_FoxHunt,
+#endif
+#if defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    [ACTION_OPT_BEACON] = &ACTION_Beacon,
 #endif
 };
 
@@ -130,10 +133,33 @@ static_assert(ACTION_OPT_BEAM == 19);
 static_assert(ACTION_OPT_POWER_HIGH == 20);
 static_assert(ACTION_OPT_REMOVE_OFFSET == 21);
 static_assert(ACTION_OPT_FOXHUNT == 22);
+static_assert(ACTION_OPT_BEACON == 23);
 
 bool ACTION_IsAvailable(uint8_t action)
 {
-    return action < ACTION_OPT_LEN && action_opt_table[action] != NULL;
+    if (action >= ACTION_OPT_LEN || action_opt_table[action] == NULL)
+        return false;
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    switch (action) {
+#ifdef ENABLE_FMRADIO
+        case ACTION_OPT_FM:
+            return (APP_OverlayShortcutMask() & APP_SHORTCUT_FM) != 0;
+#endif
+#ifndef ENABLE_FEAT_F4HWN_FOXHUNT
+        case ACTION_OPT_FOXHUNT:
+            return (APP_OverlayShortcutMask() & APP_SHORTCUT_FOXHUNT) != 0;
+#endif
+#ifndef ENABLE_FEAT_F4HWN_BEACON
+        case ACTION_OPT_BEACON:
+            return (APP_OverlayShortcutMask() & APP_SHORTCUT_BEACON) != 0;
+#endif
+        default:
+            break;
+    }
+#endif
+
+    return true;
 }
 
 void ACTION_Power(void)
@@ -315,8 +341,11 @@ inline static bool ACTION_IsBlockedInFM(uint8_t action)
 #ifdef ENABLE_FEAT_F4HWN_BEAM
         case ACTION_OPT_BEAM:
 #endif
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
         case ACTION_OPT_FOXHUNT:
+#endif
+#if defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+        case ACTION_OPT_BEACON:
 #endif
             return true;
 
@@ -465,6 +494,32 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     // held or released after short press
     ACTION_Execute(func);
 }
+
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+void ACTION_FoxHunt(void)
+{
+#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+    APP_RunFoxHunt();
+    GUI_SelectNextDisplay(DISPLAY_MAIN);
+#else
+    if (APP_LaunchOverlayByName("FoxHunt") != APP_OK)
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+#endif
+}
+#endif
+
+#if defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+void ACTION_Beacon(void)
+{
+#ifdef ENABLE_FEAT_F4HWN_BEACON
+    APP_RunBeacon();
+    GUI_SelectNextDisplay(DISPLAY_MAIN);
+#else
+    if (APP_LaunchOverlayByName("Beacon") != APP_OK)
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+#endif
+}
+#endif
 
 
 #ifdef ENABLE_FMRADIO

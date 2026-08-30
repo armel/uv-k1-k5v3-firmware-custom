@@ -19,7 +19,7 @@
 
 #include <stdint.h>
 
-#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 void UI_DrawStatusBattery(uint8_t *line, char *str);
 #endif
 void UI_DisplayStatus();
