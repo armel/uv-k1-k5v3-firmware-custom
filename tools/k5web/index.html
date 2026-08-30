@@ -231,6 +231,15 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>5. 导出星历到电脑（调试诊断）</h2>
+    <p class="hint">把当前计算出的过境星历（TLE、观测位置、过境窗口、每秒补偿频率表）导出为文件，便于核对计算、与其他软件对比、存档分析。<b>无需连接对讲机</b>，先在上方完成"计算最近过境"即可导出。JSON 含全部参数，CSV 可直接用 Excel 打开查看频率表。</p>
+    <div class="row" style="margin-top:8px">
+      <button id="btnEphemExport" disabled type="button" style="flex:1">📤 导出星历 JSON</button>
+      <button id="btnEphemExportCsv" disabled type="button" style="flex:1">📊 导出频率表 CSV</button>
+    </div>
+  </div>
+
 </div>
 
 <!-- ========== 选项卡：写频（写信道） ========== -->
@@ -397,6 +406,7 @@
   <script src="protocol.js?v=16x16"></script>
 <script src="coord.js"></script>
 <script src="calc.js"></script>
+<script src="freqdb.js"></script>
 <script src="app.js?v=csv3"></script>
 </body>
 </html>

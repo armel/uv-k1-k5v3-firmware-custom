@@ -40,7 +40,8 @@
   });
 
   // ---------- 自动获取 TLE ----------
-  // 常见 FM 卫星频率表（上行/下行 MHz）
+  // 常见 FM 卫星频率表（上行/下行 MHz）——手工精选优先于 SatNOGS，
+  // SatNOGS 频率库兜底覆盖其余卫星（选星时自动填频率）
   const KNOWN_SATS = {
     "iss": [145.99, 437.8], "international space station": [145.99, 437.8],
     "ao-91": [145.96, 435.25], "ao-92": [145.88, 435.35],
@@ -53,8 +54,145 @@
     "ao-109": [145.9, 435.6],
     "sakhacube": [437.35, 437.35], "cholbon": [437.35, 437.35],
     "qmr-kwt": [145.92, 436.95],
+    "ao-95": [435.3, 145.92], "fox-1cliff": [435.3, 145.92],
+    "ao-27": [145.85, 436.795],
+    "rs18s": [437.35, 437.35],
+    "rs38s": [437.825, 437.825], "vizard-meteo": [437.825, 437.825],
+    "rs40s": [437.625, 437.625], "umka-1": [437.625, 437.625],
+    "rs58s": [435.29, 435.29], "monitor-3": [435.29, 435.29],
+    "rs95s": [145.92, 436.95],
   };
   let satList = [];
+
+  // ---------- TLE 本地缓存（localStorage，增量获取） ----------
+  // 已获取的 TLE 持久化到浏览器本地，点击获取时先秒开缓存、后台增量刷新，
+  // 网络失败时回退缓存。条目结构 { name, tle1, tle2, fetchedAt }，按 NORAD 编号比对。
+  const TLE_CACHE_KEY = "k5web_tle_cache_v1";
+  const TLE_CACHE_MAX_AGE_MS = 12 * 3600 * 1000; // 缓存视为"新鲜"的时限（补充星跳过网络）
+
+  function loadTleCache() {
+    try {
+      const raw = localStorage.getItem(TLE_CACHE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed.entries) ? parsed.entries : [];
+    } catch (e) {
+      log("TLE 缓存读取失败：" + e.message, "err");
+      return [];
+    }
+  }
+
+  function saveTleCache(entries) {
+    try {
+      localStorage.setItem(TLE_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), entries }));
+    } catch (e) {
+      log("TLE 缓存写入失败：" + e.message, "err"); // 隐私模式等场景仅提示，不影响使用
+    }
+  }
+
+  function tleCacheSavedAt() {
+    try {
+      const raw = localStorage.getItem(TLE_CACHE_KEY);
+      if (!raw) return null;
+      const savedAt = JSON.parse(raw).savedAt;
+      return typeof savedAt === "number" ? savedAt : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function tleCacheAge() {
+    const savedAt = tleCacheSavedAt();
+    if (savedAt == null) return null;
+    const mins = Math.round((Date.now() - savedAt) / 60000);
+    if (mins < 1) return "刚刚";
+    if (mins < 60) return mins + " 分钟前";
+    if (mins < 1440) return Math.round(mins / 60) + " 小时前";
+    return Math.round(mins / 1440) + " 天前";
+  }
+
+  // ---------- 卫星频率库（SatNOGS，localStorage 永久缓存） ----------
+  // 卫星发射后频率基本不变，缓存不过期；点"获取 TLE"时顺便后台刷新
+  // （新发射的星/数据修正自动进来），获取失败沿用旧缓存（反正频率不变）。
+  // 缓存结构 { savedAt, map: { noradId: { up, down, mode, type, desc } } }
+  const FREQ_CACHE_KEY = "k5web_freq_cache_v1";
+  let freqMap = {}; // NORAD -> { up, down, mode, type, desc }（Hz）
+
+  function loadFreqCache() {
+    try {
+      const raw = localStorage.getItem(FREQ_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed.map || typeof parsed.map !== "object") return null;
+      return parsed;
+    } catch (e) {
+      log("频率库缓存读取失败：" + e.message, "err");
+      return null;
+    }
+  }
+
+  function saveFreqCache(map) {
+    try {
+      localStorage.setItem(FREQ_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), map }));
+    } catch (e) {
+      log("频率库缓存写入失败：" + e.message, "err");
+    }
+  }
+
+  // 从 SatNOGS 拉取全部发射机条目并构建 NORAD -> 最优条目映射
+  async function fetchFreqDB() {
+    const resp = await fetch("https://db.satnogs.org/api/transmitters/?format=json&status=active");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const transmitters = await resp.json();
+    const map = calc.buildFreqMap(transmitters);
+    freqMap = map;
+    saveFreqCache(map);
+    log(`频率库已更新：${transmitters.length} 条发射机，覆盖 ${Object.keys(map).length} 颗卫星`);
+    return map;
+  }
+
+  // 读取频率库数据：优先级 localStorage 缓存（动态刷新的最新）> 内置 freqdb.js（静态打包）。
+  // 卫星频率基本不变，内置数据作为零网络依赖的兜底（SatNOGS 无 CORS 时也能用）。
+  function loadFreqData() {
+    const cached = loadFreqCache();
+    if (cached) return { map: cached.map, source: "本地缓存" };
+    const builtin = (window.K5WEB && window.K5WEB.freqdb) || null;
+    if (builtin && Object.keys(builtin).length) return { map: builtin, source: "内置数据" };
+    return null;
+  }
+
+  // 确保频率库可用：有数据就用（频率基本不变，不过期）；
+  // refresh=true（点"获取 TLE"）时后台联网刷新，失败静默沿用缓存/内置
+  async function ensureFreqDB(refresh = false) {
+    const data = loadFreqData();
+    if (data) freqMap = data.map;
+    if (!refresh && data) return; // 有数据且不要求刷新：直接用
+    try {
+      await fetchFreqDB();
+    } catch (e) {
+      // 有数据（缓存/内置）时失败静默；完全没有数据才提示
+      if (!data) log(`频率库获取失败：${e.message}（选星将仅用内置预设）`, "err");
+    }
+  }
+
+  // 缓存是否在新鲜期内（≤12h）：新鲜可直接秒开，过期必须联网强制刷新
+  function tleCacheFresh() {
+    const savedAt = tleCacheSavedAt();
+    return savedAt != null && Date.now() - savedAt <= TLE_CACHE_MAX_AGE_MS;
+  }
+
+  // 联网全量刷新：并发拉取全部渠道（含 Celestrak active 全量），补充星（缓存新鲜则跳过），
+  // 按 NORAD 合并只更新变化的。成功返回 { list, updated }，网络失败抛异常。
+  async function refreshTleFromNetwork(cache) {
+    const fresh = await fetchTLE();
+    const extra = await fetchExtraSats(cache);
+    for (const s of fresh) s.fetchedAt = Date.now();
+    const { list, updated } = calc.mergeTleList(cache, fresh.concat(extra));
+    satList = list;
+    saveTleCache(list);
+    return { list, updated };
+  }
+
   // amateur.tle 尚未收录的新业余卫星，按 NORAD 编号从 Celestrak 全库补充（CORS 开放）。
   // Celestrak TLE 的名称行截断到 24 字符（如 "(RS18S)" 会变成 "(RS1*"），所以用 name 覆盖成完整名。
   const EXTRA_CATNR = [
@@ -65,13 +203,23 @@
     { id: 67293, name: "SCORPION (RS89S)" },
   ];
 
-  async function fetchExtraSats() {
+  async function fetchExtraSats(cachedList) {
+    // 增量：补充星（不在 amateur.tle 里）缓存命中且未过期时跳过网络请求
+    const cachedById = new Map(cachedList.map((s) => [calc.noradId(s.tle1), s]));
     const results = await Promise.all(EXTRA_CATNR.map(async ({ id, name }) => {
+      const idStr = String(id).padStart(5, "0");
+      const hit = cachedById.get(idStr);
+      if (hit && Date.now() - (hit.fetchedAt || 0) < TLE_CACHE_MAX_AGE_MS) {
+        return [hit]; // 缓存新鲜，直接用
+      }
       try {
         const resp = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle`);
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const sats = parseTLE(await resp.text());
-        if (sats[0]) sats[0].name = name;
+        if (sats[0]) {
+          sats[0].name = name;
+          sats[0].fetchedAt = Date.now();
+        }
         return sats;
       } catch (e) {
         log(`补充星历 ${name} 获取失败：${e.message}`);
@@ -89,15 +237,35 @@
     $("tle").value = s.tle1 + "\n" + s.tle2;
     const key = s.name.toLowerCase();
     let freqFound = false;
+    let freqSource = "";
+    // 1. 内置手工预设（FM 转发器精选，最准）
     for (const [k, v] of Object.entries(KNOWN_SATS)) {
       if (key.includes(k)) {
         $("fUp").value = v[0];
         $("fDown").value = v[1];
         freqFound = true;
+        freqSource = "内置预设";
         break;
       }
     }
-    log(`已选 ${s.name.trim()}：TLE 已填充${freqFound ? "，频率已自动填入" : "，请手动填写频率"}`);
+    // 2. SatNOGS 频率库（联网/缓存，覆盖全部业余星，首选 FM 转发器条目）
+    if (!freqFound) {
+      const f = freqMap[calc.noradId(s.tle1)];
+      if (f && f.up && f.down) {
+        $("fUp").value = (f.up / 1e6).toFixed(6);
+        $("fDown").value = (f.down / 1e6).toFixed(6);
+        freqFound = true;
+        freqSource = `SatNOGS ${f.mode || f.type}${f.type === "Transmitter" ? "（纯下行，上行=下行）" : ""}`;
+      }
+    }
+    // 3. 无数据：醒目警告（防止残留默认值算出错误频率的星历）
+    if (freqFound) {
+      log(`已选 ${s.name.trim()}：TLE 已填充，频率来自${freqSource}`);
+      setStatus(`已选 ${s.name.trim()}，频率已自动填入（${freqSource}）`, "ok");
+    } else {
+      setStatus(`⚠️ ${s.name.trim()} 没有自动频率数据，请手动填写上行/下行频率后再计算！`, "err");
+      log(`已选 ${s.name.trim()}：TLE 已填充，⚠️ 内置预设与 SatNOGS 均无频率数据，请手动填写`);
+    }
   }
 
   // ---------- 卫星模糊搜索下拉（输入即过滤，支持键盘导航） ----------
@@ -225,7 +393,8 @@
     const lines = text.split(/\r?\n/);
     const sats = [];
     for (let i = 0; i + 2 < lines.length; i += 3) {
-      const name = lines[i].trim();
+      // SatNOGS 3LE 的名称行以 "0 " 开头（如 "0 ISS (ZARYA)"），去掉前缀，其他源不受影响
+      const name = lines[i].replace(/^0\s+/, "").trim();
       if (name && lines[i + 1].startsWith("1 ") && lines[i + 2].startsWith("2 ")) {
         sats.push({ name, tle1: lines[i + 1], tle2: lines[i + 2] });
       }
@@ -233,50 +402,96 @@
     return sats;
   }
 
+  // 多源 TLE 获取（Look4Sat 同款渠道 + 本地镜像），点"获取 TLE"时全部并发拉取。
+  // 各源独立容错：CORS 不通/超时/解析失败/被节流自动跳过并记日志，不影响其他源。
+  const TLE_SOURCES = [
+    // 本地业余镜像（小、快）
+    { name: "Celestrak amateur(镜像1)", url: "https://api.github.com/repos/satvisorcom/satvisor-data/contents/celestrak/tle/amateur.tle", headers: { Accept: "application/vnd.github.raw+json" } },
+    { name: "Celestrak amateur(镜像2)", url: "https://cdn.jsdelivr.net/gh/satvisorcom/satvisor-data@master/celestrak/tle/amateur.tle", headers: {} },
+    // Look4Sat 默认渠道（按 Look4Sat Sources.kt 顺序）：
+    // mmccants.org/tles/classfd.zip 为 zip 压缩，浏览器无法直接解压，已跳过
+    { name: "Celestrak active 全量", url: "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle" },
+    // 镜像兜底：直连被节流（同一 IP 2h 内重复下载返回提示文本而非数据）或网络不通时使用；
+    // 数据可能旧几天，合并时 epoch 保护不会降级缓存里的新数据
+    { name: "Celestrak active(镜像)", url: "https://cdn.jsdelivr.net/gh/satvisorcom/satvisor-data@master/celestrak/tle/active.tle" },
+    { name: "SatNOGS 数据库", url: "https://db.satnogs.org/api/tle/?format=3le" },
+    { name: "AMSAT nasabare", url: "https://www.amsat.org/tle/current/nasabare.txt" },
+    { name: "R4UAB satonline", url: "https://r4uab.ru/satonline.txt" },
+    { name: "ARISS ISS", url: "https://live.ariss.org/iss.txt" },
+  ];
+
   async function fetchTLE() {
-    // 两个源都返回纯文本 TLE：
-    // 源 1：GitHub API raw 模式（Accept: raw+json 直接给文件内容，含 CORS）
-    // 源 2：jsdelivr 代理同一仓库（兜底）
-    const sources = [
-      { url: "https://api.github.com/repos/satvisorcom/satvisor-data/contents/celestrak/tle/amateur.tle", headers: { Accept: "application/vnd.github.raw+json" } },
-      { url: "https://cdn.jsdelivr.net/gh/satvisorcom/satvisor-data@master/celestrak/tle/amateur.tle", headers: {} },
-    ];
-    let lastErr = null;
-    for (const src of sources) {
+    const results = await Promise.all(TLE_SOURCES.map(async (src) => {
       try {
-        const resp = await fetch(src.url, { headers: src.headers });
+        const resp = await fetch(src.url, { headers: src.headers || {} });
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const sats = parseTLE(await resp.text());
-        if (sats.length > 0) return sats;
-        throw new Error("TLE 解析为空");
+        if (sats.length === 0) throw new Error("解析为空");
+        return { name: src.name, sats };
       } catch (e) {
-        lastErr = e;
-        log("TLE 源失败：" + src.url.split("/").slice(0, 3).join("/") + " -> " + e.message);
+        log(`TLE 源 ${src.name} 失败：${e.message}`);
+        return null;
       }
-    }
-    throw lastErr || new Error("所有 TLE 源均不可用");
+    }));
+    const ok = results.filter(Boolean);
+    if (ok.length === 0) throw new Error("所有 TLE 源均不可用");
+    // 按源优先级合并（前面的源优先，按 NORAD 编号去重）
+    const list = calc.mergeSatelliteSources(ok);
+    log(`TLE 多源获取成功：${ok.length}/${TLE_SOURCES.length} 个源，共 ${list.length} 颗（${ok.map((r) => r.name + ":" + r.sats.length).join("，")}）`);
+    return list;
   }
 
   $("btnFetch").addEventListener("click", async () => {
     const btn = $("btnFetch");
+    const input = $("satSelect");
+    const cache = loadTleCache();
+    const cacheAge = tleCacheAge();
+    const cacheFresh = tleCacheFresh();
+
+    // 1. 有缓存先秒开（立即可用），同时后台并发拉取全部渠道（含 active 全量）
+    if (cache.length && cacheFresh) {
+      satList = cache;
+      input.disabled = false;
+      input.value = "";
+      input.placeholder = `缓存 ${satList.length} 颗（${cacheAge}），正在获取全部渠道…`;
+      renderSatDropdown();
+    } else if (cache.length) {
+      log(`缓存已超过 12 小时（${cacheAge}），本次强制联网获取最新 TLE`);
+    }
+
     btn.disabled = true;
     btn.textContent = "获取中...";
     try {
-      satList = await fetchTLE();
-      for (const s of await fetchExtraSats()) {
-        if (!satList.some((x) => x.name === s.name)) satList.push(s);
-      }
-      const input = $("satSelect");
+      // 总是全量多源拉取（Look4Sat 全渠道），完成后合并更新
+      const { list, updated } = await refreshTleFromNetwork(cache);
+      // 顺带后台刷新频率库（选星自动填频率；获取失败静默沿用旧缓存，频率基本不变）
+      await ensureFreqDB(true);
       input.disabled = false;
       input.value = "";
-      input.placeholder = `输入关键字搜索 ${satList.length} 颗卫星（名称 / NORAD 编号）`;
-      setStatus(`✅ 已获取 ${satList.length} 颗业余卫星 TLE（epoch 为 Celestrak 最新）`, "ok");
-      log(`TLE 获取成功：${satList.length} 颗卫星`);
+      input.placeholder = `输入关键字搜索 ${list.length} 颗卫星（名称 / NORAD 编号）`;
+      setStatus(
+        updated > 0
+          ? `✅ TLE 已更新 ${updated} 颗（共 ${list.length} 颗）`
+          : `✅ TLE 已是最新（${list.length} 颗${cacheFresh ? `，缓存 ${cacheAge}` : "，已强制刷新"}）`,
+        "ok"
+      );
+      log(`TLE 完成：共 ${list.length} 颗${updated > 0 ? `，更新 ${updated} 颗` : "（无变化）"}`);
       input.focus();
       // 顺便后台同步一次网络时间，写入 RTC 时即可零延迟使用
       syncTimeInBackground();
     } catch (e) {
-      setStatus("获取失败：" + e.message + "（可手动粘贴 TLE）", "err");
+      if (satList.length) {
+        // 网络失败：过期缓存必须明确警告结果可能不准
+        if (cacheFresh) {
+          setStatus(`⚠️ 网络刷新失败，使用本地缓存（${cacheAge}）：${e.message}`, "err");
+          log(`TLE 网络刷新失败：${e.message}，使用本地缓存`);
+        } else {
+          setStatus(`⚠️ 网络获取失败，缓存已超过 12 小时（${cacheAge}），结果可能不准：${e.message}`, "err");
+          log(`TLE 获取失败且缓存过期：${e.message}`);
+        }
+      } else {
+        setStatus("获取失败：" + e.message + "（可手动粘贴 TLE）", "err");
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = "⬇️ 获取 TLE";
@@ -430,8 +645,14 @@
       passData = pass;
       const r = $("result");
       r.style.display = "block";
-      // 固定按 Asia/Shanghai 显示，与系统时区无关（对比 Look4Sat 时不串时区）
-      const fmt = (d) => d.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
+      // 固定按 Asia/Shanghai 显示，与系统时区无关（对比 Look4Sat 时不串时区）。
+      // 内部 AOS/LOS 精度 0.1s（calc.js 插值），UI 显示仍按秒（round 到整秒，
+      // 与 Look4Sat 的 aos 取整方式一致）。
+      const fmt = (d) => {
+        const bj = new Date(Math.round(d.getTime() / 1000) * 1000 + 8 * 3600 * 1000);
+        const p = (n, l = 2) => String(n).padStart(l, "0");
+        return `${bj.getUTCFullYear()}-${p(bj.getUTCMonth() + 1)}-${p(bj.getUTCDate())} ${p(bj.getUTCHours())}:${p(bj.getUTCMinutes())}:${p(bj.getUTCSeconds())}`;
+      };
       const first = pass.entries[0], last = pass.entries[pass.entries.length - 1];
       r.innerHTML =
         `<b>过境时间（北京时间）：</b>${fmt(pass.start)} → ${fmt(pass.end)}<br>` +
@@ -440,6 +661,8 @@
         `上行 ${(first.uplink / 1e5).toFixed(5)} ~ ${(last.uplink / 1e5).toFixed(5)} MHz<br>` +
         `<span class="ok">可以写入。写入后请在过境开始前开机，长按 0 输入当前北京时间开始跟踪。</span>`;
       $("btnWrite").disabled = false;
+      $("btnEphemExport").disabled = false;
+      $("btnEphemExportCsv").disabled = false;
       log(`过境 ${fmt(pass.start)} → ${fmt(pass.end)}（北京时间），${pass.entries.length} 条`);
     } catch (e) {
       showErr("计算失败：" + e.message);
@@ -536,7 +759,7 @@
       if (e.status !== 0) throw new Error("擦除失败 status=" + e.status);
       log("擦除完成");
 
-      // 2. 卫星信息块
+      // 2. 卫星信息块（startUnix 用 floor：与表起点整秒对齐，固件按整秒索引）
       const start = new Date(passData.start.getTime());
       const end = new Date(passData.end.getTime());
       const sat = proto.buildSatelliteBlock({
@@ -545,7 +768,7 @@
         endTime: calc.dateToFwTime(end),
         sumTime: passData.durationS,
         sendCtcss: parseInt($("ctcss").value, 10),
-        startUnix: calc.unixToFw(Math.round(start.getTime() / 1000)),
+        startUnix: calc.unixToFw(Math.floor(start.getTime() / 1000)),
       });
       log(`写入卫星信息块（槽位 ${slot + 1}）... sumTime=${passData.durationS} entries=${passData.entries.length}`);
       // payload layout must match CMD_DOPPLER_WRITE_SAT_t: satellite block
@@ -691,6 +914,123 @@
       btn.disabled = false;
     }
   });
+  // ---------- 导出星历到电脑（调试诊断，纯网页端，无需串口） ----------
+  // 把"计算最近过境"的结果（TLE、观测位置、过境窗口、每秒频率表）导出为
+  // JSON / CSV 文件，便于核对计算、与其他软件对比、存档分析。
+  const fmtExportBeijing = (date) => {
+    const bj = new Date(Math.round(date.getTime() / 1000) * 1000 + 8 * 3600 * 1000); // 北京时间（UTC+8），显示按秒
+    const p = (n, l = 2) => String(n).padStart(l, "0");
+    return `${bj.getUTCFullYear()}-${p(bj.getUTCMonth() + 1)}-${p(bj.getUTCDate())} ${p(bj.getUTCHours())}:${p(bj.getUTCMinutes())}:${p(bj.getUTCSeconds())}`;
+  };
+  const exportStamp = () => {
+    const ts = new Date();
+    return `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, "0")}${String(ts.getDate()).padStart(2, "0")}_${String(ts.getHours()).padStart(2, "0")}${String(ts.getMinutes()).padStart(2, "0")}${String(ts.getSeconds()).padStart(2, "0")}`;
+  };
+  const downloadText = (filename, text, mime) => {
+    const blob = new Blob([text], { type: mime });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // 汇总当前页面的计算参数与结果（供 JSON / CSV 导出复用）
+  function buildEphemExport() {
+    if (!passData) throw new Error("请先计算过境");
+    const tleLines = $("tle").value.trim().split(/\r?\n/).filter((l) => l.trim());
+    if (tleLines.length < 2) throw new Error("缺少 TLE 两行数据");
+    const tle1 = tleLines[tleLines.length - 2].trim();
+    const tle2 = tleLines[tleLines.length - 1].trim();
+    if (!/^1 [0-9]{5}/.test(tle1) || !/^2 [0-9]{5}/.test(tle2)) {
+      throw new Error("TLE 格式不正确（应为 1/2 开头的两行数据）");
+    }
+    const pass = passData;
+    const entries = pass.entries.map((en, i) => {
+      const bj = new Date((en.unix + 8 * 3600) * 1000);
+      return {
+        t: i,                                   // 过境开始后第几秒
+        unix: en.unix,                          // 1970 基准秒
+        beijing: bj.toISOString().replace("T", " ").slice(0, 19),
+        uplink10Hz: en.uplink,                  // 固件存储单位（10 Hz）
+        downlink10Hz: en.downlink,
+        uplinkMHz: +(en.uplink / 1e5).toFixed(5),
+        downlinkMHz: +(en.downlink / 1e5).toFixed(5),
+        altitudeKm: en.altitudeKm,
+        distanceKm: en.distanceKm,
+        azimuthDeg: +en.azimuthDeg.toFixed(1),
+        elevationDeg: +en.elevationDeg.toFixed(1),
+      };
+    });
+    const satName = ($("satSelect").value || "SAT").trim();
+    return {
+      tool: "k5web 多普勒星历导出（调试诊断）",
+      exportedAt: new Date().toISOString(),
+      satellite: {
+        name: satName,
+        tle1, tle2,
+        uplinkMHz: parseFloat($("fUp").value),
+        downlinkMHz: parseFloat($("fDown").value),
+        ctcssHz: (parseInt($("ctcss").value, 10) || 0) / 10, // 0 = 无亚音
+      },
+      observer: {
+        latDeg: parseFloat($("lat").value),
+        lonDeg: parseFloat($("lon").value),
+        altM: parseFloat($("alt").value),
+        minElevationDeg: parseFloat($("minEl").value),
+      },
+      pass: {
+        startBeijing: fmtExportBeijing(pass.start),
+        endBeijing: fmtExportBeijing(pass.end),
+        durationS: pass.durationS,
+        entryCount: entries.length,
+        // 固件 RTC 基准：2000-01-01 00:00:00 北京时间起的秒数（与写入星历一致，floor 整秒）
+        startUnix2000: calc.unixToFw(Math.floor(pass.start.getTime() / 1000)),
+      },
+      entries,
+    };
+  }
+
+  // 频率表 CSV（Excel 可直接打开；BOM 保证 UTF-8 中文不乱码）
+  function buildEphemCsv(data) {
+    const head = ["t_sec", "unix", "beijing", "uplinkMHz", "downlinkMHz",
+                  "altitudeKm", "distanceKm", "azimuthDeg", "elevationDeg"];
+    const lines = [head.join(",")];
+    for (const e of data.entries) {
+      lines.push([e.t, e.unix, e.beijing, e.uplinkMHz, e.downlinkMHz,
+                  e.altitudeKm, e.distanceKm, e.azimuthDeg, e.elevationDeg].join(","));
+    }
+    return "\uFEFF" + lines.join("\r\n") + "\r\n";
+  }
+
+  $("btnEphemExport").addEventListener("click", () => {
+    try {
+      const d = buildEphemExport();
+      const name = d.satellite.name.replace(/[\/:*?"<>|]/g, "_");
+      const filename = `星历_${name}_${exportStamp()}.json`;
+      downloadText(filename, JSON.stringify(d, null, 2), "application/json;charset=utf-8");
+      setStatus(`✅ 星历已导出：${filename}（${d.pass.entryCount} 条 / 过境 ${d.pass.durationS} 秒）`, "ok");
+      log(`导出完成：${filename}，${d.pass.entryCount} 条频率数据`);
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    }
+  });
+
+  $("btnEphemExportCsv").addEventListener("click", () => {
+    try {
+      const d = buildEphemExport();
+      const name = d.satellite.name.replace(/[\/:*?"<>|]/g, "_");
+      const filename = `星历_${name}_${exportStamp()}.csv`;
+      downloadText(filename, buildEphemCsv(d), "text/csv;charset=utf-8");
+      setStatus(`✅ 频率表已导出：${filename}（${d.pass.entryCount} 行）`, "ok");
+      log(`导出完成：${filename}，${d.pass.entryCount} 行`);
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    }
+  });
+
   // ---------- 写入精确时间（联网获取北京时间写入 RTC） ----------
   // 优先访问本机 NTP 代理（time_proxy.py），获取真正的 NTP 时间；
   // 代理未启动或失败时，回退到 HTTP Date 头 / worldtimeapi / 本机时间。
@@ -1700,4 +2040,47 @@
 
   // 页面加载后静默同步一次网络时间，后续写 RTC 零延迟
   syncTimeInBackground();
+
+  // 页面加载后从本地缓存恢复 TLE（秒开选星；缓存超过 12h 时下拉框锁定并强制刷新）
+  {
+    const cache = loadTleCache();
+    if (cache.length) {
+      satList = cache;
+      const input = $("satSelect");
+      const fresh = tleCacheFresh();
+      if (fresh) {
+        input.disabled = false;
+        input.placeholder = `输入关键字搜索 ${cache.length} 颗卫星（本地缓存 ${tleCacheAge()}）`;
+      } else {
+        input.disabled = true; // 过期：下拉框锁定，强制先获取最新 TLE
+        input.placeholder = `缓存已过期（${tleCacheAge()}），请先点"⬇️ 获取 TLE"`;
+        log(`TLE 缓存已过期（${tleCacheAge()}），下拉框已锁定，等待获取最新 TLE`);
+      }
+      // 缓存过期：自动后台刷新，成功即解锁下拉框
+      if (!fresh) {
+        refreshTleFromNetwork(cache)
+          .then(({ list, updated }) => {
+            input.disabled = false;
+            input.placeholder = `输入关键字搜索 ${list.length} 颗卫星（名称 / NORAD 编号）`;
+            log(`过期缓存已自动刷新：共 ${list.length} 颗${updated > 0 ? `，更新 ${updated} 颗` : "（无变化）"}，下拉框已解锁`);
+          })
+          .catch((e) => {
+            input.placeholder = `刷新失败，请点"⬇️ 获取 TLE"重试（${e.message}）`;
+            log(`过期缓存自动刷新失败：${e.message}，下拉框保持锁定，请手动获取`, "err");
+          });
+      }
+    }
+  }
+
+  // 页面加载后恢复频率库（localStorage 缓存优先，其次内置 freqdb.js 静态数据）；
+  // 频率基本不变、缓存不过期，仅在完全无数据时后台静默拉取
+  {
+    const data = loadFreqData();
+    if (data) {
+      freqMap = data.map;
+      log(`已加载频率库（${Object.keys(freqMap).length} 颗卫星，来源：${data.source}）`);
+    } else {
+      ensureFreqDB().catch(() => {});
+    }
+  }
 })();

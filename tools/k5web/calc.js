@@ -158,29 +158,55 @@ function findPass({
 
   // 细化窗口开始（从 coarseStart 逐秒向前回溯，直到仰角回落到阈值以下。
   // 若计算时过境已在进行中，最多回溯 32 分钟找到真实 AOS，避免起点被截断
-  // 导致与 Look4Sat 的过境开始时间对不上）
+  // 导致与 Look4Sat 的过境开始时间对不上）。
+  // 找到跨越 minElevation 的相邻两点后线性插值，AOS/LOS 精度 ~0.1s
+  // （AOS 附近仰角近似线性，插值误差 <0.1s；Look4Sat 用 500ms 步进细化）。
   const backLimit = new Date(coarseStart.getTime() - maxPassSeconds * 1000);
   let passStart = coarseStart;
+  let prevEl = elevationAt(coarseStart); // 粗扫保证 > minElevation
+  let prevT = coarseStart;
   for (let tt = new Date(coarseStart.getTime() - 1000); tt >= backLimit; tt = new Date(tt.getTime() - 1000)) {
     const el = elevationAt(tt);
-    if (el === null || el <= minElevation) { passStart = new Date(tt.getTime() + 1000); break; }
+    if (el === null) { passStart = new Date(tt.getTime() + 1000); break; }
+    if (el <= minElevation) {
+      // 跨越点: el(tt) <= 阈值 < el(prevT)，按仰角比例插值到亚秒
+      const f = (minElevation - el) / (prevEl - el); // 0..1，从 tt 向 prevT
+      passStart = new Date(tt.getTime() + f * (prevT.getTime() - tt.getTime()));
+      break;
+    }
+    prevEl = el;
+    prevT = tt;
     passStart = tt;
   }
 
-  // 细化窗口结束（向后逐秒，仰角回落或达到 32 分钟上限）
+  // 细化窗口结束（向后逐秒，仰角回落或达到 32 分钟上限；同样插值到亚秒）
   const maxEnd = new Date(passStart.getTime() + maxPassSeconds * 1000);
   let passEnd = maxEnd;
-  for (let tt = new Date(passStart.getTime() + 1000); tt < maxEnd; tt = new Date(tt.getTime() + 1000)) {
+  let prevElLos = null; // 前一个整秒（更早）的仰角
+  for (let tt = new Date(Math.floor(passStart.getTime() / 1000) * 1000 + 1000); tt < maxEnd; tt = new Date(tt.getTime() + 1000)) {
     const el = elevationAt(tt);
-    if (el !== null && el <= minElevation) { passEnd = tt; break; }
+    if (el === null) { prevElLos = null; continue; }
+    if (el <= minElevation) {
+      if (prevElLos !== null && prevElLos > minElevation) {
+        const f = (minElevation - prevElLos) / (el - prevElLos); // 0..1，从 tt-1s 向 tt
+        passEnd = new Date(tt.getTime() - 1000 + f * 1000);
+      } else {
+        passEnd = tt;
+      }
+      break;
+    }
+    prevElLos = el;
   }
 
-  // 生成 1 s 步进表（sum_time + 1 条，包含首尾，供固件插值）
+  // 生成 1 s 步进表（sum_time + 1 条，包含首尾，供固件插值）。
+  // 表起点 floor 到整秒：start_unix 是整秒，固件按整秒索引（index = now - start_unix），
+  // AOS 的亚秒小数只用于过境时刻报告（pass.start/end），不进表。
   const entries = [];
   const durS = Math.min(1019, Math.round((passEnd.getTime() - passStart.getTime()) / 1000));
   const count = Math.min(1020, durS + 1);
+  const tableStartMs = Math.floor(passStart.getTime() / 1000) * 1000;
   for (let i = 0; i < count; i++) {
-    const date = new Date(passStart.getTime() + i * 1000);
+    const date = new Date(tableStartMs + i * 1000);
     const pv = satellite.propagate(satrec, date);
     if (pv.position === undefined || pv.velocity === undefined) {
       entries.push({ unix: 0, uplink: 0, downlink: 0, altitudeKm: 0, distanceKm: 0, azimuthDeg: 0, elevationDeg: 0 });
@@ -230,6 +256,164 @@ function unixToFw(unix1970) {
   return unix1970 - 946684800 + 8 * 3600;
 }
 
+// ---- TLE 增量缓存：按 NORAD 编号 + epoch 比对，只更新变化的条目 ----
+
+/** 从 TLE 第 1 行提取 NORAD 编号（如 "1 67290U ..." -> "67290"）。 */
+function noradId(tle1) {
+  return tle1.substring(2, 7).trim();
+}
+
+/** 从 TLE 第 1 行提取 epoch（字符 19-32，如 "26240.64276285"），用于比对是否更新。 */
+function tleEpoch(tle1) {
+  return tle1.substring(18, 32);
+}
+
+/**
+ * 合并缓存列表与网络新拉取的列表（增量）。
+ * 以 fresh 的顺序为基准：同 NORAD 编号且 epoch 相同 -> 保留条目；
+ * fresh 的 epoch 更新 -> 用新条目；fresh 的 epoch 更旧（如兜底镜像数据）
+ * -> 保留缓存里的更新数据，防止降级。fresh 没有的缓存条目（补充星等）追加保留。
+ * 返回 { list, updated }，updated = 实际发生变化的条数（新增 + epoch 变新）。
+ */
+function mergeTleList(cached, fresh) {
+  const freshById = new Map();
+  for (const s of fresh) freshById.set(noradId(s.tle1), s);
+  const byId = new Map(freshById); // 顺序 = fresh 的顺序
+  for (const s of cached) {
+    const id = noradId(s.tle1);
+    if (!byId.has(id)) byId.set(id, s); // 仅缓存有的星（补充星等），追加保留
+  }
+  const list = [];
+  let updated = 0;
+  const cachedById = new Map(cached.map((s) => [noradId(s.tle1), s]));
+  for (const s of byId.values()) {
+    const id = noradId(s.tle1);
+    const old = cachedById.get(id);
+    if (!old) {
+      updated++; // 新增
+      list.push(s);
+    } else if (old.tle1 === s.tle1 && old.tle2 === s.tle2) {
+      list.push(s); // 完全相同
+    } else if (tleEpoch(s.tle1) > tleEpoch(old.tle1)) {
+      updated++; // epoch 变新 -> 用新数据
+      list.push(s);
+    } else {
+      list.push(old); // fresh 更旧（镜像兜底）：保留缓存，不降级
+    }
+  }
+  return { list, updated };
+}
+
+/**
+ * 按源优先级合并多个 TLE 源的结果（Look4Sat 同款策略：按 NORAD 编号去重，前面的源优先）。
+ * sourceLists: [{ name, sats: [{name, tle1, tle2}] }, ...]（已按优先级从高到低排序）
+ * 返回去重后的合并列表（保留第一个出现该 NORAD 编号的条目）。
+ */
+function mergeSatelliteSources(sourceLists) {
+  const seen = new Set();
+  const list = [];
+  for (const { sats } of sourceLists) {
+    for (const s of sats) {
+      const id = noradId(s.tle1);
+      if (!seen.has(id)) {
+        seen.add(id);
+        list.push(s);
+      }
+    }
+  }
+  return list;
+}
+
+// ---- SatNOGS 频率库：按星挑选最优发射机/转发器条目 ----
+
+const AMATEUR_BANDS = [
+  [145e6, 146e6],   // 2m
+  [435e6, 438e6],   // 70cm
+  [1267e6, 1270e6], // 23cm (L 段上行)
+];
+
+function isAmateurBandHz(f) {
+  return AMATEUR_BANDS.some(([lo, hi]) => f >= lo && f <= hi);
+}
+
+function isVhfHz(f) { return f >= 145e6 && f <= 146e6; }
+function isUhfHz(f) { return f >= 435e6 && f <= 438e6; }
+
+// 描述关键词：转发器/语音优先；遥测/信标/APRS/航天器内部通信降权
+const FREQ_GOOD_KW = ["repeater", "voice", "transponder", "fm"];
+const FREQ_BAD_KW = ["aprs", "digipeater", "beacon", "tlm", "telemetry", "crew", "soyuz", "suit", "eva", "dragon", "spacex", "mystery", "control", "communication unit", "status", "test"];
+
+/**
+ * 条目评分（越低越好）：FM 优先、业余段优先、转发器/语音关键词加分、
+ * 跨段转发器（V/U 或 U/V）加分、同段转发（APRS/宇航员内部通信）大幅降权。
+ */
+function transceiverScore(e) {
+  const desc = (e.description || "").toLowerCase();
+  const mode = (e.mode || "").toUpperCase();
+  const up = e.uplink_low, dn = e.downlink_low;
+  let s = 0;
+  if (mode !== "FM") s += 10;
+  if (!isAmateurBandHz(dn)) s += 100;
+  if (FREQ_GOOD_KW.some((k) => desc.includes(k))) s -= 5;
+  if (FREQ_BAD_KW.some((k) => desc.includes(k))) s += 50;
+  if (up && dn) {
+    const crossBand = (isVhfHz(up) && isUhfHz(dn)) || (isUhfHz(up) && isVhfHz(dn));
+    if (crossBand) s -= 3; // 跨段转发器优先
+    else if ((isVhfHz(up) && isVhfHz(dn)) || (isUhfHz(up) && isUhfHz(dn))) s += 30; // 同段转发降权
+  }
+  return s;
+}
+
+/**
+ * 从一颗星的全部 SatNOGS 发射机条目中挑选最适合多普勒固件（FM 对讲机）的条目。
+ * 优先级：Transceiver（双向转发器）> Transmitter（纯下行，上行=下行作单工）。
+ * 同优先级按 transceiverScore 排序。线性转发器（频段 low!=high）取中心频率。
+ * 返回 { up, down, mode, type, desc }（Hz），无可用条目返回 null。
+ */
+function pickBestTransceiver(entries) {
+  const usable = entries.filter((e) => e && e.downlink_low && (e.alive === undefined || e.alive));
+  const center = (e, key) => {
+    const lo = e[key + "_low"], hi = e[key + "_high"];
+    return lo != null && hi != null && hi !== lo ? (lo + hi) / 2 : lo;
+  };
+
+  // 1. 双向转发器（有上行）优先
+  const tc = usable.filter((e) => e.type === "Transceiver" && e.uplink_low);
+  if (tc.length) {
+    tc.sort((a, b) => transceiverScore(a) - transceiverScore(b));
+    const e = tc[0];
+    return { up: center(e, "uplink"), down: center(e, "downlink"), mode: e.mode || "", type: "Transceiver", desc: e.description || "" };
+  }
+  // 2. 纯下行（遥测/信标）：上行=下行（单工监听）
+  const tx = usable.filter((e) => isAmateurBandHz(e.downlink_low));
+  if (tx.length) {
+    tx.sort((a, b) => transceiverScore(a) - transceiverScore(b));
+    const e = tx[0];
+    return { up: center(e, "downlink"), down: center(e, "downlink"), mode: e.mode || "", type: "Transmitter", desc: e.description || "" };
+  }
+  return null;
+}
+
+/**
+ * 从 SatNOGS 发射机数组构建 NORAD 编号 -> 最优条目映射（用于选星自动填频率）。
+ * 返回对象 { "43770": { up, down, mode, type, desc }, ... }。
+ */
+function buildFreqMap(transmitters) {
+  const byNorad = new Map();
+  for (const t of transmitters) {
+    if (!t || !t.norad_cat_id || !t.downlink_low) continue;
+    const id = String(t.norad_cat_id).padStart(5, "0");
+    if (!byNorad.has(id)) byNorad.set(id, []);
+    byNorad.get(id).push(t);
+  }
+  const map = {};
+  for (const [id, entries] of byNorad) {
+    const best = pickBestTransceiver(entries);
+    if (best) map[id] = best;
+  }
+  return map;
+}
+
 
 // ---- UMD 导出 ----
 (function (root, factory) {
@@ -244,6 +428,7 @@ function unixToFw(unix1970) {
 })(typeof self !== "undefined" ? self : this, function () {
   return {
     radialVelocity, uplinkFreq, downlinkFreq, observerEci, lookAngles,
-    findPass, dateToFwTime, unixToFw,
+    findPass, dateToFwTime, unixToFw, noradId, tleEpoch, mergeTleList, mergeSatelliteSources,
+    pickBestTransceiver, buildFreqMap, isAmateurBandHz,
   };
 });

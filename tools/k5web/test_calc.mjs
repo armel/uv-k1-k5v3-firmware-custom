@@ -5,7 +5,7 @@
 import { strict as assert } from "node:assert";
 import satellite from "./vendor/satellite.min.js";
 import calc from "./calc.js";
-const { radialVelocity, uplinkFreq, downlinkFreq, observerEci, findPass, dateToFwTime, unixToFw } = calc;
+const { radialVelocity, uplinkFreq, downlinkFreq, observerEci, findPass, dateToFwTime, unixToFw, noradId, tleEpoch, mergeTleList, mergeSatelliteSources, pickBestTransceiver, buildFreqMap, isAmateurBandHz } = calc;
 
 const C = 299792.458;
 
@@ -134,6 +134,132 @@ const C = 299792.458;
   } else {
     console.log("  注意：24h 内未找到可见过境（TLE 过旧时 SGP4 偏差大，跳过断言）");
   }
+}
+
+// ---- TLE 增量缓存：noradId / tleEpoch / mergeTleList ----
+{
+  const tleA = "1 25544U 98067A   26228.82508390  .00005081  00000+0  98725-4 0  9993";
+  const tleB = "1 25544U 98067A   26240.64276285  .00005081  00000+0  98725-4 0  9993"; // 同星，epoch 更新
+  const tleC = "1 67290U 25313AU  26240.64276285  .00008490  00000+0  33186-3 0  9996"; // 另一颗星
+
+  assert.equal(noradId(tleA), "25544", "noradId 提取");
+  assert.equal(noradId(tleC), "67290", "noradId 提取（5 位）");
+  assert.equal(tleEpoch(tleA), "26228.82508390", "tleEpoch 提取");
+
+  const cached = [
+    { name: "ISS", tle1: tleA, tle2: "2 25544  ...", fetchedAt: 1000 },
+    { name: "RS18S", tle1: tleC, tle2: "2 67290  ...", fetchedAt: 1000 },
+  ];
+  // epoch 未变 -> 不更新；补充星不在 fresh 里 -> 追加保留
+  let r = mergeTleList(cached, [{ name: "ISS", tle1: tleA, tle2: "2 25544  ..." }]);
+  assert.equal(r.updated, 0, "epoch 相同不更新");
+  assert.equal(r.list.length, 2, "缓存独有的补充星保留");
+  assert.equal(r.list[0].name, "ISS", "fresh 顺序优先");
+  assert.equal(r.list[1].name, "RS18S", "补充星追加在后");
+
+  // epoch 变化 -> 更新 1 颗
+  r = mergeTleList(cached, [{ name: "ISS", tle1: tleB, tle2: "2 25544  ..." }]);
+  assert.equal(r.updated, 1, "epoch 变化更新 1 颗");
+  assert.equal(r.list[0].tle1, tleB, "用新条目");
+  assert.equal(r.list[1].name, "RS18S", "未涉及的缓存星保留");
+
+  // fresh 的 epoch 更旧（兜底镜像数据）-> 保留缓存，不降级
+  r = mergeTleList(cached, [{ name: "ISS", tle1: "1 25544U 98067A   26220.00000000  .00005081  00000+0  98725-4 0  9993", tle2: "2 25544  ..." }]);
+  assert.equal(r.updated, 0, "旧数据不覆盖缓存");
+  assert.equal(r.list[0].tle1, tleA, "保留缓存的更新数据");
+
+  // 新增星 -> updated
+  r = mergeTleList([], [{ name: "ISS", tle1: tleB, tle2: "2 25544  ..." }]);
+  assert.equal(r.updated, 1, "首次获取全部计入更新");
+  assert.equal(r.list.length, 1, "空缓存合并");
+  console.log("✓ TLE 增量缓存合并正确（noradId/epoch/保留/更新/新增/防降级）");
+}
+
+// ---- 多源合并：按源优先级去重（Look4Sat 策略）----
+{
+  const issOld = { name: "ISS", tle1: "1 25544U 98067A   26228.82508390  .00005081  00000+0  98725-4 0  9993", tle2: "2 25544  ..." };
+  const issNew = { name: "ISS", tle1: "1 25544U 98067A   26241.27263584  .00006962  00000+0  13475-3 0  9997", tle2: "2 25544  ..." };
+  const rs18s = { name: "RS18S", tle1: "1 67290U 25313AU  26240.64276285  .00008490  00000+0  33186-3 0  9996", tle2: "2 67290  ..." };
+  const ao73 = { name: "AO-73", tle1: "1 39444U 13066AE  26240.50000000  .00000000  00000-0  10000-3 0  9995", tle2: "2 39444  ..." };
+
+  // 源 1 有 ISS(旧)+RS18S，源 2 有 ISS(新)+AO-73：ISS 取源 1（优先级），AO-73 补充
+  const merged = mergeSatelliteSources([
+    { name: "源1", sats: [issOld, rs18s] },
+    { name: "源2", sats: [issNew, ao73] },
+  ]);
+  assert.equal(merged.length, 3, "合并去重后 3 颗");
+  assert.equal(merged[0].tle1, issOld.tle1, "同星取前面源（优先级）");
+  assert.ok(merged.some((s) => s.name === "AO-73"), "后面源独有的星保留");
+  assert.ok(merged.some((s) => s.name === "RS18S"), "补充星保留");
+  // 空源跳过
+  const merged2 = mergeSatelliteSources([{ name: "空", sats: [] }, { name: "有", sats: [ao73] }]);
+  assert.equal(merged2.length, 1, "空源不影响");
+  console.log("✓ 多源合并正确（源优先级/去重/补充/空源）");
+}
+
+// ---- SatNOGS 频率库：pickBestTransceiver / buildFreqMap ----
+{
+  // AO-95 (FOX-1CLIFF, 43770) 真实条目：应选 U/V FM 转发器（up 435.3 / down 145.92）
+  const ao95 = [
+    { description: "DUV TLM", type: "Transmitter", downlink_low: 145920000, downlink_high: 145920000, uplink_low: null, mode: "DUV", alive: true },
+    { description: "AFSK9k6 digital data", type: "Transmitter", downlink_low: 145920000, downlink_high: 145920000, uplink_low: null, mode: "AFSK", alive: true },
+    { description: "U/V FM", type: "Transceiver", downlink_low: 145920000, downlink_high: 145920000, uplink_low: 435300000, uplink_high: 435300000, mode: "FM", alive: true },
+    { description: "L/V FM", type: "Transceiver", downlink_low: 145920000, downlink_high: 145920000, uplink_low: 1267300000, uplink_high: 1267300000, mode: "FM", alive: true },
+  ];
+  const best = pickBestTransceiver(ao95);
+  assert.equal(best.up, 435300000, "AO-95 选 U/V FM 上行 435.3");
+  assert.equal(best.down, 145920000, "AO-95 选 U/V FM 下行 145.92");
+  assert.equal(best.type, "Transceiver", "AO-95 为转发器");
+
+  // ISS (25544) 真实条目：应选语音转发器 Voice Repeater（145.990/437.800），
+  // 不能选 APRS（145.825 同段）或宇航员通信（crew，同段）
+  const iss = [
+    { description: "Mode V APRS", type: "Transceiver", downlink_low: 145825000, downlink_high: 145825000, uplink_low: 145825000, uplink_high: 145825000, mode: "AFSK", alive: true },
+    { description: "Mode V/V FM (crew R2+3)", type: "Transceiver", downlink_low: 145800000, downlink_high: 145800000, uplink_low: 144490000, uplink_high: 144490000, mode: "FM", alive: true },
+    { description: "Mode V/V FM (crew R1)", type: "Transceiver", downlink_low: 145800000, downlink_high: 145800000, uplink_low: 145200000, uplink_high: 145200000, mode: "FM", alive: true },
+    { description: "Mode V/U FM - Voice Repeater CTCSS 67.0 Hz", type: "Transceiver", downlink_low: 437800000, downlink_high: 437800000, uplink_low: 145990000, uplink_high: 145990000, mode: "FM", alive: true },
+    { description: "Mode U APRS test", type: "Transceiver", downlink_low: 437825000, downlink_high: 437825000, uplink_low: 437825000, uplink_high: 437825000, mode: "AFSK", alive: true },
+  ];
+  const bestIss = pickBestTransceiver(iss);
+  assert.equal(bestIss.up, 145990000, "ISS 选语音转发器上行 145.99");
+  assert.equal(bestIss.down, 437800000, "ISS 选语音转发器下行 437.8");
+  assert.ok(bestIss.desc.includes("Voice Repeater"), "ISS 选中的条目是 Voice Repeater");
+
+  // 纯下行星（RS18S 类）：Transceiver 缺失时选纯下行，上行=下行
+  const rs18s = [
+    { description: "GMSK TLM", type: "Transmitter", downlink_low: 437350000, downlink_high: 437350000, uplink_low: null, mode: "GMSK", alive: true },
+    { description: "SSTV", type: "Transmitter", downlink_low: 437350000, downlink_high: 437350000, uplink_low: null, mode: "SSTV", alive: true },
+  ];
+  const best2 = pickBestTransceiver(rs18s);
+  assert.equal(best2.up, 437350000, "纯下行星上行=下行");
+  assert.equal(best2.down, 437350000, "纯下行星下行");
+  assert.equal(best2.type, "Transmitter", "纯下行星类型");
+
+  // 线性转发器（频段 low!=high）取中心频率
+  const linear = [
+    { description: "Linear", type: "Transceiver", downlink_low: 145950000, downlink_high: 146000000, uplink_low: 435200000, uplink_high: 435250000, mode: "USB", alive: true },
+  ];
+  const best3 = pickBestTransceiver(linear);
+  assert.equal(best3.down, 145975000, "线性转发器取中心频率");
+  assert.equal(best3.up, 435225000, "线性转发器上行中心频率");
+
+  // 非业余段且无 Transceiver -> null
+  const alien = [
+    { description: "S-band", type: "Transmitter", downlink_low: 2200000000, downlink_high: 2200000000, uplink_low: null, mode: "FM", alive: true },
+  ];
+  assert.equal(pickBestTransceiver(alien), null, "非业余段纯下行返回 null");
+
+  // buildFreqMap：按 norad 分组 + 填充 + padStart(5, "0")
+  const map = buildFreqMap([
+    { norad_cat_id: 43770, ...ao95[2] },
+    { norad_cat_id: 67290, ...rs18s[0] },
+    { norad_cat_id: 99999, description: "x", type: "Transmitter", downlink_low: null, uplink_low: null, mode: "FM", alive: true },
+  ]);
+  assert.equal(map["43770"].up, 435300000, "映射 43770 上行");
+  assert.equal(map["67290"].down, 437350000, "映射 67290 下行");
+  assert.equal(map["99999"], undefined, "无下行频率的条目不收录");
+  assert.ok(isAmateurBandHz(145920000) && !isAmateurBandHz(2000000000), "业余段判定");
+  console.log("✓ SatNOGS 频率库选频正确（AO-95/纯下行/线性/非业余/映射）");
 }
 
 console.log("\n全部计算测试通过 ✅");
