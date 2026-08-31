@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP="$(basename "$PWD")"
-APP_NAME="BEAM"
+APP_NAME="Beam"
 APP_VER="1.0"
 APP_API_MIN=1
 APP_VMA=${APP_VMA:-0x20000280}
