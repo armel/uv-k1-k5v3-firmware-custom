@@ -9,6 +9,7 @@ set -euo pipefail
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
 APP_NAME="Cube3D"                   # <-- the only per-app line
 APP_VER="1.0"
+APP_API_MIN=1
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"               # blob basename ("Broadcast FM" -> BroadcastFM)
 
@@ -29,7 +30,7 @@ trap 'printf "\r  ❌ %-13s build failed            \n" "$APP_NAME"' ERR
 step 1 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 step 2 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 3 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
-                   --name "$APP_NAME" --ver "$APP_VER" --vma "${APP_VMA}" --screensaver >/dev/null
+                   --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" --screensaver >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")

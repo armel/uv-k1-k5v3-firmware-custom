@@ -25,6 +25,10 @@
 #include "radio.h"
 #include <driver/backlight.h>
 
+/* Shared PY25Q16 locations for the two configurable boot-message lines. */
+#define SETTINGS_BOOT_MESSAGE_LINE1_ADDR 0x00A0C8u
+#define SETTINGS_BOOT_MESSAGE_LINE2_ADDR 0x00A0D8u
+
 enum POWER_OnDisplayMode_t {
 #ifdef ENABLE_FEAT_F4HWN
     POWER_ON_DISPLAY_MODE_ALL,

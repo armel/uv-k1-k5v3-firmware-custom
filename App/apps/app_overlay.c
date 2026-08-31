@@ -51,6 +51,13 @@
 #include "misc.h"   /* dBmCorrTable */
 
 _Static_assert(sizeof(app_header_t) == 64, "app_header_t must be 64 bytes");
+_Static_assert(sizeof(app_api_t) <= UINT16_MAX, "app_api_t size field overflow");
+
+#ifdef ENABLE_FMRADIO
+    #define APP_AVAILABLE_CAPS APP_CAP_FM
+#else
+    #define APP_AVAILABLE_CAPS 0u
+#endif
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
 static bool app_allow_screen_saver;
@@ -129,7 +136,7 @@ static void app_play_tone(uint16_t tone, uint16_t ms)
     AUDIO_AudioPathOff();
 }
 
-/* ---- ABI 4: resident triple-VFO engine ---------------------------------
+/* ---- API level 1: resident triple-VFO engine ----------------------------
  * The overlay owns the UI and key timing, while this resident engine owns all
  * radio details.  Keeping VFO_Info_t and BK4819 sequencing on this side makes
  * the app independent of feature-dependent firmware layouts. */
@@ -525,7 +532,7 @@ static uint8_t app_trivfo_ptt(bool pressed)
     return 0;
 }
 
-/* ---- ABI 8: BEAM radio/channel bridge ------------------------------------
+/* ---- API level 1: BEAM radio/channel bridge -------------------------------
  * The modal app owns the packet format, CRC, UI and state machine.  Resident
  * code only translates the stable ABI channel structure and performs the FSK
  * operations which depend on VFO_Info_t and the BK4819 driver. */
@@ -719,7 +726,7 @@ static void app_beam_draw(const char *status)
     UI_PrintStringSmallBold(status, 2, LCD_WIDTH - 1u, line);
 }
 
-/* ---- v2 radio wrappers ---- */
+/* ---- radio wrappers ---- */
 static int16_t  app_rssi_dbm(void)     { return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]; }
 static uint16_t app_bk_read(uint8_t r) { return BK4819_ReadRegister((BK4819_REGISTER_t)r); }
 static void     app_bk_write(uint8_t r, uint16_t v) { BK4819_WriteRegister((BK4819_REGISTER_t)r, v); }
@@ -787,7 +794,7 @@ static uint32_t app_tx_freq(void)        { return gTxVfo->pTX->Frequency; }
 static void app_boot_callsign(char *buf, uint8_t len)
 {
     char raw[12]; uint8_t n = 0;
-    PY25Q16_ReadBuffer(0x00A0C8u, raw, sizeof(raw));   /* boot message line 1 */
+    PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, raw, sizeof(raw));
     for (uint8_t i = 0; i < sizeof(raw) && (uint8_t)(n + 1) < len; i++) {
         char c = raw[i];
         if (c == '\0' || (uint8_t)c == 0xFFu) break;
@@ -849,8 +856,10 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
 
     if (h.magic != APP_MAGIC)               return APP_ERR_MAGIC;
     if (h.hdr_version != APP_HDR_VERSION)    return APP_ERR_MAGIC;
-    if (h.abi_version != APP_ABI_VERSION)    return APP_ERR_ABI;
+    if (h.abi_major != APP_ABI_MAJOR || h.api_min == 0u ||
+        h.api_min > APP_API_LEVEL)           return APP_ERR_ABI;
     if (!(h.flags & APP_FLAG_COMMITTED))     return APP_ERR_NOT_COMMITTED;
+    if (h.required_caps & ~APP_AVAILABLE_CAPS) return APP_ERR_CAP;
     if (h.code_size < 2u || h.code_size > APP_OVERLAY_MAX ||
         (uint32_t)h.entry_off > h.code_size - 2u ||   /* leave room for a 2-byte Thumb insn */
         (h.entry_off & 1u) != 0u)                     /* entry must be Thumb-aligned (even) */
@@ -932,9 +941,12 @@ uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header)
 
 /* All services are immutable.  Keeping the table in flash avoids rebuilding a
  * roughly quarter-kilobyte automatic object on every launch and removes that
- * object from the launcher's stack frame. */
+ * object from the launcher's stack frame.  Callbacks must also obey the ABI's
+ * no-external-flash-write rule while entry() is running. */
 static const app_api_t app_api = {
-    .abi_version      = APP_ABI_VERSION,
+    .abi_major        = APP_ABI_MAJOR,
+    .api_level        = APP_API_LEVEL,
+    .api_size         = sizeof(app_api_t),
     .fb               = gFrameBuffer,
     .display_clear    = UI_DisplayClear,
     .status_clear     = UI_StatusClear,

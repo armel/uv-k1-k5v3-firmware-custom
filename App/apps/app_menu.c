@@ -170,35 +170,41 @@ static void app_format_size(char out[6], uint32_t bytes)
     out[5] = '\0';
 }
 
-/* Human-readable reason for an APP_LaunchOverlay / APP_ValidateSlot failure. */
-static const char *app_err_text(uint8_t rc)
+/* Human-readable action for an APP_LaunchOverlay / APP_ValidateSlot failure. */
+static const char *app_err_text(const app_header_t *header, uint8_t rc)
 {
     switch (rc)
     {
         case APP_ERR_SLOT:          return "BAD SLOT";
         case APP_ERR_MAGIC:         return "NO APP";
-        case APP_ERR_ABI:           return "ABI MISMATCH";
-        case APP_ERR_NOT_COMMITTED: return "INCOMPLETE";
-        case APP_ERR_SIZE:          return "BAD SIZE";
-        case APP_ERR_CRC:           return "CRC ERROR";
-        case APP_ERR_VMA:           return "VMA MISMATCH";
+        case APP_ERR_ABI:
+            /* api_min == 0 also identifies pre-reset development blobs whose
+             * former uint16_t ABI value occupies these two bytes. */
+            if (header->api_min == 0u || header->abi_major < APP_ABI_MAJOR)
+                return "UPDATE APP";
+            return "UPDATE FIRMWARE";
+        case APP_ERR_NOT_COMMITTED: return "REINSTALL APP";
+        case APP_ERR_SIZE:          return "UPDATE APP";
+        case APP_ERR_CRC:           return "REINSTALL APP";
+        case APP_ERR_VMA:           return "UPDATE APP";
         case APP_ERR_AUTH:          return "AUTH";
+        case APP_ERR_CAP:           return "NOT SUPPORTED";
         default:                    return "ERROR";
     }
 }
 
-/* A launch failed: name the app and the reason, then wait for a key. Without this
+/* A launch failed: name the app and the action to take, then wait for a key. Without this
  * an incompatible app would silently "do nothing" when selected. */
-static void app_show_error(const char *name, uint8_t rc)
+static void app_show_error(const app_header_t *header, uint8_t rc)
 {
     char nm[19];
-    app_copy(nm, sizeof(nm), name, APP_NAME_LEN);
+    app_copy(nm, sizeof(nm), header->name, APP_NAME_LEN);
 
     UI_DisplayClear();
     UI_StatusClear();
     GUI_DisplaySmallestInverse("APP ERROR", 46, 0, true, true, 82);
     UI_PrintStringSmallNormal(nm, 2, 0, 2);                 /* which app */
-    UI_PrintStringSmallNormal(app_err_text(rc), 2, 0, 4);   /* why       */
+    UI_PrintStringSmallNormal(app_err_text(header, rc), 2, 0, 4); /* action */
     UI_PrintStringSmallNormal("Press any key", 2, 0, 6);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
@@ -316,7 +322,7 @@ void APP_MenuOpen(void)
 
                 const uint8_t rc = APP_LaunchOverlay(sel);  /* runs until the app exits */
                 if (rc != APP_OK)
-                    app_show_error(hdr[sel].name, rc);      /* no longer silent */
+                    app_show_error(&hdr[sel], rc);          /* no longer silent */
                 app_wait_release();
                 break;
             }

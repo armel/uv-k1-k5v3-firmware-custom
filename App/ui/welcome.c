@@ -261,10 +261,10 @@ void UI_DisplayWelcome(void)
         char WelcomeString3[32];
 
         // 0x0EB0
-        PY25Q16_ReadBuffer(0x00A0C8, WelcomeString0, 16);
+        PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, WelcomeString0, 16);
         WelcomeString0[16] = '\0';
         // 0x0EC0
-        PY25Q16_ReadBuffer(0x00A0D8, WelcomeString1, 16);
+        PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE2_ADDR, WelcomeString1, 16);
         WelcomeString1[16] = '\0';
 
         sprintf(WelcomeString2, "%u.%02uV %u%%",

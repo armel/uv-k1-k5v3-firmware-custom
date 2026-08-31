@@ -3,6 +3,7 @@ set -euo pipefail
 APP="$(basename "$PWD")"
 APP_NAME="Triple VFO"
 APP_VER="1.0"
+APP_API_MIN=1
 APP_VMA=${APP_VMA:-0x20000280}
 OUT="${APP_NAME// /}"
 CC=/opt/toolchain/bin/arm-none-eabi-gcc
@@ -13,7 +14,7 @@ LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} -Wl,-
 rm -f ./*.app ./*.elf ./*.bin
 "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
-python3 ../pack_app.py "${APP}.bin" "${OUT}.app" --name "$APP_NAME" --ver "$APP_VER" --vma "${APP_VMA}" --screensaver >/dev/null
+python3 ../pack_app.py "${APP}.bin" "${OUT}.app" --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" --screensaver >/dev/null
 BYTES=$(wc -c < "${APP}.bin")
 test "$BYTES" -le 4096
 printf '  ✅ %-13s %4d B  (%d%% of 4 KiB)  ->  %s.app\n' \

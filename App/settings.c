@@ -90,8 +90,10 @@ void SETTINGS_InitEEPROM(void)
 
             // 4. Reset logo lines (clear to null for strlen() == 0)
 
-            char logoLines[32];
-            PY25Q16_ReadBuffer(0x00A0C8, logoLines, sizeof(logoLines));
+            /* The two boot-message lines are contiguous in external flash. */
+            char bootMessageLines[32];
+            PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR,
+                               bootMessageLines, sizeof(bootMessageLines));
 
             bool needsWrite = false;
 
@@ -99,12 +101,12 @@ void SETTINGS_InitEEPROM(void)
                 int offset = line * 16;
                 
                 for (int i = 0; i < 16; i++) {
-                    char c = logoLines[offset + i];
+                    char c = bootMessageLines[offset + i];
                     if (c == 0) {
                         break;
                     }
                     if (c < 0x20 || c > 0x7E) {
-                        memset(logoLines + offset, 0, 16);
+                        memset(bootMessageLines + offset, 0, 16);
                         needsWrite = true;
                         break;
                     }
@@ -112,7 +114,8 @@ void SETTINGS_InitEEPROM(void)
             }
 
             if (needsWrite) {
-                PY25Q16_WriteBuffer(0x00A0C8, logoLines, sizeof(logoLines), false);
+                PY25Q16_WriteBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR,
+                                    bootMessageLines, sizeof(bootMessageLines), false);
             }
 
             // 5. Reset dBmCorrTable

@@ -78,10 +78,15 @@
 #define APP_SHORTCUT_BEACON   0x04u
 #define APP_SHORTCUT_BEAM     0x08u
 
+/* Optional resident facilities an app may require.  Requirements live in the
+ * previously reserved header bytes, so app_header_t remains 64 bytes. */
+#define APP_CAP_FM            0x00000001u
+
 typedef struct __attribute__((packed)) {
     uint32_t magic;                    /* APP_MAGIC                              */
     uint16_t hdr_version;              /* APP_HDR_VERSION                        */
-    uint16_t abi_version;             /* ABI the app was built against          */
+    uint8_t  abi_major;                /* required ABI family                    */
+    uint8_t  api_min;                  /* minimum append-only API level          */
     uint32_t code_size;               /* bytes of code, <= APP_OVERLAY_MAX      */
     uint32_t code_crc32;              /* CRC-32 (zlib) over code_size bytes     */
     uint16_t entry_off;               /* entry offset within the code (0)       */
@@ -89,19 +94,21 @@ typedef struct __attribute__((packed)) {
     char     name[APP_NAME_LEN];      /* human-readable, NUL-terminated         */
     char     version[APP_VERSION_LEN];/* app version string                     */
     uint32_t link_vma;                /* RAM VMA the code was linked at         */
-    uint8_t  reserved[8];             /* pad to 64 bytes                        */
+    uint32_t required_caps;           /* APP_CAP_* required by this app         */
+    uint8_t  reserved[4];             /* pad to 64 bytes                        */
 } app_header_t;
 
 enum {
     APP_OK = 0,
     APP_ERR_SLOT,           /* slot index out of range                */
     APP_ERR_MAGIC,          /* no/invalid header                      */
-    APP_ERR_ABI,            /* ABI version mismatch                   */
+    APP_ERR_ABI,            /* ABI family/API level mismatch          */
     APP_ERR_NOT_COMMITTED,  /* image not marked complete              */
     APP_ERR_SIZE,           /* code_size out of range                 */
     APP_ERR_CRC,            /* code CRC-32 mismatch                   */
     APP_ERR_VMA,            /* overlay buffer not at the link VMA     */
     APP_ERR_AUTH,           /* host write refused: timestamp mismatch */
+    APP_ERR_CAP,            /* required firmware capability missing   */
 };
 
 /* Read + validate a slot header (no CRC of the code). */

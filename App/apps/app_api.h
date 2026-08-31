@@ -25,9 +25,11 @@
  *
  *   void app_main(const app_api_t *api);   // entry, at blob offset 0
  *
- * Both the firmware loader and the app include THIS header, so the struct layout
- * can never disagree. Bump APP_ABI_VERSION on any incompatible change; the loader
- * refuses a blob whose header abi_version does not match.
+ * Both the firmware loader and the app include THIS header.  Within one ABI
+ * major, app_api_t is append-only: existing fields may never move, disappear or
+ * change signature.  Append a service and bump APP_API_LEVEL; only apps using
+ * that service need the new level.  A breaking layout change bumps
+ * APP_ABI_MAJOR and resets APP_API_LEVEL to 1.
  */
 
 #ifndef APPS_APP_API_H
@@ -36,11 +38,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* The table below is a single versioned layout. Any change to app_api_t - a
- * reorder, a removal, or an append - MUST bump this. Keep in sync with the
- * value read by pack_app.py, which
- * stamps the blob the loader checks against. */
-#define APP_ABI_VERSION   8u
+/* First unpublished/public baseline: all services currently present below are
+ * ABI major 1, API level 1. */
+#define APP_ABI_MAJOR  1u
+#define APP_API_LEVEL  1u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -143,7 +144,7 @@ typedef struct {
     uint8_t  band;
     uint8_t  scanlist;
     uint8_t  compander;
-    char     name[16];
+    char     name[16]; /* fixed-width wire field; NUL termination is not required */
 } app_beam_channel_t;
 
 _Static_assert(sizeof(app_beam_channel_t) == 44u,
@@ -155,8 +156,19 @@ enum {
     APP_BEAM_RX_ERROR = 2,
 };
 
+/* CRITICAL PERSISTENCE RULE
+ *
+ * The app executes from the RAM buffer also used as PY25Q16's sector cache.
+ * Therefore no API callback may erase or write external flash while app_main()
+ * is running: a read-modify-write would overwrite the executing app.  Services
+ * such as cfg_save, fm_commit and beam_save must only stage resident RAM state;
+ * APP_LaunchOverlay commits it after app_main() returns. */
+
 typedef struct app_api {
-    uint8_t   abi_version;          /* == APP_ABI_VERSION                       */
+    /* Fixed four-byte prefix; services remain naturally pointer-aligned. */
+    uint8_t   abi_major;            /* == APP_ABI_MAJOR                         */
+    uint8_t   api_level;            /* == APP_API_LEVEL                         */
+    uint16_t  api_size;             /* sizeof(app_api_t), for optional probing  */
 
     app_fb_t  fb;                   /* -> gFrameBuffer                          */
 
@@ -181,10 +193,6 @@ typedef struct app_api {
     /* ---- audio / indicator ---- */
     void (*play_tone)(uint16_t tone, uint16_t ms);  /* full BK4819 tone burst + AF path */
     void (*led)(bool on);                           /* green GPIO indicator             */
-
-    /* ==== appended when the ABI moved 1 -> 2; now an integral part of ABI 2.
-     * A firmware and an app that agree on abi_version agree on this whole layout,
-     * so these must never be reached through a table that does not include them. == */
 
     /* ---- extra text drawing ---- */
     void (*print_normal)(const char *s, uint8_t start, uint8_t end, uint8_t line); /* UI_PrintStringSmallNormal */
@@ -240,14 +248,14 @@ typedef struct app_api {
     void     (*fm_state)(app_fm_state_t *s, bool write);/* read/write the resident gEeprom.FM_* */
     void     (*fm_commit)(void);                        /* deferred SETTINGS_SaveFM (config + channels) */
 
-    /* ---- navigation (ABI 3) ----
+    /* ---- navigation (API level 1 baseline) ----
      * Convert a raw APP_KEY_UP/DOWN into a semantic value direction:
      *   UV-K5 UP/DOWN    -> +1/-1
      *   UV-K1 LEFT/RIGHT -> -1/+1
      * Returns 0 for any other key. Keep get_key() raw for spatial controls. */
     int8_t (*nav_dir)(uint8_t key);
 
-    /* ---- triple VFO (ABI 4) ----
+    /* ---- triple VFO (API level 1 baseline) ----
      * A and B are the live Main Display VFOs. C is a resident temporary VFO
      * loaded from c_channel (or the first valid memory after B when invalid).
      * tick is called every 20 ms by the app and returns APP_TRIVFO_* state. */
@@ -259,7 +267,7 @@ typedef struct app_api {
     uint8_t  (*trivfo_tick)(void);
     uint8_t  (*trivfo_ptt)(bool pressed); /* physical PTT edge; resident applies SetPTT */
 
-    /* ---- BEAM channel transfer (ABI 8) ---- */
+    /* ---- BEAM channel transfer (API level 1 baseline) ---- */
     void     (*beam_prepare)(void); /* tune the fixed narrow-band FSK channel */
     void     (*beam_leave)(void); /* defensively stop FSK before app return */
     void     (*beam_get)(app_beam_channel_t *channel); /* export selected VFO */

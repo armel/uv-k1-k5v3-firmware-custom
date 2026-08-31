@@ -26,6 +26,7 @@
 #include "k5viewer.h"
 #endif
 
+#include "settings.h"
 #include "ui/status.h"
 
 // Signal window mapped onto the RSSI bar, in dBm.
@@ -104,7 +105,6 @@
 #define FOXHUNT_BEACON_TX_MIN    5              // shortest TX window (s)
 #define FOXHUNT_BEACON_TX_MAX    60             // longest TX window (s)
 #define FOXHUNT_BEACON_TX_STEP   5              // TX adjust step (s)
-#define FOXHUNT_CALLSIGN_ADDR    0x00A0C8u      // boot message line 1 in SPI flash
 #define FOXHUNT_CALLSIGN_MAX     12             // maximum boot-message characters used by the beacon
 
 // Fox identifier (3 key). MOE..MO5 are the five standard IARU ARDF foxes ("MO" + 1..5
@@ -1366,7 +1366,7 @@ static void FOXHUNT_LoadCallsign(void)
 
     // Read the callsign from the boot message (line 1), sanitised to what Morse can
     // send; empty/erased leaves foxCall empty (the CALL id then falls back to bare MOE).
-    PY25Q16_ReadBuffer(FOXHUNT_CALLSIGN_ADDR, call, FOXHUNT_CALLSIGN_MAX);
+    PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, call, FOXHUNT_CALLSIGN_MAX);
     call[FOXHUNT_CALLSIGN_MAX] = '\0';
     for (uint8_t i = 0; i < FOXHUNT_CALLSIGN_MAX; i++) {
         char c = call[i];
