@@ -225,6 +225,16 @@ void BACKLIGHT_TurnOn(void)
     }
 }
 
+// Force the backlight to maximum brightness and keep it on indefinitely,
+// bypassing the user's BACKLIGHT_TIME setting. Used by modes that must stay
+// readable unattended, such as Doppler tracking.
+void BACKLIGHT_ForceOnMax(void)
+{
+    backlightOn = true;
+    BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MAX);
+    gBacklightCountdown_500ms = 0;
+}
+
 void BACKLIGHT_TurnOff()
 {
 #ifdef ENABLE_BLMIN_TMP_OFF

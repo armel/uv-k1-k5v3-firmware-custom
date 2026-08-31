@@ -60,4 +60,6 @@ extern const uint8_t BITMAP_NOAA[12];
     extern const uint8_t BITMAP_CurrentIndicator[8];
 #endif
 
+extern const uint8_t BITMAP_EnterIndicator[8];
+
 #endif

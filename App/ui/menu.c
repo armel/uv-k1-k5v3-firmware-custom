@@ -975,6 +975,10 @@ void UI_DisplayMenu(void)
     // draw the little sub-menu triangle marker
     if (gIsInSubMenu)
         memcpy(gFrameBuffer[0] + (8 * menu_list_width) + 1, BITMAP_CurrentIndicator, sizeof(BITMAP_CurrentIndicator));
+    else
+        // show a left-pointing arrow just right of the separator so the user
+        // knows pressing MENU will enter the selected item on the left
+        memcpy(gFrameBuffer[2] + (8 * menu_list_width) + 2, BITMAP_EnterIndicator, sizeof(BITMAP_EnterIndicator));
 
     // draw the menu index number/count
     sprintf(String, "%2u.%u", 1 + gMenuCursor, gMenuListCount);
@@ -1002,6 +1006,10 @@ void UI_DisplayMenu(void)
 
                 // current menu item - keep big n fat
                 UI_MENU_PrintNameBig(UI_MENU_GetDisplayName(&MenuList[gMenuIndices[menu_index]]), 2);
+
+                // draw a left-pointing arrow just right of the separator so
+                // the user knows pressing MENU will enter the selected item
+                memcpy(gFrameBuffer[2] + 49, BITMAP_EnterIndicator, sizeof(BITMAP_EnterIndicator));
 
                 // trailing menu item - small text
                 int next_index = menu_index + 1;

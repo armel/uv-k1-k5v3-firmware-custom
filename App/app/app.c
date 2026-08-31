@@ -260,6 +260,9 @@ static bool ScreenSaverCanDisplay(void)
 #ifdef ENABLE_FEAT_F4HWN_BEAM
         || gBeamActive
 #endif
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        || DOPPLER_IsActive()
+#endif
         )
     {
         return false;
@@ -1944,6 +1947,10 @@ void APP_TimeSlice500ms(void)
     if (gBacklightCountdown_500ms > 0 && !gAskToSave && !gCssBackgroundScan
         // don't turn off backlight if user is in backlight menu option
         && !(gScreenToDisplay == DISPLAY_MENU && (m == MENU_ABR || m == MENU_ABR_MAX || m == MENU_ABR_MIN))
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        // Doppler tracking runs unattended and must stay readable
+        && !DOPPLER_IsActive()
+#endif
         && --gBacklightCountdown_500ms == 0
         && gEeprom.BACKLIGHT_TIME < 61
     ) {

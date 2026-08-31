@@ -22,6 +22,7 @@
 #include "app/doppler_mode.h"
 #include "audio.h"
 #include "dcs.h"
+#include "driver/backlight.h"
 #include "driver/bk4819.h"
 #include "driver/rtc.h"
 #include "driver/rtc_save.h"
@@ -31,6 +32,7 @@
 #include "functions.h"
 #include "misc.h"
 #include "radio.h"
+#include "settings.h"
 #include "ui/helper.h"
 #include "ui/ui.h"
 
@@ -45,6 +47,7 @@ static bool     gDopplerEntryValid = false;
 static bool     gDopplerTxOverride = false;
 static bool     gDopplerShowExtra = false; // key 2 toggles supplementary orbit info
 static bool     gDopplerShowSlots = false; // key 3 shows all slot names
+static bool     gDopplerShowSql = false;   // key 4 opens the SQL adjust page
 static bool     gDopplerFSlotArm = false;  // F key pressed, waiting for a slot digit (1..4)
 static uint8_t  gDopplerLedTicks = 0;      // green RX LED flash countdown (10 ms ticks)
 static uint8_t  gDopplerWarn60Mask = 0;    // per-slot bit: AOS-60 s reminder already played
@@ -55,15 +58,10 @@ static uint32_t gDopplerSavedTxFreq = 0;
 static uint8_t  gDopplerSavedTxCodeType = 0;
 static uint8_t  gDopplerSavedTxCode = 0;
 
-// Saved squelch thresholds so we can force SQL 0 during a pass and restore
-// the user's global setting before/after the pass.
-static uint8_t  gDopplerSavedSqlOpenRssi = 0;
-static uint8_t  gDopplerSavedSqlCloseRssi = 0;
-static uint8_t  gDopplerSavedSqlOpenNoise = 0;
-static uint8_t  gDopplerSavedSqlCloseNoise = 0;
-static uint8_t  gDopplerSavedSqlCloseGlitch = 0;
-static uint8_t  gDopplerSavedSqlOpenGlitch = 0;
-static bool     gDopplerSqlForcedOpen = false;
+// Dedicated Doppler squelch level (0..9). 0xFF means "not initialised yet";
+// on the first Doppler entry after power-up it is seeded from the global SQL.
+static uint8_t  gDopplerSqlLevel = 0xFF;
+static uint8_t  gDopplerSavedSystemSqlLevel = 0;
 
 static uint8_t  gDopplerTime[6];          // year(2000-based)..second
 static char     gDopplerInputStr[13];     // 12-digit entry (YYMMDDHHMMSS + '\0')
@@ -82,53 +80,14 @@ bool DOPPLER_IsActive(void)
     return gDopplerState != DOPPLER_STATE_OFF;
 }
 
-// Capture the current VFO squelch thresholds from the active RX VFO.
-static void DOPPLER_SaveSquelch(void)
+// Apply the dedicated Doppler squelch level to the active RX VFO and the
+// BK4819, without permanently changing the global gEeprom.SQUELCH_LEVEL.
+static void DOPPLER_ApplySqlLevel(void)
 {
-    gDopplerSavedSqlOpenRssi     = gRxVfo->SquelchOpenRSSIThresh;
-    gDopplerSavedSqlCloseRssi    = gRxVfo->SquelchCloseRSSIThresh;
-    gDopplerSavedSqlOpenNoise    = gRxVfo->SquelchOpenNoiseThresh;
-    gDopplerSavedSqlCloseNoise   = gRxVfo->SquelchCloseNoiseThresh;
-    gDopplerSavedSqlCloseGlitch  = gRxVfo->SquelchCloseGlitchThresh;
-    gDopplerSavedSqlOpenGlitch   = gRxVfo->SquelchOpenGlitchThresh;
-}
-
-// Restore the previously saved VFO squelch thresholds to chip and VFO struct.
-static void DOPPLER_RestoreSquelch(void)
-{
-    gRxVfo->SquelchOpenRSSIThresh    = gDopplerSavedSqlOpenRssi;
-    gRxVfo->SquelchCloseRSSIThresh   = gDopplerSavedSqlCloseRssi;
-    gRxVfo->SquelchOpenNoiseThresh   = gDopplerSavedSqlOpenNoise;
-    gRxVfo->SquelchCloseNoiseThresh  = gDopplerSavedSqlCloseNoise;
-    gRxVfo->SquelchCloseGlitchThresh = gDopplerSavedSqlCloseGlitch;
-    gRxVfo->SquelchOpenGlitchThresh  = gDopplerSavedSqlOpenGlitch;
-
-    BK4819_SetupSquelch(
-        gRxVfo->SquelchOpenRSSIThresh,    gRxVfo->SquelchCloseRSSIThresh,
-        gRxVfo->SquelchOpenNoiseThresh,   gRxVfo->SquelchCloseNoiseThresh,
-        gRxVfo->SquelchCloseGlitchThresh, gRxVfo->SquelchOpenGlitchThresh);
-}
-
-// Force squelch fully open (SQL 0) for the duration of a pass.
-static void DOPPLER_ForceSquelchOpen(void)
-{
-    if (gDopplerSqlForcedOpen)
-    {
-        return;
-    }
-    DOPPLER_SaveSquelch();
-    gDopplerSqlForcedOpen = true;
-
-    // These values match RADIO_ConfigureSquelchAndOutputPower() for
-    // gEeprom.SQUELCH_LEVEL == 0 (squelch off / fully open).
-    gRxVfo->SquelchOpenRSSIThresh    = 0;
-    gRxVfo->SquelchCloseRSSIThresh   = 0;
-    gRxVfo->SquelchOpenNoiseThresh   = 127;
-    gRxVfo->SquelchCloseNoiseThresh  = 127;
-    gRxVfo->SquelchCloseGlitchThresh = 255;
-    gRxVfo->SquelchOpenGlitchThresh  = 255;
-
-    BK4819_SetupSquelch(0, 0, 127, 127, 255, 255);
+    const uint8_t savedSystemLevel = gEeprom.SQUELCH_LEVEL;
+    gEeprom.SQUELCH_LEVEL = gDopplerSqlLevel;
+    RADIO_ConfigureSquelchAndOutputPower(gRxVfo);
+    gEeprom.SQUELCH_LEVEL = savedSystemLevel;
 }
 
 static void DOPPLER_SetInputIndex(uint8_t Index)
@@ -249,15 +208,21 @@ void DOPPLER_EnterMode(void)
 
     gDopplerSavedRxFreq = gTxVfo->freq_config_RX.Frequency;
     gDopplerTxOverride = false;
-    gDopplerSqlForcedOpen = false;
 
     RTC_EnableSecondIT(true);
 
     gDopplerPassed = false;
     gDopplerEntryValid = false;
 
-    // Squelch follows the global setting until a pass actually starts.
-    DOPPLER_RestoreSquelch();
+    // Use a dedicated Doppler squelch level. On first entry seed it from the
+    // global SQL setting; afterwards key 4 can change it and it is remembered
+    // for the rest of the power session.
+    if (gDopplerSqlLevel > 9)
+    {
+        gDopplerSqlLevel = gEeprom.SQUELCH_LEVEL;
+    }
+    gDopplerSavedSystemSqlLevel = gEeprom.SQUELCH_LEVEL;
+    DOPPLER_ApplySqlLevel();
 
     // Never force the 12-digit entry: go straight to tracking. Time is set
     // either from Flash at boot or via the adjust screen (key 1).
@@ -266,6 +231,7 @@ void DOPPLER_EnterMode(void)
         gDopplerTimeSet = true;
     }
     gDopplerState = DOPPLER_STATE_TRACKING;
+    BACKLIGHT_ForceOnMax();
     gRequestDisplayScreen = DISPLAY_DOPPLER;
     gUpdateDisplay = true;
 }
@@ -307,16 +273,15 @@ void DOPPLER_ExitMode(void)
     }
 
     // Restore the user's global squelch setting before leaving Doppler mode.
-    if (gDopplerSqlForcedOpen)
-    {
-        DOPPLER_RestoreSquelch();
-        gDopplerSqlForcedOpen = false;
-    }
+    gEeprom.SQUELCH_LEVEL = gDopplerSavedSystemSqlLevel;
+    RADIO_ConfigureSquelchAndOutputPower(gRxVfo);
 
     gDopplerState = DOPPLER_STATE_OFF;
     gDopplerShowExtra = false;
     gDopplerShowSlots = false;
+    gDopplerShowSql = false;
     gRequestDisplayScreen = DISPLAY_MAIN;
+    BACKLIGHT_TurnOn();
     gUpdateDisplay = true;
 }
 
@@ -460,6 +425,34 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
+    // SQL adjust page: UP/DOWN step the dedicated Doppler squelch level.
+    // Handled before the bKeyHeld bail-out so holding the key auto-repeats.
+    if (gDopplerState == DOPPLER_STATE_TRACKING && gDopplerShowSql &&
+        (Key == KEY_UP || Key == KEY_DOWN))
+    {
+        if (Key == KEY_UP)
+        {
+            if (gDopplerSqlLevel < 9)
+            {
+                gDopplerSqlLevel++;
+            }
+        }
+        else
+        {
+            if (gDopplerSqlLevel > 0)
+            {
+                gDopplerSqlLevel--;
+            }
+        }
+        DOPPLER_ApplySqlLevel();
+        if (!bKeyHeld)
+        {
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        }
+        gUpdateDisplay = true;
+        return;
+    }
+
     if (bKeyHeld)
     {
         return;
@@ -523,7 +516,12 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         case DOPPLER_STATE_TRACKING:
             if (Key == KEY_EXIT)
             {
-                if (gDopplerShowSlots)
+                if (gDopplerShowSql)
+                {
+                    gDopplerShowSql = false;
+                    gUpdateDisplay = true;
+                }
+                else if (gDopplerShowSlots)
                 {
                     gDopplerShowSlots = false;
                     gUpdateDisplay = true;
@@ -541,7 +539,12 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             else if (Key == KEY_MENU)
             {
                 // M returns to the main tracking page from any sub-page.
-                if (gDopplerShowSlots)
+                if (gDopplerShowSql)
+                {
+                    gDopplerShowSql = false;
+                    gUpdateDisplay = true;
+                }
+                else if (gDopplerShowSlots)
                 {
                     gDopplerShowSlots = false;
                     gUpdateDisplay = true;
@@ -556,12 +559,23 @@ void DOPPLER_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             {
                 gDopplerShowExtra = !gDopplerShowExtra;
                 gDopplerShowSlots = false;
+                gDopplerShowSql = false;
                 gUpdateDisplay = true;
             }
             else if (Key == KEY_3)
             {
                 gDopplerShowSlots = !gDopplerShowSlots;
                 gDopplerShowExtra = false;
+                gDopplerShowSql = false;
+                gUpdateDisplay = true;
+            }
+            else if (Key == KEY_4)
+            {
+                // Open/close the dedicated Doppler squelch level page. The
+                // level itself is adjusted with UP/DOWN on that page.
+                gDopplerShowSql = !gDopplerShowSql;
+                gDopplerShowExtra = false;
+                gDopplerShowSlots = false;
                 gUpdateDisplay = true;
             }
             else if (Key == KEY_PTT && !gDopplerPassed && gDopplerEntryValid)
@@ -784,22 +798,6 @@ void DOPPLER_TimeSlice(void)
     // slot whose pass is underway, and play the 60 s / 10 s reminders.
     if (secondTick)
     {
-        // 0. Update squelch according to whether the active slot is in pass:
-        //    outside a pass -> follow global SQL setting; during a pass -> SQL 0.
-        const DOPPLER_Satellite_t *pSqlSat = DOPPLER_GetSatellite();
-        const bool sqlInPass = DOPPLER_HasData()
-            && now >= pSqlSat->start_unix
-            && now <= pSqlSat->start_unix + (uint32_t)pSqlSat->sum_time;
-        if (sqlInPass)
-        {
-            DOPPLER_ForceSquelchOpen();
-        }
-        else if (gDopplerSqlForcedOpen)
-        {
-            DOPPLER_RestoreSquelch();
-            gDopplerSqlForcedOpen = false;
-        }
-
         // 1. Erase every slot whose pass window has fully elapsed (this is
         //    also how a finished pass gets deleted one second after LOS).
         //    When the ACTIVE slot is the one that just got erased, hop to
@@ -1161,6 +1159,27 @@ static void DOPPLER_RenderSlotSummary(void)
     }
 }
 
+// SQL adjust page shown when key 4 is pressed in tracking mode:
+//   line 0-1: big "SQL LV" title | line 2: small hint
+//   line 3-4: big current level digit | line 5: small range hint
+//   line 6: small UP/DOWN hint | line 7: small exit hint
+static void DOPPLER_RenderSqlPage(void)
+{
+    char Buffer[12];
+
+    UI_PrintString("SQL LV", 0, 127, 0, 8);
+
+    UI_PrintStringSmallNormal("DOPPLER SQL", 0, 127, 2);
+
+    snprintf(Buffer, sizeof(Buffer), "%u", (unsigned)gDopplerSqlLevel);
+    UI_PrintString(Buffer, 0, 127, 3, 8);
+
+    UI_PrintStringSmallNormal("0=OFF 9=TIGHT", 0, 127, 5);
+    UI_PrintStringSmallNormal("UP/DOWN ADJ", 0, 127, 6);
+    UI_PrintStringSmallNormal("EXIT QUIT", 0, 127, 7);
+    ST7565_BlitFullScreen();
+}
+
 // supplementary info screen shown when key 2 is pressed in tracking mode
 static void DOPPLER_RenderExtraInfo(const DOPPLER_Satellite_t *pSat, const DOPPLER_Entry_t *pEntry, bool entryValid, const uint32_t Now)
 {
@@ -1264,6 +1283,12 @@ void DOPPLER_Render(void)
 
     // TRACKING
     const DOPPLER_Satellite_t *pSat = DOPPLER_GetSatellite();
+
+    if (gDopplerShowSql)
+    {
+        DOPPLER_RenderSqlPage();
+        return;
+    }
 
     if (gDopplerShowSlots)
     {
