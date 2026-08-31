@@ -25,6 +25,14 @@
 uint8_t VCP_RxBuf[VCP_RX_BUF_SIZE];
 volatile uint32_t VCP_RxBufPointer = 0;
 
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+// misc.c：上位机编程会话倒计时（0x0514/0x051B/0x051D、多普勒与中文字库命令都会刷新它）。
+// 会话期间 USB 字节流归编程协议独占，必须整段丢弃，绝不能喂给 K5Viewer
+// 心跳/按键注入解析——否则刷机数据里的随机字节序列（AA 55 03/04 <key>）
+// 会被当成真实按键（开菜单/进频谱/触发发射等），打断刷写并扰乱整机状态。
+extern volatile uint8_t gSerialConfigCountDown_500ms;
+#endif
+
 void VCP_Init()
 {
     LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_SYSCFG);
@@ -74,6 +82,15 @@ bool VCP_K5ViewerPing(void)
 
     bool     connected = false;
     uint8_t  write_ptr = VCP_RxBufPointer;  // snapshot once — ISR may update concurrently
+
+    // 编程会话进行中：把积压字节整段跳过（不解析），并复位协议状态机，
+    // 避免会话边界的半截魔数被拼接误判。
+    if (gSerialConfigCountDown_500ms != 0)
+    {
+        read_ptr = write_ptr;
+        state    = STATE_IDLE;
+        return false;
+    }
 
     // Cap bytes processed per call to VCP_RX_BUF_SIZE.
     // Prevents unbounded loop if the ISR write pointer laps read_ptr

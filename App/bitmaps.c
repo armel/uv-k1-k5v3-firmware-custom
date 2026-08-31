@@ -442,3 +442,14 @@ const uint8_t BITMAP_CurrentIndicator[8] = {
     0x18
 };
 #endif
+
+const uint8_t BITMAP_EnterIndicator[8] = {
+    0x00,
+    0x10,
+    0x38,
+    0x7C,
+    0xFE,
+    0x7C,
+    0x38,
+    0x10
+};

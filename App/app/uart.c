@@ -16,6 +16,7 @@
  */
 
 #include <string.h>
+#include <stddef.h>
 
 #if !defined(ENABLE_OVERLAY)
     #include "py32f0xx.h"
@@ -24,6 +25,14 @@
     #include "app/fm.h"
 #endif
 #include "app/uart.h"
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    #include "app/doppler.h"
+    #include "app/doppler_mode.h"
+    #include "driver/rtc.h"
+#endif
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+    #include "app/cnfont.h"
+#endif
 #include "board.h"
 #include "py32f071_ll_dma.h"
 #include "driver/backlight.h"
@@ -151,6 +160,114 @@ typedef struct {
         uint8_t Padding[3];
     } Data;
 } REPLY_052D_t;
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+// Doppler satellite data programming commands (web tool -> radio).
+// Every command carries a Slot field (0..3) selecting the 16 KB slot.
+typedef struct {
+    Header_t Header;
+    uint8_t Slot;
+    uint8_t Padding;
+} CMD_DOPPLER_ERASE_t;
+
+typedef struct {
+    Header_t Header;              // 0..3
+    DOPPLER_Satellite_t Satellite; // 4..35 (kept first so it stays 4-byte aligned:
+                                   // the trailing Slot/Padding avoid compiler padding)
+    uint8_t Slot;                 // 36
+    uint8_t Padding;              // 37
+} CMD_DOPPLER_WRITE_SAT_t;
+
+typedef struct {
+    Header_t Header;
+    uint16_t Index;
+    uint16_t Slot;      // 0..3
+    DOPPLER_Entry_t Entry;
+} CMD_DOPPLER_WRITE_ENTRY_t;
+
+// Same wire layout as CMD_DOPPLER_ERASE_t.
+typedef struct {
+    Header_t Header;
+    uint8_t Slot;
+    uint8_t Padding;
+} CMD_DOPPLER_READ_SAT_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;                // 0 = OK, 1 = rejected / slot empty
+        uint8_t Slot;                  // echoed slot, 0xFF when rejected
+        uint8_t Padding[2];            // keeps Satellite 4-byte aligned
+        DOPPLER_Satellite_t Satellite; // valid only when Status == 0
+    } Data;
+} REPLY_DOPPLER_READ_SAT_t;
+
+// Layout contract with the web tool (protocol.js / app.js): member offsets
+// must match the wire payload exactly. The 32-byte satellite block carries a
+// u32, so it must sit at a 4-byte-aligned offset - it is placed right after
+// Header for that reason (a Slot field before it would insert 2 bytes of
+// compiler padding and shift every field).
+_Static_assert(offsetof(CMD_DOPPLER_ERASE_t, Slot) == 4, "CMD_DOPPLER_ERASE layout");
+_Static_assert(offsetof(CMD_DOPPLER_WRITE_SAT_t, Satellite) == 4, "CMD_DOPPLER_WRITE_SAT layout");
+_Static_assert(offsetof(CMD_DOPPLER_WRITE_SAT_t, Slot) == 36, "CMD_DOPPLER_WRITE_SAT layout");
+_Static_assert(offsetof(CMD_DOPPLER_WRITE_ENTRY_t, Entry) == 8, "CMD_DOPPLER_WRITE_ENTRY layout");
+_Static_assert(offsetof(REPLY_DOPPLER_READ_SAT_t, Data.Satellite) == 8, "REPLY_DOPPLER_READ_SAT layout");
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;   // 0 = OK, 1 = rejected
+    } Data;
+} REPLY_DOPPLER_t;
+
+// Set RTC from network time: payload is 2000-epoch Beijing seconds (same base as DOPPLER start_unix)
+typedef struct {
+    Header_t Header;
+    uint32_t UnixTime2000;
+} CMD_SET_RTC_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;   // 0 = OK, 1 = rejected
+    } Data;
+} REPLY_SET_RTC_t;
+#endif // ENABLE_FEAT_F4HWN_DOPPLER
+
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+// Chinese font programming commands (web tool -> radio)
+typedef struct {
+    Header_t Header;
+    uint16_t SectorIndex;
+    uint16_t Padding;
+} CMD_CN_FONT_ERASE_t;
+
+typedef struct {
+    Header_t Header;
+    uint32_t Offset;
+    uint8_t  Data[244];   // 命令缓冲上限；但整帧还须 < 256B 接收环（数据实际 ≤239，见 k5web protocol.js）
+} CMD_CN_FONT_WRITE_t;
+
+typedef struct {
+    Header_t Header;
+    uint32_t Offset;
+} CMD_CN_FONT_READ_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint32_t Offset;   // 回显读取偏移；被拒绝时为 0xFFFFFFFF
+        uint8_t  Data[128];
+    } Data;
+} REPLY_CN_FONT_READ_t;
+
+typedef struct {
+    Header_t Header;
+    struct {
+        uint8_t Status;   // 0 = OK, 1 = rejected
+    } Data;
+} REPLY_CN_FONT_t;
+#endif // ENABLE_FEAT_F4HWN_CN_FONT
 
 
 #ifdef ENABLE_EXTRA_UART_CMD
@@ -455,6 +572,7 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
     if (!bIsLocked)
     {
         unsigned int i;
+        bool bAttrWritten = false;
         for (i = 0; i < (pCmd->Size / 8); i++)
         {
             const uint16_t Offset = pCmd->Offset + (i * 8U);
@@ -464,10 +582,18 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
                     bReloadEeprom = true;
 
             if ((Offset < 0x0E98 || Offset >= 0x0EA0) || !bIsInLockScreen || pCmd->bAllowPassword)
-            {    
+            {
                 EEPROM_WriteBuffer(Offset, &pCmd->Data[i * 8U]);
+
+                // 信道属性区（0x8000~0x886E）被串口改写后作废 MR 属性缓存，
+                // 否则上下键导航仍使用开机时缓存的旧属性（新写信道不可达）
+                if (Offset >= 0x8000 && Offset < 0x886E)
+                    bAttrWritten = true;
             }
         }
+
+        if (bAttrWritten)
+            MR_InvalidateChannelAttributesCache();
 
         if (bReloadEeprom)
             SETTINGS_InitEEPROM();
@@ -782,6 +908,192 @@ bool UART_IsCommandAvailable(uint32_t Port)
     return CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+static void CMD_DOPPLER_ERASE(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_DOPPLER_ERASE_t *pCmd = (const CMD_DOPPLER_ERASE_t *)pBuffer;
+    REPLY_DOPPLER_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec，编程会话保护（屏蔽 PTT/VOX 与 K5Viewer 注入）
+
+    Reply.Header.ID   = 0x05E3;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = (Size == sizeof(pCmd->Slot) + sizeof(pCmd->Padding) &&
+                         pCmd->Slot < DOPPLER_SLOT_COUNT) ? 0 : 1;
+
+    if (Reply.Data.Status == 0)
+    {
+        DOPPLER_EraseSlot(pCmd->Slot);
+        DOPPLER_ResetReminders(pCmd->Slot);
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_DOPPLER_WRITE_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_DOPPLER_WRITE_SAT_t *pCmd = (const CMD_DOPPLER_WRITE_SAT_t *)pBuffer;
+    REPLY_DOPPLER_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05E4;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    // Reject truncated/malformed payloads: never write stale buffer data to flash
+    if (Size == sizeof(pCmd->Slot) + sizeof(pCmd->Padding) + sizeof(pCmd->Satellite) &&
+        pCmd->Slot < DOPPLER_SLOT_COUNT)
+    {
+        Reply.Data.Status = DOPPLER_WriteSatellite(pCmd->Slot, &pCmd->Satellite) ? 0 : 1;
+        if (Reply.Data.Status == 0)
+        {
+            DOPPLER_ResetReminders(pCmd->Slot);
+        }
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+// 0x05ED: read back one slot's satellite info block (reply 0x05F0).
+// Used by the web tool's slot-rename feature.
+static void CMD_DOPPLER_READ_SAT(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_DOPPLER_READ_SAT_t *pCmd = (const CMD_DOPPLER_READ_SAT_t *)pBuffer;
+    REPLY_DOPPLER_READ_SAT_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05F0;
+    Reply.Header.Size = sizeof(Reply.Data);
+    memset(&Reply.Data, 0, sizeof(Reply.Data));
+    Reply.Data.Status = 1;
+    Reply.Data.Slot   = 0xFF;
+
+    if (Size == sizeof(pCmd->Slot) + sizeof(pCmd->Padding) &&
+        pCmd->Slot < DOPPLER_SLOT_COUNT)
+    {
+        Reply.Data.Slot = pCmd->Slot;
+        if (DOPPLER_SlotGetInfo(pCmd->Slot, &Reply.Data.Satellite))
+        {
+            Reply.Data.Status = 0;
+        }
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_DOPPLER_WRITE_ENTRY(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_DOPPLER_WRITE_ENTRY_t *pCmd = (const CMD_DOPPLER_WRITE_ENTRY_t *)pBuffer;
+    REPLY_DOPPLER_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05E5;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    if (Size == sizeof(pCmd->Index) + sizeof(pCmd->Slot) + sizeof(pCmd->Entry) &&
+        pCmd->Slot < DOPPLER_SLOT_COUNT)
+    {
+        Reply.Data.Status = DOPPLER_WriteEntry(pCmd->Slot, pCmd->Index, &pCmd->Entry) ? 0 : 1;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_SET_RTC(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_SET_RTC_t *pCmd = (const CMD_SET_RTC_t *)pBuffer;
+    REPLY_SET_RTC_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05EB;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    if (Size == sizeof(pCmd->UnixTime2000))
+    {
+        // Reject obviously bogus times (before 2025-01-01 Beijing 2000-epoch)
+        // 2025-01-01 00:00:00 Beijing = (2025-2000)*365 + 6 leap days = ~789 days ~= 6.8e7 seconds
+        if (pCmd->UnixTime2000 >= 68000000u)
+        {
+            RTC_Init(); // idempotent: safe if already running; required if UART arrives before Doppler mode
+            RTC_SetUnix32(pCmd->UnixTime2000);
+            DOPPLER_SetTimeFromUart(); // mark time set so long-press 0 skips manual entry
+            Reply.Data.Status = 0;
+        }
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+#endif // ENABLE_FEAT_F4HWN_DOPPLER
+
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+static void CMD_CN_FONT_ERASE(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_CN_FONT_ERASE_t *pCmd = (const CMD_CN_FONT_ERASE_t *)pBuffer;
+    REPLY_CN_FONT_t Reply;
+
+    // 编程会话保持（同 0x0514/0x051B）：6 秒内屏蔽 PTT/VOX 发射与 K5Viewer 按键注入
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05E9;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    // 逐扇区擦除：每命令一个扇区，网页端据此显示进度
+    if (Size == sizeof(pCmd->SectorIndex) + sizeof(pCmd->Padding))
+    {
+        Reply.Data.Status = CN_FONT_EraseSector(pCmd->SectorIndex) ? 0 : 1;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+static void CMD_CN_FONT_WRITE(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_CN_FONT_WRITE_t *pCmd = (const CMD_CN_FONT_WRITE_t *)pBuffer;
+    REPLY_CN_FONT_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID   = 0x05EA;
+    Reply.Header.Size = sizeof(Reply.Data);
+    Reply.Data.Status = 1;
+
+    if (Size >= sizeof(pCmd->Offset) + 1 && Size <= sizeof(pCmd->Offset) + sizeof(pCmd->Data))
+    {
+        Reply.Data.Status = CN_FONT_Write(pCmd->Offset, pCmd->Data,
+                                          Size - sizeof(pCmd->Offset)) ? 0 : 1;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+
+// 0x05EC：读取字库区（回复 0x05EF），用于网页端字库查看/校验
+static void CMD_CN_FONT_READ(uint32_t Port, const uint8_t *pBuffer, uint16_t Size)
+{
+    const CMD_CN_FONT_READ_t *pCmd = (const CMD_CN_FONT_READ_t *)pBuffer;
+    REPLY_CN_FONT_READ_t Reply;
+
+    gSerialConfigCountDown_500ms = 12; // 6 sec
+
+    Reply.Header.ID    = 0x05EF;
+    Reply.Header.Size  = sizeof(Reply.Data);
+    Reply.Data.Offset  = 0xFFFFFFFFu;
+
+    if (Size == sizeof(pCmd->Offset) && CN_FONT_Read(pCmd->Offset, Reply.Data.Data, 128))
+    {
+        Reply.Data.Offset = pCmd->Offset;
+    }
+
+    SendReply(Port, &Reply, sizeof(Reply));
+}
+#endif // ENABLE_FEAT_F4HWN_CN_FONT
+
 void UART_HandleCommand(uint32_t Port)
 {
     UART_Command_t *pUART_Command;
@@ -841,6 +1153,42 @@ void UART_HandleCommand(uint32_t Port)
 
         case 0x052F:
             CMD_052F(Port, pUART_Command->Buffer);
+            break;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        case 0x05E0:
+            CMD_DOPPLER_ERASE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05E1:
+            CMD_DOPPLER_WRITE_SAT(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05E2:
+            CMD_DOPPLER_WRITE_ENTRY(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05E8:
+            CMD_SET_RTC(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05ED:
+            CMD_DOPPLER_READ_SAT(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_CN_FONT
+        case 0x05E6:
+            CMD_CN_FONT_ERASE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05E7:
+            CMD_CN_FONT_WRITE(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
+            break;
+
+        case 0x05EC:
+            CMD_CN_FONT_READ(Port, pUART_Command->Buffer, pUART_Command->Header.Size);
             break;
 #endif
 

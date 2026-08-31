@@ -56,15 +56,20 @@ void AUDIO_PlayBeep(BEEP_Type_t Beep)
     if (Beep == BEEP_NONE)
         return;
 
+    // The Doppler tracking screen keeps the radio in FUNCTION_RECEIVE and
+    // may run with key tones disabled; its explicit slot-switch feedback
+    // beeps must still play.
+    const bool beepOnDoppler = (gScreenToDisplay == DISPLAY_DOPPLER);
+
     if ((Beep == BEEP_1KHZ_60MS_OPTIONAL ||
          Beep == BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL) &&
-         !gEeprom.BEEP_CONTROL)
+         !gEeprom.BEEP_CONTROL && !beepOnDoppler)
         return;
         
-    if (gCurrentFunction == FUNCTION_RECEIVE)
+    if (gCurrentFunction == FUNCTION_RECEIVE && !beepOnDoppler)
         return;
 
-    if (gCurrentFunction == FUNCTION_MONITOR)
+    if (gCurrentFunction == FUNCTION_MONITOR && !beepOnDoppler)
         return;
 
     if (Beep >= ARRAY_SIZE(BEEP_Classic_array))

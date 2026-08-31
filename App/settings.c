@@ -385,6 +385,8 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         #ifdef ENABLE_AM_FIX
             gSetting_AM_fix        = !!(Data[7] & (1u << 5));
         #endif
+    #else
+        gSetting_Language        = !!(Data[7] & (1u << 5));
     #endif
     gSetting_backlight_on_tx_rx = (Data[7] >> 6) & 3u;
 
@@ -725,9 +727,11 @@ void SETTINGS_FetchChannelName(char *s, const uint16_t channel)
     PY25Q16_ReadBuffer(0x004000 + (channel * 16), s, 10);
 
     int i;
+    // 允许 GB2312 中文字节（>=0xA1）和扩展符号，不再把 >127 视为非法。
+    // 只把控制字符（<32）视为终止，以兼容旧版 ASCII 名称。
     for (i = 0; i < 10; i++)
-        if (s[i] < 32 || s[i] > 127)
-            break;                // invalid char
+        if ((uint8_t)s[i] < 32)
+            break;
 
     s[i--] = 0;                   // null term
 
@@ -1090,6 +1094,8 @@ void SETTINGS_SaveSettings(void)
         #ifdef ENABLE_AM_FIX
             if (!gSetting_AM_fix)            State[7] &= ~(1u << 5);
         #endif
+    #else
+        if (!gSetting_Language)              State[7] &= ~(1u << 5);
     #endif
     State[7] = (State[7] & ~(3u << 6)) | ((gSetting_backlight_on_tx_rx & 3u) << 6);
 

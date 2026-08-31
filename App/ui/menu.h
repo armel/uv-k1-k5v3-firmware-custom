@@ -164,6 +164,7 @@ enum
     MENU_F2LONG,
     MENU_MLONG,
     MENU_BATTYP,
+    MENU_LANG,
 #if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_LOGO_SAV)
     MENU_SET_SAV
 #endif
@@ -264,6 +265,7 @@ extern const char* const            gSubMenu_RX_TX[4];
 extern const char* const            gSubMenu_BAT_TXT[3];
 extern const char* const            gSubMenu_BATTYP[5];
 extern const char* const            gSubMenu_SET_NAV[2];
+extern const char* const            gSubMenu_LANG[2];
 
 #ifndef ENABLE_FEAT_F4HWN
     extern const char* const        gSubMenu_SCRAMBLER[11];

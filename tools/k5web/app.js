@@ -1,0 +1,2197 @@
+/**
+ * F4HWN 多普勒星历写入工具 - 浏览器逻辑（普通 script，file:// 可用）
+ * 依赖：window.satellite（vendor/satellite.min.js UMD）
+ *       window.K5WEB.protocol（protocol.js UMD）
+ *       window.K5WEB.calc（calc.js UMD）
+ */
+(function () {
+  "use strict";
+
+  const proto = window.K5WEB.protocol;
+  const calc = window.K5WEB.calc;
+  const gb = window.K5WEB && window.K5WEB.gb2312;
+  const $ = (id) => document.getElementById(id);
+
+  let port = null;
+  let reader = null;
+  let writer = null;
+  let replyQueue = [];
+  let passData = null; // findPass 结果
+
+  const log = (msg, cls) => {
+    const el = $("log");
+    el.textContent += (cls ? `[${cls}] ` : "") + msg + "\n";
+    el.scrollTop = el.scrollHeight;
+  };
+  const setStatus = (msg, cls) => {
+    const el = $("status");
+    el.className = "top-status " + (cls || "info");
+    el.textContent = msg;
+  };
+
+  // ---------- 选项卡切换（由 index.html 内联脚本统一处理） ----------
+
+  // ---------- 自动获取 TLE ----------
+  // 常见 FM 卫星频率表（上行/下行 MHz）——手工精选优先于 SatNOGS，
+  // SatNOGS 频率库兜底覆盖其余卫星（选星时自动填频率）
+  const KNOWN_SATS = {
+    "iss": [145.99, 437.8], "international space station": [145.99, 437.8],
+    "ao-91": [145.96, 435.25], "ao-92": [145.88, 435.35],
+    "fo-29": [145.9, 435.3], "so-50": [145.85, 436.795],
+    "po-101": [145.9, 436.5], "cas-4b": [145.925, 436.875],
+    "ao-7": [145.85, 432.1], "rs-44": [145.9, 435.6],
+    "to-108": [145.88, 436.62], "lilacsat-2": [145.9, 437.2],
+    "io-117": [145.9, 436.5], "uvsqsat": [145.94, 436.88],
+    "cas-4a": [145.925, 436.875], "ao-73": [145.95, 435.14],
+    "ao-109": [145.9, 435.6],
+    "sakhacube": [437.35, 437.35], "cholbon": [437.35, 437.35],
+    "qmr-kwt": [145.92, 436.95],
+    "ao-95": [435.3, 145.92], "fox-1cliff": [435.3, 145.92],
+    "ao-27": [145.85, 436.795],
+    "rs18s": [437.35, 437.35],
+    "rs38s": [437.825, 437.825], "vizard-meteo": [437.825, 437.825],
+    "rs40s": [437.625, 437.625], "umka-1": [437.625, 437.625],
+    "rs58s": [435.29, 435.29], "monitor-3": [435.29, 435.29],
+    "rs95s": [145.92, 436.95],
+  };
+  let satList = [];
+
+  // ---------- TLE 本地缓存（localStorage，增量获取） ----------
+  // 已获取的 TLE 持久化到浏览器本地，点击获取时先秒开缓存、后台增量刷新，
+  // 网络失败时回退缓存。条目结构 { name, tle1, tle2, fetchedAt }，按 NORAD 编号比对。
+  const TLE_CACHE_KEY = "k5web_tle_cache_v1";
+  const TLE_CACHE_MAX_AGE_MS = 12 * 3600 * 1000; // 缓存视为"新鲜"的时限（补充星跳过网络）
+
+  function loadTleCache() {
+    try {
+      const raw = localStorage.getItem(TLE_CACHE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed.entries) ? parsed.entries : [];
+    } catch (e) {
+      log("TLE 缓存读取失败：" + e.message, "err");
+      return [];
+    }
+  }
+
+  function saveTleCache(entries) {
+    try {
+      localStorage.setItem(TLE_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), entries }));
+    } catch (e) {
+      log("TLE 缓存写入失败：" + e.message, "err"); // 隐私模式等场景仅提示，不影响使用
+    }
+  }
+
+  function tleCacheSavedAt() {
+    try {
+      const raw = localStorage.getItem(TLE_CACHE_KEY);
+      if (!raw) return null;
+      const savedAt = JSON.parse(raw).savedAt;
+      return typeof savedAt === "number" ? savedAt : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function tleCacheAge() {
+    const savedAt = tleCacheSavedAt();
+    if (savedAt == null) return null;
+    const mins = Math.round((Date.now() - savedAt) / 60000);
+    if (mins < 1) return "刚刚";
+    if (mins < 60) return mins + " 分钟前";
+    if (mins < 1440) return Math.round(mins / 60) + " 小时前";
+    return Math.round(mins / 1440) + " 天前";
+  }
+
+  // ---------- 卫星频率库（SatNOGS，localStorage 永久缓存） ----------
+  // 卫星发射后频率基本不变，缓存不过期；点"获取 TLE"时顺便后台刷新
+  // （新发射的星/数据修正自动进来），获取失败沿用旧缓存（反正频率不变）。
+  // 缓存结构 { savedAt, map: { noradId: { up, down, mode, type, desc } } }
+  const FREQ_CACHE_KEY = "k5web_freq_cache_v1";
+  let freqMap = {}; // NORAD -> { up, down, mode, type, desc }（Hz）
+
+  function loadFreqCache() {
+    try {
+      const raw = localStorage.getItem(FREQ_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed.map || typeof parsed.map !== "object") return null;
+      return parsed;
+    } catch (e) {
+      log("频率库缓存读取失败：" + e.message, "err");
+      return null;
+    }
+  }
+
+  function saveFreqCache(map) {
+    try {
+      localStorage.setItem(FREQ_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), map }));
+    } catch (e) {
+      log("频率库缓存写入失败：" + e.message, "err");
+    }
+  }
+
+  // 从 SatNOGS 拉取全部发射机条目并构建 NORAD -> 最优条目映射
+  async function fetchFreqDB() {
+    const resp = await fetch("https://db.satnogs.org/api/transmitters/?format=json&status=active");
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const transmitters = await resp.json();
+    const map = calc.buildFreqMap(transmitters);
+    freqMap = map;
+    saveFreqCache(map);
+    log(`频率库已更新：${transmitters.length} 条发射机，覆盖 ${Object.keys(map).length} 颗卫星`);
+    return map;
+  }
+
+  // 读取频率库数据：优先级 localStorage 缓存（动态刷新的最新）> 内置 freqdb.js（静态打包）。
+  // 卫星频率基本不变，内置数据作为零网络依赖的兜底（SatNOGS 无 CORS 时也能用）。
+  function loadFreqData() {
+    const cached = loadFreqCache();
+    if (cached) return { map: cached.map, source: "本地缓存" };
+    const builtin = (window.K5WEB && window.K5WEB.freqdb) || null;
+    if (builtin && Object.keys(builtin).length) return { map: builtin, source: "内置数据" };
+    return null;
+  }
+
+  // 确保频率库可用：有数据就用（频率基本不变，不过期）；
+  // refresh=true（点"获取 TLE"）时后台联网刷新，失败静默沿用缓存/内置
+  async function ensureFreqDB(refresh = false) {
+    const data = loadFreqData();
+    if (data) freqMap = data.map;
+    if (!refresh && data) return; // 有数据且不要求刷新：直接用
+    try {
+      await fetchFreqDB();
+    } catch (e) {
+      // 有数据（缓存/内置）时失败静默；完全没有数据才提示
+      if (!data) log(`频率库获取失败：${e.message}（选星将仅用内置预设）`, "err");
+    }
+  }
+
+  // 缓存是否在新鲜期内（≤12h）：新鲜可直接秒开，过期必须联网强制刷新
+  function tleCacheFresh() {
+    const savedAt = tleCacheSavedAt();
+    return savedAt != null && Date.now() - savedAt <= TLE_CACHE_MAX_AGE_MS;
+  }
+
+  // 联网全量刷新：并发拉取全部渠道（含 Celestrak active 全量），补充星（缓存新鲜则跳过），
+  // 按 NORAD 合并只更新变化的。成功返回 { list, updated }，网络失败抛异常。
+  async function refreshTleFromNetwork(cache) {
+    const fresh = await fetchTLE();
+    const extra = await fetchExtraSats(cache);
+    for (const s of fresh) s.fetchedAt = Date.now();
+    const { list, updated } = calc.mergeTleList(cache, fresh.concat(extra));
+    satList = list;
+    saveTleCache(list);
+    return { list, updated };
+  }
+
+  // amateur.tle 尚未收录的新业余卫星，按 NORAD 编号从 Celestrak 全库补充（CORS 开放）。
+  // Celestrak TLE 的名称行截断到 24 字符（如 "(RS18S)" 会变成 "(RS1*"），所以用 name 覆盖成完整名。
+  const EXTRA_CATNR = [
+    { id: 67290, name: "SAKHACUBE-CHOLBON (RS18S)" },
+    { id: 67284, name: "LOBACHEVSKY (RS83S)" },
+    { id: 67287, name: "LUCA (RS90S)" },
+    { id: 67291, name: "QMR-KWT-2 (RS95S)" },
+    { id: 67293, name: "SCORPION (RS89S)" },
+  ];
+
+  async function fetchExtraSats(cachedList) {
+    // 增量：补充星（不在 amateur.tle 里）缓存命中且未过期时跳过网络请求
+    const cachedById = new Map(cachedList.map((s) => [calc.noradId(s.tle1), s]));
+    const results = await Promise.all(EXTRA_CATNR.map(async ({ id, name }) => {
+      const idStr = String(id).padStart(5, "0");
+      const hit = cachedById.get(idStr);
+      if (hit && Date.now() - (hit.fetchedAt || 0) < TLE_CACHE_MAX_AGE_MS) {
+        return [hit]; // 缓存新鲜，直接用
+      }
+      try {
+        const resp = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle`);
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const sats = parseTLE(await resp.text());
+        if (sats[0]) {
+          sats[0].name = name;
+          sats[0].fetchedAt = Date.now();
+        }
+        return sats;
+      } catch (e) {
+        log(`补充星历 ${name} 获取失败：${e.message}`);
+        return [];
+      }
+    }));
+    return results.flat();
+  }
+
+  function selectSat(name) {
+    const sel = $("satSelect");
+    const s = satList.find((x) => x.name === name);
+    if (!s) return;
+    sel.value = s.name;
+    $("tle").value = s.tle1 + "\n" + s.tle2;
+    const key = s.name.toLowerCase();
+    let freqFound = false;
+    let freqSource = "";
+    // 1. 内置手工预设（FM 转发器精选，最准）
+    for (const [k, v] of Object.entries(KNOWN_SATS)) {
+      if (key.includes(k)) {
+        $("fUp").value = v[0];
+        $("fDown").value = v[1];
+        freqFound = true;
+        freqSource = "内置预设";
+        break;
+      }
+    }
+    // 2. SatNOGS 频率库（联网/缓存，覆盖全部业余星，首选 FM 转发器条目）
+    if (!freqFound) {
+      const f = freqMap[calc.noradId(s.tle1)];
+      if (f && f.up && f.down) {
+        $("fUp").value = (f.up / 1e6).toFixed(6);
+        $("fDown").value = (f.down / 1e6).toFixed(6);
+        freqFound = true;
+        freqSource = `SatNOGS ${f.mode || f.type}${f.type === "Transmitter" ? "（纯下行，上行=下行）" : ""}`;
+      }
+    }
+    // 3. 无数据：醒目警告（防止残留默认值算出错误频率的星历）
+    if (freqFound) {
+      log(`已选 ${s.name.trim()}：TLE 已填充，频率来自${freqSource}`);
+      setStatus(`已选 ${s.name.trim()}，频率已自动填入（${freqSource}）`, "ok");
+    } else {
+      setStatus(`⚠️ ${s.name.trim()} 没有自动频率数据，请手动填写上行/下行频率后再计算！`, "err");
+      log(`已选 ${s.name.trim()}：TLE 已填充，⚠️ 内置预设与 SatNOGS 均无频率数据，请手动填写`);
+    }
+  }
+
+  // ---------- 卫星模糊搜索下拉（输入即过滤，支持键盘导航） ----------
+  const satCombo = { items: [], active: -1 };
+
+  function satNorad(s) {
+    return s.tle1.substring(2, 7).trim();
+  }
+
+  // 评分：名称前缀最佳，子串次之（越靠前越好），NORAD 编号再次，子序列模糊兜底
+  function satScore(s, q) {
+    const name = s.name.trim().toLowerCase();
+    if (name.startsWith(q)) return 0;
+    const idx = name.indexOf(q);
+    if (idx > 0) return 1 + idx / 100;
+    if (satNorad(s).startsWith(q)) return 2;
+    let i = 0;
+    for (const ch of name) if (ch === q[i]) i++;
+    return i >= q.length ? 3 : Infinity;
+  }
+
+  function renderSatItem(s, q) {
+    const div = document.createElement("div");
+    div.className = "sat-item";
+    const name = s.name.trim();
+    const idx = q ? name.toLowerCase().indexOf(q) : -1;
+    const span = document.createElement("span");
+    if (idx >= 0) {
+      span.append(name.slice(0, idx));
+      const m = document.createElement("mark");
+      m.textContent = name.substr(idx, q.length);
+      span.append(m, name.slice(idx + q.length));
+    } else {
+      span.textContent = name;
+    }
+    const id = document.createElement("span");
+    id.className = "norad";
+    id.textContent = "#" + satNorad(s);
+    div.append(span, id);
+    return div;
+  }
+
+  function setActiveSat(i) {
+    satCombo.active = i;
+    const els = $("satDropdown").querySelectorAll(".sat-item");
+    els.forEach((el, j) => el.classList.toggle("active", j === i));
+    if (els[i]) els[i].scrollIntoView({ block: "nearest" });
+  }
+
+  function renderSatDropdown() {
+    const dd = $("satDropdown");
+    const q = $("satSelect").value.trim().toLowerCase();
+    const MAX_SHOW = 80;
+    let matched;
+    if (!q) {
+      matched = satList.map((s) => ({ s }));
+    } else {
+      matched = satList
+        .map((s) => ({ s, score: satScore(s, q) }))
+        .filter((x) => x.score !== Infinity)
+        .sort((a, b) => a.score - b.score);
+    }
+    dd.innerHTML = "";
+    if (!matched.length) {
+      dd.innerHTML = '<div class="sat-empty">无匹配卫星</div>';
+      satCombo.items = [];
+    } else {
+      satCombo.items = matched.slice(0, MAX_SHOW).map((x) => x.s);
+      satCombo.items.forEach((s, i) => {
+        const el = renderSatItem(s, q);
+        el.addEventListener("mousedown", (e) => { e.preventDefault(); pickSat(i); });
+        el.addEventListener("mouseover", () => setActiveSat(i));
+        dd.appendChild(el);
+      });
+      if (matched.length > MAX_SHOW) {
+        const more = document.createElement("div");
+        more.className = "sat-empty";
+        more.textContent = `…共 ${matched.length} 颗匹配，继续输入缩小范围`;
+        dd.appendChild(more);
+      }
+    }
+    setActiveSat(satCombo.items.length ? 0 : -1);
+  }
+
+  function openSatDropdown() {
+    if ($("satSelect").disabled) return;
+    renderSatDropdown();
+    $("satDropdown").hidden = false;
+  }
+
+  function closeSatDropdown() {
+    $("satDropdown").hidden = true;
+    satCombo.active = -1;
+  }
+
+  function pickSat(i) {
+    const s = satCombo.items[i];
+    if (!s) return;
+    closeSatDropdown();
+    selectSat(s.name);
+  }
+
+  {
+    const input = $("satSelect");
+    input.addEventListener("focus", openSatDropdown);
+    input.addEventListener("input", openSatDropdown);
+    input.addEventListener("blur", closeSatDropdown);
+    input.addEventListener("keydown", (e) => {
+      const dd = $("satDropdown");
+      if (dd.hidden) {
+        if (e.key === "ArrowDown") { openSatDropdown(); e.preventDefault(); }
+        return;
+      }
+      if (e.key === "ArrowDown") { setActiveSat(Math.min(satCombo.active + 1, satCombo.items.length - 1)); e.preventDefault(); }
+      else if (e.key === "ArrowUp") { setActiveSat(Math.max(satCombo.active - 1, 0)); e.preventDefault(); }
+      else if (e.key === "Enter" && satCombo.active >= 0) { pickSat(satCombo.active); e.preventDefault(); }
+      else if (e.key === "Escape") closeSatDropdown();
+    });
+    document.addEventListener("mousedown", (e) => {
+      if (!e.target.closest(".sat-combo")) closeSatDropdown();
+    });
+  }
+
+  function parseTLE(text) {
+    const lines = text.split(/\r?\n/);
+    const sats = [];
+    for (let i = 0; i + 2 < lines.length; i += 3) {
+      // SatNOGS 3LE 的名称行以 "0 " 开头（如 "0 ISS (ZARYA)"），去掉前缀，其他源不受影响
+      const name = lines[i].replace(/^0\s+/, "").trim();
+      if (name && lines[i + 1].startsWith("1 ") && lines[i + 2].startsWith("2 ")) {
+        sats.push({ name, tle1: lines[i + 1], tle2: lines[i + 2] });
+      }
+    }
+    return sats;
+  }
+
+  // 多源 TLE 获取（Look4Sat 同款渠道 + 本地镜像），点"获取 TLE"时全部并发拉取。
+  // 各源独立容错：CORS 不通/超时/解析失败/被节流自动跳过并记日志，不影响其他源。
+  const TLE_SOURCES = [
+    // 本地业余镜像（小、快）
+    { name: "Celestrak amateur(镜像1)", url: "https://api.github.com/repos/satvisorcom/satvisor-data/contents/celestrak/tle/amateur.tle", headers: { Accept: "application/vnd.github.raw+json" } },
+    { name: "Celestrak amateur(镜像2)", url: "https://cdn.jsdelivr.net/gh/satvisorcom/satvisor-data@master/celestrak/tle/amateur.tle", headers: {} },
+    // Look4Sat 默认渠道（按 Look4Sat Sources.kt 顺序）：
+    // mmccants.org/tles/classfd.zip 为 zip 压缩，浏览器无法直接解压，已跳过
+    { name: "Celestrak active 全量", url: "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle" },
+    // 镜像兜底：直连被节流（同一 IP 2h 内重复下载返回提示文本而非数据）或网络不通时使用；
+    // 数据可能旧几天，合并时 epoch 保护不会降级缓存里的新数据
+    { name: "Celestrak active(镜像)", url: "https://cdn.jsdelivr.net/gh/satvisorcom/satvisor-data@master/celestrak/tle/active.tle" },
+    { name: "SatNOGS 数据库", url: "https://db.satnogs.org/api/tle/?format=3le" },
+    { name: "AMSAT nasabare", url: "https://www.amsat.org/tle/current/nasabare.txt" },
+    { name: "R4UAB satonline", url: "https://r4uab.ru/satonline.txt" },
+    { name: "ARISS ISS", url: "https://live.ariss.org/iss.txt" },
+  ];
+
+  async function fetchTLE() {
+    const results = await Promise.all(TLE_SOURCES.map(async (src) => {
+      try {
+        const resp = await fetch(src.url, { headers: src.headers || {} });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const sats = parseTLE(await resp.text());
+        if (sats.length === 0) throw new Error("解析为空");
+        return { name: src.name, sats };
+      } catch (e) {
+        log(`TLE 源 ${src.name} 失败：${e.message}`);
+        return null;
+      }
+    }));
+    const ok = results.filter(Boolean);
+    if (ok.length === 0) throw new Error("所有 TLE 源均不可用");
+    // 按源优先级合并（前面的源优先，按 NORAD 编号去重）
+    const list = calc.mergeSatelliteSources(ok);
+    log(`TLE 多源获取成功：${ok.length}/${TLE_SOURCES.length} 个源，共 ${list.length} 颗（${ok.map((r) => r.name + ":" + r.sats.length).join("，")}）`);
+    return list;
+  }
+
+  $("btnFetch").addEventListener("click", async () => {
+    const btn = $("btnFetch");
+    const input = $("satSelect");
+    const cache = loadTleCache();
+    const cacheAge = tleCacheAge();
+    const cacheFresh = tleCacheFresh();
+
+    // 1. 有缓存先秒开（立即可用），同时后台并发拉取全部渠道（含 active 全量）
+    if (cache.length && cacheFresh) {
+      satList = cache;
+      input.disabled = false;
+      input.value = "";
+      input.placeholder = `缓存 ${satList.length} 颗（${cacheAge}），正在获取全部渠道…`;
+      renderSatDropdown();
+    } else if (cache.length) {
+      log(`缓存已超过 12 小时（${cacheAge}），本次强制联网获取最新 TLE`);
+    }
+
+    btn.disabled = true;
+    btn.textContent = "获取中...";
+    try {
+      // 总是全量多源拉取（Look4Sat 全渠道），完成后合并更新
+      const { list, updated } = await refreshTleFromNetwork(cache);
+      // 顺带后台刷新频率库（选星自动填频率；获取失败静默沿用旧缓存，频率基本不变）
+      await ensureFreqDB(true);
+      input.disabled = false;
+      input.value = "";
+      input.placeholder = `输入关键字搜索 ${list.length} 颗卫星（名称 / NORAD 编号）`;
+      setStatus(
+        updated > 0
+          ? `✅ TLE 已更新 ${updated} 颗（共 ${list.length} 颗）`
+          : `✅ TLE 已是最新（${list.length} 颗${cacheFresh ? `，缓存 ${cacheAge}` : "，已强制刷新"}）`,
+        "ok"
+      );
+      log(`TLE 完成：共 ${list.length} 颗${updated > 0 ? `，更新 ${updated} 颗` : "（无变化）"}`);
+      input.focus();
+      // 顺便后台同步一次网络时间，写入 RTC 时即可零延迟使用
+      syncTimeInBackground();
+    } catch (e) {
+      if (satList.length) {
+        // 网络失败：过期缓存必须明确警告结果可能不准
+        if (cacheFresh) {
+          setStatus(`⚠️ 网络刷新失败，使用本地缓存（${cacheAge}）：${e.message}`, "err");
+          log(`TLE 网络刷新失败：${e.message}，使用本地缓存`);
+        } else {
+          setStatus(`⚠️ 网络获取失败，缓存已超过 12 小时（${cacheAge}），结果可能不准：${e.message}`, "err");
+          log(`TLE 获取失败且缓存过期：${e.message}`);
+        }
+      } else {
+        setStatus("获取失败：" + e.message + "（可手动粘贴 TLE）", "err");
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "⬇️ 获取 TLE";
+    }
+  });
+
+  // ---------- 地图选点（高德瓦片，懒加载） ----------
+  const coord = window.K5WEB.coord;
+  let map = null, marker = null;
+
+  function initMap() {
+    if (map) return;
+    map = L.map("map").setView([parseFloat($("lat").value) || 31.23, parseFloat($("lon").value) || 121.47], 10);
+    L.tileLayer("https://webrd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}", {
+      subdomains: ["01", "02", "03", "04"],
+      maxZoom: 18,
+      attribution: "© 高德地图",
+    }).addTo(map);
+    marker = L.circleMarker([parseFloat($("lat").value) || 31.23, parseFloat($("lon").value) || 121.47], {
+      radius: 6, color: "#c62828", fillColor: "#c62828", fillOpacity: 0.9,
+    }).addTo(map);
+    map.on("click", onMapClick);
+  }
+
+  async function onMapClick(e) {
+    // 点击坐标是 GCJ-02（高德瓦片），反算为 WGS-84 填入表单
+    const wgs = coord.gcj02ToWgs84(e.latlng.lat, e.latlng.lng);
+    $("lat").value = wgs[0].toFixed(5);
+    $("lon").value = wgs[1].toFixed(5);
+    if (marker) marker.setLatLng(e.latlng);
+    log(`地图选点：${wgs[0].toFixed(5)}, ${wgs[1].toFixed(5)}（WGS-84）`);
+    // 查询海拔（多源 + 超时；失败有明显提示，且不影响使用）
+    setStatus("📡 查询海拔...");
+    const h = await fetchElevation(wgs[0], wgs[1]);
+    if (h !== null) {
+      $("alt").value = h.toFixed(1); // 米
+      setStatus(`✅ 已选点 ${wgs[0].toFixed(4)}, ${wgs[1].toFixed(4)}，海拔 ${h.toFixed(0)} m`, "ok");
+    } else {
+      setStatus("⚠️ 海拔查询失败（保留手动值，海拔对过境计算影响可忽略）", "err");
+  }
+  }
+
+  $("btnMap").addEventListener("click", () => {
+    $("mapWrap").style.display = "block";
+    setTimeout(() => initMap(), 50); // 等容器可见后再初始化
+    setTimeout(() => map && map.invalidateSize(), 200);
+  });
+
+  // 查询海拔：open-elevation API（8s 超时），失败返回 null
+  async function fetchElevation(lat, lon) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const resp = await fetch(
+        "https://api.open-elevation.com/api/v1/lookup?locations=" + lat.toFixed(4) + "," + lon.toFixed(4),
+        { headers: { "accept": "application/json" }, signal: ctrl.signal }
+      );
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const h = data.results && data.results[0] && data.results[0].elevation;
+      return typeof h === "number" ? h : null;
+    } catch (e) {
+      log("海拔查询失败：" + e.message);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+
+  $("btnLocate").addEventListener("click", () => {
+    if (!navigator.geolocation) {
+      setStatus("当前浏览器不支持 GPS 定位", "err");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude, lon = pos.coords.longitude;
+        $("lat").value = lat.toFixed(5);
+        $("lon").value = lon.toFixed(5);
+        log(`GPS 定位：${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+        // 优先 API 查精确地形海拔；API 失败时用设备海拔兜底
+        // （注意：很多浏览器拿不到高度时 altitude 返回 0，需排除）
+        let h = await fetchElevation(lat, lon);
+        if (h === null) {
+          const a = pos.coords.altitude;
+          if (typeof a === "number" && isFinite(a) && a > 0 && a < 9000) h = a;
+        }
+        if (h !== null) {
+          $("alt").value = h.toFixed(1); // 米
+          setStatus(`✅ 已使用设备定位：${lat.toFixed(4)}, ${lon.toFixed(4)}，海拔 ${h.toFixed(0)} m`, "ok");
+        } else {
+          setStatus(`✅ 已使用设备定位：${lat.toFixed(4)}, ${lon.toFixed(4)}（海拔查询失败，可手动填写）`, "ok");
+        }
+        if (map) map.setView([lat, lon], 12);
+      },
+      (err) => setStatus("GPS 定位失败：" + err.message + "（可改用地图选点）", "err"),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+
+
+  // ---------- 扫码传定位（网页出二维码，手机 APP 扫描后上报 GPS） ----------
+  let gpsPollTimer = null;
+  let gpsQrToken = "";
+
+  function genToken() {
+    const chars = "0123456789abcdef";
+    let s = "";
+    for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * 16)];
+    return s;
+  }
+
+  // 用 WebRTC 探测本机局域网 IPv4（2 秒超时；失败返回 null，让用户手填）
+  function detectLanIp() {
+    return new Promise((resolve) => {
+      const done = (ip) => { clearTimeout(timer); resolve(ip || null); };
+      const timer = setTimeout(() => done(null), 2000);
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel("d");
+        pc.onicecandidate = (e) => {
+          if (!e.candidate) { pc.close(); done(null); return; }
+          const m = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate || "");
+          if (m) {
+            const ip = m[1];
+            if (ip !== "127.0.0.1" && !ip.startsWith("169.254.")) { pc.close(); done(ip); }
+          }
+        };
+        pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => done(null));
+      } catch (e) { done(null); }
+    });
+  }
+
+  function stopGpsPoll() {
+    if (gpsPollTimer) { clearInterval(gpsPollTimer); gpsPollTimer = null; }
+  }
+
+  // 每秒轮询 /getgps，收到后自动填入经纬度/海拔
+  function startGpsPoll() {
+    stopGpsPoll();
+    gpsPollTimer = setInterval(async () => {
+      try {
+        const resp = await fetch("/getgps?t=" + encodeURIComponent(gpsQrToken));
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data || !data.ok) return;
+        stopGpsPoll();
+        const lat = Number(data.lat).toFixed(5);
+        const lon = Number(data.lon).toFixed(5);
+        const alt = Number(data.alt).toFixed(1);
+        $("lat").value = lat;
+        $("lon").value = lon;
+        $("alt").value = alt;
+        const s = $("gpsQrStatus");
+        s.textContent = "✅ 已收到：纬度 " + lat + "，经度 " + lon + "，海拔 " + alt + " m";
+        s.className = "gps-qr-status";
+        setStatus("✅ 已扫码获取位置：" + lat + ", " + lon, "ok");
+        log("扫码上报位置：" + lat + ", " + lon + ", 海拔 " + alt + " m");
+        if (map) { try { map.setView([Number(data.lat), Number(data.lon)], 12); } catch (e) {} }
+      } catch (e) { /* 服务器暂不可达时静默重试 */ }
+    }, 1000);
+  }
+
+  function buildGpsQr() {
+    const ip = ($("gpsQrIp").value || "").trim();
+    if (!ip) {
+      const s = $("gpsQrStatus");
+      s.textContent = "⚠️ 请填写电脑局域网 IP（可在服务器窗口或 ipconfig 中查看）";
+      s.className = "gps-qr-status err";
+      return;
+    }
+    gpsQrToken = genToken();
+    const port = window.location.port || "8080";
+    const url = "http://" + ip + ":" + port + "/setgps?t=" + gpsQrToken;
+    $("gpsQrUrl").textContent = url;
+    $("gpsQr").innerHTML = "";
+    try {
+      new QRCode($("gpsQr"), { text: url, width: 210, height: 210, correctLevel: QRCode.CorrectLevel.M });
+    } catch (e) {
+      const s = $("gpsQrStatus");
+      s.textContent = "⚠️ 二维码生成失败：" + e.message;
+      s.className = "gps-qr-status err";
+      return;
+    }
+    const s = $("gpsQrStatus");
+    s.textContent = "等待手机扫码上报…";
+    s.className = "gps-qr-status";
+    startGpsPoll();
+  }
+
+  async function openGpsQr() {
+    $("gpsQrModal").classList.add("show");
+    const s = $("gpsQrStatus");
+    s.textContent = "正在探测本机局域网 IP…";
+    s.className = "gps-qr-status";
+    // 页面若通过局域网 IP 打开（非 127.0.0.1），直接用它
+    const host = window.location.hostname;
+    const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+    if (host && isIp && host !== "127.0.0.1" && host !== "0.0.0.0" && !host.startsWith("169.254.")) {
+      $("gpsQrIp").value = host;
+    } else {
+      const ip = await detectLanIp();
+      if (ip) $("gpsQrIp").value = ip;
+    }
+    buildGpsQr();
+  }
+
+  function closeGpsQr() {
+    stopGpsPoll();
+    $("gpsQrModal").classList.remove("show");
+  }
+
+  $("btnGpsQr").addEventListener("click", openGpsQr);
+  $("gpsQrClose").addEventListener("click", closeGpsQr);
+  $("gpsQrRegen").addEventListener("click", buildGpsQr);
+  $("gpsQrModal").addEventListener("click", (e) => { if (e.target === $("gpsQrModal")) closeGpsQr(); });
+  // 点击 URL 文本全选，方便手动复制
+  $("gpsQrUrl").addEventListener("click", () => {
+    const el = $("gpsQrUrl");
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+
+
+  // ---------- 计算过境 ----------
+  $("btnCalc").addEventListener("click", () => {
+    const showErr = (msg) => {
+      const r = $("result");
+      r.style.display = "block";
+      r.innerHTML = `<span class="err"><b>⚠️ ${msg}</b></span>`;
+      setStatus(msg, "err");
+    };
+    const tle = $("tle").value.trim().split(/\r?\n/);
+    if (tle.length < 2 || !tle[0].trim()) {
+      showErr("请先获取 TLE（点上方 ⬇️ 获取 TLE 按钮）或手动粘贴两行 TLE");
+      return;
+    }
+    const lat = parseFloat($("lat").value), lon = parseFloat($("lon").value);
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      showErr("观测位置经纬度无效（纬度 -90~90，经度 -180~180）");
+      return;
+    }
+    const minEl = parseFloat($("minEl").value);
+    if (isNaN(minEl) || minEl < 0 || minEl > 90) {
+      showErr("最低仰角无效（0~90）");
+      return;
+    }
+    const btn = $("btnCalc");
+    btn.disabled = true;
+    btn.textContent = "⏳ 计算中...";
+    // 先渲染"计算中"，再同步执行 SGP4 解算
+    setTimeout(() => {
+    try {
+      const pass = calc.findPass({
+        tle1: tle[0],
+        tle2: tle[1],
+        latDeg: lat,
+        lonDeg: lon,
+        altKm: (parseFloat($("alt").value) || 0) / 1000,
+        uplinkMHz: parseFloat($("fUp").value),
+        downlinkMHz: parseFloat($("fDown").value),
+        minElevation: parseFloat($("minEl").value) || 0,
+        searchStart: new Date(),
+        maxSearchHours: 24,
+        maxPassSeconds: 32 * 60,
+      });
+      if (!pass) {
+        showErr("未来 24 小时内未找到可见过境。检查：TLE 是否当天最新、经纬度是否正确");
+        btn.disabled = false;
+        btn.textContent = "🔭 计算最近过境";
+        return;
+      }
+      passData = pass;
+      const r = $("result");
+      r.style.display = "block";
+      // 固定按 Asia/Shanghai 显示，与系统时区无关（对比 Look4Sat 时不串时区）。
+      // 内部 AOS/LOS 精度 0.1s（calc.js 插值），UI 显示仍按秒（round 到整秒，
+      // 与 Look4Sat 的 aos 取整方式一致）。
+      const fmt = (d) => {
+        const bj = new Date(Math.round(d.getTime() / 1000) * 1000 + 8 * 3600 * 1000);
+        const p = (n, l = 2) => String(n).padStart(l, "0");
+        return `${bj.getUTCFullYear()}-${p(bj.getUTCMonth() + 1)}-${p(bj.getUTCDate())} ${p(bj.getUTCHours())}:${p(bj.getUTCMinutes())}:${p(bj.getUTCSeconds())}`;
+      };
+      const first = pass.entries[0], last = pass.entries[pass.entries.length - 1];
+      r.innerHTML =
+        `<b>过境时间（北京时间）：</b>${fmt(pass.start)} → ${fmt(pass.end)}<br>` +
+        `时长 ${pass.durationS}s，频率表 ${pass.entries.length} 条（每秒）<br>` +
+        `下行 ${(first.downlink / 1e5).toFixed(5)} ~ ${(last.downlink / 1e5).toFixed(5)} MHz<br>` +
+        `上行 ${(first.uplink / 1e5).toFixed(5)} ~ ${(last.uplink / 1e5).toFixed(5)} MHz<br>` +
+        `<span class="ok">可以写入。写入后请在过境开始前开机，长按 0 输入当前北京时间开始跟踪。</span>`;
+      $("btnWrite").disabled = false;
+      $("btnEphemExport").disabled = false;
+      $("btnEphemExportCsv").disabled = false;
+      log(`过境 ${fmt(pass.start)} → ${fmt(pass.end)}（北京时间），${pass.entries.length} 条`);
+    } catch (e) {
+      showErr("计算失败：" + e.message);
+      log("计算异常：" + e.stack);
+    }
+    btn.disabled = false;
+    btn.textContent = "🔭 计算最近过境";
+    }, 30);
+  });
+
+  // ---------- 串口 ----------
+  async function readLoop() {
+    const frameDec = new proto.FrameDecoder();
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && value.length) {
+          const frames = frameDec.push(value); // Uint8Array，直接喂帧解码器
+          for (const f of frames) replyQueue.push(f);
+        }
+      }
+    } catch (e) {
+      if (e.name !== "AbortError") log("读取中断：" + e.message, "err");
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  async function sendCommand(id, payload) {
+    const frame = proto.buildFrame(id, payload);
+    await writer.write(frame);
+    // 等待对应回复（带 5s 超时）
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (replyQueue.length) {
+        const reply = replyQueue.shift();
+        const parsed = proto.parseReply(reply);
+        if (parsed.id === id + 3) return parsed; // 回复 ID = 命令 ID + 3
+        // 其他回复（如 K5Viewer 流）忽略
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("回复超时 (0x" + id.toString(16) + ")");
+  }
+
+  $("btnConnect").addEventListener("click", async () => {
+    if (port) {
+      try { if (writer) { writer.releaseLock(); writer = null; } } catch (e) { /* ignore */ }
+      try { await port.close(); } catch (e) { /* ignore */ }
+      port = null;
+      $("btnConnect").textContent = "连接";
+      $("btnConnect").classList.remove("secondary");
+      log("串口已断开");
+      return;
+    }
+    if (!navigator.serial) {
+      setStatus("当前浏览器不支持 Web Serial，请用 Chrome/Edge（需 https 或 localhost 环境）", "err");
+      return;
+    }
+    try {
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 38400 }); // F4HWN UART protocol is 38400 baud
+      writer = port.writable.getWriter();
+      reader = port.readable.getReader();
+      readLoop();
+      $("btnConnect").textContent = "断开";
+      $("btnConnect").classList.add("secondary");
+      setStatus("串口已连接 ✓", "ok");
+      log("串口已连接");
+    } catch (e) {
+      setStatus("连接失败：" + e.message, "err");
+    }
+  });
+
+  // ---------- 写入星历 ----------
+  $("btnWrite").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!passData) { setStatus("请先计算过境", "err"); return; }
+
+    $("btnWrite").disabled = true;
+    $("progress").style.display = "block";
+    const bar = $("progressBar");
+    bar.style.width = "0%";
+    try {
+      // 0. 目标槽位（0..3），每槽 16 KB / 最多 1020 条（约 17 分钟过境）
+      const slot = parseInt($("slotSelect").value, 10) - 1;
+      if (passData.entries.length > 1020) {
+        throw new Error(`过境 ${passData.durationS} 秒超过单槽上限 1020 秒（约 17 分钟），请更换过境窗口`);
+      }
+
+      // 1. 擦除目标槽位
+      log(`擦除槽位 ${slot + 1}...`);
+      const e = await sendCommand(proto.CMD.DOPPLER_ERASE, new Uint8Array([slot, 0]));
+      if (e.status !== 0) throw new Error("擦除失败 status=" + e.status);
+      log("擦除完成");
+
+      // 2. 卫星信息块（startUnix 用 floor：与表起点整秒对齐，固件按整秒索引）
+      const start = new Date(passData.start.getTime());
+      const end = new Date(passData.end.getTime());
+      const sat = proto.buildSatelliteBlock({
+        name: ($("satSelect").value || "SAT").trim().slice(0, 9),
+        startTime: calc.dateToFwTime(start),
+        endTime: calc.dateToFwTime(end),
+        sumTime: passData.durationS,
+        sendCtcss: parseInt($("ctcss").value, 10),
+        startUnix: calc.unixToFw(Math.floor(start.getTime() / 1000)),
+      });
+      log(`写入卫星信息块（槽位 ${slot + 1}）... sumTime=${passData.durationS} entries=${passData.entries.length}`);
+      // payload layout must match CMD_DOPPLER_WRITE_SAT_t: satellite block
+      // first (4-byte aligned), then slot + padding at the end
+      const satPayload = new Uint8Array(sat.length + 2);
+      satPayload.set(sat, 0);
+      satPayload[sat.length] = slot;
+      satPayload[sat.length + 1] = 0;
+      const s = await sendCommand(proto.CMD.DOPPLER_WRITE_SAT, satPayload);
+      if (s.status !== 0) throw new Error("卫星块写入失败 status=" + s.status);
+      log("卫星块完成");
+
+      // 3. 频率表条目（分批）
+      const total = passData.entries.length;
+      const batch = 64;
+      for (let i = 0; i < total; i += batch) {
+        const n = Math.min(batch, total - i);
+        for (let j = 0; j < n; j++) {
+          const en = passData.entries[i + j];
+          const payload = new Uint8Array(20);
+          const dv = new DataView(payload.buffer);
+          dv.setUint16(0, i + j, true); // index
+          dv.setUint16(2, slot, true);  // slot (0..3)
+          payload.set(proto.buildEntry(en.uplink, en.downlink, en.altitudeKm, en.distanceKm, en.azimuthDeg, en.elevationDeg), 4);
+          const r = await sendCommand(proto.CMD.DOPPLER_WRITE_ENTRY, payload);
+          if (r.status !== 0) throw new Error(`条目 ${i + j} 写入失败`);
+        }
+        bar.style.width = ((i + n) / total * 100).toFixed(1) + "%";
+        log(`条目 ${i + n}/${total}`);
+      }
+      bar.style.width = "100%";
+
+      // 4. 同步写入北京时间到 RTC（优先用已同步时钟，未同步才现场取网）
+      const net = await getWriteTime();
+      const display = formatBeijingDateTime(net.date);
+      log(`写入 RTC：${display}（${net.source}）`);
+      const rtcPayload = proto.buildRtcTimePayload(calc.unixToFw(Math.round(net.date.getTime() / 1000)));
+      const rtc = await sendCommand(proto.CMD.SET_RTC, rtcPayload);
+      if (rtc.status !== 0) throw new Error("星历已写入，但 RTC 写入被拒 status=" + rtc.status);
+
+      setStatus(`✅ 星历已写入槽 ${slot + 1}，北京时间已同步！机内长按 0 进入多普勒模式，F+1~4 切换槽位`, "ok");
+      log("全部完成");
+    } catch (err) {
+      setStatus("写入失败：" + err.message, "err");
+      log("写入异常：" + err.message, "err");
+    } finally {
+      $("btnWrite").disabled = false;
+    }
+  });
+
+  // ---------- 删除全部星历（1-4 槽） ----------
+  $("btnEraseAll").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!confirm("将删除 1-4 槽位的全部星历数据，此操作不可恢复。确定继续？")) return;
+    const btn = $("btnEraseAll");
+    btn.disabled = true;
+    try {
+      for (let slot = 0; slot < 4; slot++) {
+        log(`删除槽位 ${slot + 1}...`);
+        const e = await sendCommand(proto.CMD.DOPPLER_ERASE, new Uint8Array([slot, 0]));
+        if (e.status !== 0) throw new Error(`槽位 ${slot + 1} 删除失败 status=${e.status}`);
+        log(`槽位 ${slot + 1} 删除完成`);
+      }
+      setStatus("✅ 1-4 槽位星历已全部删除", "ok");
+    } catch (err) {
+      setStatus("删除失败：" + err.message, "err");
+      log("删除异常：" + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- 槽位名称编辑（读-改-写回卫星块，其他字段不变） ----------
+  let slotEditBlock = null; // 读取到的 32 字节卫星块缓存（写回时保持其他字段）
+
+  // 切槽时丢弃缓存，防止把槽 A 的数据改名后误写到槽 B
+  $("slotEditSelect").addEventListener("change", () => {
+    slotEditBlock = null;
+    $("slotNameInput").value = "";
+    $("btnSlotRename").disabled = true;
+  });
+
+  $("btnSlotRead").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const slot = parseInt($("slotEditSelect").value, 10) - 1;
+    const btn = $("btnSlotRead");
+    btn.disabled = true;
+    try {
+      const reply = await sendAndWaitRaw(proto.CMD.DOPPLER_READ_SAT, new Uint8Array([slot, 0]));
+      const dv = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
+      if (dv.getUint16(0, true) !== proto.CMD.REPLY_READ_SAT) throw new Error("回复 ID 不符");
+      // payload: header(4) + status(1) + slot(1) + pad(2) + satellite(32)
+      if (reply[4] !== 0) throw new Error(`槽位 ${slot + 1} 无有效星历数据`);
+      slotEditBlock = reply.slice(8, 40);
+      let name = "";
+      for (const b of slotEditBlock.subarray(4, 14)) {
+        if (b === 0) break;
+        name += String.fromCharCode(b);
+      }
+      $("slotNameInput").value = name;
+      $("btnSlotRename").disabled = false;
+      log(`槽位 ${slot + 1} 当前名称："${name}"`);
+      setStatus(`槽位 ${slot + 1} 已读取，可编辑名称`, "ok");
+    } catch (err) {
+      slotEditBlock = null;
+      $("slotNameInput").value = "";
+      $("btnSlotRename").disabled = true;
+      setStatus("读取失败：" + err.message, "err");
+      log("读取槽位异常：" + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("btnSlotRename").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!slotEditBlock) { setStatus("请先读取槽位", "err"); return; }
+    const slot = parseInt($("slotEditSelect").value, 10) - 1;
+    const name = $("slotNameInput").value.trim();
+    if (!name) { setStatus("名称不能为空", "err"); return; }
+    const btn = $("btnSlotRename");
+    btn.disabled = true;
+    try {
+      const block = new Uint8Array(slotEditBlock); // 副本，改完才写回
+      // name 字段：偏移 4..13，最多 9 字符 + '\0'（name[9] 必须为 0，见 doppler.h 有效性校验）
+      block.fill(0, 4, 14);
+      const nb = new TextEncoder().encode(name.slice(0, 9));
+      block.set(nb, 4);
+      block[30] = proto.crc8(block.subarray(0, 30)); // 重算 CRC8
+      block[31] = 0;
+      const payload = new Uint8Array(34); // 卫星块 32B + slot + pad（与写入星历的 satPayload 布局一致）
+      payload.set(block, 0);
+      payload[32] = slot;
+      const r = await sendCommand(proto.CMD.DOPPLER_WRITE_SAT, payload);
+      if (r.status !== 0) throw new Error("写回失败 status=" + r.status);
+      slotEditBlock = block;
+      setStatus(`✅ 槽位 ${slot + 1} 名称已改为"${name.slice(0, 9)}"，机内 F+${slot + 1} 重新选中即可看到`, "ok");
+      log(`槽位 ${slot + 1} 名称已更新为"${name.slice(0, 9)}"`);
+    } catch (err) {
+      setStatus("保存失败：" + err.message, "err");
+      log("保存名称异常：" + err.message, "err");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  // ---------- 导出星历到电脑（调试诊断，纯网页端，无需串口） ----------
+  // 把"计算最近过境"的结果（TLE、观测位置、过境窗口、每秒频率表）导出为
+  // JSON / CSV 文件，便于核对计算、与其他软件对比、存档分析。
+  const fmtExportBeijing = (date) => {
+    const bj = new Date(Math.round(date.getTime() / 1000) * 1000 + 8 * 3600 * 1000); // 北京时间（UTC+8），显示按秒
+    const p = (n, l = 2) => String(n).padStart(l, "0");
+    return `${bj.getUTCFullYear()}-${p(bj.getUTCMonth() + 1)}-${p(bj.getUTCDate())} ${p(bj.getUTCHours())}:${p(bj.getUTCMinutes())}:${p(bj.getUTCSeconds())}`;
+  };
+  const exportStamp = () => {
+    const ts = new Date();
+    return `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, "0")}${String(ts.getDate()).padStart(2, "0")}_${String(ts.getHours()).padStart(2, "0")}${String(ts.getMinutes()).padStart(2, "0")}${String(ts.getSeconds()).padStart(2, "0")}`;
+  };
+  const downloadText = (filename, text, mime) => {
+    const blob = new Blob([text], { type: mime });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // 汇总当前页面的计算参数与结果（供 JSON / CSV 导出复用）
+  function buildEphemExport() {
+    if (!passData) throw new Error("请先计算过境");
+    const tleLines = $("tle").value.trim().split(/\r?\n/).filter((l) => l.trim());
+    if (tleLines.length < 2) throw new Error("缺少 TLE 两行数据");
+    const tle1 = tleLines[tleLines.length - 2].trim();
+    const tle2 = tleLines[tleLines.length - 1].trim();
+    if (!/^1 [0-9]{5}/.test(tle1) || !/^2 [0-9]{5}/.test(tle2)) {
+      throw new Error("TLE 格式不正确（应为 1/2 开头的两行数据）");
+    }
+    const pass = passData;
+    const entries = pass.entries.map((en, i) => {
+      const bj = new Date((en.unix + 8 * 3600) * 1000);
+      return {
+        t: i,                                   // 过境开始后第几秒
+        unix: en.unix,                          // 1970 基准秒
+        beijing: bj.toISOString().replace("T", " ").slice(0, 19),
+        uplink10Hz: en.uplink,                  // 固件存储单位（10 Hz）
+        downlink10Hz: en.downlink,
+        uplinkMHz: +(en.uplink / 1e5).toFixed(5),
+        downlinkMHz: +(en.downlink / 1e5).toFixed(5),
+        altitudeKm: en.altitudeKm,
+        distanceKm: en.distanceKm,
+        azimuthDeg: +en.azimuthDeg.toFixed(1),
+        elevationDeg: +en.elevationDeg.toFixed(1),
+      };
+    });
+    const satName = ($("satSelect").value || "SAT").trim();
+    return {
+      tool: "k5web 多普勒星历导出（调试诊断）",
+      exportedAt: new Date().toISOString(),
+      satellite: {
+        name: satName,
+        tle1, tle2,
+        uplinkMHz: parseFloat($("fUp").value),
+        downlinkMHz: parseFloat($("fDown").value),
+        ctcssHz: (parseInt($("ctcss").value, 10) || 0) / 10, // 0 = 无亚音
+      },
+      observer: {
+        latDeg: parseFloat($("lat").value),
+        lonDeg: parseFloat($("lon").value),
+        altM: parseFloat($("alt").value),
+        minElevationDeg: parseFloat($("minEl").value),
+      },
+      pass: {
+        startBeijing: fmtExportBeijing(pass.start),
+        endBeijing: fmtExportBeijing(pass.end),
+        durationS: pass.durationS,
+        entryCount: entries.length,
+        // 固件 RTC 基准：2000-01-01 00:00:00 北京时间起的秒数（与写入星历一致，floor 整秒）
+        startUnix2000: calc.unixToFw(Math.floor(pass.start.getTime() / 1000)),
+      },
+      entries,
+    };
+  }
+
+  // 频率表 CSV（Excel 可直接打开；BOM 保证 UTF-8 中文不乱码）
+  function buildEphemCsv(data) {
+    const head = ["t_sec", "unix", "beijing", "uplinkMHz", "downlinkMHz",
+                  "altitudeKm", "distanceKm", "azimuthDeg", "elevationDeg"];
+    const lines = [head.join(",")];
+    for (const e of data.entries) {
+      lines.push([e.t, e.unix, e.beijing, e.uplinkMHz, e.downlinkMHz,
+                  e.altitudeKm, e.distanceKm, e.azimuthDeg, e.elevationDeg].join(","));
+    }
+    return "\uFEFF" + lines.join("\r\n") + "\r\n";
+  }
+
+  $("btnEphemExport").addEventListener("click", () => {
+    try {
+      const d = buildEphemExport();
+      const name = d.satellite.name.replace(/[\/:*?"<>|]/g, "_");
+      const filename = `星历_${name}_${exportStamp()}.json`;
+      downloadText(filename, JSON.stringify(d, null, 2), "application/json;charset=utf-8");
+      setStatus(`✅ 星历已导出：${filename}（${d.pass.entryCount} 条 / 过境 ${d.pass.durationS} 秒）`, "ok");
+      log(`导出完成：${filename}，${d.pass.entryCount} 条频率数据`);
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    }
+  });
+
+  $("btnEphemExportCsv").addEventListener("click", () => {
+    try {
+      const d = buildEphemExport();
+      const name = d.satellite.name.replace(/[\/:*?"<>|]/g, "_");
+      const filename = `星历_${name}_${exportStamp()}.csv`;
+      downloadText(filename, buildEphemCsv(d), "text/csv;charset=utf-8");
+      setStatus(`✅ 频率表已导出：${filename}（${d.pass.entryCount} 行）`, "ok");
+      log(`导出完成：${filename}，${d.pass.entryCount} 行`);
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    }
+  });
+
+  // ---------- 写入精确时间（联网获取北京时间写入 RTC） ----------
+  // 优先访问本机 NTP 代理（time_proxy.py），获取真正的 NTP 时间；
+  // 代理未启动或失败时，回退到 HTTP Date 头 / worldtimeapi / 本机时间。
+  const TIME_PROXY_URL = "http://127.0.0.1:8765/time";
+
+  async function fetchProxyTime() {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    try {
+      const resp = await fetch(TIME_PROXY_URL, { signal: ctrl.signal });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      if (typeof data.unixtime_utc !== "number" || data.unixtime_utc <= 0)
+        throw new Error("代理返回无效时间");
+      return { date: new Date(data.unixtime_utc * 1000), source: data.source || "本地 NTP 代理" };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function fetchNetworkTime() {
+    // 1) 先尝试本地 NTP 代理（真正的 NTP，最快最准）
+    try {
+      return await fetchProxyTime();
+    } catch (e) {
+      log("本地 NTP 代理不可用：" + e.message + "，尝试网络时间源...", "info");
+    }
+
+    // 2) 本地代理未启动时，用 HTTP Date 头兜底（无 CORS 支持时浏览器会报错）
+    const corsSources = [
+      { url: "https://httpbin.org/get", name: "httpbin" },
+    ];
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    let lastErr = null;
+
+    try {
+      for (const src of corsSources) {
+        try {
+          const resp = await fetch(src.url, { method: "GET", cache: "no-store", signal: ctrl.signal });
+          const dateHdr = resp.headers.get("Date");
+          if (dateHdr) {
+            const d = new Date(dateHdr);
+            if (!isNaN(d.getTime())) {
+              // Date 头是 GMT/UTC，直接作为 Date 使用；显示和转换时统一按北京时间处理
+              return { date: d, source: src.name };
+            }
+          }
+          throw new Error("响应中无 Date 头");
+        } catch (e) {
+          lastErr = e;
+          log("时间源失败：" + src.name + " -> " + e.message);
+        }
+      }
+
+      // 3) 最后兜底 worldtimeapi（Asia/Shanghai 直接给 unixtime）
+      try {
+        const resp = await fetch("https://worldtimeapi.org/api/timezone/Asia/Shanghai.json", { signal: ctrl.signal });
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        if (typeof data.unixtime === "number" && data.unixtime > 0) {
+          return { date: new Date(data.unixtime * 1000), source: "worldtimeapi" };
+        }
+        throw new Error("响应中无 unixtime");
+      } catch (e) {
+        lastErr = e;
+        log("时间源失败：worldtimeapi -> " + e.message);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+    throw lastErr || new Error("所有网络时间源均不可用");
+  }
+
+  function formatBeijingDateTime(d) {
+    return d.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
+  }
+
+  // ---------- 时钟同步：记录网络时间与本机时钟的偏差，写入时零延迟 ----------
+  let timeSync = { offsetMs: null, source: null, syncedAt: 0 };
+
+  // 取一次网络时间并记录 offset（网络时间 - 本机时钟）
+  async function syncTimeInBackground() {
+    try {
+      const net = await fetchNetworkTime();
+      timeSync.offsetMs = net.date.getTime() - Date.now();
+      timeSync.source = net.source;
+      timeSync.syncedAt = Date.now();
+      log(`时间已同步（${net.source}）：${formatBeijingDateTime(net.date)}` +
+          `，与本机偏差 ${(timeSync.offsetMs / 1000).toFixed(1)} 秒`);
+      return net;
+    } catch (e) {
+      log("后台时间同步失败：" + e.message, "info");
+      return null;
+    }
+  }
+
+  // 优先用已同步时钟（本机时间 + offset，零网络请求）；未同步过返回 null
+  function getSyncedTime() {
+    if (timeSync.offsetMs === null) return null;
+    return {
+      date: new Date(Date.now() + timeSync.offsetMs),
+      source: `已同步时钟（来自 ${timeSync.source}）`,
+    };
+  }
+
+  // 获取"当前时间"用于写入：有同步结果直接用，否则现场同步
+  async function getWriteTime() {
+    const synced = getSyncedTime();
+    if (synced) return synced;
+    const net = await syncTimeInBackground();
+    if (net) return net;
+    return { date: new Date(), source: "本机时钟（同步失败）" };
+  }
+
+  // ---------- 中文字库刷入 ----------
+  let fontData = null;
+
+  $("fontFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    fontData = null;
+    $("btnFont").disabled = true;
+    if (!f) return;
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (buf.length > proto.CN_FONT.FLASH_SIZE) {
+      setStatus(`字库文件过大：${buf.length} 字节，应为 ${proto.CN_FONT.FLASH_SIZE}`, "err");
+      return;
+    }
+    fontData = buf;
+    $("btnFont").disabled = false;
+    log(`字库文件已加载：${f.name}（${buf.length} 字节）`);
+    if (buf.length !== proto.CN_FONT.FLASH_SIZE)
+      log("提示：文件小于标准尺寸，未覆盖区域将保持空白", "info");
+  });
+
+  $("btnFont").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!fontData) { setStatus("请先选择字库文件", "err"); return; }
+
+    $("btnFont").disabled = true;
+    $("fontProgress").style.display = "block";
+    const bar = $("fontProgressBar");
+    bar.style.width = "0%";
+    try {
+      // 1. 逐扇区擦除（扇区数由 proto.CN_FONT.SECTOR_COUNT 决定，进度 0~30%）
+      const sectors = proto.CN_FONT.SECTOR_COUNT;
+      log(`擦除字库区（${sectors} 个扇区）...`);
+      for (let s = 0; s < sectors; s++) {
+        const payload = new Uint8Array(4);
+        new DataView(payload.buffer).setUint16(0, s, true);
+        const r = await sendCommand(proto.CMD.CN_FONT_ERASE, payload);
+        if (r.status !== 0) throw new Error(`扇区 ${s} 擦除失败 status=${r.status}`);
+        bar.style.width = ((s + 1) / sectors * 30).toFixed(1) + "%";
+        if (s % 10 === 9 || s === sectors - 1) log(`擦除 ${s + 1}/${sectors}`);
+      }
+
+      // 2. 分块写入（240 字节/帧，进度 30~100%）
+      const total = fontData.length, chunk = proto.CN_FONT.CHUNK;
+      log("写入字库数据...");
+      for (let off = 0; off < total; off += chunk) {
+        const n = Math.min(chunk, total - off);
+        const payload = new Uint8Array(4 + n);
+        new DataView(payload.buffer).setUint32(0, off, true);
+        payload.set(fontData.subarray(off, off + n), 4);
+        const r = await sendCommand(proto.CMD.CN_FONT_WRITE, payload);
+        if (r.status !== 0) throw new Error(`偏移 0x${off.toString(16)} 写入失败 status=${r.status}`);
+        bar.style.width = (30 + (off + n) / total * 70).toFixed(1) + "%";
+        if ((off / chunk) % 100 === 99 || off + n === total) log(`写入 ${off + n}/${total}`);
+      }
+      bar.style.width = "100%";
+      setStatus("✅ 字库刷入完成！机内菜单 SetLng 选择 Chinese 即可（渲染支持随固件更新提供）", "ok");
+      log("字库刷入完成");
+    } catch (err) {
+      setStatus("字库刷入失败：" + err.message, "err");
+      log("字库刷入异常：" + err.message, "err");
+    } finally {
+      $("btnFont").disabled = false;
+    }
+  });
+  // ---------- 字库读取 / 查看器 ----------
+  async function sendAndWaitRaw(id, payload, timeoutMs = 5000) {
+    const frame = proto.buildFrame(id, payload);
+    await writer.write(frame);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (replyQueue.length) {
+        const reply = replyQueue.shift();
+        const dv = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
+        if (dv.getUint16(0, true) === id + 3) return reply;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("回复超时");
+  }
+
+  async function readFontBytes(offset, len) {
+    const payload = new Uint8Array(4);
+    new DataView(payload.buffer).setUint32(0, offset, true);
+    const reply = await sendAndWaitRaw(proto.CMD.CN_FONT_READ, payload, 5000);
+    const dv = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
+    if (dv.getUint16(0, true) !== proto.CMD.REPLY_CN_FONT_READ) throw new Error("回复 ID 不符");
+    const echo = dv.getUint32(4, true);
+    if (echo !== offset) throw new Error(`偏移回显不一致 0x${echo.toString(16)}`);
+    return reply.slice(8, 8 + Math.min(len, 128));
+  }
+
+  function gb2312Index(ch) {
+    if (!gb) throw new Error("GB2312 编码表未加载");
+    const r = gb.encode(ch);
+    if (!r.ok) throw new Error(`无法编码 '${r.char}' 为 GB2312`);
+    const b = r.bytes;
+    return (b[0] - 0xA1) * 94 + (b[1] - 0xA1);
+  }
+
+  function renderGlyphGrid(glyph32) {
+    const lines = [];
+    for (let y = 0; y < 16; y++) {
+      let row = "";
+      const half = y < 8 ? 0 : 16;
+      const bit = y & 7;
+      for (let x = 0; x < 16; x++) {
+        const byte = glyph32[half + x];
+        row += (byte & (1 << bit)) ? "██" : "··";
+      }
+      lines.push(row);
+    }
+    return lines.join("\n");
+  }
+
+  $("btnFontView").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const ch = $("fontViewChar").value.trim();
+    if (!ch) { setStatus("请输入一个汉字", "err"); return; }
+    $("btnFontView").disabled = true;
+    try {
+      const idx = gb2312Index(ch);
+      if (idx >= proto.CN_FONT.GLYPH_COUNT) throw new Error("该字符超出共享字库 8192 字形范围");
+      const offset = idx * proto.CN_FONT.GLYPH_SIZE;
+      const glyph = await readFontBytes(offset, proto.CN_FONT.GLYPH_SIZE);
+      $("fontViewGrid").textContent =
+        `${ch}  index=${idx}  offset=0x${offset.toString(16)}\n` + renderGlyphGrid(glyph);
+      setStatus(`字形读取成功：${ch} (0x${offset.toString(16)})`, "ok");
+    } catch (err) {
+      setStatus("字形读取失败：" + err.message, "err");
+      log("字形读取异常：" + err.message, "err");
+      $("fontViewGrid").textContent = "";
+    } finally {
+      $("btnFontView").disabled = false;
+    }
+  });
+
+  $("btnFontCheck").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    $("btnFontCheck").disabled = true;
+    try {
+      const bytes = await readFontBytes(0, proto.CN_FONT.GLYPH_SIZE);
+      const blank = bytes.every((b) => b === 0xFF);
+      if (blank) {
+        setStatus("字库区为空（0xFF），尚未烧录字库", "warn");
+        log("字库校验：未检测到字库");
+      } else {
+        setStatus("✅ 字库区已有数据（0xA0000 起）", "ok");
+        log("字库校验：检测到字库");
+      }
+    } catch (err) {
+      setStatus("字库校验失败：" + err.message, "err");
+      log("字库校验异常：" + err.message, "err");
+    } finally {
+      $("btnFontCheck").disabled = false;
+    }
+  });
+
+  // ---------- 校准数据导出 / 导入（EEPROM 仿真区 0xB000..0xB200，512 字节） ----------
+
+  // 会话握手：发 0x0514 建立时间戳，等 0x0515 版本回复
+  async function ensureSession() {
+    const ts = new Uint8Array(4);
+    new DataView(ts.buffer).setUint32(0, proto.CALIB.TS, true);
+    await writer.write(proto.buildFrame(proto.CMD.DEV_INFO_REQ, ts));
+    const resp = await waitForMsg(proto.CMD.DEV_INFO_RESP, 1500);
+    if (!resp) throw new Error("握手超时（请确认对讲机处于正常开机状态，不是刷机模式）");
+    let ver = "";
+    for (let i = 4; i < Math.min(resp.length, 20) && resp[i] !== 0; i++) ver += String.fromCharCode(resp[i]);
+    return ver;
+  }
+
+  $("btnCalExp").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    $("btnCalExp").disabled = true;
+    try {
+      const ver = await ensureSession();
+      log(`固件版本：${ver}`);
+      const C = proto.CALIB;
+      const out = new Uint8Array(C.SIZE);
+      for (let off = 0; off < C.SIZE; off += C.READ_CHUNK) {
+        const payload = new Uint8Array(8);
+        const dv = new DataView(payload.buffer);
+        dv.setUint16(0, C.OFFSET + off, true);
+        dv.setUint8(2, C.READ_CHUNK);
+        dv.setUint32(4, C.TS, true);
+        await writer.write(proto.buildFrame(proto.CMD.READ_EEPROM, payload));
+        const resp = await waitForMsg(proto.CMD.READ_EEPROM_RESP, 1500);
+        if (!resp) throw new Error(`读取 0x${(C.OFFSET + off).toString(16)} 超时`);
+        const rdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+        if (rdv.getUint16(4, true) !== C.OFFSET + off) throw new Error("读取偏移回显不一致");
+        out.set(resp.subarray(8, 8 + C.READ_CHUNK), off);
+        log(`读取 0x${(C.OFFSET + off).toString(16)} ~ 0x${(C.OFFSET + off + C.READ_CHUNK).toString(16)}`);
+      }
+      const blob = new Blob([out], { type: "application/octet-stream" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "calibration.dat";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setStatus("✅ 校准数据已导出为 calibration.dat", "ok");
+      log("校准数据导出完成");
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    } finally {
+      $("btnCalExp").disabled = false;
+    }
+  });
+
+  let calData = null;
+
+  $("calFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    calData = null;
+    $("btnCalImp").disabled = true;
+    if (!f) return;
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (buf.length !== proto.CALIB.SIZE) {
+      setStatus(`校准文件大小无效：${buf.length} 字节，应为 ${proto.CALIB.SIZE}`, "err");
+      return;
+    }
+    calData = buf;
+    $("btnCalImp").disabled = false;
+    log(`校准文件已加载：${f.name}（${buf.length} 字节）`);
+  });
+
+  $("btnCalImp").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!calData) { setStatus("请先选择校准文件", "err"); return; }
+    if (!confirm("确认导入？写错校准数据会导致频率/功率/电量异常，请确认文件来自本机。")) return;
+
+    $("btnCalImp").disabled = true;
+    $("calProgress").style.display = "block";
+    const bar = $("calProgressBar");
+    bar.style.width = "0%";
+    try {
+      const ver = await ensureSession();
+      log(`固件版本：${ver}`);
+      const C = proto.CALIB;
+      for (let off = 0; off < C.SIZE; off += C.WRITE_CHUNK) {
+        const payload = new Uint8Array(8 + C.WRITE_CHUNK);
+        const dv = new DataView(payload.buffer);
+        dv.setUint16(0, C.OFFSET + off, true);
+        dv.setUint8(2, C.WRITE_CHUNK);
+        dv.setUint8(3, 1); // bAllowPassword 标志位（uvtools 约定）
+        dv.setUint32(4, C.TS, true);
+        payload.set(calData.subarray(off, off + C.WRITE_CHUNK), 8);
+        await writer.write(proto.buildFrame(proto.CMD.WRITE_EEPROM, payload));
+        const resp = await waitForMsg(proto.CMD.WRITE_EEPROM_RESP, 1500);
+        if (!resp) throw new Error(`写入 0x${(C.OFFSET + off).toString(16)} 超时`);
+        const wdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+        if (resp.length < 6 || wdv.getUint16(4, true) !== C.OFFSET + off)
+          throw new Error(`写入 0x${(C.OFFSET + off).toString(16)} 回显不一致`);
+        bar.style.width = ((off + C.WRITE_CHUNK) / C.SIZE * 100).toFixed(1) + "%";
+        if (off % 64 === 48) log(`写入 ${off + C.WRITE_CHUNK}/${C.SIZE}`);
+      }
+      bar.style.width = "100%";
+      log("校准数据写入完成，发送重启命令...");
+      await writer.write(proto.buildFrame(proto.CMD.REBOOT, new Uint8Array(0)));
+      setStatus("✅ 校准数据已导入，对讲机正在重启生效", "ok");
+      log("已重启");
+    } catch (err) {
+      setStatus("导入失败：" + err.message, "err");
+      log("导入异常：" + err.message, "err");
+    } finally {
+      $("btnCalImp").disabled = false;
+    }
+  });
+
+  // ---------- 写频（写信道） ----------
+  async function readEepromBlock(offset, size) {
+    const payload = new Uint8Array(8);
+    const dv = new DataView(payload.buffer);
+    dv.setUint16(0, offset, true);
+    dv.setUint8(2, size);
+    dv.setUint32(4, proto.CALIB.TS, true);
+    await writer.write(proto.buildFrame(proto.CMD.READ_EEPROM, payload));
+    const resp = await waitForMsg(proto.CMD.READ_EEPROM_RESP, 1500);
+    if (!resp) throw new Error(`读取 0x${offset.toString(16)} 超时`);
+    const rdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+    if (rdv.getUint16(4, true) !== offset) throw new Error("读取偏移回显不一致");
+    return resp.subarray(8, 8 + size);
+  }
+
+  async function writeEepromBlock(offset, data, flag = 1) {
+    if (data.length % 8 !== 0) throw new Error("EEPROM 写入长度必须是 8 的倍数");
+    for (let i = 0; i < data.length; i += 8) {
+      const payload = new Uint8Array(8 + 8);
+      const dv = new DataView(payload.buffer);
+      dv.setUint16(0, offset + i, true);
+      dv.setUint8(2, 8);
+      dv.setUint8(3, flag);
+      dv.setUint32(4, proto.CALIB.TS, true);
+      payload.set(data.subarray(i, i + 8), 8);
+      await writer.write(proto.buildFrame(proto.CMD.WRITE_EEPROM, payload));
+      const resp = await waitForMsg(proto.CMD.WRITE_EEPROM_RESP, 1500);
+      if (!resp) throw new Error(`写入 0x${(offset + i).toString(16)} 超时`);
+      if (resp.length < 6) throw new Error("写入回复过短");
+      const wdv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+      if (wdv.getUint16(4, true) !== offset + i) throw new Error("写入偏移回显不一致");
+    }
+  }
+
+  async function writeChannel(channel, params) {
+    const C = proto.CHAN;
+    if (channel < 0 || channel >= C.MAX_COUNT) throw new Error(`信道号 ${channel + 1} 超出范围 1~${C.MAX_COUNT}`);
+
+    // 1. 写频率/参数区
+    const freqBlock = proto.buildChannelBlock(params);
+    await writeEepromBlock(channel * C.SIZE, freqBlock);
+
+    // 2. 写名称区（GB2312 编码，最多 10 字节）
+    let nameBytes;
+    const gb = window.K5WEB && window.K5WEB.gb2312;
+    if (gb) {
+      const nameEnc = gb.encode(params.name || "");
+      if (!nameEnc.ok) throw new Error(`信道名包含无法编码的字符："${nameEnc.char}"，请使用中文字库已覆盖的汉字或 ASCII`);
+      if (nameEnc.bytes.length > 10) throw new Error(`信道名编码后 ${nameEnc.bytes.length} 字节，超过 10 字节限制（中文每个字 2 字节）`);
+      nameBytes = nameEnc.bytes;
+    } else {
+      // fallback：仅 ASCII
+      const ascii = new TextEncoder().encode((params.name || "").replace(/[^\x20-\x7E]/g, ""));
+      if (ascii.length > 10) throw new Error("信道名超过 10 字节（GB2312 编码表未加载，仅支持 ASCII）");
+      nameBytes = ascii;
+    }
+    const nameBuf = new Uint8Array(C.NAME_SIZE);
+    nameBuf.set(nameBytes, 0);
+    await writeEepromBlock(C.NAME_BASE + channel * C.NAME_SIZE, nameBuf);
+
+    // 3. 属性区：8 字节对齐读写，避免跨属性覆盖
+    const attrOffset = C.ATTR_BASE + channel * C.ATTR_SIZE;
+    const alignBase = attrOffset - (attrOffset % C.ATTR_ALIGN); // 8 字节对齐基址
+    const attrInBlock = attrOffset - alignBase; // 在 8 字节块内的偏移（0 或 2）
+    const attrBlock = new Uint8Array(await readEepromBlock(alignBase, C.ATTR_ALIGN));
+    const attr = proto.buildChannelAttributes({
+      band: proto.bandFromFrequency(params.rxFreq10Hz),
+      compander: 0,
+      exclude: 0,
+      scanlist: params.scanlist || 0,
+    });
+    attrBlock.set(attr, attrInBlock);
+    await writeEepromBlock(alignBase, attrBlock);
+  }
+
+  function parseToneInput(value, type) {
+    const s = (value || "").trim();
+    if (!s || type === proto.CODE_TYPE.OFF) return { code: 0, codeType: proto.CODE_TYPE.OFF };
+    if (type === proto.CODE_TYPE.CTCSS) {
+      const hz = Math.round(parseFloat(s) * 10);
+      return { code: proto.ctcssIndex(hz), codeType: proto.CODE_TYPE.CTCSS };
+    }
+    // DCS：支持 "023" / "D023" / "023N" / "I023" / "023I"（DCS 码为八进制）
+    const m = s.match(/^[DI]?(\d{3})$/i);
+    if (!m) return { code: 0, codeType: proto.CODE_TYPE.OFF };
+    const code = parseInt(m[1], 8);
+    const idx = proto.dcsIndex(code);
+    const codeType = (type === proto.CODE_TYPE.DCS_REV || /^I/i.test(s)) ? proto.CODE_TYPE.DCS_REV : proto.CODE_TYPE.DCS;
+    return { code: idx, codeType };
+  }
+
+  function collectChannelParams() {
+    const rxMHz = parseFloat($("chRxFreq").value);
+    let txMHz = parseFloat($("chTxFreq").value);
+    const dirSel = parseInt($("chTxDir").value, 10);
+    const offsetMHz = parseFloat($("chTxOffset").value) || 0;
+    if (isNaN(rxMHz) || rxMHz <= 0) throw new Error("接收频率无效");
+    if (isNaN(txMHz) || txMHz <= 0) {
+      if (dirSel === proto.TX_DIR.OFF) txMHz = rxMHz;
+      else txMHz = rxMHz + (dirSel === proto.TX_DIR.ADD ? offsetMHz : -offsetMHz);
+      if (txMHz <= 0) throw new Error("按差频计算的发射频率无效");
+    }
+    // 固件 offset 4 存的是频差值（不是绝对发射频率），方向存 byte11 低半字节；
+    // 由 RX/TX 反推，保证两者始终一致
+    const rxFreq10Hz = Math.round(rxMHz * 100000);
+    const diff10Hz = Math.round(txMHz * 100000) - rxFreq10Hz;
+    const txDir = diff10Hz > 0 ? proto.TX_DIR.ADD : diff10Hz < 0 ? proto.TX_DIR.SUB : proto.TX_DIR.OFF;
+    const rxTone = parseToneInput($("chRxTone").value, parseInt($("chRxToneType").value, 10));
+    const txTone = parseToneInput($("chTxTone").value, parseInt($("chTxToneType").value, 10));
+
+    return {
+      name: $("chName").value,
+      rxFreq10Hz: rxFreq10Hz,
+      txOffsetFreq10Hz: Math.abs(diff10Hz),
+      rxCodeType: rxTone.codeType,
+      rxCode: rxTone.code,
+      txCodeType: txTone.codeType,
+      txCode: txTone.code,
+      modulation: parseInt($("chModulation").value, 10),
+      txDir: txDir,
+      bandwidth: parseInt($("chBandwidth").value, 10),
+      power: parseInt($("chPower").value, 10),
+      txLock: 0, // 默认允许发射；如需禁用可后续扩展
+      bcl: 0,
+      freqReverse: 0,
+      pttId: 0,
+      step: parseInt($("chStep").value, 10),
+      scanlist: 0,
+    };
+  }
+
+  // 发射频率 ↔ 差频方向+差频 联动：改一边自动算另一边。
+  // chFreqLink 记录最后编辑的字段组，接收频率变化时以该组为准重算另一边。
+  let chFreqLink = "tx"; // "tx"=发射频率为准, "offset"=差频方向+差频为准
+  function updateOffsetFieldState() {
+    // 方向为"无"时差频值无意义，禁止编辑
+    $("chTxOffset").disabled = parseInt($("chTxDir").value, 10) === proto.TX_DIR.OFF;
+  }
+  function syncOffsetFromTx() {
+    const rx = parseFloat($("chRxFreq").value);
+    const tx = parseFloat($("chTxFreq").value);
+    if (isNaN(rx) || rx <= 0 || isNaN(tx) || tx <= 0) return;
+    const diff = tx - rx;
+    $("chTxDir").value = diff > 0 ? "1" : diff < 0 ? "2" : "0";
+    $("chTxOffset").value = Math.abs(diff).toFixed(4);
+    updateOffsetFieldState();
+  }
+  function syncTxFromOffset() {
+    const rx = parseFloat($("chRxFreq").value);
+    if (isNaN(rx) || rx <= 0) return;
+    const dir = parseInt($("chTxDir").value, 10);
+    const off = parseFloat($("chTxOffset").value) || 0;
+    const tx = dir === proto.TX_DIR.OFF ? rx : rx + (dir === proto.TX_DIR.ADD ? off : -off);
+    if (tx > 0) $("chTxFreq").value = tx.toFixed(5);
+  }
+  $("chRxFreq").addEventListener("input", () => { chFreqLink === "offset" ? syncTxFromOffset() : syncOffsetFromTx(); });
+  $("chTxFreq").addEventListener("input", () => { chFreqLink = "tx"; syncOffsetFromTx(); });
+  $("chTxDir").addEventListener("change", () => { chFreqLink = "offset"; updateOffsetFieldState(); syncTxFromOffset(); });
+  $("chTxOffset").addEventListener("input", () => { chFreqLink = "offset"; syncTxFromOffset(); });
+  syncOffsetFromTx(); // 初始化：按默认 RX/TX 推出方向+差频，并设置差频框可编辑状态
+
+  $("btnChProg").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const channel = parseInt($("chNum").value, 10) - 1;
+    if (isNaN(channel) || channel < 0 || channel >= proto.CHAN.MAX_COUNT) {
+      setStatus(`信道号无效，应为 1~${proto.CHAN.MAX_COUNT}`, "err"); return;
+    }
+    $("btnChProg").disabled = true;
+    $("chProgProgress").style.display = "block";
+    $("chProgProgressBar").style.width = "0%";
+    $("chReadResult").style.display = "none";
+    try {
+      await ensureSession();
+      const params = collectChannelParams();
+      await writeChannel(channel, params);
+      $("chProgProgressBar").style.width = "100%";
+      setStatus(`✅ 信道 ${channel + 1} 写入完成！建议重启对讲机或切换信道使其生效`, "ok");
+      log(`写频完成：CH${channel + 1} ${(params.rxFreq10Hz / 100000).toFixed(5)} MHz，名称字节：${Array.from((window.K5WEB.gb2312 || { encode: () => ({ ok: true, bytes: new Uint8Array() }) }).encode(params.name || "").bytes).map(b => b.toString(16).padStart(2, "0")).join(" ") || "(空)"}`);
+    } catch (err) {
+      setStatus("写频失败：" + err.message, "err");
+      log("写频异常：" + err.message, "err");
+    } finally {
+      $("btnChProg").disabled = false;
+    }
+  });
+
+  $("btnChRead").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const channel = parseInt($("chNum").value, 10) - 1;
+    if (isNaN(channel) || channel < 0 || channel >= proto.CHAN.MAX_COUNT) {
+      setStatus(`信道号无效，应为 1~${proto.CHAN.MAX_COUNT}`, "err"); return;
+    }
+    $("btnChRead").disabled = true;
+    $("chReadResult").style.display = "none";
+    try {
+      await ensureSession();
+      const C = proto.CHAN;
+      const nameBytes = await readEepromBlock(C.NAME_BASE + channel * C.NAME_SIZE, C.NAME_SIZE);
+      const freqBytes = await readEepromBlock(channel * C.SIZE, C.SIZE);
+      const rx10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(0, true);
+      // offset 4 是频差值（10Hz），方向在 byte11 低半字节；发射频率 = 接收 ± 频差
+      let off10 = new DataView(freqBytes.buffer, freqBytes.byteOffset).getUint32(4, true);
+      const txDir = freqBytes[11] & 0x0F;
+      if (off10 === 0xFFFFFFFF) off10 = 0;
+      if (off10 >= 100000000) off10 = 1000000; // 与固件 radio.c 的上限一致
+      const tx10 = txDir === proto.TX_DIR.ADD ? rx10 + off10 : txDir === proto.TX_DIR.SUB ? rx10 - off10 : rx10;
+      const dirText = txDir === proto.TX_DIR.ADD ? "上差频（+）" : txDir === proto.TX_DIR.SUB ? "下差频（−）" : "无";
+      const hex = Array.from(nameBytes).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+      // 优先用 GB2312 解码库直接显示中文；库缺失时回退十六进制占位解析
+      let decoded = "";
+      if (gb) {
+        decoded = gb.decode(nameBytes);
+      }
+      if (!decoded) {
+        for (let i = 0; i < nameBytes.length; i++) {
+          const b = nameBytes[i];
+          if (b === 0) break;
+          if (b >= 0xA1 && i + 1 < nameBytes.length && nameBytes[i + 1] >= 0xA1) {
+            decoded += `[${b.toString(16)}${nameBytes[i + 1].toString(16)}]`;
+            i++;
+          } else if (b >= 0x20 && b < 0x7F) {
+            decoded += String.fromCharCode(b);
+          } else {
+            decoded += `?0x${b.toString(16)}`;
+          }
+        }
+      }
+      const r = $("chReadResult");
+      r.style.display = "block";
+      r.innerHTML = `
+        <b>CH${channel + 1} 读取校验</b><br>
+        接收频率：${(rx10 / 100000).toFixed(5)} MHz<br>
+        差频方向：${dirText}　差频：${(off10 / 100000).toFixed(4)} MHz<br>
+        发射频率：${(tx10 / 100000).toFixed(5)} MHz<br>
+        名称区十六进制：${hex}<br>
+        名称解码（GB2312）：${decoded || "(空白)"}
+      `;
+      log(`读取 CH${channel + 1}：RX=${(rx10 / 100000).toFixed(5)} 频差=${dirText} ${(off10 / 100000).toFixed(4)} TX=${(tx10 / 100000).toFixed(5)} 名称="${decoded}" [${hex}]`);
+    } catch (err) {
+      setStatus("读取失败：" + err.message, "err");
+      log("读取异常：" + err.message, "err");
+    } finally {
+      $("btnChRead").disabled = false;
+    }
+  });
+
+  // ---------- 批量导入（叮咚鸡 xlsx / 叮咚鸡 CSV / 旧版 CSV） ----------
+  // 读取文件为行数组：xlsx 用 SheetJS 取第一个 sheet，CSV/TXT 先按 UTF-8 解码，
+  // 失败（Excel 另存的 GBK 编码）再回退 GBK，避免中文信道名乱码。
+  async function parseChannelFile(f) {
+    const lower = f.name.toLowerCase();
+    if (lower.endsWith(".xlsx") || lower.endsWith(".xlsm")) {
+      if (typeof XLSX === "undefined")
+        throw new Error("xlsx 解析库未加载（vendor/xlsx.full.min.js 缺失）");
+      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error("xlsx 中没有工作表");
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
+      return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
+    }
+    const buf = await f.arrayBuffer();
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    } catch (e) {
+      text = new TextDecoder("gbk").decode(buf);
+    }
+    return text.split(/\r?\n/).map((l) => l.split(",").map((s) => s.trim()))
+      .filter((r) => r.some((c) => c !== ""));
+  }
+
+  let chCsvData = null;
+  $("chCsvFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    chCsvData = null;
+    $("btnChProgCsv").disabled = true;
+    if (!f) return;
+    try {
+      const rows = await parseChannelFile(f);
+      const { rows: parsed, format, warnings } = proto.parseChannelRows(rows);
+      for (const w of warnings) log(w, "warn");
+      if (parsed.length === 0) { setStatus("文件中没有可识别的信道行", "err"); return; }
+      chCsvData = parsed;
+      $("btnChProgCsv").disabled = false;
+      const fmt = f.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : "CSV";
+      log(`${fmt} 已加载：${f.name}，${parsed.length} 条信道（识别为${format}格式）`);
+    } catch (err) {
+      setStatus("文件解析失败：" + err.message, "err");
+      log("文件解析异常：" + err.message, "err");
+    }
+  });
+
+  $("btnChProgCsv").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!chCsvData || !chCsvData.length) { setStatus("请先选择信道文件", "err"); return; }
+    $("btnChProgCsv").disabled = true;
+    $("chCsvProgress").style.display = "block";
+    const bar = $("chCsvProgressBar");
+    bar.style.width = "0%";
+    try {
+      await ensureSession();
+      const C = proto.CHAN;
+      for (let i = 0; i < chCsvData.length; i++) {
+        const row = chCsvData[i];
+        if (row.ch < 0 || row.ch >= C.MAX_COUNT) {
+          log(`跳过越界信道 ${row.ch + 1}`, "info"); continue;
+        }
+        const params = {
+          name: row.name,
+          rxFreq10Hz: row.rx10,
+          txOffsetFreq10Hz: Math.abs(row.diff10),
+          rxCodeType: row.rxCodeType, rxCode: row.rxCode,
+          txCodeType: row.txCodeType, txCode: row.txCode,
+          modulation: row.modulation,
+          txDir: row.diff10 > 0 ? proto.TX_DIR.ADD : row.diff10 < 0 ? proto.TX_DIR.SUB : proto.TX_DIR.OFF,
+          bandwidth: row.bandwidth,
+          power: row.power,
+          txLock: 0, bcl: 0, freqReverse: 0, pttId: 0,
+          step: row.step,
+          scanlist: row.scanlist,
+        };
+        await writeChannel(row.ch, params);
+        bar.style.width = ((i + 1) / chCsvData.length * 100).toFixed(1) + "%";
+        if ((i + 1) % 10 === 0 || i === chCsvData.length - 1) log(`已写入 ${i + 1}/${chCsvData.length}`);
+      }
+      bar.style.width = "100%";
+      setStatus(`✅ 批量写入完成，共 ${chCsvData.length} 条信道`, "ok");
+      log("批量写频完成");
+    } catch (err) {
+      setStatus("批量写频失败：" + err.message, "err");
+      log("批量写频异常：" + err.message, "err");
+    } finally {
+      $("btnChProgCsv").disabled = false;
+    }
+  });
+
+  // ---------- 导出信道（CSV） ----------
+  // 连续区间分块读 EEPROM（单次命令数据上限 128 字节，见 CALIB.READ_CHUNK）
+  async function readRange(offset, out, onProgress) {
+    const CHUNK = 128;
+    for (let off = 0; off < out.length; off += CHUNK) {
+      const n = Math.min(CHUNK, out.length - off);
+      out.set(await readEepromBlock(offset + off, n), off);
+      if (onProgress) onProgress(Math.min(off + n, out.length) / out.length);
+    }
+  }
+
+  // 频率 10Hz 值 → 叮咚鸡频率文本（最多 4 位小数、去尾零、至少 3 位，如 438.710 / 412.5875）
+  function fmtMhz(v10) {
+    const mhz = v10 / 100000;
+    let s = mhz.toFixed(4).replace(/0+$/, "");
+    if (s.endsWith(".")) s += "0";
+    const frac = s.indexOf(".") < 0 ? 0 : s.length - s.indexOf(".") - 1;
+    return frac < 3 ? mhz.toFixed(3) : s;
+  }
+
+  function csvEscape(s) {
+    s = String(s);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  $("btnChExpCsv").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const C = proto.CHAN;
+    const start = parseInt($("chExpStart").value, 10) - 1;
+    const end = parseInt($("chExpEnd").value, 10) - 1;
+    if (isNaN(start) || isNaN(end) || start < 0 || end >= C.MAX_COUNT || start > end) {
+      setStatus(`信道范围无效，应为 1~${C.MAX_COUNT}`, "err"); return;
+    }
+    $("btnChExpCsv").disabled = true;
+    $("chExpProgress").style.display = "block";
+    const bar = $("chExpProgressBar");
+    bar.style.width = "0%";
+    try {
+      await ensureSession();
+      const count = end - start + 1;
+      const freqAll = new Uint8Array(count * C.SIZE);
+      const nameAll = new Uint8Array(count * C.NAME_SIZE);
+
+      await readRange(start * C.SIZE, freqAll,
+        (p) => { bar.style.width = (p * 45).toFixed(1) + "%"; });
+      await readRange(C.NAME_BASE + start * C.NAME_SIZE, nameAll,
+        (p) => { bar.style.width = (45 + p * 45).toFixed(1) + "%"; });
+
+      const gb = window.K5WEB && window.K5WEB.gb2312;
+      const lines = [proto.DD_HEADERS.join(",")]; // 叮咚鸡格式表头
+      let exported = 0;
+      for (let i = 0; i < count; i++) {
+        const fdv = new DataView(freqAll.buffer, i * C.SIZE, C.SIZE);
+        const rx10 = fdv.getUint32(0, true);
+        if (rx10 === 0 || rx10 === 0xFFFFFFFF) continue;   // 空信道（未写入/擦除态）
+        // offset 4 是频差值（10Hz），方向在 byte11 低半字节
+        let off10 = fdv.getUint32(4, true);
+        if (off10 === 0xFFFFFFFF) off10 = 0;
+        if (off10 >= 100000000) off10 = 1000000;           // 与固件 radio.c 的上限一致
+        const txDir = fdv.getUint8(11) & 0x0F;
+        const nameBytes = nameAll.subarray(i * C.NAME_SIZE, (i + 1) * C.NAME_SIZE);
+        let ascii = "";
+        for (const b of nameBytes) { if (!b) break; if (b >= 0x20 && b < 0x7F) ascii += String.fromCharCode(b); }
+        const name = gb ? gb.decode(nameBytes) : ascii;
+        const rxTone = proto.toneToDdColumns(fdv.getUint8(8), fdv.getUint8(10) & 0x0F);
+        const txTone = proto.toneToDdColumns(fdv.getUint8(9), (fdv.getUint8(10) >> 4) & 0x0F);
+        lines.push([
+          start + i + 1,
+          fmtMhz(rx10),
+          proto.POWER_NAMES[(fdv.getUint8(12) >> 2) & 7] || "HIGH",
+          rxTone.digital, rxTone.analog,
+          txTone.digital, txTone.analog,
+          proto.DD_DIR_NAMES[txDir <= proto.TX_DIR.SUB ? txDir : 0],
+          (off10 / 100000).toFixed(4),
+          proto.MODULATION_NAMES[(fdv.getUint8(11) >> 4) & 0x0F] || "FM",
+          proto.ddStepName(fdv.getUint8(14)),
+          "不参与",
+          csvEscape(gb ? name : ascii),
+        ].join(","));
+        exported++;
+        bar.style.width = (90 + exported / count * 10).toFixed(1) + "%";
+      }
+      if (exported === 0) { setStatus("该范围内没有已写入的信道", "err"); return; }
+
+      // 带 BOM 下载，Excel 直接打开中文不乱码
+      const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `k5_channels_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      bar.style.width = "100%";
+      setStatus(`✅ 已导出 ${exported} 条信道（范围 ${start + 1}~${end + 1}），文件 k5_channels_*.csv`, "ok");
+      log(`信道导出完成：${exported}/${count} 条有效`);
+    } catch (err) {
+      setStatus("导出失败：" + err.message, "err");
+      log("导出异常：" + err.message, "err");
+    } finally {
+      $("btnChExpCsv").disabled = false;
+    }
+  });
+
+  // ---------- 清空信道（恢复出厂擦除态 0xFF） ----------
+  $("btnChClear").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    const C = proto.CHAN;
+    const start = parseInt($("chClrStart").value, 10) - 1;
+    const end = parseInt($("chClrEnd").value, 10) - 1;
+    if (isNaN(start) || isNaN(end) || start < 0 || end >= C.MAX_COUNT || start > end) {
+      setStatus(`信道范围无效，应为 1~${C.MAX_COUNT}`, "err"); return;
+    }
+    const count = end - start + 1;
+    if (!confirm(`确定清空信道 ${start + 1}~${end + 1}（共 ${count} 个）吗？\n\n频率、名称、属性将全部恢复为出厂擦除态，此操作不可恢复！\n建议先导出 CSV 备份。\n\n清空完成后对讲机将自动重启以立即生效。`)) return;
+
+    $("btnChClear").disabled = true;
+    $("chClrProgress").style.display = "block";
+    const bar = $("chClrProgressBar");
+    bar.style.width = "0%";
+    try {
+      await ensureSession();
+      const emptyFreq = new Uint8Array(C.SIZE).fill(0xFF);
+      const emptyName = new Uint8Array(C.NAME_SIZE).fill(0xFF);
+      // 属性区按 8 字节对齐读改写：缓存对齐块，每 4 个信道才重读一次
+      let cacheBase = -1;
+      let cacheBlock = null;
+      for (let ch = start; ch <= end; ch++) {
+        await writeEepromBlock(ch * C.SIZE, emptyFreq);
+        await writeEepromBlock(C.NAME_BASE + ch * C.NAME_SIZE, emptyName);
+
+        const attrOffset = C.ATTR_BASE + ch * C.ATTR_SIZE;
+        const alignBase = attrOffset - (attrOffset % C.ATTR_ALIGN);
+        const inOff = attrOffset - alignBase;
+        if (alignBase !== cacheBase) {
+          cacheBlock = new Uint8Array(await readEepromBlock(alignBase, C.ATTR_ALIGN));
+          cacheBase = alignBase;
+        }
+        cacheBlock[inOff] = 0xFF;
+        cacheBlock[inOff + 1] = 0xFF;
+        await writeEepromBlock(alignBase, cacheBlock);
+
+        bar.style.width = ((ch - start + 1) / count * 100).toFixed(1) + "%";
+        if ((ch - start + 1) % 20 === 0 || ch === end) log(`已清空 ${ch - start + 1}/${count}`);
+      }
+      bar.style.width = "100%";
+      // 固件开机时把属性区一次性读进 RAM（settings.c SETTINGS_InitEEPROM），
+      // 不重启的话切换信道仍按旧属性表工作，必须重启才重新加载
+      log("清空完成，发送重启命令...");
+      await writer.write(proto.buildFrame(proto.CMD.REBOOT, new Uint8Array(0)));
+      setStatus(`✅ 已清空信道 ${start + 1}~${end + 1}（共 ${count} 个），对讲机正在重启生效`, "ok");
+      log("已重启");
+    } catch (err) {
+      setStatus("清空失败：" + err.message, "err");
+      log("清空异常：" + err.message, "err");
+    } finally {
+      $("btnChClear").disabled = false;
+    }
+  });
+
+  // ---------- 固件刷写（bootloader 协议，参考 Apache-2.0 的 uvtools2/js/flash.js） ----------
+  let fwData = null;
+
+  // 从回复队列等一条指定 id 的消息，其余（广播/K5Viewer 流等）丢弃
+  async function waitForMsg(id, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (replyQueue.length) {
+        const f = replyQueue.shift();
+        if (f.length >= 2 && (f[0] | (f[1] << 8)) === id) return f;
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return null;
+  }
+
+  // 阶段 1：等设备广播（连续 5 条有效 0x0518，相邻间隔 5~1000ms）
+  async function waitDeviceInfo(maxMs) {
+    const deadline = Date.now() + maxMs;
+    let lastTime = 0, valid = 0;
+    while (Date.now() < deadline) {
+      const f = await waitForMsg(proto.FLASH_MSG.NOTIFY_DEV_INFO, 1200);
+      if (!f) return null; // 1.2s 无广播 → 不在刷机模式
+      const now = Date.now();
+      const dt = now - lastTime;
+      valid = !lastTime || (dt >= 5 && dt <= 1000) ? valid + 1 : 1;
+      lastTime = now;
+      if (valid >= 5) return f;
+    }
+    return null;
+  }
+
+  // 阶段 2：握手（收 0x0518 → 回 0x0530 版本前 4 字符，共 3 次）
+  async function flashHandshake(version) {
+    const v4 = new TextEncoder().encode(version.slice(0, 4).padEnd(4, "0"));
+    for (let i = 0; i < 3; i++) {
+      const f = await waitForMsg(proto.FLASH_MSG.NOTIFY_DEV_INFO, 1500);
+      if (!f) throw new Error("握手超时（未收到设备广播）");
+      await writer.write(proto.buildFlashFrame(proto.FLASH_MSG.NOTIFY_BL_VER, v4));
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    replyQueue.length = 0; // 排空残余广播
+  }
+
+  $("fwFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    fwData = null;
+    $("btnFlash").disabled = true;
+    if (!f) return;
+    const buf = new Uint8Array(await f.arrayBuffer());
+    if (!buf.length || buf.length > proto.FLASH_MSG.APP_MAX_SIZE) {
+      setStatus(`固件大小无效：${buf.length} 字节（应 1~${proto.FLASH_MSG.APP_MAX_SIZE}）`, "err");
+      return;
+    }
+    fwData = buf;
+    $("btnFlash").disabled = false;
+    log(`固件已加载：${f.name}（${buf.length} 字节，${Math.ceil(buf.length / 256)} 页）`);
+  });
+
+  $("btnFlash").addEventListener("click", async () => {
+    if (!port) { setStatus("请先连接串口", "err"); return; }
+    if (!fwData) { setStatus("请先选择固件文件", "err"); return; }
+
+    $("btnFlash").disabled = true;
+    $("flashProgress").style.display = "block";
+    const bar = $("flashProgressBar");
+    bar.style.width = "0%";
+    try {
+      // ① 等设备（用户需已按住 PTT 开机进入刷机模式）
+      log("等待刷机模式设备...（按住 PTT 开机）");
+      setStatus("等待刷机模式设备...（按住 PTT 开机）", "info");
+      const devMsg = await waitDeviceInfo(20000);
+      if (!devMsg) throw new Error("未检测到刷机模式设备。请断开串口，按住 PTT 键开机后重新点击开始刷写");
+      const dev = proto.parseDevInfo(devMsg);
+      if (!dev) throw new Error("设备信息解析失败");
+      log(`设备 UID：${dev.uid}`);
+      log(`Bootloader 版本：${dev.version}`);
+      if (!proto.blVersionOK(dev.version))
+        throw new Error(`Bootloader 版本过低（${dev.version}，要求 ≥ 7.00.07），请先更新 bootloader`);
+
+      // ② 握手
+      log("握手中...");
+      await flashHandshake(dev.version);
+      log("握手完成，开始分页编程");
+
+      // ③ 分页编程（256B/页，逐页 ACK，重试 3 次）
+      const PS = proto.FLASH_MSG.PAGE_SIZE;
+      const pageCount = Math.ceil(fwData.length / PS);
+      const timestamp = Date.now() >>> 0;
+      for (let i = 0; i < pageCount; i++) {
+        const page = fwData.subarray(i * PS, Math.min((i + 1) * PS, fwData.length));
+        const data = proto.buildFwPage(timestamp, i, pageCount, page);
+        let done = false, lastErr = "";
+        for (let attempt = 1; attempt <= 3 && !done; attempt++) {
+          await writer.write(proto.buildFlashFrame(proto.FLASH_MSG.PROG_FW, data));
+          const resp = await waitForMsg(proto.FLASH_MSG.PROG_FW_RESP, 3000);
+          if (!resp) { lastErr = "ACK 超时"; continue; }
+          if (resp.length < 12) { lastErr = "ACK 长度异常"; continue; }
+          const dv = new DataView(resp.buffer, resp.byteOffset, resp.byteLength);
+          const echoIdx = dv.getUint16(8, true);
+          const errCode = dv.getUint16(10, true);
+          if (echoIdx === i && errCode === 0) done = true;
+          else lastErr = `页号回显 ${echoIdx} 错误码 ${errCode}`;
+        }
+        if (!done) throw new Error(`第 ${i}/${pageCount} 页写入失败：${lastErr}`);
+        bar.style.width = ((i + 1) / pageCount * 100).toFixed(1) + "%";
+        if (i % 50 === 49 || i === pageCount - 1) log(`页 ${i + 1}/${pageCount}`);
+      }
+      bar.style.width = "100%";
+      setStatus("✅ 固件刷写完成！请断开串口并重新开机", "ok");
+      log("固件刷写完成，请重新开机");
+    } catch (err) {
+      setStatus("固件刷写失败：" + err.message, "err");
+      log("固件刷写异常：" + err.message, "err");
+    } finally {
+      $("btnFlash").disabled = false;
+    }
+  });
+
+  // 页面加载后静默同步一次网络时间，后续写 RTC 零延迟
+  syncTimeInBackground();
+
+  // 页面加载后从本地缓存恢复 TLE（秒开选星；缓存超过 12h 时下拉框锁定并强制刷新）
+  {
+    const cache = loadTleCache();
+    if (cache.length) {
+      satList = cache;
+      const input = $("satSelect");
+      const fresh = tleCacheFresh();
+      if (fresh) {
+        input.disabled = false;
+        input.placeholder = `输入关键字搜索 ${cache.length} 颗卫星（本地缓存 ${tleCacheAge()}）`;
+      } else {
+        input.disabled = true; // 过期：下拉框锁定，强制先获取最新 TLE
+        input.placeholder = `缓存已过期（${tleCacheAge()}），请先点"⬇️ 获取 TLE"`;
+        log(`TLE 缓存已过期（${tleCacheAge()}），下拉框已锁定，等待获取最新 TLE`);
+      }
+      // 缓存过期：自动后台刷新，成功即解锁下拉框
+      if (!fresh) {
+        refreshTleFromNetwork(cache)
+          .then(({ list, updated }) => {
+            input.disabled = false;
+            input.placeholder = `输入关键字搜索 ${list.length} 颗卫星（名称 / NORAD 编号）`;
+            log(`过期缓存已自动刷新：共 ${list.length} 颗${updated > 0 ? `，更新 ${updated} 颗` : "（无变化）"}，下拉框已解锁`);
+          })
+          .catch((e) => {
+            input.placeholder = `刷新失败，请点"⬇️ 获取 TLE"重试（${e.message}）`;
+            log(`过期缓存自动刷新失败：${e.message}，下拉框保持锁定，请手动获取`, "err");
+          });
+      }
+    }
+  }
+
+  // 页面加载后恢复频率库（localStorage 缓存优先，其次内置 freqdb.js 静态数据）；
+  // 频率基本不变、缓存不过期，仅在完全无数据时后台静默拉取
+  {
+    const data = loadFreqData();
+    if (data) {
+      freqMap = data.map;
+      log(`已加载频率库（${Object.keys(freqMap).length} 颗卫星，来源：${data.source}）`);
+    } else {
+      ensureFreqDB().catch(() => {});
+    }
+  }
+})();

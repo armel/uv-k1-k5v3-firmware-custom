@@ -17,3 +17,12 @@ __pycache__/
 
 .DS_Store
 AGENTS.md
+
+.zcode/
+
+# Windows build artifacts
+*.exe
+*.obj
+*.pdb
+*.ilk
+nul

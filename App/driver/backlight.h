@@ -47,5 +47,6 @@ bool BACKLIGHT_IsOn();
 void BACKLIGHT_SetBrightness(uint8_t brigtness);
 void BACKLIGHT_Update(void);
 uint8_t BACKLIGHT_GetBrightness(void);
+void BACKLIGHT_ForceOnMax(void);
 
 #endif

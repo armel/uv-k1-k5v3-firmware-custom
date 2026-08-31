@@ -26,6 +26,9 @@
 #include "app/generic.h"
 #include "app/main.h"
 #include "app/scanner.h"
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    #include "app/doppler_mode.h"
+#endif
 
 #ifdef ENABLE_SPECTRUM
 #include "app/spectrum.h"
@@ -135,7 +138,18 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 
     switch (Key) {
         case KEY_0:
-            #ifdef ENABLE_FMRADIO
+            #if defined(ENABLE_FEAT_F4HWN_DOPPLER)
+                if (beep) {
+                    // 直接长按 0 → 多普勒模式
+                    DOPPLER_EnterMode();
+                }
+                else {
+                    // F 键 + 短按 0 → FM 收音机（保留官方行为）
+                    #ifdef ENABLE_FMRADIO
+                        ACTION_FM();
+                    #endif
+                }
+            #elif defined(ENABLE_FMRADIO)
                 ACTION_FM();
             #endif
             break;

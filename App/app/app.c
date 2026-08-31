@@ -42,6 +42,9 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    #include "app/doppler_mode.h"
+#endif
 #include "app/scanner.h"
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
     #include "app/uart.h"
@@ -122,6 +125,10 @@ void (*const ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKey
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     [DISPLAY_RXTX_LOG] = &RXTX_LOG_ProcessKeys,
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    [DISPLAY_DOPPLER] = &DOPPLER_ProcessKeys,
 #endif
 };
 
@@ -252,6 +259,9 @@ static bool ScreenSaverCanDisplay(void)
 #endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
         || gBeamActive
+#endif
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        || DOPPLER_IsActive()
 #endif
         )
     {
@@ -797,7 +807,11 @@ void APP_StartListening(FUNCTION_Type_t function)
     if (function == FUNCTION_MONITOR)
 #endif
     {   // squelch is disabled
-        if (gScreenToDisplay != DISPLAY_MENU)     // 1of11 .. don't close the menu
+        if (gScreenToDisplay != DISPLAY_MENU
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+            && gScreenToDisplay != DISPLAY_DOPPLER
+#endif
+        )     // 1of11 .. don't close the menu
             GUI_SelectNextDisplay(DISPLAY_MAIN);
     }
     else
@@ -1601,6 +1615,10 @@ void APP_TimeSlice10ms(void)
     RXTX_LOG_Task10ms();
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+    DOPPLER_TimeSlice();
+#endif
+
     BACKLIGHT_Update();
 
     gFlashLightBlinkCounter++;
@@ -1929,6 +1947,10 @@ void APP_TimeSlice500ms(void)
     if (gBacklightCountdown_500ms > 0 && !gAskToSave && !gCssBackgroundScan
         // don't turn off backlight if user is in backlight menu option
         && !(gScreenToDisplay == DISPLAY_MENU && (m == MENU_ABR || m == MENU_ABR_MAX || m == MENU_ABR_MIN))
+#ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        // Doppler tracking runs unattended and must stay readable
+        && !DOPPLER_IsActive()
+#endif
         && --gBacklightCountdown_500ms == 0
         && gEeprom.BACKLIGHT_TIME < 61
     ) {
@@ -1958,6 +1980,11 @@ void APP_TimeSlice500ms(void)
     #endif
     #ifdef ENABLE_FEAT_F4HWN_BEAM
         && !gBeamActive
+    #endif
+    #ifdef ENABLE_FEAT_F4HWN_DOPPLER
+        // Doppler tracking is unattended: never sleep mid-pass, the RTC-driven
+        // retune must keep running and the screen must stay readable
+        && !DOPPLER_IsActive()
     #endif
     )
     {

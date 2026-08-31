@@ -151,6 +151,10 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
 }
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    // misc.c：上位机编程会话倒计时。会话期间 UART 字节流归编程协议独占，
+    // 整段跳过 K5Viewer 解析，避免刷机数据被误判为按键注入（同 driver/vcp.c）。
+    extern volatile uint8_t gSerialConfigCountDown_500ms;
+
     bool UART_IsCableConnected(void) {
         static uint8_t     read_ptr = 0;
         static ParseState_t state   = STATE_IDLE;
@@ -160,6 +164,14 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
         // DMA write position: NbData counts DOWN from 256
         uint8_t write_ptr = (uint8_t)(sizeof(UART_DMA_Buffer) - 
                                        LL_DMA_GetDataLength(DMA1, DMA_CHANNEL));
+
+        // 编程会话进行中：丢弃积压字节并复位状态机，不解析
+        if (gSerialConfigCountDown_500ms != 0)
+        {
+            read_ptr = write_ptr;
+            state    = STATE_IDLE;
+            return false;
+        }
 
         uint8_t processed = 0;
         while (read_ptr != write_ptr && processed < sizeof(UART_DMA_Buffer))

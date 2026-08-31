@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K5Web - 多普勒固件手台工具</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8; color: #222;
+    display: flex; flex-direction: column;
+  }
+  a { color: #2f6fdc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* 顶部标题栏 */
+  .topbar {
+    height: 56px; background: #fff; border-bottom: 1px solid #ddd;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; flex-shrink: 0;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar .brand { font-size: 18px; font-weight: 600; color: #111; }
+  .topbar .top-actions { display: flex; align-items: center; gap: 12px; }
+  .topbar .link { font-size: 14px; color: #444; cursor: pointer; }
+  .topbar .link:hover { color: #2f6fdc; }
+  .btn-connect { padding: 7px 18px; font-size: 14px; border: none; border-radius: 4px; cursor: pointer; background: #2f6fdc; color: #fff; }
+  .btn-connect.secondary { background: #6c757d; }
+  .top-status { font-size: 13px; color: #444; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top-status.ok { color: #1a7f37; }
+  .top-status.err { color: #c62828; }
+
+  /* 主体：左侧边栏 + 内容区 */
+  .main { display: flex; flex: 1; overflow: hidden; }
+
+  /* 左侧导航栏 */
+  .sidebar {
+    width: 200px; background: #fff; border-right: 1px solid #ddd;
+    display: flex; flex-direction: column; flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .nav-group { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+  .nav-title {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; font-size: 14px; color: #333; font-weight: 500; cursor: pointer;
+  }
+  .nav-title:hover { background: #f7f8fa; }
+  .nav-title .arrow { font-size: 12px; color: #999; transition: transform .2s; }
+  .nav-title.collapsed .arrow { transform: rotate(-90deg); }
+  .nav-items { display: flex; flex-direction: column; }
+  .nav-items.hidden { display: none; }
+  .nav-item {
+    padding: 10px 16px 10px 32px; font-size: 14px; color: #555; cursor: pointer;
+    border-left: 3px solid transparent; white-space: nowrap;
+  }
+  .nav-item:hover { background: #f7f8fa; color: #2f6fdc; }
+  .nav-item.active { background: #eef4ff; color: #2f6fdc; border-left-color: #2f6fdc; }
+  .sidebar-footer { margin-top: auto; padding: 12px 16px; font-size: 12px; color: #999; }
+
+  /* 内容区 */
+  .content {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+    max-width: 900px; margin: 0 auto; width: 100%;
+  }
+  .page-title { font-size: 20px; margin: 0 0 16px; }
+  .welcome { font-size: 16px; color: #333; margin-bottom: 24px; }
+  h2 { font-size: 15px; margin: 18px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h2:first-child { margin-top: 0; }
+  label { display: block; font-size: 13px; margin: 8px 0 2px; color: #444; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 14px; border: 1px solid #bbb; border-radius: 4px; }
+  textarea { font-family: Consolas, monospace; font-size: 12px; height: 52px; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button { padding: 8px 16px; font-size: 14px; border: none; border-radius: 4px; cursor: pointer; background: #2f6fdc; color: #fff; }
+  button.secondary { background: #6c757d; }
+  button.danger { background: #c62828; }
+  button:disabled { background: #aab; cursor: not-allowed; }
+  #log {
+    font-family: Consolas, monospace; font-size: 12px; background: #111; color: #9f9;
+    padding: 8px; border-radius: 4px; height: 160px; overflow-y: auto; white-space: pre-wrap;
+  }
+  .result { font-size: 13px; line-height: 1.7; }
+  .progress { height: 8px; background: #e0e0e0; border-radius: 4px; margin: 8px 0; overflow: hidden; display: none; }
+  .progress > div { height: 100%; width: 0%; background: #2f6fdc; transition: width .2s; }
+  .hint { font-size: 13px; color: #666; margin: 4px 0 0; }
+  /* 卫星模糊搜索下拉 */
+  .sat-combo { position: relative; }
+  .sat-dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 1000; background: #fff; border: 1px solid #bbb; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 260px; overflow-y: auto; margin-top: 2px; }
+  .sat-item { padding: 6px 8px; font-size: 13px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sat-item .norad { color: #999; font-size: 12px; font-family: Consolas, monospace; flex-shrink: 0; }
+  .sat-item.active { background: #2f6fdc; color: #fff; }
+  .sat-item.active .norad { color: #cfe0ff; }
+  .sat-item mark { background: #ffe58f; padding: 0; }
+  .sat-item.active mark { background: rgba(255,255,255,.3); color: inherit; }
+  .sat-empty { padding: 8px; font-size: 12px; color: #888; text-align: center; }
+
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+
+  /* 移动端适配 */
+  .menu-toggle { display: none; font-size: 20px; background: none; border: none; color: #444; padding: 4px 8px; margin-right: 8px; }
+  @media (max-width: 768px) {
+    .menu-toggle { display: inline-block; }
+    .sidebar {
+      position: fixed; left: 0; top: 56px; bottom: 0; z-index: 99;
+      transform: translateX(-100%); transition: transform .2s;
+      box-shadow: 2px 0 8px rgba(0,0,0,.1);
+    }
+    .sidebar.open { transform: translateX(0); }
+    .content { padding: 16px; }
+    .overlay { display: none; position: fixed; inset: 56px 0 0 0; background: rgba(0,0,0,.3); z-index: 98; }
+    .overlay.show { display: block; }
+  }
+
+  /* 扫码传定位弹窗 */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-panel {
+    background: #fff; border-radius: 10px; padding: 20px 22px;
+    max-width: 360px; width: 92%; box-shadow: 0 6px 24px rgba(0,0,0,.25);
+    text-align: center; max-height: 92vh; overflow-y: auto;
+  }
+  .modal-panel h3 { margin: 0 0 6px; font-size: 17px; }
+  .modal-panel .sub { font-size: 13px; color: #666; margin: 0 0 12px; }
+  #gpsQr { display: inline-block; padding: 8px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+  #gpsQr img, #gpsQr canvas { display: block; }
+  .gps-qr-url {
+    font-family: Consolas, monospace; font-size: 12px; color: #333;
+    background: #f5f6f8; border: 1px solid #ddd; border-radius: 4px;
+    padding: 6px 8px; margin: 10px 0 4px; word-break: break-all;
+  }
+  .gps-qr-iprow { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; }
+  .gps-qr-iprow input { width: 170px; font-size: 13px; }
+  .gps-qr-iprow button { padding: 7px 10px; font-size: 13px; }
+  .gps-qr-status { font-size: 13px; color: #1a7f37; margin: 10px 0 0; min-height: 18px; }
+  .gps-qr-status.err { color: #c62828; }
+  .gps-qr-tip { font-size: 12px; color: #999; margin: 8px 0 0; text-align: left; }
+</style>
+</head>
+<body>
+
+<!-- 顶部标题栏 -->
+<header class="topbar">
+  <div style="display:flex;align-items:center">
+    <button class="menu-toggle" id="menuToggle">☰</button>
+    <span class="brand">多普勒固件手台工具</span>
+  </div>
+  <div class="top-actions">
+    <span class="link">问题反馈</span>
+    <button id="btnConnect" class="btn-connect">连接</button>
+    <span id="status" class="top-status"></span>
+  </div>
+</header>
+
+<!-- 主体 -->
+<div class="main">
+  <!-- 左侧导航 -->
+  <nav class="sidebar" id="sidebar">
+    <div class="nav-group">
+      <div class="nav-title" data-group="gWrite">写频 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gWrite">
+        <div class="nav-item active" data-tab="tabHome" type="button">首页</div>
+        <div class="nav-item" data-tab="tabChProg" type="button">信道管理</div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title" data-group="gTool">工具 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gTool">
+        <div class="nav-item" data-tab="tabFw" type="button">固件刷写</div>
+        <div class="nav-item" data-tab="tabCalExp" type="button">导出校准</div>
+        <div class="nav-item" data-tab="tabCalImp" type="button">导入校准</div>
+        <div class="nav-item" data-tab="tabFont" type="button">中文字库</div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title" data-group="gDoppler">多普勒 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gDoppler">
+        <div class="nav-item" data-tab="tabEphem" type="button">星历写入</div>
+      </div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-title" data-group="gLog">日志 <span class="arrow">▼</span></div>
+      <div class="nav-items" id="gLog">
+        <div class="nav-item" data-tab="tabLog" type="button">运行日志</div>
+      </div>
+    </div>
+    <div class="sidebar-footer">K5Web - V0.1</div>
+  </nav>
+  <div class="overlay" id="overlay"></div>
+
+  <!-- 右侧内容 -->
+  <main class="content">
+
+<!-- ========== 首页 ========== -->
+<div id="tabHome" class="tabpanel active">
+  <h1 class="page-title">多普勒固件手台工具</h1>
+  <div class="card">
+    <p class="hint">适用于 UV-K1 / UV-K5 V3 / UV-K6 V3（PY32F071）F4HWN 固件。选择左侧功能菜单开始使用。</p>
+  </div>
+</div>
+
+<!-- ========== 选项卡：固件刷写 ========== -->
+<div id="tabFw" class="tabpanel">
+  <h1 class="page-title">固件刷写</h1>
+
+  <div class="card">
+    <h2>固件刷写（Bootloader 协议，256 字节/页）</h2>
+    <p class="hint">刷写主固件（裸 .bin，写入 0x08002800）。步骤：<b>① 按住 PTT 键不放，同时开机</b>，进入刷机模式（屏幕不亮，对讲机持续广播设备信息）→ ② 本页选择固件文件 → ③ 点"开始刷写"。</p>
+    <label>固件文件（build/Fusion/f4hwn.fusion.bin，≤ 118 KB）</label>
+    <input id="fwFile" type="file" accept=".bin">
+    <div class="row" style="margin-top:8px">
+      <button id="btnFlash" disabled>📥 开始刷写</button>
+    </div>
+    <div id="flashProgress" class="progress"><div id="flashProgressBar"></div></div>
+    <p class="hint">刷写中请勿断电或拔线；完成后断开串口并重新开机。刷机失败不会变砖——保持按住 PTT 重新开机即可再次进入刷机模式重刷。</p>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：导出校准数据 ========== -->
+<div id="tabCalExp" class="tabpanel">
+  <h1 class="page-title">导出校准数据</h1>
+
+  <div class="card">
+    <h2>导出校准数据（512 字节）</h2>
+    <p class="hint">读出机内校准区（EEPROM 0xB000~0xB200：电池电压校准、RSSI 校准等），保存为 calibration.dat 文件。<b>刷写新固件前建议先导出备份。</b>对讲机保持正常开机即可，无需进刷机模式。</p>
+    <div class="row" style="margin-top:8px">
+      <button id="btnCalExp">📤 导出校准数据</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：导入校准数据 ========== -->
+<div id="tabCalImp" class="tabpanel">
+  <h1 class="page-title">导入校准数据</h1>
+
+  <div class="card">
+    <h2>导入校准数据（512 字节）</h2>
+    <p class="hint">把之前导出的 calibration.dat 写回机内校准区。<b style="color:#c62828">警告：写错校准数据会导致频率/功率/电量显示异常</b>，请确认文件来自同一台机器。导入完成后对讲机自动重启生效。</p>
+    <label>校准文件（calibration.dat，512 字节）</label>
+    <input id="calFile" type="file" accept=".dat,.bin">
+    <div class="row" style="margin-top:8px">
+      <button id="btnCalImp" disabled>📥 导入校准数据</button>
+    </div>
+    <div id="calProgress" class="progress"><div id="calProgressBar"></div></div>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：中文字库 ========== -->
+<div id="tabFont" class="tabpanel">
+  <h1 class="page-title">中文字库</h1>
+
+  <div class="card">
+    <h2>中文字库刷入（GB2312 16×16）</h2>
+    <p class="hint">字库写入外置 FLASH <code>0xA0000</code>，与白头佬多系统共享字库位置兼容，单系统同样可用。只需刷一次，之后升级固件不受影响。</p>
+
+    <input id="fontFile" type="file" accept=".bin">
+    <div class="row" style="margin-top:8px">
+      <button id="btnFont" disabled>🀄 刷入字库</button>
+    </div>
+    <div id="fontProgress" class="progress"><div id="fontProgressBar"></div></div>
+    <p class="hint">共 64 个扇区，约需 1~3 分钟，期间请勿断电或拔线。</p>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>字库查看 / 校验</h2>
+    <p class="hint">从 <code>0xA0000</code> 读取一个 16×16 字形，确认字库格式正确（白头佬共享字库亦可校验）。</p>
+    <div class="row">
+      <input id="fontViewChar" type="text" maxlength="1" placeholder="输入一个汉字" style="flex:1">
+      <button id="btnFontView" class="secondary">🔍 读取字形</button>
+      <button id="btnFontCheck" class="secondary">✅ 校验存在</button>
+    </div>
+    <pre id="fontViewGrid" style="font-family:Consolas,monospace;font-size:11px;line-height:10px;margin-top:8px"></pre>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：多普勒星历 ========== -->
+<div id="tabEphem" class="tabpanel">
+  <h1 class="page-title">多普勒星历</h1>
+
+  <div class="card">
+    <h2>1. 卫星与频率</h2>
+    <div class="row">
+      <div class="sat-combo" style="flex:2"><label>选择卫星（获取后可输入关键字模糊搜索）</label>
+        <input id="satSelect" type="text" disabled placeholder='— 先点"获取 TLE" —' autocomplete="off" spellcheck="false">
+        <div id="satDropdown" class="sat-dropdown" hidden></div>
+      </div>
+      <div style="flex:1; display:flex; align-items:flex-end; gap:8px">
+        <button id="btnFetch" style="flex:1">⬇️ 获取 TLE</button>
+      </div>
+    </div>
+    <label>TLE（两行，也可手动粘贴）</label>
+    <textarea id="tle" placeholder="1 25544U ...&#10;2 25544  51.6400 ..."></textarea>
+    <div class="row">
+      <div><label>上行频率 (MHz)</label><input id="fUp" value="145.99"></div>
+      <div><label>下行频率 (MHz)</label><input id="fDown" value="437.8"></div>
+      <div><label>发射亚音</label>
+        <select id="ctcss">
+          <option value="0">无</option>
+          <option value="670">67.0</option><option value="719">71.9</option>
+          <option value="885">88.5</option><option value="1000">100.0</option>
+          <option value="1109">110.9</option><option value="1230">123.0</option>
+          <option value="1365">136.5</option><option value="1413">141.3</option>
+          <option value="1514">151.4</option><option value="1622">162.2</option>
+          <option value="1679">167.9</option><option value="1738">173.8</option>
+          <option value="1799">179.9</option><option value="1862">186.2</option>
+          <option value="1928">192.8</option><option value="2035">203.5</option>
+          <option value="2181">218.1</option><option value="2336">233.6</option>
+          <option value="2418">241.8</option><option value="2541">254.1</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. 观测位置</h2>
+    <div class="row">
+      <div><label>纬度 (度)</label><input id="lat" value="31.23"></div>
+      <div><label>经度 (度)</label><input id="lon" value="121.47"></div>
+      <div><label>海拔 (m)</label><input id="alt" value="11"></div>
+      <div><label>最低仰角 (度)</label><input id="minEl" value="0" type="number" step="0.5"></div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnMap" class="secondary" type="button" style="flex:1">📍 在地图上选点（高德）</button>
+      <button id="btnLocate" class="secondary" type="button" style="flex:1">🎯 用我的位置（GPS）</button>
+      <button id="btnGpsQr" class="secondary" type="button" style="flex:1">📱 扫码传定位</button>
+    </div>
+    <div id="mapWrap" style="display:none;margin-top:8px">
+      <div id="map" style="height:320px;border:1px solid #bbb;border-radius:6px"></div>
+      <p style="font-size:12px;color:#888;margin:4px 0 0">点击地图选点，经纬度自动填入并查询海拔（地图为高德 GCJ-02，已自动转 WGS-84）</p>
+    </div>
+    <button id="btnCalc" style="margin-top:10px">🔭 计算最近过境</button>
+    <div id="result" class="result" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <h2>3. 写入星历</h2>
+    <p class="hint">流程：获取 TLE → 计算过境 → 连接串口 → 写入（会同步写入北京时间到 RTC）。机内操作：<b>长按 0</b> 进入多普勒模式，<b>F+1~4</b> 切换 4 个星历槽位。<b style="color:#c62828">"删除全部星历"会清空 1-4 槽位数据，不可恢复。</b></p>
+    <div class="row" style="margin-top:8px">
+      <div style="display:flex; align-items:center; gap:8px">
+        <label for="slotSelect">写入槽位</label>
+        <select id="slotSelect">
+          <option value="1">槽 1</option>
+          <option value="2">槽 2</option>
+          <option value="3">槽 3</option>
+          <option value="4">槽 4</option>
+        </select>
+      </div>
+      <button id="btnEraseAll" class="danger" type="button" style="margin-left:auto">🗑️ 删除全部星历</button>
+      <button id="btnWrite" disabled>💾 写入星历</button>
+    </div>
+    <div id="progress" class="progress"><div id="progressBar"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>4. 槽位名称编辑</h2>
+    <p class="hint">读取指定槽位的卫星名称（多普勒主页面显示的"1:SO-50"中的名字），修改后写回，过境时间等数据不变。机内按 <b>F+槽号</b> 重新选中即可看到新名称。</p>
+    <div class="row">
+      <div style="display:flex; align-items:center; gap:8px">
+        <label for="slotEditSelect">槽位</label>
+        <select id="slotEditSelect">
+          <option value="1">槽 1</option>
+          <option value="2">槽 2</option>
+          <option value="3">槽 3</option>
+          <option value="4">槽 4</option>
+        </select>
+      </div>
+      <div style="flex:1">
+        <label for="slotNameInput">卫星名称（≤ 9 字符）</label>
+        <input id="slotNameInput" maxlength="9" placeholder="— 先读取槽位 —" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="btnSlotRead" class="secondary" type="button" style="flex:1">🔍 读取槽位名称</button>
+      <button id="btnSlotRename" disabled style="flex:1">💾 保存名称</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>5. 导出星历到电脑（调试诊断）</h2>
+    <p class="hint">把当前计算出的过境星历（TLE、观测位置、过境窗口、每秒补偿频率表）导出为文件，便于核对计算、与其他软件对比、存档分析。<b>无需连接对讲机</b>，先在上方完成"计算最近过境"即可导出。JSON 含全部参数，CSV 可直接用 Excel 打开查看频率表。</p>
+    <div class="row" style="margin-top:8px">
+      <button id="btnEphemExport" disabled type="button" style="flex:1">📤 导出星历 JSON</button>
+      <button id="btnEphemExportCsv" disabled type="button" style="flex:1">📊 导出频率表 CSV</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== 选项卡：写频（写信道） ========== -->
+<div id="tabChProg" class="tabpanel">
+  <h1 class="page-title">信道管理</h1>
+
+  <div class="card">
+    <h2>写入单个存储信道（MR）</h2>
+    <p class="hint">通过 0x051D 写 EEPROM 命令把信道参数写入 SPI Flash。对讲机保持正常开机即可。<b style="color:#c62828">注意：会覆盖指定信道现有数据</b>，建议先导出校准/信道备份。</p>
+
+    <div class="row">
+      <div style="flex:1">
+        <label>信道号（1–1024）</label>
+        <input id="chNum" type="number" min="1" max="1024" value="1">
+      </div>
+      <div style="flex:2">
+        <label>信道名称（最多 10 字节，中文每字 2 字节）</label>
+        <input id="chName" type="text" maxlength="10" placeholder="例如：ISS空间站">
+      </div>
+    </div>
+
+    <div class="row">
+      <div><label>接收频率（MHz）</label><input id="chRxFreq" value="439.500" type="number" step="0.0001"></div>
+      <div><label>发射频率（MHz）</label><input id="chTxFreq" value="434.500" type="number" step="0.0001"></div>
+    </div>
+    <p class="hint">发射频率与“差频方向+差频”联动：填一边自动计算另一边；方向选“无”时即同频收发，差频不可填。写频时按固件格式存储（接收频率 + 频差值 + 方向）。</p>
+
+    <div class="row">
+      <div>
+        <label>差频方向</label>
+        <select id="chTxDir">
+          <option value="0">无</option>
+          <option value="1">上差频（+）</option>
+          <option value="2">下差频（−）</option>
+        </select>
+      </div>
+      <div><label>差频（MHz）</label><input id="chTxOffset" value="5.0000" type="number" step="0.0001"></div>
+      <div>
+        <label>调制方式</label>
+        <select id="chModulation">
+          <option value="0" selected>FM</option>
+          <option value="1">AM</option>
+          <option value="2">USB</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>带宽</label>
+        <select id="chBandwidth">
+          <option value="0" selected>宽带</option>
+          <option value="1">窄带</option>
+        </select>
+      </div>
+      <div>
+        <label>发射功率</label>
+        <select id="chPower">
+          <option value="0">USER</option>
+          <option value="1">LOW1</option>
+          <option value="2">LOW2</option>
+          <option value="3">LOW3</option>
+          <option value="4">LOW4</option>
+          <option value="5">LOW5</option>
+          <option value="6">MID</option>
+          <option value="7" selected>HIGH</option>
+        </select>
+      </div>
+      <div>
+        <label>步进（kHz）</label>
+        <select id="chStep">
+          <option value="4" selected>12.5</option>
+          <option value="3">10</option>
+          <option value="5">25</option>
+          <option value="1">5</option>
+          <option value="2">6.25</option>
+          <option value="0">2.5</option>
+          <option value="6">8.33</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>接收亚音</label>
+        <select id="chRxToneType">
+          <option value="0" selected>无</option>
+          <option value="1">CTCSS</option>
+          <option value="2">DCS</option>
+          <option value="3">DCS 反相</option>
+        </select>
+      </div>
+      <div><label>接收亚音值（CTCSS 填 67.0，DCS 填 023）</label><input id="chRxTone" value="" placeholder="无"></div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>发射亚音</label>
+        <select id="chTxToneType">
+          <option value="0" selected>无</option>
+          <option value="1">CTCSS</option>
+          <option value="2">DCS</option>
+          <option value="3">DCS 反相</option>
+        </select>
+      </div>
+      <div><label>发射亚音值（CTCSS 填 67.0，DCS 填 023）</label><input id="chTxTone" value="" placeholder="无"></div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <button id="btnChProg">💾 写入信道</button>
+      <button id="btnChRead" class="secondary">🔍 读取校验</button>
+    </div>
+    <div id="chProgProgress" class="progress"><div id="chProgProgressBar"></div></div>
+    <div id="chReadResult" class="result" style="display:none;margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>批量导入（CSV）</h2>
+    <p class="hint">每行：信道号,名称,接收频率,发射频率,接收亚音,发射亚音,带宽,功率,调制,差频方向,差频。标题行可选。信道号与手台显示一致，为 1–1024。名称留空则清空。</p>
+    <label>CSV 文件</label>
+    <input id="chCsvFile" type="file" accept=".xlsx,.csv,.txt">
+    <div class="row" style="margin-top:8px">
+      <button id="btnChProgCsv" disabled>📁 导入 CSV 并写入</button>
+    </div>
+    <div id="chCsvProgress" class="progress"><div id="chCsvProgressBar"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>导出信道（CSV）</h2>
+    <p class="hint">读出机内信道并保存为 CSV，格式与批量导入一致，可直接编辑后再导入。名称自动解码中文（GB2312）；空信道自动跳过。范围较大时需要一两分钟，请保持开机连接。</p>
+    <div class="row">
+      <label>起始信道 <input id="chExpStart" type="number" value="1" min="1" max="1024" style="width:80px"></label>
+      <label>结束信道 <input id="chExpEnd" type="number" value="1024" min="1" max="1024" style="width:80px"></label>
+      <button id="btnChExpCsv">📤 导出信道 CSV</button>
+    </div>
+    <div id="chExpProgress" class="progress"><div id="chExpProgressBar"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>清空信道（危险操作）</h2>
+    <p class="hint">把范围内信道的频率、名称、属性全部恢复为出厂擦除态，固件将其视为未使用信道（切换信道/扫描自动跳过）。<b style="color:#c62828">不可恢复！</b>建议先导出 CSV 备份。大范围清空需要几分钟，<b>完成后对讲机自动重启生效</b>。</p>
+    <div class="row">
+      <label>起始信道 <input id="chClrStart" type="number" value="1" min="1" max="1024" style="width:80px"></label>
+      <label>结束信道 <input id="chClrEnd" type="number" value="1024" min="1" max="1024" style="width:80px"></label>
+      <button id="btnChClear" class="danger">🗑️ 清空信道</button>
+    </div>
+    <div id="chClrProgress" class="progress"><div id="chClrProgressBar"></div></div>
+  </div>
+
+</div>
+
+<!-- ========== 公共：运行日志 ========== -->
+<div id="tabLog" class="tabpanel">
+  <h1 class="page-title">运行日志</h1>
+  <div class="card">
+    <h2>运行日志</h2>
+    <div id="log" style="margin-top:8px"></div>
+  </div>
+</div>
+
+  </main>
+</div>
+
+<!-- 扫码传定位弹窗：网页生成二维码，手机 APP 扫描后把 GPS 经纬度/海拔上报到本机 -->
+<div id="gpsQrModal" class="modal-overlay">
+  <div class="modal-panel">
+    <h3>📱 扫码传定位</h3>
+    <p class="sub">用 UvK6 Tools APP 扫描二维码，自动把手机 GPS 经纬度/海拔填入本页</p>
+    <div id="gpsQr"></div>
+    <div class="gps-qr-url" id="gpsQrUrl" title="点击全选复制"></div>
+    <div class="gps-qr-iprow">
+      <input id="gpsQrIp" type="text" placeholder="电脑局域网 IP，如 192.168.1.5">
+      <button id="gpsQrRegen" type="button" class="secondary">重新生成</button>
+    </div>
+    <div class="gps-qr-status" id="gpsQrStatus">等待手机扫码上报…</div>
+    <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
+      <button id="gpsQrClose" type="button" class="secondary">关闭</button>
+    </div>
+    <p class="gps-qr-tip">提示：手机与电脑需在同一局域网；若手机无法上报，请在 Windows 防火墙放行入站 TCP 8080 端口（或用「我的位置」/「地图选点」代替）。</p>
+  </div>
+</div>
+
+<script src="vendor/satellite.min.js"></script>
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
+<script src="gb2312_table.js?v=csv1"></script>
+  <script src="protocol.js?v=16x16"></script>
+<script src="coord.js"></script>
+<script src="calc.js"></script>
+<script src="freqdb.js"></script>
+<script src="app.js?v=csv3"></script>
+<script>
+  // 侧边栏展开/折叠
+  document.querySelectorAll('.nav-title').forEach(title => {
+    title.addEventListener('click', () => {
+      const group = document.getElementById(title.dataset.group);
+      title.classList.toggle('collapsed');
+      group.classList.toggle('hidden');
+    });
+  });
+  // 侧边栏菜单切换
+  function switchTab(tabId) {
+    document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const target = document.getElementById(tabId);
+    if (target) target.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => {
+      if (n.dataset.tab === tabId) n.classList.add('active');
+    });
+    // 移动端自动收起侧边栏
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  }
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => switchTab(item.dataset.tab));
+  });
+  // 汉堡菜单
+  document.getElementById('menuToggle').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('overlay').classList.toggle('show');
+  });
+  document.getElementById('overlay').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('overlay').classList.remove('show');
+  });
+  window.switchTab = switchTab;
+</script>
+</body>
+</html>

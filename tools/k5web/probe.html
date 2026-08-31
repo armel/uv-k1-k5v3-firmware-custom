@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>对讲机串口诊断</title>
+<style>
+    body { font-family: "Microsoft YaHei", sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; background: #f5f6fa; color: #2f3640; }
+    h1 { font-size: 20px; }
+    .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    button { padding: 8px 16px; margin: 4px 8px 4px 0; border: none; border-radius: 6px; background: #4078c0; color: #fff; cursor: pointer; font-size: 14px; }
+    button:disabled { background: #bbb; cursor: not-allowed; }
+    button.gray { background: #718093; }
+    #log { background: #1e272e; color: #7bed9f; font-family: Consolas, monospace; font-size: 13px; padding: 12px; border-radius: 8px; height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .hint { font-size: 13px; color: #666; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>📻 对讲机串口诊断</h1>
+<div class="card">
+    <button id="btnConnect">🔌 连接串口</button>
+    <button id="btnVersion" disabled>① 查询固件版本</button>
+    <button id="btnProbe" disabled>② 探测多普勒功能</button>
+    <button id="btnSettings" disabled>③ 读取设置区</button>
+    <div class="hint">要求：对讲机开机，用刷机线连接电脑（驱动装好后会显示为 COM 口）。请用 Chrome / Edge 打开本页（file:// 双击打开即可）。</div>
+</div>
+<div class="card">
+    <div id="log">等待操作…</div>
+</div>
+
+<script src="protocol.js"></script>
+<script>
+const K = window.K5WEB.protocol;
+const logEl = document.getElementById('log');
+let port = null;
+let reader = null;
+let serialBuf = new Uint8Array(0);
+const TS = 0x11223344;
+
+function log(msg) {
+    const t = new Date().toTimeString().slice(0, 8);
+    logEl.textContent += `[${t}] ${msg}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
+function logHex(name, bytes) {
+    log(name + ' (' + bytes.length + 'B): ' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
+}
+
+// ---------- serial read loop (reuse FrameDecoder from protocol.js) ----------
+function startReadLoop() {
+    const decoder = new K.FrameDecoder();
+    (async () => {
+        const textDecoder = new TextDecoder();
+        while (port.readable) {
+            try {
+                const { value, done } = await reader.read();
+                if (done) break;
+                for (const payload of decoder.push(value)) {
+                    handlePayload(payload);
+                }
+            } catch (e) {
+                log('读串口出错: ' + e.message);
+                break;
+            }
+        }
+    })();
+}
+
+let pendingReply = null; // { id, resolve, reject, timer }
+function handlePayload(payload) {
+    const parsed = K.parseReply(payload);
+    logHex('← 收到回复 ID=0x' + parsed.id.toString(16).toUpperCase() + ' Status=' + parsed.status, payload);
+    if (pendingReply && parsed.id === pendingReply.id) {
+        clearTimeout(pendingReply.timer);
+        pendingReply.resolve({ payload, parsed });
+        pendingReply = null;
+    }
+}
+
+function sendCommand(id, payload, waitReplyId, timeoutMs = 3000) {
+    return new Promise((resolve, reject) => {
+        const frame = K.buildFrame(id, payload);
+        logHex('→ 发送命令 0x' + id.toString(16).toUpperCase(), frame.slice(4, frame.length - 4));
+        port.writer.write(frame);
+        const timer = setTimeout(() => {
+            pendingReply = null;
+            reject(new Error('等待回复超时（' + timeoutMs + 'ms），对讲机没有应答'));
+        }, timeoutMs);
+        pendingReply = { id: waitReplyId, resolve, reject, timer };
+    });
+}
+
+// ---------- buttons ----------
+document.getElementById('btnConnect').onclick = async () => {
+    try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 38400 }); // F4HWN UART protocol is 38400 baud (App/driver/uart.c)
+        port.writer = port.writable.getWriter();
+        reader = port.readable.getReader();
+        startReadLoop();
+        log('✔ 已连接: ' + (port.getInfo ? JSON.stringify(port.getInfo()) : ''));
+        document.getElementById('btnVersion').disabled = false;
+        document.getElementById('btnProbe').disabled = false;
+        document.getElementById('btnSettings').disabled = false;
+    } catch (e) {
+        log('✘ 连接失败: ' + e.message);
+    }
+};
+
+document.getElementById('btnVersion').onclick = async () => {
+    try {
+        const ts = new DataView(new ArrayBuffer(4));
+        ts.setUint32(0, TS, true);
+        const r = await sendCommand(0x0514, new Uint8Array(ts.buffer), 0x0515);
+        const p = r.payload;
+        // Version string is 16 bytes at offset 4 (after ID+Size)
+        let ver = '';
+        for (let i = 4; i < 20 && p[i] !== 0; i++) ver += String.fromCharCode(p[i]);
+        log('✔ 固件版本: "' + ver + '"');
+        if (ver.toUpperCase().includes('FUSION')) {
+            log('  → 是 F4HWN Fusion 系列固件');
+        } else if (ver.length) {
+            log('  → 不是 Fusion 固件！请刷 build\\Fusion\\f4hwn.fusion.bin');
+        } else {
+            log('  → 无法解析版本字符串');
+        }
+    } catch (e) { log('✘ ' + e.message); }
+};
+
+document.getElementById('btnProbe').onclick = async () => {
+    try {
+        // Send 0x05E1 with a WRONG payload size (4 instead of 32).
+        //  - Firmware WITH Doppler: replies 0x05E4 Status=1 (rejected, nothing written)
+        //  - Firmware WITHOUT Doppler: no reply at all
+        const body = new Uint8Array(4);
+        const r = await sendCommand(0x05E1, body, 0x05E4);
+        log('✔ 固件支持多普勒功能（回复 0x05E4，Status=' + r.parsed.status + '，未写入任何数据）');
+    } catch (e) {
+        log('✘ 无回复 → 固件【不包含】多普勒功能，或串口未通');
+        log('  → 请用 UV Studio 重新刷入 build\\Fusion\\f4hwn.fusion.bin（114,788 字节）');
+    }
+};
+
+document.getElementById('btnSettings').onclick = async () => {
+    try {
+        // 0x051B reads the settings EEPROM: offset 0, 16 bytes (needs the same
+        // timestamp that 0x0514 carried). Byte[4] mirrors KEY_LOCK/MENU_LOCK state.
+        const body = new Uint8Array(12);
+        const dv = new DataView(body.buffer);
+        dv.setUint16(0, 0x051B, true);
+        dv.setUint16(2, 8, true);       // Size = offset(2) + size(1) + pad(1) + ts(4) = 8
+        dv.setUint16(4, 0, true);       // Offset 0
+        body[6] = 16;                   // read 16 bytes
+        body[7] = 0;
+        dv.setUint32(8, TS, true);      // timestamp must match 0x0514's
+        const r = await sendCommand(0x051B, body, 0x051C);
+        const d = r.payload.slice(8, 24); // Data[16]
+        const b4 = d[4];
+        log('设置字节[4] = 0x' + b4.toString(16).padStart(2, '0'));
+        log('  KEY_LOCK (bit0) = ' + ((b4 & 0x01) ? '开' : '关'));
+        log('  MENU_LOCK (bit1) = ' + ((b4 & 0x02) ? '开 ← 这会导致所有 F+数字 快捷键静默失效' : '关'));
+    } catch (e) { log('✘ ' + e.message); }
+};
+</script>
+</body>
+</html>
