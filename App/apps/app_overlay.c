@@ -19,6 +19,7 @@
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 
 #include <string.h>
+#include <stddef.h>   /* offsetof */
 #include "py32f0xx.h"
 
 #include "driver/bk4819.h"
@@ -563,33 +564,75 @@ static void app_beam_leave(void)
     BK4819_ResetFSK();
 }
 
+/* Wire<->VFO fields that are a plain one-byte copy in BOTH directions.  Fields
+ * that differ in width (frequency, offset, band) or are enum-typed on the VFO
+ * side (modulation, code types, PTT-id) are excluded: enums are int-sized here
+ * (no -fshort-enums), so a byte copy would truncate them.  Those stay as the
+ * explicit width-converting assignments below.  Driving the byte fields from one
+ * table collapses two near-identical copy blocks into a single shared loop. */
+#ifdef ENABLE_DTMF_CALLING
+#define APP_BEAM_BYTE_FIELDS_DTMF(F) F(dtmf_decoding_enable, DTMF_DECODING_ENABLE)
+#else
+#define APP_BEAM_BYTE_FIELDS_DTMF(F)
+#endif
+#define APP_BEAM_BYTE_FIELDS(F)                                 \
+    F(rx_code,             freq_config_RX.Code)                 \
+    F(tx_code,             freq_config_TX.Code)                 \
+    F(tx_offset_direction, TX_OFFSET_FREQUENCY_DIRECTION)       \
+    F(tx_lock,             TX_LOCK)                             \
+    F(busy_channel_lock,   BUSY_CHANNEL_LOCK)                   \
+    F(output_power,        OUTPUT_POWER)                        \
+    F(channel_bandwidth,   CHANNEL_BANDWIDTH)                   \
+    F(scanlist,            SCANLIST_PARTICIPATION)              \
+    F(compander,           Compander)                          \
+    APP_BEAM_BYTE_FIELDS_DTMF(F)
+
+typedef struct { uint8_t wire_off, vfo_off; } app_beam_byte_map_t;
+
+#define APP_BEAM_MAP_ROW(w, v) { offsetof(app_beam_channel_t, w), offsetof(VFO_Info_t, v) },
+static const app_beam_byte_map_t app_beam_byte_map[] = {
+    APP_BEAM_BYTE_FIELDS(APP_BEAM_MAP_ROW)
+};
+#undef APP_BEAM_MAP_ROW
+
+/* Widening either side of a mapped field must fail to compile here rather than
+ * silently truncate through the byte copy. */
+#define APP_BEAM_MAP_CHECK(w, v)                                    \
+    _Static_assert(sizeof(((app_beam_channel_t *)0)->w) == 1u, #w); \
+    _Static_assert(sizeof(((VFO_Info_t *)0)->v) == 1u, #v);
+APP_BEAM_BYTE_FIELDS(APP_BEAM_MAP_CHECK)
+#undef APP_BEAM_MAP_CHECK
+
+_Static_assert(sizeof(VFO_Info_t) <= 256u && sizeof(app_beam_channel_t) <= 256u,
+               "app_beam_byte_map offsets must fit in uint8_t");
+
+/* Copy every mapped byte field in one direction (to_vfo = save, else export). */
+static void app_beam_copy_bytes(app_beam_channel_t *wire, VFO_Info_t *vfo, bool to_vfo)
+{
+    for (unsigned i = 0; i < sizeof(app_beam_byte_map) / sizeof(app_beam_byte_map[0]); i++) {
+        uint8_t *w = (uint8_t *)wire + app_beam_byte_map[i].wire_off;
+        uint8_t *v = (uint8_t *)vfo  + app_beam_byte_map[i].vfo_off;
+        if (to_vfo) *v = *w;
+        else        *w = *v;
+    }
+}
+
 static void app_beam_get(app_beam_channel_t *out)
 {
     if (out == NULL)
         return;
     memset(out, 0, sizeof(*out));
-    const VFO_Info_t *vfo = &gEeprom.VfoInfo[gEeprom.TX_VFO];
-    out->rx_frequency             = vfo->freq_config_RX.Frequency;
-    out->tx_offset_frequency      = vfo->TX_OFFSET_FREQUENCY;
-    out->rx_code                  = vfo->freq_config_RX.Code;
-    out->tx_code                  = vfo->freq_config_TX.Code;
-    out->rx_codetype              = vfo->freq_config_RX.CodeType;
-    out->tx_codetype              = vfo->freq_config_TX.CodeType;
-    out->modulation               = vfo->Modulation;
-    out->tx_offset_direction      = vfo->TX_OFFSET_FREQUENCY_DIRECTION;
-    out->tx_lock                  = vfo->TX_LOCK;
-    out->busy_channel_lock        = vfo->BUSY_CHANNEL_LOCK;
-    out->output_power             = vfo->OUTPUT_POWER;
-    out->channel_bandwidth        = vfo->CHANNEL_BANDWIDTH;
-    out->frequency_reverse        = vfo->FrequencyReverse;
-    out->dtmf_ptt_id_mode         = vfo->DTMF_PTT_ID_TX_MODE;
-#ifdef ENABLE_DTMF_CALLING
-    out->dtmf_decoding_enable     = vfo->DTMF_DECODING_ENABLE;
-#endif
-    out->step_setting             = vfo->STEP_SETTING;
-    out->band                     = vfo->Band;
-    out->scanlist                 = vfo->SCANLIST_PARTICIPATION;
-    out->compander                = vfo->Compander;
+    VFO_Info_t *vfo = &gEeprom.VfoInfo[gEeprom.TX_VFO];
+    app_beam_copy_bytes(out, vfo, false);              /* plain one-byte fields */
+    out->rx_frequency        = vfo->freq_config_RX.Frequency;
+    out->tx_offset_frequency = vfo->TX_OFFSET_FREQUENCY;
+    out->rx_codetype         = vfo->freq_config_RX.CodeType;
+    out->tx_codetype         = vfo->freq_config_TX.CodeType;
+    out->modulation          = vfo->Modulation;
+    out->frequency_reverse   = vfo->FrequencyReverse;
+    out->dtmf_ptt_id_mode    = vfo->DTMF_PTT_ID_TX_MODE;
+    out->step_setting        = vfo->STEP_SETTING;
+    out->band                = vfo->Band;
     if (IS_MR_CHANNEL(vfo->CHANNEL_SAVE))
         SETTINGS_FetchChannelName(out->name, vfo->CHANNEL_SAVE);
     else
@@ -611,26 +654,15 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
      * write is allowed while the overlay still executes from that flash's
      * 4 KiB sector cache. */
     RADIO_InitInfo(&app_beam_vfo, channel, in->rx_frequency);
-    app_beam_vfo.TX_OFFSET_FREQUENCY           = in->tx_offset_frequency;
-    app_beam_vfo.freq_config_RX.Code           = in->rx_code;
-    app_beam_vfo.freq_config_TX.Code           = in->tx_code;
-    app_beam_vfo.freq_config_RX.CodeType       = in->rx_codetype;
-    app_beam_vfo.freq_config_TX.CodeType       = in->tx_codetype;
-    app_beam_vfo.TX_OFFSET_FREQUENCY_DIRECTION = in->tx_offset_direction;
-    app_beam_vfo.Modulation                    = in->modulation;
-    app_beam_vfo.TX_LOCK                       = in->tx_lock;
-    app_beam_vfo.BUSY_CHANNEL_LOCK             = in->busy_channel_lock;
-    app_beam_vfo.OUTPUT_POWER                  = in->output_power;
-    app_beam_vfo.CHANNEL_BANDWIDTH             = in->channel_bandwidth;
-    app_beam_vfo.FrequencyReverse              = in->frequency_reverse;
-    app_beam_vfo.DTMF_PTT_ID_TX_MODE           = in->dtmf_ptt_id_mode;
-#ifdef ENABLE_DTMF_CALLING
-    app_beam_vfo.DTMF_DECODING_ENABLE          = in->dtmf_decoding_enable;
-#endif
+    app_beam_copy_bytes((app_beam_channel_t *)in, &app_beam_vfo, true); /* in read-only here */
+    app_beam_vfo.TX_OFFSET_FREQUENCY     = in->tx_offset_frequency;
+    app_beam_vfo.freq_config_RX.CodeType = in->rx_codetype;
+    app_beam_vfo.freq_config_TX.CodeType = in->tx_codetype;
+    app_beam_vfo.Modulation              = in->modulation;
+    app_beam_vfo.FrequencyReverse        = in->frequency_reverse;
+    app_beam_vfo.DTMF_PTT_ID_TX_MODE     = in->dtmf_ptt_id_mode;
     app_beam_vfo.STEP_SETTING = in->step_setting < STEP_N_ELEM ? in->step_setting : STEP_12_5kHz;
     app_beam_vfo.StepFrequency = gStepFrequencyTable[app_beam_vfo.STEP_SETTING];
-    app_beam_vfo.SCANLIST_PARTICIPATION = in->scanlist;
-    app_beam_vfo.Compander = in->compander;
     memcpy(app_beam_vfo.Name, in->name, sizeof(app_beam_vfo.Name));
     app_beam_vfo.Name[sizeof(app_beam_vfo.Name) - 1u] = '\0';
 
