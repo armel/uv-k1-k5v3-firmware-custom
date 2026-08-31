@@ -32,6 +32,13 @@ ABI_VERSION    = cdefine("app_api.h",     "APP_ABI_VERSION")
 OVERLAY_MAX    = cdefine("app_overlay.h", "APP_OVERLAY_MAX")   # 4 KiB overlay budget
 FLAG_COMMITTED = cdefine("app_overlay.h", "APP_FLAG_COMMITTED")
 FLAG_SCREEN_SAVER = cdefine("app_overlay.h", "APP_FLAG_SCREEN_SAVER")
+FLAG_SHORTCUT_SHIFT = cdefine("app_overlay.h", "APP_FLAG_SHORTCUT_SHIFT")
+SHORTCUTS = {
+    "none": 0,
+    "fm": cdefine("app_overlay.h", "APP_SHORTCUT_FM"),
+    "foxhunt": cdefine("app_overlay.h", "APP_SHORTCUT_FOXHUNT"),
+    "beacon": cdefine("app_overlay.h", "APP_SHORTCUT_BEACON"),
+}
 
 def field(s: str, n: int) -> bytes:
     b = s.encode("ascii", "strict")[: n - 1]
@@ -48,6 +55,8 @@ def main():
                     help="RAM VMA the app was linked at (must match the firmware overlay)")
     ap.add_argument("--screensaver", action="store_true",
                     help="allow the resident BLTime screen saver while this app is idle")
+    ap.add_argument("--shortcut", choices=SHORTCUTS, default="none",
+                    help="resident quick action advertised by this app")
     a = ap.parse_args()
 
     code = open(a.infile, "rb").read()
@@ -57,7 +66,9 @@ def main():
         sys.exit(f"code {len(code)} B exceeds overlay budget {OVERLAY_MAX} B")
 
     crc = zlib.crc32(code) & 0xFFFFFFFF
-    flags = FLAG_COMMITTED | (FLAG_SCREEN_SAVER if a.screensaver else 0)
+    flags = (FLAG_COMMITTED |
+             (FLAG_SCREEN_SAVER if a.screensaver else 0) |
+             (SHORTCUTS[a.shortcut] << FLAG_SHORTCUT_SHIFT))
     header = struct.pack(
         "<4sHHIIHH16s16sI8s",
         MAGIC, HDR_VERSION, ABI_VERSION,

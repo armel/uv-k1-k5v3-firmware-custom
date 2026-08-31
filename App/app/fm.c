@@ -52,8 +52,9 @@ const uint8_t BUTTON_EVENT_HELD = BUTTON_STATE_PRESSED | BUTTON_STATE_HELD;
 const uint8_t BUTTON_EVENT_SHORT =  0;
 const uint8_t BUTTON_EVENT_LONG =  BUTTON_STATE_HELD;
 
-
+#ifndef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 static void Key_FUNC(KEY_Code_t Key, uint8_t state);
+#endif
 
 bool FM_CheckValidChannel(uint8_t Channel)
 {
@@ -94,6 +95,7 @@ int FM_ConfigureChannelState(void)
     return 0;
 }
 
+#ifndef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 void FM_SetFrequency(void)
 {
     BK1080_SetFrequency(gEeprom.FM_FrequencyPlaying, gEeprom.FM_Band/*, gEeprom.FM_Space*/);
@@ -196,6 +198,7 @@ void FM_PlayAndUpdate(void)
     BACKLIGHT_TurnOn();
     FM_AudioPathOn();
 }
+#endif
 
 int FM_CheckFrequencyLock(uint16_t Frequency, uint16_t LowerLimit)
 {
@@ -240,6 +243,7 @@ int FM_CheckFrequencyLock(uint16_t Frequency, uint16_t LowerLimit)
     return 0;
 }
 
+#ifndef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 static void Key_DIGITS(KEY_Code_t Key, uint8_t state)
 {
     enum { STATE_FREQ_MODE, STATE_MR_MODE, STATE_SAVE };
@@ -662,5 +666,31 @@ void FM_Start(void)
         SETTINGS_WriteCurrentState();
     #endif
 }
+#else
+/*
+ * Broadcast FM is sovereign in Overlay builds: its app owns tuning, scanning,
+ * audio and persistence through app_api.  Keep only the shared channel/state
+ * loader and FM_CheckFrequencyLock above; these tiny compatibility entry points
+ * satisfy generic firmware paths which cannot become active because Overlay
+ * builds never set gFmRadioMode or gFM_ScanState.
+ */
+void FM_TurnOff(void) {}
+void FM_EraseChannels(void) {}
+void FM_Tune(uint16_t Frequency, int8_t Step, bool bFlag)
+{
+    (void)Frequency;
+    (void)Step;
+    (void)bFlag;
+}
+void FM_PlayAndUpdate(void) {}
+void FM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
+{
+    (void)Key;
+    (void)bKeyPressed;
+    (void)bKeyHeld;
+}
+void FM_Play(void) {}
+void FM_Start(void) {}
+#endif
 
 #endif

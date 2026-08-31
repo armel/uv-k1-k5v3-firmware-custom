@@ -29,7 +29,8 @@ trap 'printf "\r  ❌ %-13s build failed            \n" "$APP_NAME"' ERR
 step 1 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 step 2 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 3 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
-                   --name "$APP_NAME" --ver "$APP_VER" --vma "${APP_VMA}" >/dev/null
+                   --name "$APP_NAME" --ver "$APP_VER" --vma "${APP_VMA}" \
+                   --shortcut foxhunt >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")

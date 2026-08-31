@@ -671,11 +671,11 @@ static bool app_shortcuts_cached;
 static uint8_t app_shortcut_mask;
 static uint8_t app_shortcut_slots[3];
 
-static int8_t app_shortcut_index(const char *name)
+static int8_t app_shortcut_index(uint8_t shortcut)
 {
-    if (strncmp(name, "Broadcast FM", APP_NAME_LEN) == 0) return 0;
-    if (strncmp(name, "FoxHunt",      APP_NAME_LEN) == 0) return 1;
-    if (strncmp(name, "Beacon",       APP_NAME_LEN) == 0) return 2;
+    if (shortcut == APP_SHORTCUT_FM)      return 0;
+    if (shortcut == APP_SHORTCUT_FOXHUNT) return 1;
+    if (shortcut == APP_SHORTCUT_BEACON)  return 2;
     return -1;
 }
 
@@ -692,11 +692,12 @@ static void app_cache_shortcuts(void)
         if (APP_ValidateSlot(slot, &h) != APP_OK || h.link_vma != overlay_vma)
             continue;
 
-        const int8_t index = app_shortcut_index(h.name);
+        const uint8_t shortcut = (uint8_t)((h.flags & APP_FLAG_SHORTCUT_MASK) >>
+                                           APP_FLAG_SHORTCUT_SHIFT);
+        const int8_t index = app_shortcut_index(shortcut);
         if (index >= 0) {
-            const uint8_t bit = (uint8_t)(1u << index);
-            if (!(app_shortcut_mask & bit)) {
-                app_shortcut_mask |= bit;
+            if (!(app_shortcut_mask & shortcut)) {
+                app_shortcut_mask |= shortcut;
                 app_shortcut_slots[index] = slot;
             }
         }
@@ -711,25 +712,16 @@ uint8_t APP_OverlayShortcutMask(void)
     return app_shortcut_mask;
 }
 
-uint8_t APP_LaunchOverlayByName(const char *name)
+uint8_t APP_LaunchOverlayShortcut(uint8_t shortcut)
 {
-    const int8_t index = app_shortcut_index(name);
-    if (index >= 0) {
-        app_cache_shortcuts();
-        return (app_shortcut_mask & (1u << index))
-             ? APP_LaunchOverlay(app_shortcut_slots[index])
-             : APP_ERR_MAGIC;
-    }
+    const int8_t index = app_shortcut_index(shortcut);
+    if (index < 0)
+        return APP_ERR_MAGIC;
 
-    app_header_t h;
-
-    for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
-        if (APP_ValidateSlot(slot, &h) == APP_OK &&
-            strncmp(h.name, name, APP_NAME_LEN) == 0)
-            return APP_LaunchOverlay(slot);
-    }
-
-    return APP_ERR_MAGIC;
+    app_cache_shortcuts();
+    return (app_shortcut_mask & shortcut)
+         ? APP_LaunchOverlay(app_shortcut_slots[index])
+         : APP_ERR_MAGIC;
 }
 
 uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header)

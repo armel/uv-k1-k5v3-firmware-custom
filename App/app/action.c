@@ -502,7 +502,7 @@ void ACTION_FoxHunt(void)
     APP_RunFoxHunt();
     GUI_SelectNextDisplay(DISPLAY_MAIN);
 #else
-    if (APP_LaunchOverlayByName("FoxHunt") != APP_OK)
+    if (APP_LaunchOverlayShortcut(APP_SHORTCUT_FOXHUNT) != APP_OK)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
 #endif
 }
@@ -515,7 +515,7 @@ void ACTION_Beacon(void)
     APP_RunBeacon();
     GUI_SelectNextDisplay(DISPLAY_MAIN);
 #else
-    if (APP_LaunchOverlayByName("Beacon") != APP_OK)
+    if (APP_LaunchOverlayShortcut(APP_SHORTCUT_BEACON) != APP_OK)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
 #endif
 }
@@ -526,7 +526,7 @@ void ACTION_Beacon(void)
 void ACTION_FM(void)
 {
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
-    if (APP_LaunchOverlayByName("Broadcast FM") != APP_OK)
+    if (APP_LaunchOverlayShortcut(APP_SHORTCUT_FM) != APP_OK)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
     return;
 #else

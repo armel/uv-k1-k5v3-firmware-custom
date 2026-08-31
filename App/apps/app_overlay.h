@@ -68,12 +68,14 @@
 #define APP_HDR_VERSION   1u
 #define APP_FLAG_COMMITTED   0x0001u
 #define APP_FLAG_SCREEN_SAVER 0x0002u
+#define APP_FLAG_SHORTCUT_SHIFT 8u
+#define APP_FLAG_SHORTCUT_MASK  0x0700u
 #define APP_NAME_LEN      16
 #define APP_VERSION_LEN   16
 
-#define APP_SHORTCUT_FM       (1u << 0)
-#define APP_SHORTCUT_FOXHUNT  (1u << 1)
-#define APP_SHORTCUT_BEACON   (1u << 2)
+#define APP_SHORTCUT_FM       0x01u
+#define APP_SHORTCUT_FOXHUNT  0x02u
+#define APP_SHORTCUT_BEACON   0x04u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;                    /* APP_MAGIC                              */
@@ -108,8 +110,8 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header);
  * Returns when the app exits; the internal flash is never touched. */
 uint8_t APP_LaunchOverlay(uint8_t slot);
 
-/* Find the first valid app with this exact header name and launch it. */
-uint8_t APP_LaunchOverlayByName(const char *name);
+/* Launch the first installed app advertising this shortcut bit. */
+uint8_t APP_LaunchOverlayShortcut(uint8_t shortcut);
 
 /* Cached availability of apps exposed as resident quick actions. */
 uint8_t APP_OverlayShortcutMask(void);
