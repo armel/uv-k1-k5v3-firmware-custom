@@ -115,6 +115,33 @@
     .overlay { display: none; position: fixed; inset: 56px 0 0 0; background: rgba(0,0,0,.3); z-index: 98; }
     .overlay.show { display: block; }
   }
+
+  /* 扫码传定位弹窗 */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-panel {
+    background: #fff; border-radius: 10px; padding: 20px 22px;
+    max-width: 360px; width: 92%; box-shadow: 0 6px 24px rgba(0,0,0,.25);
+    text-align: center; max-height: 92vh; overflow-y: auto;
+  }
+  .modal-panel h3 { margin: 0 0 6px; font-size: 17px; }
+  .modal-panel .sub { font-size: 13px; color: #666; margin: 0 0 12px; }
+  #gpsQr { display: inline-block; padding: 8px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+  #gpsQr img, #gpsQr canvas { display: block; }
+  .gps-qr-url {
+    font-family: Consolas, monospace; font-size: 12px; color: #333;
+    background: #f5f6f8; border: 1px solid #ddd; border-radius: 4px;
+    padding: 6px 8px; margin: 10px 0 4px; word-break: break-all;
+  }
+  .gps-qr-iprow { display: flex; gap: 6px; align-items: center; justify-content: center; margin-top: 8px; }
+  .gps-qr-iprow input { width: 170px; font-size: 13px; }
+  .gps-qr-iprow button { padding: 7px 10px; font-size: 13px; }
+  .gps-qr-status { font-size: 13px; color: #1a7f37; margin: 10px 0 0; min-height: 18px; }
+  .gps-qr-status.err { color: #c62828; }
+  .gps-qr-tip { font-size: 12px; color: #999; margin: 8px 0 0; text-align: left; }
 </style>
 </head>
 <body>
@@ -306,6 +333,7 @@
     <div class="row" style="margin-top:8px">
       <button id="btnMap" class="secondary" type="button" style="flex:1">📍 在地图上选点（高德）</button>
       <button id="btnLocate" class="secondary" type="button" style="flex:1">🎯 用我的位置（GPS）</button>
+      <button id="btnGpsQr" class="secondary" type="button" style="flex:1">📱 扫码传定位</button>
     </div>
     <div id="mapWrap" style="display:none;margin-top:8px">
       <div id="map" style="height:320px;border:1px solid #bbb;border-radius:6px"></div>
@@ -487,7 +515,7 @@
     <h2>批量导入（CSV）</h2>
     <p class="hint">每行：信道号,名称,接收频率,发射频率,接收亚音,发射亚音,带宽,功率,调制,差频方向,差频。标题行可选。信道号与手台显示一致，为 1–1024。名称留空则清空。</p>
     <label>CSV 文件</label>
-    <input id="chCsvFile" type="file" accept=".csv,.txt">
+    <input id="chCsvFile" type="file" accept=".xlsx,.csv,.txt">
     <div class="row" style="margin-top:8px">
       <button id="btnChProgCsv" disabled>📁 导入 CSV 并写入</button>
     </div>
@@ -530,8 +558,29 @@
   </main>
 </div>
 
+<!-- 扫码传定位弹窗：网页生成二维码，手机 APP 扫描后把 GPS 经纬度/海拔上报到本机 -->
+<div id="gpsQrModal" class="modal-overlay">
+  <div class="modal-panel">
+    <h3>📱 扫码传定位</h3>
+    <p class="sub">用 UvK6 Tools APP 扫描二维码，自动把手机 GPS 经纬度/海拔填入本页</p>
+    <div id="gpsQr"></div>
+    <div class="gps-qr-url" id="gpsQrUrl" title="点击全选复制"></div>
+    <div class="gps-qr-iprow">
+      <input id="gpsQrIp" type="text" placeholder="电脑局域网 IP，如 192.168.1.5">
+      <button id="gpsQrRegen" type="button" class="secondary">重新生成</button>
+    </div>
+    <div class="gps-qr-status" id="gpsQrStatus">等待手机扫码上报…</div>
+    <div style="margin-top:12px; display:flex; gap:8px; justify-content:center">
+      <button id="gpsQrClose" type="button" class="secondary">关闭</button>
+    </div>
+    <p class="gps-qr-tip">提示：手机与电脑需在同一局域网；若手机无法上报，请在 Windows 防火墙放行入站 TCP 8080 端口（或用「我的位置」/「地图选点」代替）。</p>
+  </div>
+</div>
+
 <script src="vendor/satellite.min.js"></script>
 <script src="vendor/leaflet.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
 <script src="gb2312_table.js?v=csv1"></script>
   <script src="protocol.js?v=16x16"></script>
 <script src="coord.js"></script>

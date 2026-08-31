@@ -18,8 +18,10 @@
 #include <time.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <ifaddrs.h>
 #include <pthread.h>
 
 static const int HTTP_PORT = 8080;
@@ -56,6 +58,17 @@ struct ServerParams {
     int port;
     bool isNtpProxy;
 };
+
+// ---- 手机扫码上报 GPS 暂存：/setgps 写入，/getgps 读取即清（一次性） ----
+struct GpsEntry {
+    bool valid;
+    char token[32];
+    double lat, lon, alt;
+    time_t ts;
+};
+static const int GPS_SLOT_COUNT = 16;
+static GpsEntry g_gps[GPS_SLOT_COUNT];
+static pthread_mutex_t g_gpsLock = PTHREAD_MUTEX_INITIALIZER;
 
 // 公历日期 -> 1970-01-01 起的天数（Howard Hinnant 算法，免依赖 timegm，跨 glibc/musl 通用）
 static int64_t daysFromCivil(int y, unsigned m, unsigned d) {
@@ -352,6 +365,137 @@ static void handleStaticFile(int client, const HttpRequest& req) {
     free(buf);
 }
 
+// 从查询串中提取参数值（query 形如 "t=abc&lat=31.2"），未找到返回 NULL
+static const char* queryParam(const char* query, const char* name, char* out, size_t outSize) {
+    char buf[512];
+    strncpy(buf, query, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    for (char* pair = strtok(buf, "&"); pair; pair = strtok(NULL, "&")) {
+        char* eq = strchr(pair, '=');
+        if (!eq) continue;
+        char key[64];
+        *eq = '\0';
+        urlDecode(pair, key, sizeof(key));
+        if (strcmp(key, name) == 0) {
+            urlDecode(eq + 1, out, outSize);
+            return out;
+        }
+    }
+    return NULL;
+}
+
+// 手机 APP 扫码后上报 GPS：GET /setgps?t=令牌&lat=..&lon=..&alt=..
+static void handleSetGps(int client, const HttpRequest& req) {
+    const char* corsHeaders =
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type\r\n";
+
+    if (strcmp(req.method, "OPTIONS") == 0) {
+        sendHttpResponse(client, 204, "No Content", "text/plain", "", 0, corsHeaders);
+        return;
+    }
+    if (strcmp(req.method, "GET") != 0) {
+        sendHttpResponse(client, 405, "Method Not Allowed", "text/plain", "Method Not Allowed", 18, corsHeaders);
+        return;
+    }
+
+    const char* q = strchr(req.path, '?');
+    if (!q) {
+        sendHttpResponse(client, 400, "Bad Request", "text/plain", "missing parameters", 19, corsHeaders);
+        return;
+    }
+
+    char t[32] = {0}, latS[32] = {0}, lonS[32] = {0}, altS[32] = {0};
+    if (!queryParam(q + 1, "t", t, sizeof(t)) ||
+        !queryParam(q + 1, "lat", latS, sizeof(latS)) ||
+        !queryParam(q + 1, "lon", lonS, sizeof(lonS))) {
+        sendHttpResponse(client, 400, "Bad Request", "text/plain", "missing token/lat/lon", 23, corsHeaders);
+        return;
+    }
+    if (!queryParam(q + 1, "alt", altS, sizeof(altS))) strncpy(altS, "0", sizeof(altS) - 1);
+
+    double lat = atof(latS), lon = atof(lonS), alt = atof(altS);
+    if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0 || t[0] == '\0') {
+        sendHttpResponse(client, 400, "Bad Request", "text/plain", "invalid parameters", 19, corsHeaders);
+        return;
+    }
+
+    pthread_mutex_lock(&g_gpsLock);
+    GpsEntry* slot = NULL;
+    time_t oldest = (time_t)-1;
+    GpsEntry* oldestSlot = &g_gps[0];
+    for (int i = 0; i < GPS_SLOT_COUNT; i++) {
+        if (g_gps[i].valid && strcmp(g_gps[i].token, t) == 0) { slot = &g_gps[i]; break; }
+        if (!g_gps[i].valid && !slot) slot = &g_gps[i];
+        if (g_gps[i].ts < oldest) { oldest = g_gps[i].ts; oldestSlot = &g_gps[i]; }
+    }
+    if (!slot) slot = oldestSlot; // 槽位已满时覆盖最旧一条
+    snprintf(slot->token, sizeof(slot->token), "%s", t);
+    slot->lat = lat;
+    slot->lon = lon;
+    slot->alt = alt;
+    slot->ts = time(NULL);
+    slot->valid = true;
+    pthread_mutex_unlock(&g_gpsLock);
+
+    sendHttpResponse(client, 200, "OK", "text/plain; charset=utf-8", "OK", 2, corsHeaders);
+}
+
+// 网页轮询读取手机上报的位置：GET /getgps?t=令牌（读取即清，一次性）
+static void handleGetGps(int client, const HttpRequest& req) {
+    const char* corsHeaders =
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type\r\n";
+
+    if (strcmp(req.method, "GET") != 0) {
+        sendHttpResponse(client, 405, "Method Not Allowed", "text/plain", "Method Not Allowed", 18, corsHeaders);
+        return;
+    }
+
+    char t[32] = {0};
+    const char* q = strchr(req.path, '?');
+    if (q) queryParam(q + 1, "t", t, sizeof(t));
+
+    char body[256];
+    int n = 0;
+    pthread_mutex_lock(&g_gpsLock);
+    GpsEntry* hit = NULL;
+    if (t[0]) {
+        for (int i = 0; i < GPS_SLOT_COUNT; i++) {
+            if (g_gps[i].valid && strcmp(g_gps[i].token, t) == 0) { hit = &g_gps[i]; break; }
+        }
+    }
+    if (hit) {
+        n = snprintf(body, sizeof(body), "{\"ok\":true,\"lat\":%.6f,\"lon\":%.6f,\"alt\":%.1f}",
+                     hit->lat, hit->lon, hit->alt);
+        hit->valid = false; // 一次性读取
+    } else {
+        n = snprintf(body, sizeof(body), "{\"ok\":false}");
+    }
+    pthread_mutex_unlock(&g_gpsLock);
+
+    sendHttpResponse(client, 200, "OK", "application/json; charset=utf-8", body, (size_t)n, corsHeaders);
+}
+
+// 打印本机局域网 IPv4 地址，供手机扫码访问
+static void printLanAddresses(int httpPort) {
+    struct ifaddrs* ifaddr = NULL;
+    if (getifaddrs(&ifaddr) != 0) return;
+    for (struct ifaddrs* ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if ((ifa->ifa_flags & IFF_UP) == 0 || (ifa->ifa_flags & IFF_LOOPBACK)) continue;
+        struct sockaddr_in* sa = (struct sockaddr_in*)ifa->ifa_addr;
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip));
+        if (strncmp(ip, "127.", 4) == 0 || strncmp(ip, "169.254.", 8) == 0 ||
+            strcmp(ip, "0.0.0.0") == 0) continue;
+        printf("手机扫码访问: http://%s:%d/setgps\n", ip, httpPort);
+    }
+    freeifaddrs(ifaddr);
+}
+
 static void* serverThread(void* arg) {
     ServerParams* p = (ServerParams*)arg;
 
@@ -392,6 +536,12 @@ static void* serverThread(void* arg) {
         if (parseHttpRequest(client, req)) {
             if (p->isNtpProxy) {
                 handleNtpProxy(client, req);
+            } else if (strncmp(req.path, "/setgps", 7) == 0 &&
+                       (req.path[7] == '\0' || req.path[7] == '?')) {
+                handleSetGps(client, req);
+            } else if (strncmp(req.path, "/getgps", 7) == 0 &&
+                       (req.path[7] == '\0' || req.path[7] == '?')) {
+                handleGetGps(client, req);
             } else {
                 handleStaticFile(client, req);
             }
@@ -425,6 +575,7 @@ int main(int argc, char** argv) {
     printf("K5Web server started.\n");
     printf("NTP proxy: http://127.0.0.1:%d/time\n", ntpPort);
     printf("Web tool:  http://127.0.0.1:%d/\n", httpPort);
+    printLanAddresses(httpPort);
     printf("Press Ctrl+C to stop.\n");
     fflush(stdout);
 

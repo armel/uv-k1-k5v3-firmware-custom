@@ -23,7 +23,8 @@ if errorlevel 1 (
 )
 
 chcp 65001 >nul
-cl /O2 /MT /W4 /Fe:k5web_server.exe k5web_server.cpp
+rem /utf-8: 源文件与字符串字面量按 UTF-8 解析（文件含中文注释，MSVC 默认 GBK 代码页会破坏源码结构）
+cl /utf-8 /O2 /MT /W4 /Fe:k5web_server.exe k5web_server.cpp
 if errorlevel 1 (
     echo [ERROR] Build failed.
     pause

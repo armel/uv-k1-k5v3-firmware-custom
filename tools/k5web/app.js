@@ -586,6 +586,132 @@
   });
 
 
+  // ---------- 扫码传定位（网页出二维码，手机 APP 扫描后上报 GPS） ----------
+  let gpsPollTimer = null;
+  let gpsQrToken = "";
+
+  function genToken() {
+    const chars = "0123456789abcdef";
+    let s = "";
+    for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * 16)];
+    return s;
+  }
+
+  // 用 WebRTC 探测本机局域网 IPv4（2 秒超时；失败返回 null，让用户手填）
+  function detectLanIp() {
+    return new Promise((resolve) => {
+      const done = (ip) => { clearTimeout(timer); resolve(ip || null); };
+      const timer = setTimeout(() => done(null), 2000);
+      try {
+        const pc = new RTCPeerConnection({ iceServers: [] });
+        pc.createDataChannel("d");
+        pc.onicecandidate = (e) => {
+          if (!e.candidate) { pc.close(); done(null); return; }
+          const m = /([0-9]{1,3}(\.[0-9]{1,3}){3})/.exec(e.candidate.candidate || "");
+          if (m) {
+            const ip = m[1];
+            if (ip !== "127.0.0.1" && !ip.startsWith("169.254.")) { pc.close(); done(ip); }
+          }
+        };
+        pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => done(null));
+      } catch (e) { done(null); }
+    });
+  }
+
+  function stopGpsPoll() {
+    if (gpsPollTimer) { clearInterval(gpsPollTimer); gpsPollTimer = null; }
+  }
+
+  // 每秒轮询 /getgps，收到后自动填入经纬度/海拔
+  function startGpsPoll() {
+    stopGpsPoll();
+    gpsPollTimer = setInterval(async () => {
+      try {
+        const resp = await fetch("/getgps?t=" + encodeURIComponent(gpsQrToken));
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data || !data.ok) return;
+        stopGpsPoll();
+        const lat = Number(data.lat).toFixed(5);
+        const lon = Number(data.lon).toFixed(5);
+        const alt = Number(data.alt).toFixed(1);
+        $("lat").value = lat;
+        $("lon").value = lon;
+        $("alt").value = alt;
+        const s = $("gpsQrStatus");
+        s.textContent = "✅ 已收到：纬度 " + lat + "，经度 " + lon + "，海拔 " + alt + " m";
+        s.className = "gps-qr-status";
+        setStatus("✅ 已扫码获取位置：" + lat + ", " + lon, "ok");
+        log("扫码上报位置：" + lat + ", " + lon + ", 海拔 " + alt + " m");
+        if (map) { try { map.setView([Number(data.lat), Number(data.lon)], 12); } catch (e) {} }
+      } catch (e) { /* 服务器暂不可达时静默重试 */ }
+    }, 1000);
+  }
+
+  function buildGpsQr() {
+    const ip = ($("gpsQrIp").value || "").trim();
+    if (!ip) {
+      const s = $("gpsQrStatus");
+      s.textContent = "⚠️ 请填写电脑局域网 IP（可在服务器窗口或 ipconfig 中查看）";
+      s.className = "gps-qr-status err";
+      return;
+    }
+    gpsQrToken = genToken();
+    const port = window.location.port || "8080";
+    const url = "http://" + ip + ":" + port + "/setgps?t=" + gpsQrToken;
+    $("gpsQrUrl").textContent = url;
+    $("gpsQr").innerHTML = "";
+    try {
+      new QRCode($("gpsQr"), { text: url, width: 210, height: 210, correctLevel: QRCode.CorrectLevel.M });
+    } catch (e) {
+      const s = $("gpsQrStatus");
+      s.textContent = "⚠️ 二维码生成失败：" + e.message;
+      s.className = "gps-qr-status err";
+      return;
+    }
+    const s = $("gpsQrStatus");
+    s.textContent = "等待手机扫码上报…";
+    s.className = "gps-qr-status";
+    startGpsPoll();
+  }
+
+  async function openGpsQr() {
+    $("gpsQrModal").classList.add("show");
+    const s = $("gpsQrStatus");
+    s.textContent = "正在探测本机局域网 IP…";
+    s.className = "gps-qr-status";
+    // 页面若通过局域网 IP 打开（非 127.0.0.1），直接用它
+    const host = window.location.hostname;
+    const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+    if (host && isIp && host !== "127.0.0.1" && host !== "0.0.0.0" && !host.startsWith("169.254.")) {
+      $("gpsQrIp").value = host;
+    } else {
+      const ip = await detectLanIp();
+      if (ip) $("gpsQrIp").value = ip;
+    }
+    buildGpsQr();
+  }
+
+  function closeGpsQr() {
+    stopGpsPoll();
+    $("gpsQrModal").classList.remove("show");
+  }
+
+  $("btnGpsQr").addEventListener("click", openGpsQr);
+  $("gpsQrClose").addEventListener("click", closeGpsQr);
+  $("gpsQrRegen").addEventListener("click", buildGpsQr);
+  $("gpsQrModal").addEventListener("click", (e) => { if (e.target === $("gpsQrModal")) closeGpsQr(); });
+  // 点击 URL 文本全选，方便手动复制
+  $("gpsQrUrl").addEventListener("click", () => {
+    const el = $("gpsQrUrl");
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+
+
   // ---------- 计算过境 ----------
   $("btnCalc").addEventListener("click", () => {
     const showErr = (msg) => {
@@ -1500,23 +1626,6 @@
     return { code: idx, codeType };
   }
 
-  /** 从字符串自动推断亚音类型：含小数点→CTCSS；3 位数字/Dxxx/Ixxx→DCS；空→OFF */
-  function autoToneInput(value) {
-    const s = (value || "").trim();
-    if (!s) return { code: 0, codeType: proto.CODE_TYPE.OFF };
-    if (/[.,]/.test(s) || /^\d{2,3}$/.test(s) && parseInt(s, 10) > 100) {
-      const hz = Math.round(parseFloat(s.replace(",", ".")) * 10);
-      return { code: proto.ctcssIndex(hz), codeType: proto.CODE_TYPE.CTCSS };
-    }
-    const m = s.match(/^[DI]?(\d{3})$/i);
-    if (m) {
-      const idx = proto.dcsIndex(parseInt(m[1], 8));
-      const codeType = /^I/i.test(s) ? proto.CODE_TYPE.DCS_REV : proto.CODE_TYPE.DCS;
-      return { code: idx, codeType };
-    }
-    return { code: 0, codeType: proto.CODE_TYPE.OFF };
-  }
-
   function collectChannelParams() {
     const rxMHz = parseFloat($("chRxFreq").value);
     let txMHz = parseFloat($("chTxFreq").value);
@@ -1561,7 +1670,7 @@
   // chFreqLink 记录最后编辑的字段组，接收频率变化时以该组为准重算另一边。
   let chFreqLink = "tx"; // "tx"=发射频率为准, "offset"=差频方向+差频为准
   function updateOffsetFieldState() {
-    // 方向为“无”时差频值无意义，禁止编辑
+    // 方向为"无"时差频值无意义，禁止编辑
     $("chTxOffset").disabled = parseInt($("chTxDir").value, 10) === proto.TX_DIR.OFF;
   }
   function syncOffsetFromTx() {
@@ -1634,17 +1743,23 @@
       const tx10 = txDir === proto.TX_DIR.ADD ? rx10 + off10 : txDir === proto.TX_DIR.SUB ? rx10 - off10 : rx10;
       const dirText = txDir === proto.TX_DIR.ADD ? "上差频（+）" : txDir === proto.TX_DIR.SUB ? "下差频（−）" : "无";
       const hex = Array.from(nameBytes).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+      // 优先用 GB2312 解码库直接显示中文；库缺失时回退十六进制占位解析
       let decoded = "";
-      for (let i = 0; i < nameBytes.length; i++) {
-        const b = nameBytes[i];
-        if (b === 0) break;
-        if (b >= 0xA1 && i + 1 < nameBytes.length && nameBytes[i + 1] >= 0xA1) {
-          decoded += `[${b.toString(16)}${nameBytes[i + 1].toString(16)}]`;
-          i++;
-        } else if (b >= 0x20 && b < 0x7F) {
-          decoded += String.fromCharCode(b);
-        } else {
-          decoded += `?0x${b.toString(16)}`;
+      if (gb) {
+        decoded = gb.decode(nameBytes);
+      }
+      if (!decoded) {
+        for (let i = 0; i < nameBytes.length; i++) {
+          const b = nameBytes[i];
+          if (b === 0) break;
+          if (b >= 0xA1 && i + 1 < nameBytes.length && nameBytes[i + 1] >= 0xA1) {
+            decoded += `[${b.toString(16)}${nameBytes[i + 1].toString(16)}]`;
+            i++;
+          } else if (b >= 0x20 && b < 0x7F) {
+            decoded += String.fromCharCode(b);
+          } else {
+            decoded += `?0x${b.toString(16)}`;
+          }
         }
       }
       const r = $("chReadResult");
@@ -1655,9 +1770,9 @@
         差频方向：${dirText}　差频：${(off10 / 100000).toFixed(4)} MHz<br>
         发射频率：${(tx10 / 100000).toFixed(5)} MHz<br>
         名称区十六进制：${hex}<br>
-        名称解析（[xxxx]=GB2312）：${decoded || "(空白)"}
+        名称解码（GB2312）：${decoded || "(空白)"}
       `;
-      log(`读取 CH${channel + 1}：RX=${(rx10 / 100000).toFixed(5)} 频差=${dirText} ${(off10 / 100000).toFixed(4)} TX=${(tx10 / 100000).toFixed(5)} 名称=[${hex}]`);
+      log(`读取 CH${channel + 1}：RX=${(rx10 / 100000).toFixed(5)} 频差=${dirText} ${(off10 / 100000).toFixed(4)} TX=${(tx10 / 100000).toFixed(5)} 名称="${decoded}" [${hex}]`);
     } catch (err) {
       setStatus("读取失败：" + err.message, "err");
       log("读取异常：" + err.message, "err");
@@ -1666,38 +1781,55 @@
     }
   });
 
-  // CSV 批量导入
+  // ---------- 批量导入（叮咚鸡 xlsx / 叮咚鸡 CSV / 旧版 CSV） ----------
+  // 读取文件为行数组：xlsx 用 SheetJS 取第一个 sheet，CSV/TXT 先按 UTF-8 解码，
+  // 失败（Excel 另存的 GBK 编码）再回退 GBK，避免中文信道名乱码。
+  async function parseChannelFile(f) {
+    const lower = f.name.toLowerCase();
+    if (lower.endsWith(".xlsx") || lower.endsWith(".xlsm")) {
+      if (typeof XLSX === "undefined")
+        throw new Error("xlsx 解析库未加载（vendor/xlsx.full.min.js 缺失）");
+      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error("xlsx 中没有工作表");
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
+      return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
+    }
+    const buf = await f.arrayBuffer();
+    let text;
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    } catch (e) {
+      text = new TextDecoder("gbk").decode(buf);
+    }
+    return text.split(/\r?\n/).map((l) => l.split(",").map((s) => s.trim()))
+      .filter((r) => r.some((c) => c !== ""));
+  }
+
   let chCsvData = null;
   $("chCsvFile").addEventListener("change", async (e) => {
     const f = e.target.files[0];
     chCsvData = null;
     $("btnChProgCsv").disabled = true;
     if (!f) return;
-    const text = await f.text();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim());
-    const rows = [];
-    let first = true;
-    for (const line of lines) {
-      const cols = line.split(",").map((s) => s.trim());
-      if (first && /信道|channel|freq/i.test(cols[0])) { first = false; continue; }
-      first = false;
-      if (cols.length < 4) continue;
-      const ch = parseInt(cols[0], 10) - 1;
-      const name = cols[1] || "";
-      const rx = parseFloat(cols[2]);
-      const tx = parseFloat(cols[3]);
-      if (isNaN(ch) || isNaN(rx)) continue;
-      rows.push({ ch, name, rx, tx, cols });
+    try {
+      const rows = await parseChannelFile(f);
+      const { rows: parsed, format, warnings } = proto.parseChannelRows(rows);
+      for (const w of warnings) log(w, "warn");
+      if (parsed.length === 0) { setStatus("文件中没有可识别的信道行", "err"); return; }
+      chCsvData = parsed;
+      $("btnChProgCsv").disabled = false;
+      const fmt = f.name.toLowerCase().endsWith(".xlsx") ? "xlsx" : "CSV";
+      log(`${fmt} 已加载：${f.name}，${parsed.length} 条信道（识别为${format}格式）`);
+    } catch (err) {
+      setStatus("文件解析失败：" + err.message, "err");
+      log("文件解析异常：" + err.message, "err");
     }
-    if (rows.length === 0) { setStatus("CSV 中没有可识别的信道行", "err"); return; }
-    chCsvData = rows;
-    $("btnChProgCsv").disabled = false;
-    log(`CSV 已加载：${f.name}，${rows.length} 条信道`);
   });
 
   $("btnChProgCsv").addEventListener("click", async () => {
     if (!port) { setStatus("请先连接串口", "err"); return; }
-    if (!chCsvData || !chCsvData.length) { setStatus("请先选择 CSV 文件", "err"); return; }
+    if (!chCsvData || !chCsvData.length) { setStatus("请先选择信道文件", "err"); return; }
     $("btnChProgCsv").disabled = true;
     $("chCsvProgress").style.display = "block";
     const bar = $("chCsvProgressBar");
@@ -1710,41 +1842,30 @@
         if (row.ch < 0 || row.ch >= C.MAX_COUNT) {
           log(`跳过越界信道 ${row.ch + 1}`, "info"); continue;
         }
-        const rxTone = autoToneInput(row.cols[4] || "");
-        const txTone = autoToneInput(row.cols[5] || "");
-        // 固件 offset 4 存频差值：优先由 RX/TX 反推；TX 留空时用“差频方向,差频”列
-        const rx10 = Math.round(row.rx * 100000);
-        let diff10Hz;
-        if (!isNaN(row.tx) && row.tx > 0) {
-          diff10Hz = Math.round(row.tx * 100000) - rx10;
-        } else {
-          const csvDir = parseInt(row.cols[9] || "0", 10);
-          const csvOff = Math.round((parseFloat(row.cols[10]) || 0) * 100000);
-          diff10Hz = csvDir === proto.TX_DIR.ADD ? csvOff : csvDir === proto.TX_DIR.SUB ? -csvOff : 0;
-        }
         const params = {
           name: row.name,
-          rxFreq10Hz: rx10,
-          txOffsetFreq10Hz: Math.abs(diff10Hz),
-          rxCodeType: rxTone.codeType, rxCode: rxTone.code,
-          txCodeType: txTone.codeType, txCode: txTone.code,
-          modulation: parseInt(row.cols[8] || "0", 10),
-          txDir: diff10Hz > 0 ? proto.TX_DIR.ADD : diff10Hz < 0 ? proto.TX_DIR.SUB : proto.TX_DIR.OFF,
-          bandwidth: parseInt(row.cols[6] || "0", 10),
-          power: parseInt(row.cols[7] || "7", 10),
+          rxFreq10Hz: row.rx10,
+          txOffsetFreq10Hz: Math.abs(row.diff10),
+          rxCodeType: row.rxCodeType, rxCode: row.rxCode,
+          txCodeType: row.txCodeType, txCode: row.txCode,
+          modulation: row.modulation,
+          txDir: row.diff10 > 0 ? proto.TX_DIR.ADD : row.diff10 < 0 ? proto.TX_DIR.SUB : proto.TX_DIR.OFF,
+          bandwidth: row.bandwidth,
+          power: row.power,
           txLock: 0, bcl: 0, freqReverse: 0, pttId: 0,
-          step: 4, scanlist: 0,
+          step: row.step,
+          scanlist: row.scanlist,
         };
         await writeChannel(row.ch, params);
         bar.style.width = ((i + 1) / chCsvData.length * 100).toFixed(1) + "%";
         if ((i + 1) % 10 === 0 || i === chCsvData.length - 1) log(`已写入 ${i + 1}/${chCsvData.length}`);
       }
       bar.style.width = "100%";
-      setStatus(`✅ CSV 批量写入完成，共 ${chCsvData.length} 条信道`, "ok");
-      log("CSV 写频完成");
+      setStatus(`✅ 批量写入完成，共 ${chCsvData.length} 条信道`, "ok");
+      log("批量写频完成");
     } catch (err) {
-      setStatus("CSV 写频失败：" + err.message, "err");
-      log("CSV 写频异常：" + err.message, "err");
+      setStatus("批量写频失败：" + err.message, "err");
+      log("批量写频异常：" + err.message, "err");
     } finally {
       $("btnChProgCsv").disabled = false;
     }
@@ -1761,18 +1882,13 @@
     }
   }
 
-  // 亚音频索引 + 类型 -> CSV 字符串（CTCSS "88.5"；DCS "023"；反相 "I023"；无 ""）
-  function toneToString(idx, type) {
-    if (type === proto.CODE_TYPE.CTCSS) {
-      const tenthHz = proto.CTCSS_OPTIONS[idx];
-      return tenthHz !== undefined ? (tenthHz / 10).toFixed(1) : "";
-    }
-    if (type === proto.CODE_TYPE.DCS || type === proto.CODE_TYPE.DCS_REV) {
-      const code = proto.DCS_OPTIONS[idx];
-      if (code === undefined) return "";
-      return (type === proto.CODE_TYPE.DCS_REV ? "I" : "") + code.toString(8).padStart(3, "0");
-    }
-    return "";
+  // 频率 10Hz 值 → 叮咚鸡频率文本（最多 4 位小数、去尾零、至少 3 位，如 438.710 / 412.5875）
+  function fmtMhz(v10) {
+    const mhz = v10 / 100000;
+    let s = mhz.toFixed(4).replace(/0+$/, "");
+    if (s.endsWith(".")) s += "0";
+    const frac = s.indexOf(".") < 0 ? 0 : s.length - s.indexOf(".") - 1;
+    return frac < 3 ? mhz.toFixed(3) : s;
   }
 
   function csvEscape(s) {
@@ -1804,34 +1920,35 @@
         (p) => { bar.style.width = (45 + p * 45).toFixed(1) + "%"; });
 
       const gb = window.K5WEB && window.K5WEB.gb2312;
-      const lines = ["信道号,名称,接收频率,发射频率,接收亚音,发射亚音,带宽,功率,调制,差频方向,差频"];
+      const lines = [proto.DD_HEADERS.join(",")]; // 叮咚鸡格式表头
       let exported = 0;
       for (let i = 0; i < count; i++) {
         const fdv = new DataView(freqAll.buffer, i * C.SIZE, C.SIZE);
         const rx10 = fdv.getUint32(0, true);
         if (rx10 === 0 || rx10 === 0xFFFFFFFF) continue;   // 空信道（未写入/擦除态）
-        // offset 4 是频差值（10Hz），方向在 byte11 低半字节；发射频率 = 接收 ± 频差
+        // offset 4 是频差值（10Hz），方向在 byte11 低半字节
         let off10 = fdv.getUint32(4, true);
         if (off10 === 0xFFFFFFFF) off10 = 0;
         if (off10 >= 100000000) off10 = 1000000;           // 与固件 radio.c 的上限一致
         const txDir = fdv.getUint8(11) & 0x0F;
-        const tx10 = txDir === proto.TX_DIR.ADD ? rx10 + off10 : txDir === proto.TX_DIR.SUB ? rx10 - off10 : rx10;
         const nameBytes = nameAll.subarray(i * C.NAME_SIZE, (i + 1) * C.NAME_SIZE);
         let ascii = "";
         for (const b of nameBytes) { if (!b) break; if (b >= 0x20 && b < 0x7F) ascii += String.fromCharCode(b); }
         const name = gb ? gb.decode(nameBytes) : ascii;
+        const rxTone = proto.toneToDdColumns(fdv.getUint8(8), fdv.getUint8(10) & 0x0F);
+        const txTone = proto.toneToDdColumns(fdv.getUint8(9), (fdv.getUint8(10) >> 4) & 0x0F);
         lines.push([
           start + i + 1,
-          csvEscape(gb ? name : ascii),
-          (rx10 / 100000).toFixed(5),
-          (tx10 / 100000).toFixed(5),
-          toneToString(fdv.getUint8(8), fdv.getUint8(10) & 0x0F),
-          toneToString(fdv.getUint8(9), (fdv.getUint8(10) >> 4) & 0x0F),
-          (fdv.getUint8(12) >> 1) & 1,
-          (fdv.getUint8(12) >> 2) & 7,
-          (fdv.getUint8(11) >> 4) & 0x0F,
-          txDir <= proto.TX_DIR.SUB ? txDir : 0,
+          fmtMhz(rx10),
+          proto.POWER_NAMES[(fdv.getUint8(12) >> 2) & 7] || "HIGH",
+          rxTone.digital, rxTone.analog,
+          txTone.digital, txTone.analog,
+          proto.DD_DIR_NAMES[txDir <= proto.TX_DIR.SUB ? txDir : 0],
           (off10 / 100000).toFixed(4),
+          proto.MODULATION_NAMES[(fdv.getUint8(11) >> 4) & 0x0F] || "FM",
+          proto.ddStepName(fdv.getUint8(14)),
+          "不参与",
+          csvEscape(gb ? name : ascii),
         ].join(","));
         exported++;
         bar.style.width = (90 + exported / count * 10).toFixed(1) + "%";
