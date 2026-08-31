@@ -58,6 +58,10 @@
     #include "ui/menu.h"
 #endif
 
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) && !defined(ENABLE_FEAT_F4HWN_BEAM)
+static void ACTION_Beam(void);
+#endif
+
 #if defined(ENABLE_FMRADIO)
 static void ACTION_Scan_FM(bool bRestart);
 #endif
@@ -113,7 +117,7 @@ void (*const action_opt_table[ACTION_OPT_LEN])(void) = {
         [ACTION_OPT_REMOVE_OFFSET] = &ACTION_Remove_Offset,
     #endif
 #endif
-#ifdef ENABLE_FEAT_F4HWN_BEAM
+#if defined(ENABLE_FEAT_F4HWN_BEAM) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     [ACTION_OPT_BEAM] = &ACTION_Beam,
 #endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
@@ -153,6 +157,10 @@ bool ACTION_IsAvailable(uint8_t action)
 #ifndef ENABLE_FEAT_F4HWN_BEACON
         case ACTION_OPT_BEACON:
             return (APP_OverlayShortcutMask() & APP_SHORTCUT_BEACON) != 0;
+#endif
+#ifndef ENABLE_FEAT_F4HWN_BEAM
+        case ACTION_OPT_BEAM:
+            return (APP_OverlayShortcutMask() & APP_SHORTCUT_BEAM) != 0;
 #endif
         default:
             break;
@@ -338,7 +346,7 @@ inline static bool ACTION_IsBlockedInFM(uint8_t action)
         case ACTION_OPT_REMOVE_OFFSET:
     #endif
 #endif
-#ifdef ENABLE_FEAT_F4HWN_BEAM
+#if defined(ENABLE_FEAT_F4HWN_BEAM) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
         case ACTION_OPT_BEAM:
 #endif
 #if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
@@ -494,6 +502,14 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     // held or released after short press
     ACTION_Execute(func);
 }
+
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) && !defined(ENABLE_FEAT_F4HWN_BEAM)
+static void ACTION_Beam(void)
+{
+    if (APP_LaunchOverlayShortcut(APP_SHORTCUT_BEAM) != APP_OK)
+        gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+}
+#endif
 
 #if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 void ACTION_FoxHunt(void)

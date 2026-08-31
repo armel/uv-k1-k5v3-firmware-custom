@@ -40,7 +40,7 @@
  * reorder, a removal, or an append - MUST bump this. Keep in sync with the
  * value read by pack_app.py, which
  * stamps the blob the loader checks against. */
-#define APP_ABI_VERSION   6u
+#define APP_ABI_VERSION   8u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -118,6 +118,41 @@ enum {
     APP_TRIVFO_RX   = 1,
     APP_TRIVFO_HOLD = 2,
     APP_TRIVFO_TX_STATE = 3,
+};
+
+/* Pointer-free BEAM channel description.  The resident bridge translates this
+ * stable ABI type to/from feature-dependent VFO_Info_t. */
+typedef struct {
+    uint32_t rx_frequency;
+    uint32_t tx_offset_frequency;
+    uint8_t  rx_code;
+    uint8_t  tx_code;
+    uint8_t  rx_codetype;
+    uint8_t  tx_codetype;
+    uint8_t  modulation;
+    uint8_t  tx_offset_direction;
+    uint8_t  tx_lock;
+    uint8_t  busy_channel_lock;
+    uint8_t  output_power;
+    uint8_t  channel_bandwidth;
+    uint8_t  frequency_reverse;
+    uint8_t  dtmf_ptt_id_mode;
+    uint8_t  dtmf_decoding_enable;
+    uint8_t  step_setting;
+    uint8_t  scrambling_type;
+    uint8_t  band;
+    uint8_t  scanlist;
+    uint8_t  compander;
+    char     name[16];
+} app_beam_channel_t;
+
+_Static_assert(sizeof(app_beam_channel_t) == 44u,
+               "BEAM ABI/wire channel layout changed");
+
+enum {
+    APP_BEAM_RX_WAIT  = 0,
+    APP_BEAM_RX_READY = 1,
+    APP_BEAM_RX_ERROR = 2,
 };
 
 typedef struct app_api {
@@ -223,6 +258,16 @@ typedef struct app_api {
     uint16_t (*trivfo_step)(uint8_t vfo, int8_t direction);
     uint8_t  (*trivfo_tick)(void);
     uint8_t  (*trivfo_ptt)(bool pressed); /* physical PTT edge; resident applies SetPTT */
+
+    /* ---- BEAM channel transfer (ABI 8) ---- */
+    void     (*beam_prepare)(void); /* tune the fixed narrow-band FSK channel */
+    void     (*beam_leave)(void); /* defensively stop FSK before app return */
+    void     (*beam_get)(app_beam_channel_t *channel); /* export selected VFO */
+    uint16_t (*beam_save)(const app_beam_channel_t *channel); /* first free MR, or 0xffff */
+    void     (*beam_send)(uint16_t *packet); /* transmit one 36-word FSK packet */
+    void     (*beam_rx)(bool start);         /* arm or stop FSK reception */
+    uint8_t  (*beam_rx_poll)(uint16_t *packet); /* APP_BEAM_RX_* */
+    void     (*beam_draw)(const char *status); /* MAIN display with one BEAM center line */
 } app_api_t;
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */

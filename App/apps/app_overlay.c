@@ -525,6 +525,200 @@ static uint8_t app_trivfo_ptt(bool pressed)
     return 0;
 }
 
+/* ---- ABI 8: BEAM radio/channel bridge ------------------------------------
+ * The modal app owns the packet format, CRC, UI and state machine.  Resident
+ * code only translates the stable ABI channel structure and performs the FSK
+ * operations which depend on VFO_Info_t and the BK4819 driver. */
+static VFO_Info_t app_beam_vfo;
+static uint8_t app_beam_fsk_index;
+static uint16_t app_beam_pending_channel;
+static bool app_beam_dirty;
+
+static void app_beam_prepare(void)
+{
+    const uint16_t channel = FREQ_CHANNEL_FIRST + BAND6_400MHz;
+    RADIO_InitInfo(&app_beam_vfo, channel, DEFAULT_FREQ);
+    app_beam_vfo.CHANNEL_BANDWIDTH = BANDWIDTH_NARROW;
+    app_beam_vfo.OUTPUT_POWER = OUTPUT_POWER_LOW1;
+    RADIO_ConfigureSquelchAndOutputPower(&app_beam_vfo);
+
+    gRxVfo = &app_beam_vfo;
+    gTxVfo = &app_beam_vfo;
+    gCurrentVfo = &app_beam_vfo;
+    RADIO_SetupRegisters(true);
+    BK4819_SetupAircopy();
+    BK4819_ResetFSK();
+    app_beam_fsk_index = 0;
+}
+
+static void app_beam_leave(void)
+{
+    BK4819_ResetFSK();
+}
+
+static void app_beam_get(app_beam_channel_t *out)
+{
+    if (out == NULL)
+        return;
+    memset(out, 0, sizeof(*out));
+    const VFO_Info_t *vfo = &gEeprom.VfoInfo[gEeprom.TX_VFO];
+    out->rx_frequency             = vfo->freq_config_RX.Frequency;
+    out->tx_offset_frequency      = vfo->TX_OFFSET_FREQUENCY;
+    out->rx_code                  = vfo->freq_config_RX.Code;
+    out->tx_code                  = vfo->freq_config_TX.Code;
+    out->rx_codetype              = vfo->freq_config_RX.CodeType;
+    out->tx_codetype              = vfo->freq_config_TX.CodeType;
+    out->modulation               = vfo->Modulation;
+    out->tx_offset_direction      = vfo->TX_OFFSET_FREQUENCY_DIRECTION;
+    out->tx_lock                  = vfo->TX_LOCK;
+    out->busy_channel_lock        = vfo->BUSY_CHANNEL_LOCK;
+    out->output_power             = vfo->OUTPUT_POWER;
+    out->channel_bandwidth        = vfo->CHANNEL_BANDWIDTH;
+    out->frequency_reverse        = vfo->FrequencyReverse;
+    out->dtmf_ptt_id_mode         = vfo->DTMF_PTT_ID_TX_MODE;
+#ifdef ENABLE_DTMF_CALLING
+    out->dtmf_decoding_enable     = vfo->DTMF_DECODING_ENABLE;
+#endif
+    out->step_setting             = vfo->STEP_SETTING;
+    out->band                     = vfo->Band;
+    out->scanlist                 = vfo->SCANLIST_PARTICIPATION;
+    out->compander                = vfo->Compander;
+    if (IS_MR_CHANNEL(vfo->CHANNEL_SAVE))
+        SETTINGS_FetchChannelName(out->name, vfo->CHANNEL_SAVE);
+    else
+        memcpy(out->name, vfo->Name, sizeof(out->name));
+}
+
+static uint16_t app_beam_save(const app_beam_channel_t *in)
+{
+    if (in == NULL)
+        return 0xFFFFu;
+
+    uint16_t channel = MR_CHANNEL_FIRST;
+    while (IS_MR_CHANNEL(channel) && RADIO_CheckValidChannel(channel, false, 0))
+        channel++;
+    if (!IS_MR_CHANNEL(channel))
+        return 0xFFFFu;
+
+    /* Reuse the temporary BEAM VFO as resident staging RAM.  No external-flash
+     * write is allowed while the overlay still executes from that flash's
+     * 4 KiB sector cache. */
+    RADIO_InitInfo(&app_beam_vfo, channel, in->rx_frequency);
+    app_beam_vfo.TX_OFFSET_FREQUENCY           = in->tx_offset_frequency;
+    app_beam_vfo.freq_config_RX.Code           = in->rx_code;
+    app_beam_vfo.freq_config_TX.Code           = in->tx_code;
+    app_beam_vfo.freq_config_RX.CodeType       = in->rx_codetype;
+    app_beam_vfo.freq_config_TX.CodeType       = in->tx_codetype;
+    app_beam_vfo.TX_OFFSET_FREQUENCY_DIRECTION = in->tx_offset_direction;
+    app_beam_vfo.Modulation                    = in->modulation;
+    app_beam_vfo.TX_LOCK                       = in->tx_lock;
+    app_beam_vfo.BUSY_CHANNEL_LOCK             = in->busy_channel_lock;
+    app_beam_vfo.OUTPUT_POWER                  = in->output_power;
+    app_beam_vfo.CHANNEL_BANDWIDTH             = in->channel_bandwidth;
+    app_beam_vfo.FrequencyReverse              = in->frequency_reverse;
+    app_beam_vfo.DTMF_PTT_ID_TX_MODE           = in->dtmf_ptt_id_mode;
+#ifdef ENABLE_DTMF_CALLING
+    app_beam_vfo.DTMF_DECODING_ENABLE          = in->dtmf_decoding_enable;
+#endif
+    app_beam_vfo.STEP_SETTING = in->step_setting < STEP_N_ELEM ? in->step_setting : STEP_12_5kHz;
+    app_beam_vfo.StepFrequency = gStepFrequencyTable[app_beam_vfo.STEP_SETTING];
+    app_beam_vfo.SCANLIST_PARTICIPATION = in->scanlist;
+    app_beam_vfo.Compander = in->compander;
+    memcpy(app_beam_vfo.Name, in->name, sizeof(app_beam_vfo.Name));
+    app_beam_vfo.Name[sizeof(app_beam_vfo.Name) - 1u] = '\0';
+
+    app_beam_pending_channel = channel;
+    app_beam_dirty = true;
+    return channel;
+}
+
+/* Called only after the overlay has returned and its code no longer executes
+ * from the PY25Q16 sector cache. */
+static void app_beam_commit(void)
+{
+    if (!app_beam_dirty)
+        return;
+    app_beam_dirty = false;
+
+    const uint16_t channel = app_beam_pending_channel;
+
+    SETTINGS_SaveChannel(channel, gEeprom.TX_VFO, &app_beam_vfo, 3);
+#ifndef ENABLE_KEEP_MEM_NAME
+    SETTINGS_SaveChannelName(channel, app_beam_vfo.Name);
+#endif
+
+    gEeprom.MrChannel[gEeprom.TX_VFO] = channel;
+    gEeprom.ScreenChannel[gEeprom.TX_VFO] = channel;
+    RADIO_ConfigureChannel(gEeprom.TX_VFO, VFO_CONFIGURE_RELOAD);
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
+    PY25Q16_InvalidateCache();
+}
+
+static void app_beam_send(uint16_t *packet)
+{
+    if (packet == NULL)
+        return;
+    RADIO_SetTxParameters();
+    BK4819_SendFSKData(packet);
+    BK4819_SetupPowerAmplifier(0, 0);
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
+}
+
+static void app_beam_rx(bool start)
+{
+    app_beam_fsk_index = 0;
+    if (start)
+        BK4819_PrepareFSKReceive();
+    else
+        BK4819_ResetFSK();
+}
+
+static uint8_t app_beam_rx_poll(uint16_t *packet)
+{
+    if (packet == NULL)
+        return APP_BEAM_RX_ERROR;
+
+    while (BK4819_ReadRegister(BK4819_REG_0C) & 1u) {
+        BK4819_WriteRegister(BK4819_REG_02, 0);
+        const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
+        if (irq & (BK4819_REG_02_FSK_FIFO_ALMOST_FULL | BK4819_REG_02_FSK_RX_FINISHED)) {
+            const unsigned words = (irq & BK4819_REG_02_FSK_RX_FINISHED)
+                                 ? (app_beam_fsk_index < 36u ? 36u - app_beam_fsk_index : 0u)
+                                 : 4u;
+            for (unsigned i = 0; i < words; i++) {
+                const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
+                if (app_beam_fsk_index < 36u)
+                    packet[app_beam_fsk_index++] = word;
+            }
+        }
+    }
+
+    if (app_beam_fsk_index < 36u)
+        return APP_BEAM_RX_WAIT;
+
+    app_beam_fsk_index = 0;
+    const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
+    BK4819_PrepareFSKReceive();
+    return (status & 0x0010u) ? APP_BEAM_RX_ERROR : APP_BEAM_RX_READY;
+}
+
+static void app_beam_draw(const char *status)
+{
+    UI_DisplayStatus();
+    UI_DisplayMain();
+#ifdef ENABLE_FEAT_F4HWN
+    const uint8_t line = (gEeprom.DUAL_WATCH == DUAL_WATCH_OFF &&
+                          gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF) ? 5u : 3u;
+#else
+    const uint8_t line = 3u;
+#endif
+    memset(gFrameBuffer[line], 0, LCD_WIDTH);
+    UI_PrintStringSmallBold(status, 2, LCD_WIDTH - 1u, line);
+}
+
 /* ---- v2 radio wrappers ---- */
 static int16_t  app_rssi_dbm(void)     { return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]; }
 static uint16_t app_bk_read(uint8_t r) { return BK4819_ReadRegister((BK4819_REGISTER_t)r); }
@@ -669,13 +863,14 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
 
 static bool app_shortcuts_cached;
 static uint8_t app_shortcut_mask;
-static uint8_t app_shortcut_slots[3];
+static uint8_t app_shortcut_slots[4];
 
 static int8_t app_shortcut_index(uint8_t shortcut)
 {
     if (shortcut == APP_SHORTCUT_FM)      return 0;
     if (shortcut == APP_SHORTCUT_FOXHUNT) return 1;
     if (shortcut == APP_SHORTCUT_BEACON)  return 2;
+    if (shortcut == APP_SHORTCUT_BEAM)    return 3;
     return -1;
 }
 
@@ -807,6 +1002,14 @@ static const app_api_t app_api = {
     .trivfo_step      = app_trivfo_step,
     .trivfo_tick      = app_trivfo_tick,
     .trivfo_ptt       = app_trivfo_ptt,
+    .beam_prepare     = app_beam_prepare,
+    .beam_leave       = app_beam_leave,
+    .beam_get         = app_beam_get,
+    .beam_save        = app_beam_save,
+    .beam_send        = app_beam_send,
+    .beam_rx          = app_beam_rx,
+    .beam_rx_poll     = app_beam_rx_poll,
+    .beam_draw        = app_beam_draw,
 };
 
 uint8_t APP_LaunchOverlay(uint8_t slot)
@@ -845,6 +1048,7 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 #ifdef ENABLE_FMRADIO
     app_fm_dirty = false;
 #endif
+    app_beam_dirty = false;
 
     app_allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
     app_screen_saver_wake = false;
@@ -890,6 +1094,8 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 
     /* The overlay held app code, not a valid config sector. */
     PY25Q16_InvalidateCache();
+
+    app_beam_commit();
 
     if (app_trivfo_ab_dirty) {
         SETTINGS_SaveVfoIndices();

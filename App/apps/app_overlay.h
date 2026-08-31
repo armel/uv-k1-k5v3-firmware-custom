@@ -69,13 +69,14 @@
 #define APP_FLAG_COMMITTED   0x0001u
 #define APP_FLAG_SCREEN_SAVER 0x0002u
 #define APP_FLAG_SHORTCUT_SHIFT 8u
-#define APP_FLAG_SHORTCUT_MASK  0x0700u
+#define APP_FLAG_SHORTCUT_MASK  0x0F00u
 #define APP_NAME_LEN      16
 #define APP_VERSION_LEN   16
 
 #define APP_SHORTCUT_FM       0x01u
 #define APP_SHORTCUT_FOXHUNT  0x02u
 #define APP_SHORTCUT_BEACON   0x04u
+#define APP_SHORTCUT_BEAM     0x08u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;                    /* APP_MAGIC                              */

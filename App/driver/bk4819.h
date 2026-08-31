@@ -114,7 +114,7 @@ void     BK4819_EnterTxMute(void);
 void     BK4819_ExitTxMute(void);
 void     BK4819_Sleep(void);
 void     BK4819_TurnsOffTones_TurnsOnRX(void);
-#ifdef ENABLE_AIRCOPY
+#if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     void     BK4819_SetupAircopy(void);
 #endif
 void     BK4819_ResetFSK(void);

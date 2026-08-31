@@ -38,6 +38,7 @@ SHORTCUTS = {
     "fm": cdefine("app_overlay.h", "APP_SHORTCUT_FM"),
     "foxhunt": cdefine("app_overlay.h", "APP_SHORTCUT_FOXHUNT"),
     "beacon": cdefine("app_overlay.h", "APP_SHORTCUT_BEACON"),
+    "beam": cdefine("app_overlay.h", "APP_SHORTCUT_BEAM"),
 }
 
 def field(s: str, n: int) -> bytes:

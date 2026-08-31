@@ -180,7 +180,7 @@
                 "ENABLE_FEAT_F4HWN_FOXHUNT": false,
                 "ENABLE_FEAT_F4HWN_BEACON": false,
                 "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_BEAM": true,
+                "ENABLE_FEAT_F4HWN_BEAM": false,
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
                 "EDITION_STRING": "Labs",
