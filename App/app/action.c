@@ -25,7 +25,7 @@
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
@@ -33,7 +33,7 @@
 #endif
 #include "app/scanner.h"
 #include "audio.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "driver/bk1080.h"
 #endif
 #include "driver/bk4819.h"
@@ -62,7 +62,7 @@
 static void ACTION_Beam(void);
 #endif
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
 static void ACTION_Scan_FM(bool bRestart);
 #endif
 
@@ -215,7 +215,7 @@ void ACTION_Monitor(void)
 
     RADIO_SetupRegisters(true);
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode) {
         FM_Start();
         gRequestDisplayScreen = DISPLAY_FM;
@@ -229,7 +229,7 @@ void ACTION_Scan(bool bRestart)
 {
     (void)bRestart;
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode) {
         ACTION_Scan_FM(bRestart);
         return;
@@ -322,7 +322,7 @@ void ACTION_SwitchDemodul(void)
 }
 
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
 inline static bool ACTION_IsBlockedInFM(uint8_t action)
 {
     switch (action) {
@@ -370,7 +370,7 @@ static void ACTION_Execute(uint8_t action)
         return;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && ACTION_IsBlockedInFM(action)) {
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
         return;
@@ -587,6 +587,7 @@ void ACTION_FM(void)
 #endif  /* !ENABLE_FEAT_F4HWN_OVERLAY_APPS */
 }
 
+#ifdef ENABLE_FMRADIO_EMBEDDED
 static void ACTION_Scan_FM(bool bRestart)
 {
     if (FUNCTION_IsRx())
@@ -626,6 +627,7 @@ static void ACTION_Scan_FM(bool bRestart)
 #endif
 
 }
+#endif
 
 #endif
 
@@ -785,7 +787,7 @@ void ACTION_Mute(void)
     gMute = !gMute;
 
     // Update the registers
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         BK1080_WriteRegister(BK1080_REG_05_SYSTEM_CONFIGURATION2, gMute ? 0x0A10 : 0x0A1F);
     #endif
     gEeprom.VOLUME_GAIN = gMute ? 0 : gEeprom.VOLUME_GAIN_BACKUP;

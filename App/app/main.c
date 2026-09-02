@@ -20,7 +20,7 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/common.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/generic.h"
@@ -728,7 +728,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (!gFmRadioMode)
 #endif
     {
@@ -763,7 +763,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     ACTION_FM();
 #endif
     return;
@@ -1064,7 +1064,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
 void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && Key != KEY_PTT && Key != KEY_EXIT) {
         if (!bKeyHeld && bKeyPressed)
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;

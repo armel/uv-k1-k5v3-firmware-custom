@@ -21,7 +21,7 @@
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
 #include "app/rxtx_log.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/scanner.h"

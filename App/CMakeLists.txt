@@ -117,16 +117,15 @@ endif()
 
 # ---- STOCK QUANSHENG FEATURES ----
 
-# ENABLE_FMRADIO compiles the BK1080 driver and the FM logic/helpers (fm.c).
-# The resident FM *screen* (ui/fmradio.c) is redundant with the FM overlay app,
-# so it is dropped when OVERLAY_APPS is on - the overlay app reaches the driver
-# and the fm.c helpers through the ABI instead, and ACTION_FM's launcher body is
-# neutralised in action.c so the resident screen can never open.
+# ENABLE_FMRADIO keeps the BK1080 driver and the FM data/helpers shared with the
+# overlay.  ENABLE_FMRADIO_EMBEDDED additionally selects the legacy resident
+# state machine and its integration with the main scheduler.
 enable_feature(ENABLE_FMRADIO
     driver/bk1080.c
     app/fm.c
 )
 if(ENABLE_FMRADIO AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    target_compile_definitions(App INTERFACE ENABLE_FMRADIO_EMBEDDED)
     target_sources(App INTERFACE ui/fmradio.c)
 endif()
 enable_feature(ENABLE_AIRCOPY

@@ -18,7 +18,7 @@
 #include <stdio.h>   // NULL
 
 #include "app/chFrScanner.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/scanner.h"
@@ -279,7 +279,7 @@ void DTMF_HandleRequest(void)
 
                 gDTMF_ReplyState = DTMF_REPLY_AB;
 
-                #ifdef ENABLE_FMRADIO
+                #ifdef ENABLE_FMRADIO_EMBEDDED
                     if (gFmRadioMode)
                     {
                         FM_TurnOff();

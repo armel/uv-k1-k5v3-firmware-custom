@@ -32,7 +32,7 @@
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/generic.h"
@@ -53,7 +53,7 @@
     // #include "bsp/dp32g030/pwmplus.h"
 #endif
 #include "driver/backlight.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "driver/bk1080.h"
 #endif
 #include "driver/bk4819.h"
@@ -111,8 +111,12 @@ void (*const ProcessKeysFunctions[])(KEY_Code_t Key, bool bKeyPressed, bool bKey
     [DISPLAY_MENU] = &MENU_ProcessKeys,
     [DISPLAY_SCANNER] = &SCANNER_ProcessKeys,
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     [DISPLAY_FM] = &FM_ProcessKeys,
+#elif defined(ENABLE_FMRADIO)
+    /* The modal FM overlay handles its own keys. Keep the enum slot populated
+       for configurations where DISPLAY_FM is the final display entry. */
+    [DISPLAY_FM] = &MAIN_ProcessKeys,
 #endif
 
 #ifdef ENABLE_AIRCOPY
@@ -246,7 +250,7 @@ static bool ScreenSaverCanDisplay(bool modal)
         gCurrentFunction == FUNCTION_TRANSMIT ||
         FUNCTION_IsRx() ||
         gPttIsPressed
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
         || (gFM_ScanState != FM_SCAN_OFF && !gFM_FoundFrequency)
 #endif
 #ifdef ENABLE_FEAT_F4HWN_BEAM
@@ -260,7 +264,7 @@ static bool ScreenSaverCanDisplay(bool modal)
     if (modal || gScreenToDisplay == DISPLAY_MAIN)
         return true;
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gScreenToDisplay == DISPLAY_FM)
         return true;
 #endif
@@ -374,7 +378,7 @@ static void CheckForIncoming(void)
     if (!g_SquelchLost)
         return;          // squelch is closed
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     // FM scan in progress: ignore main-channel RX so scanning is not interrupted.
     // Normal FM listening (FM_SCAN_OFF) still yields to channel signals as before.
     if (gFmRadioMode && gFM_ScanState != FM_SCAN_OFF)
@@ -513,7 +517,7 @@ static void HandleIncoming(void)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     // Defensive: do not leave FM scan for a main-channel signal.
     if (gFmRadioMode && gFM_ScanState != FM_SCAN_OFF)
         return;
@@ -784,7 +788,7 @@ void APP_StartListening(FUNCTION_Type_t function)
         return;
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode)
         BK1080_Init0();
 #endif
@@ -853,7 +857,7 @@ void APP_StartListening(FUNCTION_Type_t function)
     RXTX_LOG_BeginRx(gRxVfo, function);
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (function == FUNCTION_MONITOR || gFmRadioMode)
 #else
     if (function == FUNCTION_MONITOR)
@@ -1159,7 +1163,7 @@ static void HandleVox(void)
         gVoxPauseCountdown = 0;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode)
         return;
 #endif
@@ -1321,7 +1325,7 @@ void APP_Update(void)
     if (gCurrentFunction != FUNCTION_TRANSMIT)
         HandleFunction();
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
 //  if (gFmRadioCountdown_500ms > 0)
     if (gFmRadioMode && gFmRadioCountdown_500ms > 0)    // 1of11
         return;
@@ -1366,7 +1370,7 @@ void APP_Update(void)
 #ifdef ENABLE_VOICE
         && gVoiceWriteIndex == 0
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
         && !gFmRadioMode
 #endif
 #ifdef ENABLE_DTMF_CALLING
@@ -1385,7 +1389,7 @@ void APP_Update(void)
         gScheduleDualWatch = false;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gScheduleFM && gFM_ScanState != FM_SCAN_OFF && !FUNCTION_IsRx()) {
         // switch to FM radio mode
         FM_Play();
@@ -1405,7 +1409,7 @@ void APP_Update(void)
             || gScanStateDir != SCAN_OFF
             || gCssBackgroundScan
             || gScreenToDisplay != DISPLAY_MAIN
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
             || gFmRadioMode
 #endif
 #ifdef ENABLE_DTMF_CALLING
@@ -1760,7 +1764,7 @@ void APP_TimeSlice10ms(void)
 
     // Skipping authentic device checks
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && gFmRadioCountdown_500ms > 0)   // 1of11
         return;
 #endif
@@ -1792,7 +1796,7 @@ void APP_TimeSlice10ms(void)
         }
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && gFM_RestoreCountdown_10ms > 0) {
         if (--gFM_RestoreCountdown_10ms == 0) { 
             FM_Start(); // switch back to FM radio mode
@@ -1880,7 +1884,7 @@ void APP_TimeSlice500ms(void)
         {
 
             if (IS_MR_CHANNEL(gTxVfo->CHANNEL_SAVE) && (gInputBoxIndex > 0 && gInputBoxIndex < 4)
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
                 && (!gFmRadioMode)
 #endif
                 )
@@ -1927,7 +1931,7 @@ void APP_TimeSlice500ms(void)
 
     // Skipped authentic device check
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioCountdown_500ms > 0)
     {
         gFmRadioCountdown_500ms--;
@@ -2059,7 +2063,7 @@ void APP_TimeSlice500ms(void)
     }
 
     if (!gCssBackgroundScan && gScanStateDir == SCAN_OFF && !SCANNER_IsScanning()
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
         && (gFM_ScanState == FM_SCAN_OFF || gAskToSave)
 #endif
 #ifdef ENABLE_AIRCOPY
@@ -2114,7 +2118,7 @@ void APP_TimeSlice500ms(void)
 
             GUI_DisplayType_t disp = DISPLAY_INVALID;
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
             if (gFmRadioMode && ! FUNCTION_IsRx()) {
                 disp = DISPLAY_FM;
             }
@@ -2136,7 +2140,7 @@ void APP_TimeSlice500ms(void)
 
     if (!gPttIsPressed && gVFOStateResumeCountdown_500ms > 0 && --gVFOStateResumeCountdown_500ms == 0) {
             RADIO_SetVfoState(VFO_STATE_NORMAL);
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
         if (gFmRadioMode && !FUNCTION_IsRx()) {
             // switch back to FM radio mode
             FM_Start();
@@ -2289,7 +2293,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             flagSaveSettings = false;
         }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
         if (gFlagSaveFM) {
             SETTINGS_SaveFM();
             gFlagSaveFM = false;
@@ -2583,7 +2587,7 @@ Skip:
         gUpdateStatus        = true;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gRequestSaveFM) {
         gRequestSaveFM = false;
         if (!bKeyHeld)

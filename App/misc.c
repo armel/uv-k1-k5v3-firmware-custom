@@ -251,7 +251,7 @@ bool              gFlagResetVfos;
 bool              gRequestSaveVFO;
 uint16_t          gRequestSaveChannel;
 bool              gRequestSaveSettings;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     bool          gRequestSaveFM;
 #endif
 bool              gFlagPrepareTX;
@@ -259,7 +259,7 @@ bool              gFlagPrepareTX;
 bool              gFlagAcceptSetting;
 bool              gFlagRefreshSetting;
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     bool          gFlagSaveFM;
 #endif
 bool              g_CDCSS_Lost;
@@ -312,7 +312,7 @@ volatile bool     gNextTimeslice40ms;
     volatile bool     gScheduleNOAA       = true;
 #endif
 volatile bool     gFlagTailNoteEliminationComplete;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     volatile bool gScheduleFM;
 #endif
 

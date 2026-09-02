@@ -20,7 +20,7 @@
 #if !defined(ENABLE_OVERLAY)
     #include "py32f0xx.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/uart.h"
@@ -360,7 +360,7 @@ static void CMD_0514(uint32_t Port, const uint8_t *pBuffer)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
 #endif
 
@@ -404,7 +404,7 @@ static void CMD_051B(uint32_t Port, const uint8_t *pBuffer)
 
     gSerialConfigCountDown_500ms = 12; // 6 sec
 
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
 
@@ -467,7 +467,7 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
     
     bReloadEeprom = false;
 
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
 
@@ -537,7 +537,7 @@ static void CMD_052D(uint32_t Port, const uint8_t *pBuffer)
     REPLY_052D_t      Reply;
     bool              bIsLocked;
 
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
     Reply.Header.ID   = 0x052E;

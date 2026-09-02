@@ -17,13 +17,13 @@
 #include <string.h>
 
 #include "app/dtmf.h"
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     #include "app/fm.h"
 #endif
 #include "audio.h"
 #include "dcs.h"
 #include "driver/backlight.h"
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     #include "driver/bk1080.h"
 #endif
 #include "driver/bk4819.h"
@@ -103,7 +103,7 @@ void FUNCTION_Foreground(const FUNCTION_Type_t PreviousFunction)
         return;
     }
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     if (gFmRadioMode)
         gFM_RestoreCountdown_10ms = fm_restore_countdown_10ms;
 #endif
@@ -156,7 +156,7 @@ void FUNCTION_Transmit()
     gDTMF_RX_live_timeout = 0;
     DTMF_clear_input_box_memory();
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     if (gFmRadioMode)
         BK1080_Init0();
 #endif
@@ -284,7 +284,7 @@ void FUNCTION_Select(FUNCTION_Type_t Function)
     gBatterySaveCountdown_10ms = battery_save_count_10ms;
     gSchedulePowerSave         = false;
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     if(Function != FUNCTION_INCOMING)
         gFM_RestoreCountdown_10ms = 0;
 #endif
