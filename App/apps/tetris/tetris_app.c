@@ -79,8 +79,9 @@ static const uint16_t MASK[7][4] = {
 };
 
 static const uint16_t LINE_POINTS[5] = {0, 100, 300, 500, 800};
+static const uint32_t DECIMAL_PLACE[6] = {100000u, 10000u, 1000u, 100u, 10u, 1u};
 
-static uint8_t board[ROWS][COLS];
+static uint16_t board[ROWS];
 static uint8_t bag[7], bagPos;
 static uint8_t piece, nextPiece, rotation;
 static int8_t  pieceX, pieceY;
@@ -110,7 +111,10 @@ static void refill_bag(void)
     for (uint8_t i = 0; i < 7u; i++)
         bag[i] = i;
     for (uint8_t i = 6u; i > 0u; i--) {
-        const uint8_t j = (uint8_t)(random_next() % (uint32_t)(i + 1u));
+        uint8_t j;
+        do {
+            j = (uint8_t)(random_next() >> 29);
+        } while (j > i);
         const uint8_t t = bag[i]; bag[i] = bag[j]; bag[j] = t;
     }
     bagPos = 0;
@@ -194,7 +198,7 @@ static bool collision(uint8_t type, uint8_t rot, int8_t px, int8_t py)
         const int y = py + (i >> 2);
         if (x < 0 || x >= COLS || y >= ROWS)
             return true;
-        if (y >= 0 && board[y][x])
+        if (y >= 0 && (board[y] & (uint16_t)(1u << x)))
             return true;
     }
     return false;
@@ -210,30 +214,24 @@ static void draw_piece(uint8_t type, uint8_t rot, int8_t px, int8_t py, uint8_t 
 
 static void number(uint32_t value, uint8_t width)
 {
-    text[width] = 0;
-    while (width) {
-        text[--width] = (char)('0' + value % 10u);
-        value /= 10u;
+    const uint8_t first = (uint8_t)(6u - width);
+    for (uint8_t i = 0; i < width; i++) {
+        const uint32_t place = DECIMAL_PLACE[first + i];
+        uint8_t digit = 0;
+        while (value >= place) {
+            value -= place;
+            digit++;
+        }
+        text[i] = (char)('0' + digit);
     }
+    text[width] = 0;
 }
 
 static void preview(void)
 {
     const uint16_t mask = MASK[nextPiece][0];
-    uint8_t minX = 3u, maxX = 0u, minY = 3u, maxY = 0u;
-    for (uint8_t i = 0; i < 16u; i++) {
-        if (!(mask & (uint16_t)(1u << i)))
-            continue;
-        const uint8_t x = i & 3u, y = i >> 2;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-    }
-    const int width = (maxX - minX + 1u) * CELL - 1u;
-    const int height = (maxY - minY + 1u) * CELL - 1u;
-    const int ox = PREVIEW_CX - width / 2 - minX * CELL;
-    const int oy = PREVIEW_CY - height / 2 - minY * CELL;
+    const int ox = nextPiece < 2u ? PREVIEW_CX - 7 : PREVIEW_CX - 5;
+    const int oy = nextPiece == 0u ? PREVIEW_CY - 5 : PREVIEW_CY - 3;
     for (uint8_t i = 0; i < 16u; i++) {
         if (!(mask & (uint16_t)(1u << i)))
             continue;
@@ -280,7 +278,7 @@ static void render(bool showPiece, uint32_t clearRows, uint8_t effect)
 
     for (uint8_t y = 0; y < ROWS; y++)
         for (uint8_t x = 0; x < COLS; x++)
-            if (board[y][x] && (!(clearRows & (1u << y)) ||
+            if ((board[y] & (uint16_t)(1u << x)) && (!(clearRows & (1u << y)) ||
                 (x >= effect && x < COLS - effect)))
                 cell(x, y, 1u);
 
@@ -314,10 +312,7 @@ static uint8_t clear_lines(void)
     uint32_t full = 0;
     uint8_t count = 0;
     for (uint8_t y = 0; y < ROWS; y++) {
-        bool complete = true;
-        for (uint8_t x = 0; x < COLS; x++)
-            if (!board[y][x]) { complete = false; break; }
-        if (complete) { full |= 1u << y; count++; }
+        if (board[y] == 0xFFFFu) { full |= 1u << y; count++; }
     }
     if (!count)
         return 0;
@@ -334,12 +329,11 @@ static uint8_t clear_lines(void)
         if (full & (1u << src))
             continue;
         if (dst != src)
-            for (uint8_t x = 0; x < COLS; x++)
-                board[dst][x] = board[src][x];
+            board[dst] = board[src];
         dst--;
     }
     while (dst >= 0) {
-        for (uint8_t x = 0; x < COLS; x++) board[dst][x] = 0;
+        board[dst] = 0;
         dst--;
     }
     return count;
@@ -371,7 +365,7 @@ static void lock_piece(void)
         const int x = pieceX + (i & 3u);
         const int y = pieceY + (i >> 2);
         if (y < HIDDEN_ROWS) above = true;
-        else board[y][x] = (uint8_t)(piece + 1u);
+        else board[y] |= (uint16_t)(1u << x);
     }
     if (above) {
         gameOver = true;
@@ -381,8 +375,8 @@ static void lock_piece(void)
 
     const uint8_t cleared = clear_lines();
     lines = (uint16_t)(lines + cleared);
-    level = (uint8_t)(lines / 10u + 1u);
-    if (level > 15u) level = 15u;
+    while (level < 15u && lines >= (uint16_t)level * 10u)
+        level++;
     score += (uint32_t)LINE_POINTS[cleared] * level;
     update_best();
     spawn_piece();
@@ -491,8 +485,7 @@ static void poll_key(void)
 static void new_game(void)
 {
     for (uint8_t y = 0; y < ROWS; y++)
-        for (uint8_t x = 0; x < COLS; x++)
-            board[y][x] = 0;
+        board[y] = 0;
     score = 0;
     lines = 0;
     level = 1;
