@@ -26,7 +26,7 @@ step 1 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
 step 2 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 3 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
                    --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" \
-                   --shortcut beam >/dev/null
+                   --shortcut beam --require beam >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")

@@ -54,11 +54,18 @@
 _Static_assert(sizeof(app_header_t) == 64, "app_header_t must be 64 bytes");
 _Static_assert(sizeof(app_api_t) <= UINT16_MAX, "app_api_t size field overflow");
 
+enum {
+    APP_AVAILABLE_CAPS = 0u
 #ifdef ENABLE_FMRADIO
-    #define APP_AVAILABLE_CAPS APP_CAP_FM
-#else
-    #define APP_AVAILABLE_CAPS 0u
+                       | APP_CAP_FM
 #endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
+                       | APP_CAP_TRIVFO
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
+                       | APP_CAP_BEAM
+#endif
+};
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
 static bool app_allow_screen_saver;
@@ -137,7 +144,8 @@ static void app_play_tone(uint16_t tone, uint16_t ms)
     AUDIO_AudioPathOff();
 }
 
-/* ---- API level 1: resident triple-VFO engine ----------------------------
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
+/* ---- optional resident triple-VFO engine --------------------------------
  * The overlay owns the UI and key timing, while this resident engine owns all
  * radio details.  Keeping VFO_Info_t and BK4819 sequencing on this side makes
  * the app independent of feature-dependent firmware layouts. */
@@ -532,8 +540,10 @@ static uint8_t app_trivfo_ptt(bool pressed)
     app_trivfo_tx_ticks = 0;
     return 0;
 }
+#endif
 
-/* ---- API level 1: BEAM radio/channel bridge -------------------------------
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
+/* ---- optional BEAM radio/channel bridge -----------------------------------
  * The modal app owns the packet format, CRC, UI and state machine.  Resident
  * code only translates the stable ABI channel structure and performs the FSK
  * operations which depend on VFO_Info_t and the BK4819 driver. */
@@ -757,6 +767,7 @@ static void app_beam_draw(const char *status)
     memset(gFrameBuffer[line], 0, LCD_WIDTH);
     UI_PrintStringSmallBold(status, 2, LCD_WIDTH - 1u, line);
 }
+#endif
 
 /* ---- radio wrappers ---- */
 static int16_t  app_rssi_dbm(void)     { return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]; }
@@ -803,8 +814,10 @@ static void app_battery_sample(void)
     /* The resident scheduler deliberately skips ADC battery updates while the
      * PA is keyed.  Do the same for Triple VFO: sampling the loaded voltage as
      * capacity made an 80% pack appear to fall immediately to about 16%. */
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
     if (app_trivfo_transmitting)
         return;
+#endif
 
     BATTERY_Sample(false);
 }
@@ -1039,6 +1052,7 @@ static const app_api_t app_api = {
     .fm_commit        = app_fm_commit,
 #endif
     .nav_dir          = app_nav_dir,
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
     .trivfo_enter     = app_trivfo_enter,
     .trivfo_leave     = app_trivfo_leave,
     .trivfo_get       = app_trivfo_get,
@@ -1046,6 +1060,8 @@ static const app_api_t app_api = {
     .trivfo_step      = app_trivfo_step,
     .trivfo_tick      = app_trivfo_tick,
     .trivfo_ptt       = app_trivfo_ptt,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     .beam_prepare     = app_beam_prepare,
     .beam_leave       = app_beam_leave,
     .beam_get         = app_beam_get,
@@ -1054,6 +1070,7 @@ static const app_api_t app_api = {
     .beam_rx          = app_beam_rx,
     .beam_rx_poll     = app_beam_rx_poll,
     .beam_draw        = app_beam_draw,
+#endif
 };
 
 uint8_t APP_LaunchOverlay(uint8_t slot)
@@ -1092,7 +1109,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 #ifdef ENABLE_FMRADIO
     app_fm_dirty = false;
 #endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     app_beam_dirty = false;
+#endif
 
     app_allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
     app_screen_saver_wake = false;
@@ -1129,7 +1148,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     app_screen_saver_wake = false;
 
     /* A defensive leave also covers an app returning through an error path. */
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
     app_trivfo_leave();
+#endif
 
     /* Restore the resident RX/dual-watch tuning the app ran on top of. */
     gEeprom.RX_VFO = saved_rx_vfo;
@@ -1139,8 +1160,11 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     /* The overlay held app code, not a valid config sector. */
     PY25Q16_InvalidateCache();
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     app_beam_commit();
+#endif
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
     if (app_trivfo_ab_dirty) {
         SETTINGS_SaveVfoIndices();
         app_trivfo_ab_dirty = false;
@@ -1152,6 +1176,7 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
                                  &gEeprom.VfoInfo[i], 1);
     }
     app_trivfo_freq_dirty = 0;
+#endif
 
     /* Commit any deferred config the app staged (RMW keeps the slot header). */
     if (app_cfg_len) {

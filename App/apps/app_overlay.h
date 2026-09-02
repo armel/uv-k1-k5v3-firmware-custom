@@ -81,6 +81,8 @@
 /* Optional resident facilities an app may require.  Requirements live in the
  * previously reserved header bytes, so app_header_t remains 64 bytes. */
 #define APP_CAP_FM            0x00000001u
+#define APP_CAP_TRIVFO        0x00000002u
+#define APP_CAP_BEAM          0x00000004u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;                    /* APP_MAGIC                              */

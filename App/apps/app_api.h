@@ -255,7 +255,7 @@ typedef struct app_api {
      * Returns 0 for any other key. Keep get_key() raw for spatial controls. */
     int8_t (*nav_dir)(uint8_t key);
 
-    /* ---- triple VFO (API level 1 baseline) ----
+    /* ---- triple VFO (optional resident capability APP_CAP_TRIVFO) ----
      * A and B are the live Main Display VFOs. C is a resident temporary VFO
      * loaded from c_channel (or the first valid memory after B when invalid).
      * tick is called every 20 ms by the app and returns APP_TRIVFO_* state. */
@@ -267,7 +267,7 @@ typedef struct app_api {
     uint8_t  (*trivfo_tick)(void);
     uint8_t  (*trivfo_ptt)(bool pressed); /* physical PTT edge; resident applies SetPTT */
 
-    /* ---- BEAM channel transfer (API level 1 baseline) ---- */
+    /* ---- BEAM channel transfer (optional resident capability APP_CAP_BEAM) ---- */
     void     (*beam_prepare)(void); /* tune the fixed narrow-band FSK channel */
     void     (*beam_leave)(void); /* defensively stop FSK before app return */
     void     (*beam_get)(app_beam_channel_t *channel); /* export selected VFO */
