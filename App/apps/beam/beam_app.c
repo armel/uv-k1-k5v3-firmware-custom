@@ -127,12 +127,15 @@ static void send_packet(void)
 static void start(void)
 {
     stop_rx();
+    /* A channel save is committed only after app_main() returns.  Do not let a
+       second RX overwrite that pending save; exit and relaunch to receive more. */
+    if (mode && copiedChannel != 0xFFFFu)
+        return;
     A->beam_prepare();
     if (!mode) {
         send_packet();
         return;
     }
-    copiedChannel = 0xFFFFu;
     A->beam_rx(true);
     receiving = true;
     status = STATUS_RX_WAIT;

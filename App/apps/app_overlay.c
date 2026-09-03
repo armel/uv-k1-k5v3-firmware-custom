@@ -548,6 +548,7 @@ static uint8_t app_trivfo_ptt(bool pressed)
  * code only translates the stable ABI channel structure and performs the FSK
  * operations which depend on VFO_Info_t and the BK4819 driver. */
 static VFO_Info_t app_beam_vfo;
+static app_beam_channel_t app_beam_pending;
 static uint8_t app_beam_fsk_index;
 static uint16_t app_beam_pending_channel;
 static bool app_beam_dirty;
@@ -654,28 +655,21 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
     if (in == NULL)
         return 0xFFFFu;
 
+    /* Only one external-flash write can be deferred per app run.  Preserve the
+       first successfully received channel if an older app tries to queue more. */
+    if (app_beam_dirty)
+        return 0xFFFFu;
+
     uint16_t channel = MR_CHANNEL_FIRST;
     while (IS_MR_CHANNEL(channel) && RADIO_CheckValidChannel(channel, false, 0))
         channel++;
     if (!IS_MR_CHANNEL(channel))
         return 0xFFFFu;
 
-    /* Reuse the temporary BEAM VFO as resident staging RAM.  No external-flash
-     * write is allowed while the overlay still executes from that flash's
-     * 4 KiB sector cache. */
-    RADIO_InitInfo(&app_beam_vfo, channel, in->rx_frequency);
-    app_beam_copy_bytes((app_beam_channel_t *)in, &app_beam_vfo, true); /* in read-only here */
-    app_beam_vfo.TX_OFFSET_FREQUENCY     = in->tx_offset_frequency;
-    app_beam_vfo.freq_config_RX.CodeType = in->rx_codetype;
-    app_beam_vfo.freq_config_TX.CodeType = in->tx_codetype;
-    app_beam_vfo.Modulation              = in->modulation;
-    app_beam_vfo.FrequencyReverse        = in->frequency_reverse;
-    app_beam_vfo.DTMF_PTT_ID_TX_MODE     = in->dtmf_ptt_id_mode;
-    app_beam_vfo.STEP_SETTING = in->step_setting < STEP_N_ELEM ? in->step_setting : STEP_12_5kHz;
-    app_beam_vfo.StepFrequency = gStepFrequencyTable[app_beam_vfo.STEP_SETTING];
-    memcpy(app_beam_vfo.Name, in->name, sizeof(app_beam_vfo.Name));
-    app_beam_vfo.Name[sizeof(app_beam_vfo.Name) - 1u] = '\0';
-
+    /* External flash cannot be written while the overlay executes from its
+       sector-cache RAM.  Keep the pointer-free payload separate from the radio
+       VFO: app_beam_prepare() may reuse that VFO before the app returns. */
+    memcpy(&app_beam_pending, in, sizeof(app_beam_pending));
     app_beam_pending_channel = channel;
     app_beam_dirty = true;
     return channel;
@@ -690,6 +684,22 @@ static void app_beam_commit(void)
     app_beam_dirty = false;
 
     const uint16_t channel = app_beam_pending_channel;
+
+    /* The overlay has returned, so the temporary radio VFO is now free to
+       become the channel-save staging object. */
+    RADIO_InitInfo(&app_beam_vfo, channel, app_beam_pending.rx_frequency);
+    app_beam_copy_bytes(&app_beam_pending, &app_beam_vfo, true);
+    app_beam_vfo.TX_OFFSET_FREQUENCY     = app_beam_pending.tx_offset_frequency;
+    app_beam_vfo.freq_config_RX.CodeType = app_beam_pending.rx_codetype;
+    app_beam_vfo.freq_config_TX.CodeType = app_beam_pending.tx_codetype;
+    app_beam_vfo.Modulation              = app_beam_pending.modulation;
+    app_beam_vfo.FrequencyReverse        = app_beam_pending.frequency_reverse;
+    app_beam_vfo.DTMF_PTT_ID_TX_MODE     = app_beam_pending.dtmf_ptt_id_mode;
+    app_beam_vfo.STEP_SETTING = app_beam_pending.step_setting < STEP_N_ELEM
+                              ? app_beam_pending.step_setting : STEP_12_5kHz;
+    app_beam_vfo.StepFrequency = gStepFrequencyTable[app_beam_vfo.STEP_SETTING];
+    memcpy(app_beam_vfo.Name, app_beam_pending.name, sizeof(app_beam_vfo.Name));
+    app_beam_vfo.Name[sizeof(app_beam_vfo.Name) - 1u] = '\0';
 
     SETTINGS_SaveChannel(channel, gEeprom.TX_VFO, &app_beam_vfo, 3);
 #ifndef ENABLE_KEEP_MEM_NAME
@@ -1131,11 +1141,12 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
      * so an RF app (FoxHunt, a future S-meter, ...) would measure and display a
      * VFO the user did not pick - sometimes A, sometimes B. Point RX at the
      * selected (TX) VFO and retune so rx_freq(), rssi_dbm() and the tuned
-     * hardware all agree on the selected channel. gTxVfo is left untouched, so
-     * Beacon's tx_freq() stays correct too. State is saved and restored on
-     * return so the resident dual watch resumes cleanly. */
+     * hardware all agree on the selected channel. Save all three pointers:
+     * radio apps such as BEAM temporarily replace them while they run. */
     const uint8_t     saved_rx_vfo = gEeprom.RX_VFO;
-    VFO_Info_t *const saved_rx     = gRxVfo;
+    VFO_Info_t *const saved_rx      = gRxVfo;
+    VFO_Info_t *const saved_tx      = gTxVfo;
+    VFO_Info_t *const saved_current = gCurrentVfo;
     gEeprom.RX_VFO = gEeprom.TX_VFO;
     gRxVfo         = gTxVfo;
     RADIO_SetupRegisters(true);
@@ -1155,6 +1166,8 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     /* Restore the resident RX/dual-watch tuning the app ran on top of. */
     gEeprom.RX_VFO = saved_rx_vfo;
     gRxVfo         = saved_rx;
+    gTxVfo         = saved_tx;
+    gCurrentVfo    = saved_current;
     RADIO_SetupRegisters(true);
 
     /* The overlay held app code, not a valid config sector. */
