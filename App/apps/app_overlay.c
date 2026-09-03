@@ -97,8 +97,13 @@ static uint8_t app_get_key(void)
         return APP_KEY_INVALID;
     }
 
-    if (!APP_IsScreenSaverDisplayed())
+    if (!APP_IsScreenSaverDisplayed()) {
+        if (key != KEY_INVALID)
+            BACKLIGHT_TurnOn();   /* re-arm BLTime on activity, mirrors ProcessKey():
+                                     overlay apps bypass the resident key handler, so
+                                     the saver would otherwise fire mid-use. */
         return (uint8_t)key;
+    }
 
     if (key == KEY_INVALID)
         return APP_KEY_SAVER;
