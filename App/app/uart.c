@@ -439,7 +439,12 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
 
     uint32_t Timestamp = 0;
 
-    if ((pCmd->Size & 7u) || pCmd->Header.Size < 8u + pCmd->Size)
+    /* Bound the write against the received frame: Data[] must hold pCmd->Size
+     * bytes, otherwise the loop below would read adjacent RAM and persist it to
+     * EEPROM (memory disclosure). A non-multiple-of-8 Size is NOT rejected: the
+     * Size/8 loop simply truncates the sub-page tail, matching the historical
+     * behavior CHIRP relies on for its final (unaligned) config block. */
+    if (pCmd->Header.Size < 8u + pCmd->Size)
         return;
 
     if(0) {}
