@@ -36,7 +36,9 @@
 #define UART_TX_TIMEOUT_ITERATIONS 10000
 
 static bool UART_IsLogEnabled;
-uint8_t UART_DMA_Buffer[256];
+// Word aligned deliberately: this is the destination of a circular DMA, and it
+// sits immediately before VCP_ReplyBuf in .bss. See the comment in uart.h.
+uint8_t UART_DMA_Buffer[256] __attribute__((aligned(4)));
 
 void UART_Init(void)
 {

@@ -21,7 +21,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-extern uint8_t UART_DMA_Buffer[256];
+// The alignment is part of the contract, not a hint. UART_DMA_Buffer is the
+// destination of a circular DMA transfer, and the linker places VCP_ReplyBuf
+// directly after it with no padding. If a build shifts this buffer onto an odd
+// address - which any change to the size of a .bss object earlier in the link
+// can do - the transfer runs into the reply buffer and the application stops
+// answering CAT over USB.
+extern uint8_t UART_DMA_Buffer[256] __attribute__((aligned(4)));
 
 void UART_Init(void);
 void UART_Send(const void *pBuffer, uint32_t Size);
