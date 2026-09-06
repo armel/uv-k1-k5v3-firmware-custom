@@ -223,7 +223,7 @@ static bool txDelay(uint16_t ms){
 }
 /* Keying: both modes key the tone; CARR gates the PA in lockstep so the carrier is truly
  * gone between elements (tone muted too, else it bleeds through residual PA leakage). */
-static void keyOn(void){  A->tx_mute(false); if(carrier) A->tx_carrier(true);  }
+static void keyOn(void){  A->tx_mute(false); A->tx_carrier(true);  }   /* carrier up both modes; re-arms after a mid-window switch */
 static void keyOff(void){ A->tx_mute(true);  if(carrier) A->tx_carrier(false); }
 static bool morseChar(char c,uint8_t vis){
     uint8_t code=morseByte(c);

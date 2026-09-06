@@ -960,8 +960,9 @@ static uint8_t FOXHUNT_MorseByte(char c)
 static void FOXHUNT_KeyOn(void)
 {
     BK4819_ExitTxMute();
-    if (beaconCarrierKeyed)
-        BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, true);
+    // Assert the carrier in both modes: a no-op in TONE (already up), but it re-arms the PA
+    // if the mode was switched from CARR mid-window while the carrier happened to be down.
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, true);
 }
 static void FOXHUNT_KeyOff(void)
 {
