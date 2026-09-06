@@ -17,12 +17,13 @@
 /*
  * Beacon (fox) — overlay app. Ported from App/app/foxhunt.c, beacon sub-mode only.
  * Turns the radio into a hidden ARDF transmitter: keys up on the TX VFO and repeats
- * a CW fox identifier (MOE..MO5 / MO / "<call> MOE") as MCW for the TX window, then
- * stays silent for the idle gap. The carrier stays up during the window; only the
- * tone is keyed per Morse element.
+ * a CW fox identifier (MOE..MO5 / MO / "<call> MOE") for the TX window, then stays
+ * silent for the idle gap. Two keying modes (key 4): TONE (default) keeps the carrier
+ * up and keys only the tone (MCW / F2A); CARR keys the PA together with the tone, so
+ * between elements the carrier itself is gone (carrier interruption, ARDF field pattern).
  *
- * Keys: 1 TX window · 2 idle gap · 3 fox id (F reverses) · MENU restart idle
- *       long F keypad lock · EXIT quit.
+ * Keys: 1 TX window · 2 idle gap · 3 fox id · 4 keying mode TONE/CARR (F reverses)
+ *       MENU restart idle · long F keypad lock · EXIT quit.
  */
 
 #include <stdint.h>
@@ -64,7 +65,7 @@ static const uint8_t FONT_LOCK[9] = {0x7c,0x46,0x45,0x45,0x45,0x45,0x45,0x46,0x7
 
 static const app_api_t *A;
 
-static bool     foxLocked, fArm, fLongDone, running, phaseTx;
+static bool     foxLocked, fArm, fLongDone, running, phaseTx, carrier;
 static uint16_t fHoldMs;
 static uint8_t  beaconIdle, idleLeft, idleTick, beaconTx, secShown, charsSent, foxFox;
 static uint16_t txMsLeft;
@@ -95,6 +96,7 @@ static bool settingKey(uint8_t key,int8_t dir){
             if(dir>0){ if(++foxFox>=FOX_COUNT) foxFox=0; }
             else foxFox=foxFox?(uint8_t)(foxFox-1u):(uint8_t)(FOX_COUNT-1u);
             return true;
+        case APP_KEY_4: carrier=!carrier; return true;   /* TONE <-> CARR (dir moot) */
         default: return false;
     }
 }
@@ -184,7 +186,8 @@ static void beaconDraw(bool txNow,uint8_t il){
     }
     char *o=put(str,"TX "); o=putu(o,beaconTx); o=put(o,"s"); *o='\0'; tag(str,4,5);
     o=put(str,"IDLE "); o=putu(o,beaconIdle); o=put(o,"s"); *o='\0'; tag(str,4,6);
-    foxLabel(str); tag(str,(uint8_t)(125-slen(str)*4),5);
+    foxLabel(str); tag(str,66,5);
+    { const char *m=carrier?"CARR":"TONE"; tag(m,(uint8_t)(125-slen(m)*4),5); }
 }
 static void blit(void){ A->blit_status(); A->blit_full(); }
 
@@ -218,15 +221,19 @@ static bool txDelay(uint16_t ms){
     }
     return false;
 }
+/* Keying: both modes key the tone; CARR gates the PA in lockstep so the carrier is truly
+ * gone between elements (tone muted too, else it bleeds through residual PA leakage). */
+static void keyOn(void){  A->tx_mute(false); if(carrier) A->tx_carrier(true);  }
+static void keyOff(void){ A->tx_mute(true);  if(carrier) A->tx_carrier(false); }
 static bool morseChar(char c,uint8_t vis){
     uint8_t code=morseByte(c);
     if(code==0){ if(txDelay(MORSE_UNIT*4)) return true; updateProgress(vis); return false; }
     uint8_t bit=0x80; while(!(code&bit))bit>>=1;
     for(bit>>=1;bit;bit>>=1){
         uint16_t on=(code&bit)?(MORSE_UNIT*3):MORSE_UNIT;
-        A->tx_mute(false);
-        if(txDelay(on)){ A->tx_mute(true); return true; }
-        A->tx_mute(true);
+        keyOn();
+        if(txDelay(on)){ keyOff(); return true; }
+        keyOff();
         if(txDelay(MORSE_UNIT)) return true;
     }
     updateProgress(vis);
@@ -235,7 +242,8 @@ static bool morseChar(char c,uint8_t vis){
 static void transmit(void){
     A->tx_set_params();
     A->tx_tone(TONE_HZ);
-    A->tx_mute(true);
+    A->tx_mute(true);                        /* open muted (both modes)               */
+    if(carrier) A->tx_carrier(false);        /* CARR: carrier off until first element  */
     txMsLeft=(uint16_t)beaconTx*1000u;
     bool stop=false;
     while(!stop && txMsLeft>0){
@@ -270,14 +278,15 @@ static void tickDelay(void){ for(uint8_t i=0;i<TICK_MS/10;i++){ A->delay_ms(10);
 
 /* ---- config (deferred) ---- */
 static void loadConfig(void){
-    uint8_t c[4]; A->cfg_load(c,4);
+    uint8_t c[5]; A->cfg_load(c,5);
     if(c[0]==CFG_MAGIC){
         if(c[1]>=IDLE_MIN&&c[1]<=IDLE_MAX&&(c[1]%IDLE_STEP)==0) beaconIdle=c[1];
         if(c[2]<FOX_COUNT) foxFox=c[2];
         if(c[3]>=TX_MIN&&c[3]<=TX_MAX&&(c[3]%TX_STEP)==0) beaconTx=c[3];
+        if(c[4]<=1) carrier=c[4];   /* erased (0xFF) legacy config -> keep default */
     }
 }
-static void saveConfig(void){ uint8_t c[4]={CFG_MAGIC,beaconIdle,foxFox,beaconTx}; A->cfg_save(c,4); }
+static void saveConfig(void){ uint8_t c[5]={CFG_MAGIC,beaconIdle,foxFox,beaconTx,(uint8_t)carrier}; A->cfg_save(c,5); }
 
 static void txDenied(void){
     chrome();
@@ -289,7 +298,7 @@ static void txDenied(void){
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     A=api;
-    foxLocked=fArm=fLongDone=false; fHoldMs=0;
+    foxLocked=fArm=fLongDone=carrier=false; fHoldMs=0;
     beaconIdle=IDLE_DEF; beaconTx=TX_DEF; foxFox=FOX_CALL;
     prevKey=APP_KEY_INVALID;
     A->boot_callsign(foxCall,sizeof(foxCall));

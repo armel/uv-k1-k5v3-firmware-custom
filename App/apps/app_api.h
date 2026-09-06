@@ -231,6 +231,7 @@ typedef struct app_api {
     void     (*tx_tone)(uint16_t hz);/* BK4819_TransmitTone prime (MCW tone)       */
     void     (*tx_mute)(bool on);    /* key the tone on(false)/off(true) via TxMute */
     void     (*tx_end)(void);        /* PA off + RADIO_SetupRegisters (back to RX) */
+    void     (*tx_carrier)(bool on); /* gate the PA on/off (beacon CARR carrier keying) */
     uint32_t (*tx_freq)(void);       /* current TX VFO frequency (x10 Hz)          */
     void     (*boot_callsign)(char *buf, uint8_t len); /* sanitised callsign from the boot message */
     void     (*print_string)(const char *s, uint8_t start, uint8_t end,

@@ -850,6 +850,7 @@ static void     app_tx_set_params(void)  { RADIO_SetTxParameters(); }
 static void     app_tx_tone(uint16_t hz) { BK4819_TransmitTone(false, hz); }
 static void     app_tx_mute(bool on)     { if (on) BK4819_EnterTxMute(); else BK4819_ExitTxMute(); }
 static void     app_tx_end(void)         { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false); RADIO_SetupRegisters(true); }
+static void     app_tx_carrier(bool on)  { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, on); }
 static uint32_t app_tx_freq(void)        { return gTxVfo->pTX->Frequency; }
 static void app_boot_callsign(char *buf, uint8_t len)
 {
@@ -1051,6 +1052,7 @@ static const app_api_t app_api = {
     .tx_tone          = app_tx_tone,
     .tx_mute          = app_tx_mute,
     .tx_end           = app_tx_end,
+    .tx_carrier       = app_tx_carrier,
     .tx_freq          = app_tx_freq,
     .boot_callsign    = app_boot_callsign,
     .print_string     = UI_PrintString,
