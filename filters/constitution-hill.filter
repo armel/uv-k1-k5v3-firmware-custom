@@ -1,0 +1,6 @@
+# South East Queensland: the Constitution Hill radio network (389 stations, ~6,780 bytes).
+# Too big for the default build; CI builds this variant with the flashlight and the
+# RSSI bar switched off to make room:
+#   python3 tools/gen_stations.py --filter filters/constitution-hill.filter --max-bytes 7000
+#   make ENABLE_FLASHLIGHT=0 ENABLE_RSSI_BAR=0
+network Constitution Hill

@@ -1,0 +1,103 @@
+# stations.filter - which ALERT addresses get baked into app/alert_stations_gen.h
+#
+# Consumed by tools/gen_stations.py. The station data itself lives in the MegaNet
+# repository (github.com/cdomotor-g/MegaNet); nothing from it is copied into this repo
+# except the generated header, which CI regenerates.
+#
+# ---------------------------------------------------------------------------------------
+# SYNTAX
+# ---------------------------------------------------------------------------------------
+# One directive per line. Blank lines and everything after a '#' are ignored.
+# All include directives are OR-combined: an ALERT address is kept if ANY of them match.
+# 'exclude ...' directives are applied afterwards and remove addresses that did match.
+#
+#   range LOW-HIGH        Include every ALERT id in the inclusive range.
+#                         e.g.  range 4600-4699
+#
+#   id N                  Include the single ALERT id N.
+#                         e.g.  id 6129
+#
+#   network <name>        Case-insensitive substring of a radio network. Matches either
+#                         a radio_networks name/id in stations.json, or the "BoM Network"
+#                         column of data/ALL_REPEATERS.csv - in which case every address
+#                         inside that repeater's pass ranges is included. The CSV is the
+#                         useful path: stations.json only tags 88 of 3,174 stations with a
+#                         radio_network_id, while the pass ranges cover the whole network.
+#                         e.g.  network Mt Kanigan
+#
+#   catchment <name>      Case-insensitive substring of a catchment id or name from
+#                         stations.json (drainage basin, e.g. "Fitzroy", "brisbane").
+#                         Only stations.json-sourced addresses carry catchments.
+#                         e.g.  catchment Burdekin
+#
+#   station <name>        Case-insensitive substring of the station name.
+#                         e.g.  station Caniaview
+#
+#   all                   Everything MegaNet knows about. ~42 KB of table - far more than
+#                         the flash budget allows, so this is only useful with a large
+#                         --max-bytes for experiments.
+#
+#   exclude range LOW-HIGH
+#   exclude station <name>
+#   exclude network <name>
+#   exclude catchment <name>
+#   exclude id N          Remove matches after the includes have been applied.
+#
+# Handy commands:
+#   python3 tools/gen_stations.py --meganet-dir ../MegaNet --list-networks
+#       prints every network and catchment with its station count, address count and
+#       estimated table cost in bytes - use it to plan a filter that fits.
+#   python3 tools/gen_stations.py --meganet-dir ../MegaNet
+#       regenerates app/alert_stations_gen.h and prints the resulting size.
+#
+# ---------------------------------------------------------------------------------------
+# THE DEFAULT SET, AND WHY
+# ---------------------------------------------------------------------------------------
+# Budget: the firmware overflowed flash, so --max-bytes is now 6400 (was 8000) and the
+# table must come in at or under it. 'all' is 42,380 bytes (2,579 sites / 5,283 addresses),
+# so it is not an option.
+#
+# Names now also drop a trailing "AL"/"ALERT" marker ("Loudoun Br AL" -> "LOUDOUN BR"),
+# which shortened the name pool and took roughly 5% off every figure below.
+#
+# Per-network cost, from --list-networks (bytes = 6 * sites + name pool):
+#
+#     Constitution Hill        389 stations    922 addrs    6767 bytes
+#     Mt Kanigan               322 stations    733 addrs    5530 bytes
+#     Mt Stuart                171 stations    420 addrs    2950 bytes
+#     Emerald                  140 stations    308 addrs    2401 bytes
+#     Saddle Mt                 84 stations    203 addrs    1483 bytes
+#     Oakey Met Office          63 stations    150 addrs    1095 bytes
+#     Gladstone                 56 stations    144 addrs     986 bytes
+#     Mackay Met Office         56 stations    139 addrs     968 bytes
+#     Rockhampton Met Office    55 stations    131 addrs     977 bytes
+#     Charleville Met Office    52 stations    119 addrs     874 bytes
+#     Mt Glorious (SEQWater)    39 stations     91 addrs     692 bytes
+#     Blackall                  13 stations     29 addrs     210 bytes
+#     Barcaldine                 8 stations     21 addrs     115 bytes
+#     Marburg                    1 station       2 addrs      19 bytes
+#     Mt Stapylton               1 station       2 addrs      18 bytes
+#
+# Picked greedily by station count: take the biggest network that still fits, repeat.
+# Constitution Hill (South East Queensland) is the biggest at 389 stations but costs 6,767
+# bytes - it no longer fits on its own even after the "AL" stripping, so it is skipped.
+# Mt Kanigan (322 stations, 5,530) is the largest that fits; of the remaining 870 bytes,
+# Charleville Met Office would need 6,404 total (4 bytes over) and Blackall 6,432, so the
+# next ones that fit are Mt Glorious (SEQWater), Barcaldine, and the two single-station
+# networks Marburg and Mt Stapylton.
+#
+#     Mt Kanigan + Mt Glorious (SEQWater) + Barcaldine + Marburg + Mt Stapylton
+#       -> 379 sites, 849 addresses, 371 stations, 6,374 bytes (26 to spare)
+#
+# To retarget the firmware at a different region, comment these out and pick another set
+# from the table above. Sets that also fit under 6,400:
+#     Mt Stuart + Emerald + Gladstone            392 sites, 871 addrs, 6,323 bytes
+#     Mt Stuart + Emerald + Charleville Met Off.               approx 6,225 bytes
+#     Mt Kanigan + Mt Glorious (SEQWater)        369 sites, 824 addrs, 6,222 bytes
+# Constitution Hill only fits if --max-bytes is raised back to 6,800 or more.
+
+network Mt Kanigan
+network Mt Glorious
+network Barcaldine
+network Marburg
+network Mt Stapylton
