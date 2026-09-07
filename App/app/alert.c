@@ -159,6 +159,22 @@ static uint16_t tone_reg(uint16_t hz)
 	return (uint16_t)((((uint32_t)hz * 1353245u) + (1u << 16)) >> 17);
 }
 
+// Debug telemetry over the USB serial port. The decoder already logs decoded
+// packets this way; this reports the state needed to tell "keys never arrive"
+// from "keys arrive but exit is broken", and "no RF event" from "RF event but
+// no decode". Costs nothing when ENABLE_UART is off.
+#ifdef ENABLE_UART
+static void AlertDbg(const char *fmt, int a, int b, int c, int d)
+{
+	char line[64];
+	sprintf(line, fmt, a, b, c, d);
+	UART_Send(line, strlen(line));
+}
+#define ALERT_DBG(f,a,b,c,d) AlertDbg((f),(a),(b),(c),(d))
+#else
+#define ALERT_DBG(f,a,b,c,d) do {} while (0)
+#endif
+
 static void ModemStop(void)
 {
 	BK4819_WriteRegister(BK4819_REG_59, (1u << 14) | (1u << 15));   // clear FIFOs, RX/TX off
@@ -239,6 +255,7 @@ static void ModemPoll(void)
 	while (BK4819_ReadRegister(BK4819_REG_0C) & 1u) {
 		BK4819_WriteRegister(BK4819_REG_02, 0);
 		const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
+		ALERT_DBG("ALERTDBG,irq,%04x,sq,%d,cap,%d\r\n", (int)irq, (int)sqOpen, (int)capturing, 0);
 
 		if (irq & BK4819_REG_02_FSK_RX_SYNC) {
 			capturing = true;
@@ -854,6 +871,7 @@ static void OnKey(KEY_Code_t key)
 void APP_RunAlert(void)
 {
 	KEY_Code_t lastKey = KEY_INVALID;
+	uint16_t   keyHeldMs = 0;
 
 	ALERT_LoadConfig();
 	running = true;
@@ -883,9 +901,23 @@ void APP_RunAlert(void)
 		// keys (edge triggered)
 		const KEY_Code_t key = KEYBOARD_Poll();
 		if (key != lastKey) {
+			ALERT_DBG("ALERTDBG,key,%d,view,%d,%d,%d\r\n", (int)key, (int)view, 0, 0);
 			if (key != KEY_INVALID && key != KEY_PTT)
 				OnKey(key);
 			lastKey = key;
+		}
+
+		// Escape hatch: holding any key for ~3 s always leaves the app. Edge
+		// detection above fires once per press, so if a key were mis-mapped or
+		// an edge missed there would otherwise be no way out but a power cycle
+		// - which is exactly what was reported on first hardware test.
+		if (key != KEY_INVALID && key == lastKey) {
+			if (++keyHeldMs > 3000) {
+				ALERT_DBG("ALERTDBG,forced-exit,key,%d,%d,%d\r\n", (int)key, 0, 0, 0);
+				running = false;
+			}
+		} else {
+			keyHeldMs = 0;
 		}
 
 		// signal input
