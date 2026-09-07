@@ -203,6 +203,14 @@ const t_menu_item MenuList[] =
 
 const uint8_t FIRST_HIDDEN_MENU_ITEM = MENU_F_LOCK;
 
+#ifdef ENABLE_ALERT
+// Anything at or after FIRST_HIDDEN_MENU_ITEM is only reachable through the
+// hidden-menu unlock. Putting MENU_ALERT there compiles perfectly and simply
+// never shows up, so catch it here instead of on the radio.
+_Static_assert(MENU_ALERT < MENU_F_LOCK,
+    "MENU_ALERT must be declared before MENU_F_LOCK or the entry will be hidden");
+#endif
+
 const char* const gSubMenu_TXP[] =
 {
     "USER",
@@ -977,6 +985,14 @@ void UI_DisplayMenu(void)
         case MENU_SQL:
             sprintf(String, "%d", gSubMenuSelection);
             break;
+
+#ifdef ENABLE_ALERT
+        case MENU_ALERT:
+            // A launcher, not a setting: without a case here the value area
+            // draws empty and the entry looks broken.
+            strcpy(String, "PRESS\nMENU");
+            break;
+#endif
 
         case MENU_MIC:
             {   // display the mic gain in actual dB rather than just an index number

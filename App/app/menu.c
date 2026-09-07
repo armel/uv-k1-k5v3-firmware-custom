@@ -891,6 +891,10 @@ void MENU_AcceptSetting(void)
             // display and the keypad, which must not happen from inside the
             // menu accept path.
             gRequestAlertApp = true;
+            // Close the menu too. F4HWN's accept path only clears
+            // gIsInSubMenu and stays on DISPLAY_MENU, so without this the
+            // request would sit unserviced until the user pressed EXIT.
+            gRequestDisplayScreen = DISPLAY_MAIN;
             break;
 #endif
         case MENU_F_LOCK: {

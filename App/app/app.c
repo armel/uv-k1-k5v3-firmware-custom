@@ -1526,6 +1526,21 @@ void CheckKeys(void)
             gPttDebounceCounter = 0;
     }
 
+#ifdef ENABLE_ALERT
+    // Launch the ALERT receiver here, in APP_Update, and not from the menu's
+    // accept path: APP_RunAlert() blocks and takes over the display and the
+    // keypad until the user leaves it. It must therefore run from the main
+    // loop with the menu already closed - which is why the request is a flag
+    // rather than a direct call. (This is where egzumer serviced it too; an
+    // earlier attempt put it in ProcessKey(), where it only ran on a key event
+    // and was gated on a screen state the menu had not returned to yet.)
+    if (gRequestAlertApp && gScreenToDisplay == DISPLAY_MAIN && gCurrentFunction != FUNCTION_TRANSMIT) {
+        gRequestAlertApp = false;
+        APP_RunAlert();
+        gRequestDisplayScreen = DISPLAY_MAIN;
+    }
+#endif
+
 // --------------------- OTHER KEYS ----------------------------
 
     // scan the hardware keys
@@ -2563,13 +2578,6 @@ Skip:
         gFlagRefreshSetting = true;
         gFlagAcceptSetting  = false;
     }
-
-    #ifdef ENABLE_ALERT
-    if (gRequestAlertApp && gScreenToDisplay == DISPLAY_MAIN && gCurrentFunction != FUNCTION_TRANSMIT) {
-        gRequestAlertApp = false;
-        APP_RunAlert();
-    }
-#endif
 
     if (gRequestSaveSettings) {
         if (!bKeyHeld)
