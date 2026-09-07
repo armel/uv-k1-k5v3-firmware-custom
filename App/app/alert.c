@@ -9,6 +9,9 @@
 #include "app/alert.h"
 #include "app/alert_decode.h"
 #include "app/alert_stations.h"
+#if defined(ENABLE_UART) || defined(ENABLE_USB)
+#include "app/uart.h"
+#endif
 #include "audio.h"
 #include "driver/backlight.h"
 #include "driver/bk4819.h"
@@ -835,6 +838,10 @@ static void DrawRaw(void)
 
 static void Draw(void)
 {
+	// Spectrum renders at a fixed rate and blits a single line per pass rather
+	// than pushing the whole 1 KB framebuffer in one burst. Ours hammered
+	// BlitFullScreen from a 1 ms loop, which is the one thing this app does to
+	// the LCD that no working code in this fork does.
 	DrawStatus();
 	switch (view) {
 		case VIEW_SETTINGS: DrawSettings(); break;
@@ -925,8 +932,14 @@ void APP_RunAlert(void)
 
 	while (running) {
 		// keys (edge triggered)
-		const KEY_Code_t key = KEYBOARD_Poll();
+		const KEY_Code_t key = KEYBOARD_GetKey();
 		dbgLoop++;
+#if defined(ENABLE_UART) || defined(ENABLE_USB)
+		// Spectrum does this every pass. Without it the radio stops answering
+		// on USB for as long as this app is open, which is why no telemetry
+		// could ever be read back while it was running.
+		UART_ServiceCommands();
+#endif
 		dbgRawKey = (int16_t)key;
 		dbgRawPtt = GPIO_IsPttPressed() ? 1u : 0u;
 		if (key != lastKey) {
@@ -993,6 +1006,7 @@ void APP_RunAlert(void)
 		// housekeeping every ~100 ms: RSSI, status line
 		if (gNextTimeslice) {
 			gNextTimeslice = false;
+			BACKLIGHT_Update();
 			if ((++tick % 10) == 0) {
 				rssiDbm = BK4819_GetRSSI_dBm();
 				DrawStatus();
@@ -1004,7 +1018,6 @@ void APP_RunAlert(void)
 		if (redraw)
 			Draw();
 
-		SYSTEM_DelayMs(1);
 	}
 
 	// leave: modem/ADC off, radio back to normal
