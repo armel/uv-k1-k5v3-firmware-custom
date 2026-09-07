@@ -60,6 +60,20 @@ Paland, licensed under the MIT License. Its license is included at:
 
   App/external/printf/LICENSE
 
+ALERT telemetry receiver (this fork)
+------------------------------------
+
+This fork adds an ALERT telemetry receiver application, ported from the
+quansheng_alert project for DP32G030 (UV-K5 V1) hardware:
+
+  https://github.com/cdomotor-g/quansheng_alert
+
+Everything else in this repository is the upstream work credited above and
+remains under its original terms. This fork is published under the same
+Apache License, Version 2.0, in keeping with the upstream maintainers'
+request that derivative work stay open source.
+
+
 License and endorsement notice
 ------------------------------
 

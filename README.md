@@ -1,3 +1,28 @@
+# quansheng_alert for the UV-K5 V3 / UV-K1
+
+> **This is a fork.** It adds an **ALERT telemetry receiver** — for receiving
+> flood-warning telemetry from ALERT network stations — on top of the excellent
+> [F4HWN Fusion port for the UV-K1 and UV-K5 V3](https://github.com/armel/uv-k1-k5v3-firmware-custom)
+> by [@muzkr](https://github.com/muzkr) and [@armel](https://github.com/armel).
+> Everything below this section is their documentation and their work.
+>
+> Kept **open source under Apache 2.0**, as the upstream maintainers ask.
+> Please send bug reports about the radio firmware itself upstream, not here.
+>
+> **Which repository do I want?**
+>
+> | Your radio | Repository |
+> |---|---|
+> | UV-K5, UV-K5(8), UV-K6, UV-5R Plus — **DP32G030**, bootloader `2.x` | [cdomotor-g/quansheng_alert](https://github.com/cdomotor-g/quansheng_alert) |
+> | UV-K5 **V3**, UV-K1 — **PY32F071**, bootloader `7.x` | **this repository** |
+>
+> Take the battery off and read the label: a **V3** says `V3` beside the barcode
+> and is often model `UV-K5(99)`. The two are **not** interchangeable — flashing
+> the wrong one is the documented way to brick a radio.
+>
+> Flash a V3 with [UV Studio](https://armel.github.io/uvstudio/), **not** with
+> the quansheng_alert web installer, which targets V1 hardware only.
+
 # Stats
 
 ![Alt](https://repobeats.axiom.co/api/embed/ecdd86aa536b716f088339a0c5ee734558f78c28.svg "Repobeats analytics image")
