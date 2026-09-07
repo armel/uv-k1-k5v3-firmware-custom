@@ -13,6 +13,7 @@
 #include "driver/backlight.h"
 #include "driver/bk4819.h"
 #include "driver/keyboard.h"
+#include "driver/gpio.h"
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "external/printf/printf.h"
@@ -138,6 +139,15 @@ static struct {
 // capture buffer shared by both inputs
 static uint8_t  capBuf[256];
 static uint16_t capLen;          // bytes (modem) or bits (ADC)
+
+// On-screen diagnostics. The serial log cannot be read while the app is
+// running - APP_RunAlert blocks APP_Update, which is what services the USB
+// command handler - so the only reliable channel back from inside this app is
+// the screen itself.
+static uint16_t dbgKeyCount;     // key transitions seen from KEYBOARD_Poll
+static int16_t  dbgLastKey = -1; // last key code seen
+static uint16_t dbgIrqCount;     // times REG_0C reported an interrupt pending
+static uint16_t dbgIrqBits;      // last REG_02 word
 static bool     capturing;
 static bool     capGate;         // squelch was open at some point during the capture
 static int16_t  capRssi;
@@ -266,6 +276,8 @@ static void ModemPoll(void)
 	while (BK4819_ReadRegister(BK4819_REG_0C) & 1u) {
 		BK4819_WriteRegister(BK4819_REG_02, 0);
 		const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
+		dbgIrqCount++;
+		dbgIrqBits = irq;
 		ALERT_DBG("ALERTDBG,irq,%04x,sq,%d,cap,%d\r\n", (int)irq, (int)sqOpen, (int)capturing, 0);
 
 		if (irq & BK4819_REG_02_FSK_RX_SYNC) {
@@ -629,6 +641,13 @@ static void DrawMain(void)
 		sprintf(s, "SQL %u.%u  %s", gEeprom.SQUELCH_LEVEL, gEeprom.SQUELCH_TENTHS,
 		        cfg.voice ? "VOICE" : "QUIET");
 		UI_PrintStringSmallNormal(s, 0, 127, 5);
+
+		// Diagnostics on the last line. K rises if the key matrix reaches this
+		// app at all, I rises when the BK4819 raises an interrupt, and the two
+		// flags show squelch and capture state.
+		sprintf(s, "K%u:%d I%u:%04x %c%c", dbgKeyCount, (int)dbgLastKey,
+		        dbgIrqCount, dbgIrqBits, sqOpen ? 'Q' : '-', capturing ? 'C' : '-');
+		UI_PrintStringSmallNormal(s, 0, 127, 6);
 		UI_PrintStringSmallNormal("MENU=SET *=VOICE 1=RAW", 0, 127, 6);
 	} else {
 		const History_t *h = &history[0];
@@ -886,6 +905,7 @@ void APP_RunAlert(void)
 {
 	KEY_Code_t lastKey = KEY_INVALID;
 	uint16_t   keyHeldMs = 0;
+	uint16_t   pttHeldMs = 0;
 
 	ALERT_LoadConfig();
 	running = true;
@@ -915,10 +935,23 @@ void APP_RunAlert(void)
 		// keys (edge triggered)
 		const KEY_Code_t key = KEYBOARD_Poll();
 		if (key != lastKey) {
+			dbgKeyCount++;
+			dbgLastKey = (int16_t)key;
 			ALERT_DBG("ALERTDBG,key,%d,view,%d,%d,%d\r\n", (int)key, (int)view, 0, 0);
 			if (key != KEY_INVALID && key != KEY_PTT)
 				OnKey(key);
 			lastKey = key;
+		}
+
+		// Escape that does not depend on the key matrix at all: the PTT is a
+		// plain GPIO. If KEYBOARD_Poll() never reports anything in this context
+		// - which is what the first hardware test suggests - this is still a
+		// way out without a power cycle.
+		if (GPIO_IsPttPressed()) {
+			if (++pttHeldMs > 800)
+				running = false;
+		} else {
+			pttHeldMs = 0;
 		}
 
 		// Escape hatch: holding any key for ~3 s always leaves the app. Edge
