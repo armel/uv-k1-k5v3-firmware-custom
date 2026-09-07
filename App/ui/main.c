@@ -68,7 +68,10 @@ center_line_t center_line = CENTER_LINE_NONE;
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
 #define SCAN_PROGRESS_MR_CHANNEL_BYTES ((MR_CHANNELS_MAX + 7u) / 8u)
-#define SCAN_LIST_NAME_HOLD_500MS       (2000u / 500u)
+// Scan-list name hold, in 10 ms ticks. Counted down on the 10 ms timeslice (not the
+// 500 ms one) so the hold is accurate to a single tick instead of +/- 500 ms. Stored
+// in a uint8_t, so the practical ceiling is 255 ticks = 2.55 s.
+#define SCAN_LIST_NAME_HOLD_10MS        (1000u / 10u)
 
 static bool     gScanProgressSessionActive;
 static bool     gScanProgressSessionIsMemory;
@@ -83,7 +86,7 @@ static bool     gScanProgressPrevResetVfosFlag;
 static bool     gScanProgressForceRebuild;
 static uint16_t gScanProgressLastMemoryIndex;
 static uint8_t  gScanProgressPriorityState;
-static uint8_t  gScanListNameCountdown_500ms;
+static uint8_t  gScanListNameCountdown_10ms;
 #define SCAN_PROGRESS_PRIORITY_LABEL_MASK 0x03u
 #define SCAN_PROGRESS_PRIORITY_SEEN_SHIFT 2
 #define SCAN_PROGRESS_PRIORITY_SEEN_MASK  0x1cu
@@ -223,7 +226,7 @@ static void ScanProgress_ResetSession(void)
     gScanProgressForceRebuild = false;
     gScanProgressLastMemoryIndex = 0;
     gScanProgressPriorityState = 0;
-    gScanListNameCountdown_500ms = 0;
+    gScanListNameCountdown_10ms = 0;
 }
 
 void UI_MAIN_NotifyScanProgressDataChanged(void)
@@ -235,7 +238,7 @@ void UI_MAIN_NotifyScanProgressDataChanged(void)
 void UI_MAIN_NotifyScanListChanged(void)
 {
     UI_MAIN_NotifyScanProgressDataChanged();
-    gScanListNameCountdown_500ms = SCAN_LIST_NAME_HOLD_500MS;
+    gScanListNameCountdown_10ms = SCAN_LIST_NAME_HOLD_10MS;
     gUpdateDisplay = true;
 }
 
@@ -250,7 +253,7 @@ void UI_MAIN_NotifyScanListChanged(void)
 // stall ~2 s with nothing on screen to explain the pause.
 bool UI_MAIN_ShouldHoldScanResume(void)
 {
-    return gScanListNameCountdown_500ms > 0 && IS_MR_CHANNEL(gNextMrChannel);
+    return gScanListNameCountdown_10ms > 0 && IS_MR_CHANNEL(gNextMrChannel);
 }
 
 static inline void ScanProgress_SetBit(uint8_t *map, uint16_t ch)
@@ -549,7 +552,7 @@ static bool UI_DrawScanProgress(void)
     }
 
     // Right after a scan-list change, briefly show its name instead of the progress bar
-    if (show_memory && gScanListNameCountdown_500ms > 0) {
+    if (show_memory && gScanListNameCountdown_10ms > 0) {
         UI_MAIN_DrawScanListName();
         return true;
     }
@@ -1225,13 +1228,25 @@ void UI_MAIN_PrintAGC(bool now)
 }
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
+// Count the scan-list name hold down on the 10 ms tick. It used to ride the 500 ms
+// tick, but the countdown is armed at an arbitrary instant, so the first interval was
+// anywhere from ~0 to 500 ms - the name could linger up to half a second short of, or
+// over, its nominal hold. At 10 ms resolution that error is one tick at most. Gated on
+// DISPLAY_MAIN exactly as the old 500 ms path was, so it only ticks while the name can
+// actually be on screen.
+void UI_MAIN_TimeSlice10ms(void)
+{
+    if (gScreenToDisplay == DISPLAY_MAIN
+        && gScanListNameCountdown_10ms > 0
+        && --gScanListNameCountdown_10ms == 0)
+        gUpdateDisplay = true;
+}
+#endif
+
 void UI_MAIN_TimeSlice500ms(void)
 {
     if(gScreenToDisplay==DISPLAY_MAIN) {
-#ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
-        if (gScanListNameCountdown_500ms > 0 && --gScanListNameCountdown_500ms == 0)
-            gUpdateDisplay = true;
-#endif
 #ifdef ENABLE_AGC_SHOW_DATA
         UI_MAIN_PrintAGC(true);
         return;

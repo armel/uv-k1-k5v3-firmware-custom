@@ -1690,6 +1690,8 @@ void APP_TimeSlice10ms(void)
     if (gReducedService)
         return;
 
+    UI_MAIN_TimeSlice10ms();   // scan-list name hold countdown (10 ms resolution)
+
     if (gCurrentFunction != FUNCTION_POWER_SAVE || !gRxIdleMode)
         CheckRadioInterrupts();
 #ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
