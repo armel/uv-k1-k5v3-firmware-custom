@@ -25,6 +25,11 @@
 #ifdef ENABLE_UART
 	#include "driver/uart.h"
 #endif
+#ifdef ENABLE_USB
+	#include "driver/vcp.h"
+#endif
+#ifdef ENABLE_UART
+#endif
 #ifdef ENABLE_ALERT_ADC
 	#include "ARMCM0.h"
 	#include "board.h"
@@ -168,7 +173,13 @@ static void AlertDbg(const char *fmt, int a, int b, int c, int d)
 {
 	char line[64];
 	sprintf(line, fmt, a, b, c, d);
+	// UART_Send goes to USART1 - the two-pin Kenwood cable - which is NOT the
+	// USB-C port the radio enumerates on. Send to both, or the log lands on a
+	// wire nobody is listening to (which is exactly what happened first time).
 	UART_Send(line, strlen(line));
+#ifdef ENABLE_USB
+	VCP_SendStr(line);
+#endif
 }
 #define ALERT_DBG(f,a,b,c,d) AlertDbg((f),(a),(b),(c),(d))
 #else
@@ -552,6 +563,9 @@ static void ProcessCapture(const uint8_t *buf, uint32_t nbits, bool gated, int16
 			sprintf(line, "ALERT,%u,%u,%s,%d,%s\r\n", r[i].id, r[i].value,
 			        r[i].format == ALERT_FMT_EIF ? "EIF" : "ABF", rssi, name);
 			UART_Send(line, strlen(line));
+#ifdef ENABLE_USB
+			VCP_SendStr(line);
+#endif
 		}
 #endif
 		if (!announced++)
