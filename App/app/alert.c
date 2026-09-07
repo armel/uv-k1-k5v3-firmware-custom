@@ -178,23 +178,6 @@ static uint16_t tone_reg(uint16_t hz)
 // packets this way; this reports the state needed to tell "keys never arrive"
 // from "keys arrive but exit is broken", and "no RF event" from "RF event but
 // no decode". Costs nothing when ENABLE_UART is off.
-#ifdef ENABLE_UART
-static void AlertDbg(const char *fmt, int a, int b, int c, int d)
-{
-	char line[64];
-	sprintf(line, fmt, a, b, c, d);
-	// UART_Send goes to USART1 - the two-pin Kenwood cable - which is NOT the
-	// USB-C port the radio enumerates on. Send to both, or the log lands on a
-	// wire nobody is listening to (which is exactly what happened first time).
-	UART_Send(line, strlen(line));
-#ifdef ENABLE_USB
-	VCP_SendStr(line);
-#endif
-}
-#define ALERT_DBG(f,a,b,c,d) AlertDbg((f),(a),(b),(c),(d))
-#else
-#define ALERT_DBG(f,a,b,c,d) do {} while (0)
-#endif
 
 static void ModemStop(void)
 {
@@ -273,12 +256,16 @@ static void ModemPoll(void)
 	if (capturing && sqOpen)
 		capGate = true;
 
-	while (BK4819_ReadRegister(BK4819_REG_0C) & 1u) {
+	// Bounded. This used to be "while (REG_0C & 1)", which assumes writing 0 to
+	// REG_02 always clears the pending flag. If it does not, the loop never
+	// exits: keys are never polled, PTT is never read, the screen never
+	// redraws, and the only way out is a power cycle - exactly what was seen on
+	// hardware, with the display frozen on its very first frame.
+	for (uint8_t guard = 0; guard < 16 && (BK4819_ReadRegister(BK4819_REG_0C) & 1u); guard++) {
 		BK4819_WriteRegister(BK4819_REG_02, 0);
 		const uint16_t irq = BK4819_ReadRegister(BK4819_REG_02);
 		dbgIrqCount++;
 		dbgIrqBits = irq;
-		ALERT_DBG("ALERTDBG,irq,%04x,sq,%d,cap,%d\r\n", (int)irq, (int)sqOpen, (int)capturing, 0);
 
 		if (irq & BK4819_REG_02_FSK_RX_SYNC) {
 			capturing = true;
@@ -937,7 +924,6 @@ void APP_RunAlert(void)
 		if (key != lastKey) {
 			dbgKeyCount++;
 			dbgLastKey = (int16_t)key;
-			ALERT_DBG("ALERTDBG,key,%d,view,%d,%d,%d\r\n", (int)key, (int)view, 0, 0);
 			if (key != KEY_INVALID && key != KEY_PTT)
 				OnKey(key);
 			lastKey = key;
@@ -960,7 +946,6 @@ void APP_RunAlert(void)
 		// - which is exactly what was reported on first hardware test.
 		if (key != KEY_INVALID && key == lastKey) {
 			if (++keyHeldMs > 3000) {
-				ALERT_DBG("ALERTDBG,forced-exit,key,%d,%d,%d\r\n", (int)key, 0, 0, 0);
 				running = false;
 			}
 		} else {
@@ -998,6 +983,8 @@ void APP_RunAlert(void)
 				rssiDbm = BK4819_GetRSSI_dBm();
 				DrawStatus();
 			}
+			if ((tick % 50) == 0)
+				redraw = true;   // ~500 ms heartbeat: a frozen screen is now visible as such
 		}
 
 		if (redraw)
