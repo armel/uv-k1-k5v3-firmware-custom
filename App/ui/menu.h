@@ -109,6 +109,9 @@ enum
         MENU_NOAA_S,
     #endif
 #endif
+#ifdef ENABLE_ALERT
+    MENU_ALERT,
+#endif
     MENU_RESET,
     MENU_F_LOCK,
 #ifndef ENABLE_FEAT_F4HWN

@@ -139,6 +139,12 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = 10;
             break;
 
+#ifdef ENABLE_ALERT
+        case MENU_ALERT:      // a launcher, not a setting
+            *pMin = 0;
+            *pMax = 0;
+            break;
+#endif
         case MENU_F_LOCK:
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_F_LOCK) - 1;
@@ -879,6 +885,14 @@ void MENU_AcceptSetting(void)
             break;
 #endif
 
+#ifdef ENABLE_ALERT
+        case MENU_ALERT:
+            // Let the main loop start it: APP_RunAlert() takes over the
+            // display and the keypad, which must not happen from inside the
+            // menu accept path.
+            gRequestAlertApp = true;
+            break;
+#endif
         case MENU_F_LOCK: {
             if(gSubMenuSelection == F_LOCK_NONE) { // select 10 times to enable
                 gUnlockAllTxConfCnt++;

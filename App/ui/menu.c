@@ -175,6 +175,9 @@ const t_menu_item MenuList[] =
     {"SetSav",      MENU_SET_SAV       },
 #endif
 #endif
+#ifdef ENABLE_ALERT
+    {"AlrtRx",      MENU_ALERT         },
+#endif
     // hidden menu items from here on
     // enabled if pressing both the PTT and upper side button at power-on
     {"F Lock",      MENU_F_LOCK        },
@@ -632,7 +635,10 @@ static const uint8_t CatAudio[]   = {
     MENU_SET_AUD,
 #endif
 };
-static const uint8_t CatRadio[]   = { MENU_SQL, MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR };
+static const uint8_t CatRadio[]   = { MENU_SQL, MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR
+#ifdef ENABLE_ALERT
+    , MENU_ALERT
+#endif };
 static const uint8_t CatDtmf[]    = { MENU_UPCODE, MENU_DWCODE, MENU_D_ST, MENU_D_PRE, MENU_D_LIVE_DEC };
 static const uint8_t CatService[] = { MENU_F_LOCK, MENU_350EN, MENU_BATCAL, MENU_BATTYP, MENU_SET_NAV, MENU_RESET };
 
