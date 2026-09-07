@@ -404,6 +404,9 @@ extern bool                  gFlagResetVfos;
 extern bool                  gRequestSaveVFO;
 extern uint16_t              gRequestSaveChannel;
 extern bool                  gRequestSaveSettings;
+#ifdef ENABLE_ALERT
+extern bool                  gRequestAlertApp;   // launch the ALERT receiver
+#endif
 #ifdef ENABLE_FMRADIO
     extern bool              gRequestSaveFM;
 #endif

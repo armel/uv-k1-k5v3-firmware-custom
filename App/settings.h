@@ -136,6 +136,9 @@ enum ACTION_OPT_t {
 #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
     ACTION_OPT_FOXHUNT,
 #endif
+#ifdef ENABLE_ALERT
+    ACTION_OPT_ALERT,
+#endif
     ACTION_OPT_LEN
 };
 
@@ -199,6 +202,15 @@ typedef struct {
 #endif
 
     uint8_t               SQUELCH_LEVEL;
+#ifdef ENABLE_ALERT
+    // ALERT receiver: short data bursts need the squelch to open quickly, so
+    // the BK4819 delays become settings rather than constants. Stored together
+    // with the app's own config at EEPROM 0xA170.
+    uint8_t               SQUELCH_TENTHS;     // 0..9  fine part: level = SQUELCH_LEVEL + TENTHS/10
+    uint8_t               SQL_OPEN_DELAY;     // 0..7  BK4819 squelch open delay (0 = fastest)
+    uint8_t               SQL_CLOSE_DELAY;    // 0..3  BK4819 squelch close delay
+    uint8_t               ALERT_CFG[5];       // ALERT receiver app configuration (app/alert.c)
+#endif
     uint8_t               TX_TIMEOUT_TIMER;
     bool                  KEY_LOCK;
 #ifdef ENABLE_FEAT_F4HWN

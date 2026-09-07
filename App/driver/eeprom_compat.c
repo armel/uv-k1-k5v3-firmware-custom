@@ -59,7 +59,7 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // app/foxhunt.c; concatenated here so aircopy clones
                                                 // them together with the VFOs)
 
-    _MK_MAPPING(0x00A000, 0x00A000, 0x00A170),  // Settings * 16 Bytes (ex 0x004000)        0x00A000 -> 0x00A010
+    _MK_MAPPING(0x00A000, 0x00A000, 0x00A178),  // Settings * 16 Bytes (ex 0x004000)        0x00A000 -> 0x00A010
                                                 // Settings * 16 Bytes (ex 0x005000)        0x00A010 -> 0x00A020
                                                 // Settings FM * 8 Bytes (0x006000)         0x00A020 -> 0x00A028
                                                 // MR FM * 128 Bytes (0x003000)             0x00A028 -> 0x00A0A8
@@ -71,6 +71,12 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // Settings * 8 Bytes (0x00B000)            0x00A150 -> 0x00A158
                                                 // Settings F4HWN * 8 Bytes (0x00C000)      0x00A158 -> 0x00A160
                                                 // Settings Version * 16 Bytes              0x00A160 -> 0x00A170
+                                                // Settings ALERT * 8 Bytes                 0x00A170 -> 0x00A178
+                                                //   Added by the ALERT receiver fork. The upper
+                                                //   bound moved from 0x00A170 to 0x00A178; the
+                                                //   settings sector at 0x00A000 is 4 KB and only
+                                                //   0x170 bytes of it were in use, so this stays
+                                                //   inside the same sector and erases nothing new.
 
     _MK_MAPPING(0x010000, 0x00B000, 0x00B200),  // Calibration 512 Bytes!!!
 

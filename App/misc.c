@@ -258,6 +258,9 @@ bool              gFlagResetVfos;
 bool              gRequestSaveVFO;
 uint16_t          gRequestSaveChannel;
 bool              gRequestSaveSettings;
+#ifdef ENABLE_ALERT
+bool              gRequestAlertApp;
+#endif
 #ifdef ENABLE_FMRADIO
     bool          gRequestSaveFM;
 #endif

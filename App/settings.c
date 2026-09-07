@@ -510,6 +510,23 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         // And set special session settings for actions
         gSetting_set_ptt_session = gSetting_set_ptt;
     #endif
+
+#ifdef ENABLE_ALERT
+    // 0x00A170  ALERT receiver: fine squelch + app config. A fresh radio reads
+    // back 0xFF here, so every field falls back to the stock behaviour.
+    {
+        uint8_t Alert[8] = {0};
+        PY25Q16_ReadBuffer(0x00A170, Alert, sizeof(Alert));
+
+        gEeprom.SQUELCH_TENTHS  = (Alert[0] < 10) ? Alert[0] : 0;
+        gEeprom.SQL_OPEN_DELAY  = (Alert[1] != 0xFF) ? (Alert[1] & 7u) : 1;
+        gEeprom.SQL_CLOSE_DELAY = (Alert[1] != 0xFF) ? ((Alert[1] >> 3) & 3u) : 2;
+        memcpy(gEeprom.ALERT_CFG, &Alert[2], sizeof(gEeprom.ALERT_CFG));
+
+        if (gEeprom.SQUELCH_LEVEL >= 9)
+            gEeprom.SQUELCH_TENTHS = 0;
+    }
+#endif
 }
 
 void SETTINGS_LoadCalibration(void)
@@ -1148,6 +1165,22 @@ void SETTINGS_SaveSettings(void)
     State[7] = ((gSetting_set_pwr << 4) | set_ptt_scn_sav);
 
     PY25Q16_WriteBuffer(0x00A158, SecBuf, 8, false);
+#endif
+
+#ifdef ENABLE_ALERT
+    // ---------------------
+    // 0x00A170  ALERT receiver config. Written here with the rest of the
+    // settings rather than on its own: this sector is read-modify-written, so
+    // folding it in costs nothing extra, whereas a separate call would mean a
+    // second erase-and-program cycle of the same sector.
+    memset(SecBuf, 0xff, 8);
+    State = SecBuf;
+    State[0] = gEeprom.SQUELCH_TENTHS;
+    State[1] = (gEeprom.SQL_OPEN_DELAY & 7u) | ((gEeprom.SQL_CLOSE_DELAY & 3u) << 3);
+    memcpy(&State[2], gEeprom.ALERT_CFG, sizeof(gEeprom.ALERT_CFG));
+    State[7] = 0;
+
+    PY25Q16_WriteBuffer(0x00A170, SecBuf, 8, false);
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_VOL

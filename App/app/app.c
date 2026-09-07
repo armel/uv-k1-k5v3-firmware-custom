@@ -43,6 +43,9 @@
     #include "app/rxtx_log.h"
 #endif
 #include "app/scanner.h"
+#ifdef ENABLE_ALERT
+#include "app/alert.h"
+#endif
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
     #include "app/uart.h"
     #include "scheduler.h"
@@ -2560,6 +2563,13 @@ Skip:
         gFlagRefreshSetting = true;
         gFlagAcceptSetting  = false;
     }
+
+    #ifdef ENABLE_ALERT
+    if (gRequestAlertApp && gScreenToDisplay == DISPLAY_MAIN && gCurrentFunction != FUNCTION_TRANSMIT) {
+        gRequestAlertApp = false;
+        APP_RunAlert();
+    }
+#endif
 
     if (gRequestSaveSettings) {
         if (!bKeyHeld)

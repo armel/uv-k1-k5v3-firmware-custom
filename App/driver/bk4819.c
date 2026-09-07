@@ -778,6 +778,16 @@ void BK4819_SetupSquelch(
     // <7:0>   8 Glitch threshold for Squelch = open
     //         0 ~ 255
     //
+#ifdef ENABLE_ALERT
+    // The ALERT receiver needs the squelch to open quickly for short data
+    // bursts, so the delays become user settings. Defaults reproduce the stock
+    // effective values (open 5, close 2). 0 = fastest.
+    BK4819_WriteRegister(BK4819_REG_4E,
+    (1u << 14) |                                        //  1 ???
+    ((uint16_t)(gEeprom.SQL_OPEN_DELAY  & 7u) << 11) |  //  squelch = open  delay .. 0 ~ 7
+    ((uint16_t)(gEeprom.SQL_CLOSE_DELAY & 3u) <<  9) |  //  squelch = close delay .. 0 ~ 3
+    SquelchOpenGlitchThresh);                           //  0 ~ 255
+#else
     BK4819_WriteRegister(BK4819_REG_4E,  // 01 101 11 1 00000000
 
         // original (*)
@@ -785,6 +795,7 @@ void BK4819_SetupSquelch(
     (5u << 11) |                  // *5  squelch = open  delay .. 0 ~ 7
     (6u <<  9) |                  // *3  squelch = close delay .. 0 ~ 3
     SquelchOpenGlitchThresh);     //  0 ~ 255
+#endif
 
 
     // REG_4F

@@ -54,6 +54,10 @@
 #ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
     #include "ui/menu.h"
 #endif
+#ifdef ENABLE_ALERT
+    #include "app/alert.h"
+#endif
+
 
 #if defined(ENABLE_FMRADIO)
 static void ACTION_Scan_FM(bool bRestart);
@@ -145,6 +149,9 @@ void (*const action_opt_table[])(void) = {
 #endif
 #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
     [ACTION_OPT_FOXHUNT] = &ACTION_FoxHunt,
+#endif
+#ifdef ENABLE_ALERT
+    [ACTION_OPT_ALERT] = &APP_RunAlert,
 #endif
 };
 
