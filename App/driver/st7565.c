@@ -95,15 +95,30 @@ static inline void A0_Reset()
     GPIO_ResetOutputPin(PIN_A0);
 }
 
+// Bounded, in the same spirit as the timeouts already added to UART_Send() and
+// SPI_WaitForUndocumentedTxFifoStatusBit(). These two waits were the only
+// unbounded ones left on this bus, and the LCD shares it with the BK4819: an
+// app that interleaves register reads with screen writes can leave a flag
+// unset, and the display driver then spins forever with interrupts still
+// running - the whole radio appears alive but frozen, recoverable only by a
+// power cycle. A dropped pixel is always better than a locked-up radio.
+#define ST7565_SPI_TIMEOUT 100000u
+
 static uint8_t SPI_WriteByte(uint8_t Value)
 {
-    while (!LL_SPI_IsActiveFlag_TXE(SPIx))
+    uint32_t timeout = ST7565_SPI_TIMEOUT;
+    while (!LL_SPI_IsActiveFlag_TXE(SPIx) && timeout--)
         ;
+    if (!LL_SPI_IsActiveFlag_TXE(SPIx))
+        return 0;
 
     LL_SPI_TransmitData8(SPIx, Value);
 
-    while (!LL_SPI_IsActiveFlag_RXNE(SPIx))
+    timeout = ST7565_SPI_TIMEOUT;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPIx) && timeout--)
         ;
+    if (!LL_SPI_IsActiveFlag_RXNE(SPIx))
+        return 0;
 
     return LL_SPI_ReceiveData8(SPIx);
 }
