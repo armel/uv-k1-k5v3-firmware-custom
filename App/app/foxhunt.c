@@ -434,9 +434,9 @@ static void FOXHUNT_Tag(const char *s, uint8_t x, uint8_t line)
 static void FOXHUNT_DrawFKey(void)
 {
     if (foxLocked)
-        memcpy(gStatusLine + 69, gFontKeyLock, sizeof(gFontKeyLock));
+        memcpy(gStatusLine + 70, gFontKeyLock, sizeof(gFontKeyLock));
     else if (gWasFKeyPressed)
-        memcpy(gStatusLine + 69, gFontF, sizeof(gFontF));
+        memcpy(gStatusLine + 70, gFontF, sizeof(gFontF));
 }
 
 // Draw a string right-aligned in the small (7 px) font: its right edge lands at rightX.

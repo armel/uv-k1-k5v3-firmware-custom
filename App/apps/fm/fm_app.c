@@ -36,7 +36,7 @@
 #define CHMAX       APP_FM_CH_MAX
 
 static const char BAND_NAME[4][10] = { "87.5-108M", "76-108M", "76-90M", "64-76M" };
-static const uint8_t FONT_F[8] = {0x7f,0x00,0x76,0x76,0x76,0x76,0x7e,0x7f};
+static const uint8_t FONT_F[9] = {0x3e,0x7f,0x41,0x75,0x75,0x75,0x7d,0x7f,0x3e};
 static void cpy(uint8_t *d, const uint8_t *s, uint8_t n){ while(n--)*d++=*s++; }
 
 static const app_api_t *A;
@@ -102,7 +102,7 @@ static void draw(void)
     A->display_clear();
     A->status_clear();
     A->draw_battery();
-    if(fArm) cpy(A->status_line+69,FONT_F,8);   /* F armed indicator */
+    if(fArm) cpy(A->status_line+70,FONT_F,sizeof(FONT_F));   /* F armed indicator */
     A->print_string("FM",2,0,0,8);
     A->print_normal(BAND_NAME[st.band],1,0,6);
 

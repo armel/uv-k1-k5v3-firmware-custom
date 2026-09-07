@@ -62,6 +62,7 @@ static const uint8_t M_DIG[10] = {0x3F,0x2F,0x27,0x23,0x21,0x20,0x30,0x38,0x3C,0
 static const char    FOX_TAIL[5] = {'E','I','S','H','5'};
 static const uint8_t BMP_TX[16] = {0x1c,0x22,0x41,0x1c,0x22,0x00,0x08,0x1c,0x1c,0x08,0x00,0x22,0x1c,0x41,0x22,0x1c};
 static const uint8_t FONT_LOCK[9] = {0x7c,0x46,0x45,0x45,0x45,0x45,0x45,0x46,0x7c};
+static const uint8_t FONT_F[9]    = {0x3e,0x7f,0x41,0x75,0x75,0x75,0x7d,0x7f,0x3e};
 
 static const app_api_t *A;
 
@@ -134,7 +135,8 @@ static void chrome(void){
     A->status_clear();
     A->print_inverse("BEACON",2,0,true,true,26);
     A->draw_battery();
-    if(foxLocked) cpy(A->status_line+69,FONT_LOCK,9);
+    if(foxLocked)  cpy(A->status_line+70,FONT_LOCK,sizeof(FONT_LOCK));
+    else if(fArm)  cpy(A->status_line+70,FONT_F,sizeof(FONT_F));
     { char *o=putu(str,A->tx_freq()/100000u); *o++='.'; uint32_t fr=A->tx_freq()%100000u;
       for(int8_t d=4;d>=0;d--){ uint32_t p=1; for(int8_t k=0;k<d;k++)p*=10; *o++=(char)('0'+(fr/p)%10);} *o='\0'; }
     A->print_normal(str,(uint8_t)(126-slen(str)*7),0,6);
@@ -192,11 +194,14 @@ static void beaconDraw(bool txNow,uint8_t il){
 static void blit(void){ A->blit_status(); A->blit_full(); }
 
 /* ---- keypad-lock long-press ---- */
-static void lockTrack(uint8_t key,uint16_t ms){
-    if(key!=APP_KEY_F){ fHoldMs=0; fLongDone=false; return; }
-    if(fLongDone) return;
+/* true exactly on the lock/unlock toggle, so a caller that does not redraw every tick
+ * (the TX loop) can refresh the padlock at once. */
+static bool lockTrack(uint8_t key,uint16_t ms){
+    if(key!=APP_KEY_F){ fHoldMs=0; fLongDone=false; return false; }
+    if(fLongDone) return false;
     fHoldMs+=ms;
-    if(fHoldMs>=LOCK_HOLD_MS){ fLongDone=true; foxLocked=!foxLocked; fArm=false; A->backlight_on(); }
+    if(fHoldMs>=LOCK_HOLD_MS){ fLongDone=true; foxLocked=!foxLocked; fArm=false; A->backlight_on(); return true; }
+    return false;
 }
 
 /* ---- interactive TX delay: drains the window, keys, live seconds. true = abort ---- */
@@ -209,7 +214,7 @@ static bool txDelay(uint16_t ms){
         if((uint8_t)((txMsLeft+999u)/1000u)!=secShown){ drawTxSeconds(); A->blit_line(0); }
 
         uint8_t key=A->get_key();
-        lockTrack(key,slice);
+        if(lockTrack(key,slice)){ beaconDraw(true,0); blit(); }   /* show the padlock at once, mid-TX */
         if(key==APP_KEY_INVALID||key==prevKey){ prevKey=key; continue; }
         prevKey=key;
         A->backlight_on();
