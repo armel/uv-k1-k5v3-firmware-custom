@@ -148,6 +148,9 @@ static uint16_t dbgKeyCount;     // key transitions seen from KEYBOARD_Poll
 static int16_t  dbgLastKey = -1; // last key code seen
 static uint16_t dbgIrqCount;     // times REG_0C reported an interrupt pending
 static uint16_t dbgIrqBits;      // last REG_02 word
+static uint16_t dbgLoop;         // free-running: increments every loop pass
+static int16_t  dbgRawKey;       // what KEYBOARD_Poll returned THIS pass
+static uint8_t  dbgRawPtt;       // PTT GPIO read directly, this pass
 static bool     capturing;
 static bool     capGate;         // squelch was open at some point during the capture
 static int16_t  capRssi;
@@ -632,8 +635,10 @@ static void DrawMain(void)
 		// Diagnostics on the last line. K rises if the key matrix reaches this
 		// app at all, I rises when the BK4819 raises an interrupt, and the two
 		// flags show squelch and capture state.
-		sprintf(s, "K%u:%d I%u:%04x %c%c", dbgKeyCount, (int)dbgLastKey,
-		        dbgIrqCount, dbgIrqBits, sqOpen ? 'Q' : '-', capturing ? 'C' : '-');
+		// L is the liveness proof: it increments every pass of the main loop, so
+		// a frozen L means the app is stuck, not merely idle. k is the raw
+		// KEYBOARD_Poll() value this instant, P the PTT pin read directly.
+		sprintf(s, "L%u k%d P%u I%u", dbgLoop, (int)dbgRawKey, dbgRawPtt, dbgIrqCount);
 		UI_PrintStringSmallNormal(s, 0, 127, 6);
 		UI_PrintStringSmallNormal("MENU=SET *=VOICE 1=RAW", 0, 127, 6);
 	} else {
@@ -921,6 +926,9 @@ void APP_RunAlert(void)
 	while (running) {
 		// keys (edge triggered)
 		const KEY_Code_t key = KEYBOARD_Poll();
+		dbgLoop++;
+		dbgRawKey = (int16_t)key;
+		dbgRawPtt = GPIO_IsPttPressed() ? 1u : 0u;
 		if (key != lastKey) {
 			dbgKeyCount++;
 			dbgLastKey = (int16_t)key;
@@ -928,6 +936,12 @@ void APP_RunAlert(void)
 				OnKey(key);
 			lastKey = key;
 		}
+
+		// Absolute backstop: leave after ~3 minutes no matter what. Every escape
+		// so far has depended on an input path that may itself be the fault, and
+		// being trapped in here means a power cycle every single test.
+		if (dbgLoop > 180000u)
+			running = false;
 
 		// Escape that does not depend on the key matrix at all: the PTT is a
 		// plain GPIO. If KEYBOARD_Poll() never reports anything in this context
