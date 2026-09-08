@@ -63,29 +63,32 @@ RESULT_RAM_SIZES=()
 
 run_preset_build() {
   local preset="$1"
-  local -a docker_tty_args=()
+  local docker_tty_arg=""
 
   # Give Ninja a pseudo-terminal for an interactive single-preset build. This
   # lets it refresh its [current/total] progress on one line. Batch/redirected
   # builds keep plain line-oriented output suitable for logs and CI.
   if (( INTERACTIVE && ! QUIET )); then
-    docker_tty_args=(-t)
+    docker_tty_arg="-t"
   fi
 
-  docker run --rm "${docker_tty_args[@]}" \
+  # The ${var:+...} and ${array[@]+...} forms avoid expanding an empty array,
+  # which Bash 3.2 treats as an unbound variable when nounset is enabled.
+  docker run --rm ${docker_tty_arg:+"$docker_tty_arg"} \
     -u "$(id -u):$(id -g)" \
     -v "$PWD":/src -w /src "$IMAGE" \
     bash -c 'which arm-none-eabi-gcc && arm-none-eabi-gcc --version &&
              cmake --fresh --preset "$1" "${@:2}" &&
              cmake --build --preset "$1" -j' \
-    bash "$preset" "${EXTRA_ARGS[@]}"
+    bash "$preset" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 }
 
 build_preset() {
   local preset="$1"
   local preset_slug log_file bin_file flash_size ram_size status
 
-  preset_slug="${preset,,}"
+  # macOS ships Bash 3.2, which does not support Bash 4's ${var,,} syntax.
+  preset_slug="$(printf '%s' "$preset" | tr '[:upper:]' '[:lower:]')"
   log_file="$(mktemp)"
   bin_file=""
 

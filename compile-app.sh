@@ -33,7 +33,7 @@ if [ "${#ALL_APPS[@]}" -eq 0 ]; then
 fi
 
 # --- select targets ---
-if [ "$#" -eq 0 ] || [ "${1,,}" = "all" ]; then
+if [ "$#" -eq 0 ] || [[ "${1:-}" == [Aa][Ll][Ll] ]]; then
     TARGETS=("${ALL_APPS[@]}")
 else
     TARGETS=()
@@ -56,7 +56,7 @@ mkdir -p "$OUT_DIR"
 # Give the container a pseudo-TTY when we are interactive, so build.sh's
 # single-line [k/3] progress refreshes in place (same trick as the firmware
 # build gives Ninja). Batch/redirected runs stay plain and line-oriented.
-TTY_ARGS=(); [[ -t 1 ]] && TTY_ARGS=(-t)
+TTY_ARG=""; [[ -t 1 ]] && TTY_ARG="-t"
 
 echo
 echo "🚀 Building overlay apps"
@@ -69,7 +69,7 @@ fail=0
 read_u32le() { od -An -tx1 -j"$2" -N4 "$1" | awk '{printf "0x%s%s%s%s",$4,$3,$2,$1}'; }
 
 for app in "${TARGETS[@]}"; do
-    if docker run --rm "${TTY_ARGS[@]}" -u "$(id -u):$(id -g)" \
+    if docker run --rm ${TTY_ARG:+"$TTY_ARG"} -u "$(id -u):$(id -g)" \
             -v "$PWD":/work -w "/work/$APPS_DIR/$app" \
             -e PATH="/opt/toolchain/bin:/usr/bin:/bin" -e APP_VMA="$APP_VMA" \
             "$IMAGE" bash ./build.sh; then
