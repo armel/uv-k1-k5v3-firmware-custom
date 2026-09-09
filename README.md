@@ -59,18 +59,26 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
 ### Fusion edition
 
-Fusion is the reference edition of the project. It provides an all-in-one firmware for the UV-K1 and UV-K5 V3, including:
+Fusion is the generic reference edition for the UV-K1 and UV-K5 V3. It is intended
+for everyday use and is the base inherited by the specialized editions. It includes:
 
 - Fagci's spectrum analyzer,
-- broadcast FM radio,
-- VOX and AirCopy,
-- BEAM wireless channel transfer,
+- broadcast FM radio and VOX,
 - [UV Studio](https://armel.github.io/uvstudio/) with integrated K5Viewer screen mirroring, screenshots and remote keyboard control,
 - advanced RX audio profiles and Audio Scope,
-- first-responder-oriented controls,
-- the Breakout game,
 - automatic RX/TX activity logging with RF Log,
-- full Fox Hunt and Morse Beacon support.
+- multiboot support.
+
+Specialized presets extend Fusion for specific uses:
+
+- **Transfer** adds AirCopy and BEAM wireless channel transfer.
+- **FieldOps** adds first-responder controls, Fox Hunt and Morse Beacon support.
+- **Labs** is the experimental edition. It carries the broad feature selection of the
+  other releases and adds the overlay-apps platform (apps loaded from external Flash and
+  run in a 4 KiB RAM overlay) — the newest, least-settled work. Expect rough edges. It is
+  not a strict superset of every other edition: features may be exchanged between releases
+  to preserve stability and memory headroom.
+- **Custom** remains a manually configured build based directly on the hidden technical default.
 
 ### Radio and signal handling
 
@@ -179,7 +187,7 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
   - selectable RF attenuation,
   - silent, Geiger-style and received-audio modes,
   - long-press `F` keypad lock (attenuation stays adjustable with the arrow keys).
-- Integrated Morse Beacon transmitter with:
+- Independent Morse Beacon transmitter with:
   - `MOE`, `MOI`, `MOS`, `MOH`, `MO5` and `MO` identifiers,
   - optional callsign identification,
   - configurable TX and idle periods,
@@ -256,7 +264,8 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
   - offset removal,
   - BEAM,
   - RF Log,
-  - Fox Hunt / Beacon.
+  - Fox Hunt,
+  - Beacon.
 
 ### Reliability and optimization
 
@@ -269,11 +278,10 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
 - Improved VFO persistence and restoration.
 - Extensive code refactoring and memory optimization.
 - DTMF calling and the scrambler remain disabled in Fusion.
-- Legacy AM Fix code is not used by this firmware.
+- Legacy AM Fix support has been removed.
 
 ## Main features from Egzumer:
 * many of OneOfEleven mods:
-   * AM fix, huge improvement in reception quality
    * long press buttons functions replicating F+ action
    * fast scanning
    * channel name editing in the menu
@@ -324,9 +332,10 @@ But, they are nice toys for the price, fun to play with.
 
 ## Compiling and Building from Docker
 
-This project provides a Docker-based build system to compile the Fusion firmware for the UV-K1 and UV-K5 V3. Everything is handled through the `compile-with-docker.sh` helper script.
-
-The documented build output is generated inside `build/Fusion`, using the CMake presets defined in `CMakePresets.json`.
+This project provides a Docker-based build system for the UV-K1 and UV-K5 V3.
+Everything is handled through the `compile-firmware.sh` helper script. Fusion is
+the default generic preset, while specialized builds are generated in their own
+`build/<Preset>` directories.
 
 ### Prerequisites
 
@@ -335,29 +344,37 @@ The documented build output is generated inside `build/Fusion`, using the CMake 
 
 ### Build Script Overview
 
-The script `compile-with-docker.sh` performs the following actions:
+The script `compile-firmware.sh`:
 
 1. Builds the Docker image (`uvk1-uvk5v3`) if it does not already exist.
-2. Removes any previous `build` directory to ensure a clean configuration.
-3. Runs CMake using the `Fusion` preset inside the Docker container.
-4. Builds the firmware and outputs `.elf`, `.bin` and `.hex` files.
+2. Configures the selected preset with `cmake --fresh`.
+3. Builds the firmware and outputs matching `.elf`, `.bin` and `.hex` files.
+4. Displays Flash and RAM usage; `All` keeps the individual build logs quiet.
 
 ### Usage
 
 ```bash
-./compile-with-docker.sh Fusion [extra CMake options]
+./compile-firmware.sh [Preset] [extra CMake options]
 ```
 
-### Documented Preset
+The default preset is **Fusion**. Available presets are:
 
+- **Custom**
 - **Fusion**
+- **Transfer**
+- **FieldOps**
+- **Labs**
+- **All** (Fusion, Transfer, FieldOps and Labs)
 
-### Examples
-
-Build Fusion:
+Examples:
 
 ```bash
-./compile-with-docker.sh Fusion
+./compile-firmware.sh
+./compile-firmware.sh Fusion
+./compile-firmware.sh Transfer
+./compile-firmware.sh FieldOps
+./compile-firmware.sh Labs
+./compile-firmware.sh All
 ```
 
 ### Passing Additional CMake Options
@@ -368,15 +385,15 @@ These are forwarded directly to `cmake --preset` inside the container.
 Examples:
 
 ```bash
-./compile-with-docker.sh Fusion -DENABLE_SPECTRUM=ON
-./compile-with-docker.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON -DENABLE_NOAA=ON
-./compile-with-docker.sh Fusion -DSQL_TONE=600
+./compile-firmware.sh FieldOps -DENABLE_VOX=OFF
+./compile-firmware.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON
+./compile-firmware.sh Fusion -DSQL_TONE=600
 ```
 
 To prepare the rolling development firmware:
 
 ```bash
-./compile-with-docker.sh Fusion -DDEV=ON
+./compile-firmware.sh Fusion -DDEV=ON
 ```
 
 This keeps the regular build output in `build/Fusion` and also updates

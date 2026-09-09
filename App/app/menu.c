@@ -30,6 +30,10 @@
 #include "driver/eeprom.h"
 #include "driver/gpio.h"
 #include "driver/keyboard.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #include "ui/multiboot.h"
+#endif
 #include "frequencies.h"
 #include "helper/battery.h"
 #include "misc.h"
@@ -68,7 +72,7 @@ uint8_t gUnlockAllTxConfCnt;
             //
             EEPROM_ReadBuffer(0x1F88, &misc, 8);
             misc.BK4819_XtalFreqLow = value;
-            EEPROM_WriteBuffer(0x1F88, &misc);
+            EEPROM_WriteBuffer(0x1F88, &misc, 8);
         }
     }
 #endif
@@ -204,17 +208,17 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = ARRAY_SIZE(gSubMenu_W_N) - 1;
             break;
 
-        #ifdef ENABLE_ALARM
-            case MENU_AL_MOD:
-                //*pMin = 0;
-                *pMax = ARRAY_SIZE(gSubMenu_AL_MOD) - 1;
-                break;
-        #endif
-
         case MENU_RESET:
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_RESET) - 1;
             break;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        case MENU_SET_CFG:
+            //*pMin = 0;
+            *pMax = MB_BANK_COUNT - 1;
+            break;
+#endif
 
         case MENU_COMPAND:
         case MENU_ABR_ON_TX_RX:
@@ -229,11 +233,6 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             break;
 #endif
 
-        #ifndef ENABLE_FEAT_F4HWN
-            #ifdef ENABLE_AM_FIX
-                case MENU_AM_FIX:
-            #endif
-        #endif
         #ifdef ENABLE_AUDIO_BAR
             case MENU_MIC_BAR:
         #endif
@@ -770,12 +769,6 @@ void MENU_AcceptSetting(void)
             gEeprom.SCAN_LIST_ENABLED = gSubMenuSelection;
             break;
 
-        #ifdef ENABLE_ALARM
-            case MENU_AL_MOD:
-                gEeprom.ALARM_MODE = gSubMenuSelection;
-                break;
-        #endif
-
         case MENU_D_ST:
             gEeprom.DTMF_SIDE_TONE = gSubMenuSelection;
             break;
@@ -845,16 +838,6 @@ void MENU_AcceptSetting(void)
             gTxVfo->Modulation     = gSubMenuSelection;
             gRequestSaveChannel = 1;
             return;
-
-        #ifndef ENABLE_FEAT_F4HWN
-            #ifdef ENABLE_AM_FIX
-                case MENU_AM_FIX:
-                    gSetting_AM_fix = gSubMenuSelection;
-                    gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
-                    gFlagResetVfos    = true;
-                    break;
-            #endif
-        #endif
 
         #ifdef ENABLE_NOAA
             case MENU_NOAA_S:
@@ -1092,6 +1075,12 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = 0;
             break;
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        case MENU_SET_CFG:
+            gSubMenuSelection = MB_GetActiveBank();
+            break;
+#endif
+
         case MENU_R_DCS:
         case MENU_R_CTCS:
         {
@@ -1290,12 +1279,6 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gEeprom.SCANLIST_PRIORITY_CH[1];
             break;
 
-        #ifdef ENABLE_ALARM
-            case MENU_AL_MOD:
-                gSubMenuSelection = gEeprom.ALARM_MODE;
-                break;
-        #endif
-
         case MENU_D_ST:
             gSubMenuSelection = gEeprom.DTMF_SIDE_TONE;
             break;
@@ -1346,14 +1329,6 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gTxVfo->Modulation;
             break;
 
-#ifndef ENABLE_FEAT_F4HWN
-    #ifdef ENABLE_AM_FIX
-            case MENU_AM_FIX:
-                gSubMenuSelection = gSetting_AM_fix;
-                break;
-    #endif
-#endif
-                
         #ifdef ENABLE_NOAA
             case MENU_NOAA_S:
                 gSubMenuSelection = gEeprom.NOAA_AUTO_SCAN;
@@ -2006,6 +1981,9 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
         if (m == MENU_RESET  ||
             m == MENU_MEM_CH ||
             m == MENU_DEL_CH ||
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+            m == MENU_SET_CFG ||
+#endif
             m == MENU_MEM_NAME)
         {
             switch (gAskForConfirmation)
@@ -2034,6 +2012,40 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
                             NVIC_SystemReset();
                         #endif
                     }
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+                    else if (m == MENU_SET_CFG)
+                    {
+                        /* Bind the chosen config bank, then reboot so it is mapped
+                         * before any settings are read. Confirming the current bank
+                         * is a no-op: do not wear a marker sector or reboot. */
+                        if (gSubMenuSelection == MB_GetActiveBank())
+                        {
+                            gFlagAcceptSetting  = false;
+                            gIsInSubMenu        = false;
+                            gAskForConfirmation = 0;
+                            SCANNER_Stop();
+                            return;
+                        }
+
+                        const uint8_t err = MB_SetActiveBank(gSubMenuSelection);
+                        if (err != MB_OK)
+                        {
+                            /* The previous redundant marker remains authoritative.
+                             * Explain the failure and keep the selector open. */
+                            UI_MultibootShowConfigError(err);
+                            gAskForConfirmation   = 0;
+                            gRequestDisplayScreen = DISPLAY_MENU;
+                            SCANNER_Stop();
+                            return;
+                        }
+
+                        #if defined(ENABLE_OVERLAY)
+                            overlay_FLASH_RebootToBootloader();
+                        #else
+                            NVIC_SystemReset();
+                        #endif
+                    }
+#endif
 
                     gFlagAcceptSetting  = true;
                     gIsInSubMenu        = false;

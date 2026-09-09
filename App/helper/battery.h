@@ -45,6 +45,9 @@ typedef enum {
 
 
 unsigned int BATTERY_VoltsToPercent(unsigned int voltage_10mV);
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
+void BATTERY_Sample(bool bDisplayBatteryLevel);
+#endif
 void BATTERY_GetReadings(bool bDisplayBatteryLevel);
 void BATTERY_TimeSlice500ms(void);
 

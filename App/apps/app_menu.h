@@ -1,6 +1,5 @@
-
-/* Copyright 2023 OneOfEleven
- * https://github.com/DualTachyon
+/* Copyright 2026 Armel F4HWN
+ * https://github.com/armel
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,21 +14,12 @@
  *     limitations under the License.
  */
 
-#ifndef AM_FIXH
+#ifndef APPS_APP_MENU_H
+#define APPS_APP_MENU_H
 
-#include <stdint.h>
-#include <stdbool.h>
+/* Blocking "Apps" selector: scans the overlay-app slots, lists the committed
+ * ones by name, and launches the chosen one. UP/DOWN move, MENU launches, EXIT
+ * closes. Returns when the user leaves. */
+void APP_MenuOpen(void);
 
-#ifdef ENABLE_AM_FIX
-    void AM_fix_init(void);
-    void AM_fix_reset(const unsigned vfo);
-    void AM_fix_10ms(const unsigned vfo);
-    #ifdef ENABLE_AM_FIX_SHOW_DATA
-        void AM_fix_print_data(const unsigned vfo, char *s);
-    #endif
-    int8_t AM_fix_get_gain_diff();
-    void AM_fix_enable(bool on);
-
-#endif
-
-#endif
+#endif /* APPS_APP_MENU_H */

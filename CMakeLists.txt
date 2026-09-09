@@ -110,9 +110,36 @@ set_target_properties(${EXE_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${EXE_NAME}.
 # Force linker to ignore RWX segment warning even if cache exists
 target_link_options(${EXE_NAME} PRIVATE -Wl,--no-warn-rwx-segment)
 
+# ENABLE_NO_HEAP: no malloc/sbrk is linked (libc is discarded in py32f071xb.ld),
+# so the reserved heap is dead weight. Zero it to reclaim ~512 B of RAM. This is
+# a global toolchain optimization, independent of multiboot. The linker script
+# reads __min_heap_size when defined, else keeps its 0x200 default.
+if(ENABLE_NO_HEAP)
+    target_link_options(${EXE_NAME} PRIVATE "-Wl,--defsym=__min_heap_size=0")
+endif()
+
 # -----------------------------------
 #  Post build processing
 #
+
+# The restore stub executes while application flash is unavailable. Reject an
+# overlay build if the linked stub branches outside its RAM section or if its
+# input section refers to any external code/data. This is deliberately a hard
+# build gate: either condition could make a restore unrecoverable without DFU.
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                "-DOBJDUMP=${CMAKE_OBJDUMP}"
+                "-DELF=$<TARGET_FILE:${EXE_NAME}>"
+                "-DMAP=${CMAKE_CURRENT_BINARY_DIR}/${EXE_NAME}.map"
+                "-DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/check_mb_ramfunc.cmake"
+        COMMENT "Checking multiboot RAM stub isolation"
+        VERBATIM
+    )
+endif()
 
 # Generate .bin file
 add_custom_command(

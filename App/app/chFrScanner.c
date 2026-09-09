@@ -553,11 +553,7 @@ static void ScanFastApplyChannelShape(ModulationMode_t modulation)
     }
     else
     {
-#ifdef ENABLE_AM_FIX
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, true);
-#else
         BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, false);
-#endif
     }
 
     if (modulationChanged)
