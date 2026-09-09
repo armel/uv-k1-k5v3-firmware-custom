@@ -65,14 +65,6 @@ enum {
     VFO_CONFIGURE_RELOAD
 };
 
-enum AlarmState_t {
-    ALARM_STATE_OFF = 0,
-    ALARM_STATE_TXALARM,
-    ALARM_STATE_SITE_ALARM,
-    ALARM_STATE_TX1750
-};
-typedef enum AlarmState_t AlarmState_t;
-
 enum ReceptionMode_t {
     RX_MODE_NONE = 0,   // squelch close ?
     RX_MODE_DETECTED,   // signal detected
@@ -167,10 +159,6 @@ extern bool                  gSetting_ScrambleEnable;
 
 extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 
-#ifdef ENABLE_AM_FIX
-    extern bool              gSetting_AM_fix;
-#endif
-
 #ifdef ENABLE_FEAT_F4HWN_SLEEP 
     extern uint8_t           gSetting_set_off;
     extern bool              gWakeUp;
@@ -231,9 +219,6 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern uint8_t            gDW;
     extern uint8_t            gCB;
     extern bool               gSaveRxMode;
-    extern uint8_t            crc[15];
-    extern uint8_t            lErrorsDuringAirCopy;
-    extern uint8_t            gAircopyStep;
     extern uint8_t            gAircopyCurrentMapIndex;
     extern bool               gAirCopyBootMode;
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
@@ -393,7 +378,7 @@ enum
 extern volatile bool     gScheduleScanListen;
 extern volatile uint16_t gScanPauseDelayIn_10ms;
 
-extern AlarmState_t          gAlarmState;
+extern bool                  gTx1750Active;
 extern uint16_t              gMenuCountdown;
 extern bool                  gPttWasReleased;
 extern bool                  gPttWasPressed;
@@ -404,7 +389,7 @@ extern bool                  gFlagResetVfos;
 extern bool                  gRequestSaveVFO;
 extern uint16_t              gRequestSaveChannel;
 extern bool                  gRequestSaveSettings;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern bool              gRequestSaveFM;
 #endif
 extern uint8_t               gKeypadLocked;
@@ -413,7 +398,7 @@ extern bool                  gFlagPrepareTX;
 extern bool                  gFlagAcceptSetting;   // accept menu setting
 extern bool                  gFlagRefreshSetting;  // refresh menu display
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern bool              gFlagSaveFM;
 #endif
 extern bool                  g_CDCSS_Lost;
@@ -438,8 +423,6 @@ extern ReceptionMode_t       gRxReceptionMode;
 
  //TRUE when dual watch is momentarly suspended and RX_VFO is locked to either last TX or RX
 extern bool                  gRxVfoIsActive;
-extern uint8_t               gAlarmToneCounter;
-extern uint16_t              gAlarmRunningCounter;
 extern bool                  gKeyBeingHeld;
 extern bool                  gPttIsPressed;
 extern uint8_t               gPttDebounceCounter;
@@ -454,7 +437,7 @@ extern uint8_t               gFSKWriteIndex;
 extern volatile bool         gNextTimeslice;
 extern bool                  gUpdateDisplay;
 extern bool                  gF_LOCK;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern uint8_t           gFM_ChannelPosition;
 #endif
 extern uint8_t               gShowChPrefix;
@@ -470,7 +453,7 @@ extern volatile bool         gNextTimeslice40ms;
 #endif
 extern volatile bool         gFlagTailNoteEliminationComplete;
 extern volatile uint8_t      gVFOStateResumeCountdown_500ms;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern volatile bool     gScheduleFM;
 #endif
 extern uint8_t               gIsLocked;

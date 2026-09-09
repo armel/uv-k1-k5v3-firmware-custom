@@ -18,10 +18,6 @@
 #include <string.h>
 #include <stdio.h>     // NULL
 
-#ifdef ENABLE_AM_FIX
-    #include "am_fix.h"
-#endif
-
 #include "audio.h"
 #include "board.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
@@ -52,6 +48,10 @@
 #include "driver/system.h"
 #include "driver/systick.h"
 #include "driver/py25q16.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #include "ui/multiboot.h"
+#endif
 #ifdef ENABLE_UART
     #include "driver/uart.h"
 #endif
@@ -80,6 +80,14 @@ void Main(void)
 {
     SYSTICK_Init();
     BOARD_Init();
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Resolve the active settings bank BEFORE any EEPROM/settings access
+     * below. This also adopts a normally-flashed firmware as slot 0 (discreet
+     * self-backup) when the running image isn't the slot the marker points to.
+     * Calibration stays shared regardless of the selected bank. */
+    PY25Q16_SetBankBase(MB_BankBase(MB_BootResolveState()));
+#endif
 
     boot_counter_10ms = 250;   // 2.5 sec
 
@@ -111,7 +119,6 @@ void Main(void)
         gCB = gEeprom.CROSS_BAND_RX_TX;
     #endif
 
-    SETTINGS_WriteBuildOptions();
     SETTINGS_LoadCalibration();
 
     RADIO_ConfigureChannel(0, VFO_CONFIGURE_RELOAD);
@@ -126,11 +133,17 @@ void Main(void)
 
     BATTERY_GetReadings(false);
 
-#ifdef ENABLE_AM_FIX
-    AM_fix_init();
-#endif
-
     BOOT_Mode_t  BootMode = BOOT_GetMode();
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Run before the welcome screen and the normal application UI. EXIT from
+     * the selector simply resumes this boot as if no special mode was held. */
+    if (BootMode == BOOT_MODE_MULTIBOOT)
+    {
+        BOOT_ProcessMode(BootMode);
+        BootMode = BOOT_MODE_NORMAL;
+    }
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     if (BootMode == BOOT_MODE_RESCUE_OPS)

@@ -28,52 +28,9 @@
 #define AIRCOPY_BLOCK_SIZE           0x0040u  // 64 bytes per AirCopy block
 #define AIRCOPY_CHANNELS_PER_BANK    128
 #define AIRCOPY_NUM_BANKS            MR_CHANNELS_MAX / AIRCOPY_CHANNELS_PER_BANK
-#define AIRCOPY_CHANNEL_SIZE         16       // bytes per channel (freq/name)
-#define AIRCOPY_BANK_SIZE_BYTES      0x1080u  // 0x800 (Freq) + 0x800 (Name) + 0x80 (Attr)
+#define AIRCOPY_NUM_MAPS             (AIRCOPY_NUM_BANKS + 1u)  // banks + one settings map
+#define AIRCOPY_ALL_INDEX            AIRCOPY_NUM_MAPS          // selection sentinel: send/receive everything
 #define AIRCOPY_BAR_WIDTH            120      // Visible width of the progress gauge
-
-// ============================================================================
-// Segment write mode
-// ============================================================================
-
-/*
- * Defines how a segment must be written to EEPROM.
- *
- * - STRUCT: structured data (frequencies, names)
- * - BYTES : raw byte stream (attributes, settings, etc.)
- */
-typedef enum {
-    AIRCOPY_WRITE_STRUCT = 0,
-    AIRCOPY_WRITE_BYTES  = 1,
-} AIRCOPY_WriteMode_t;
-
-// ============================================================================
-// Transfer segment structure
-// ============================================================================
-
-/*
- * Describes a contiguous EEPROM region involved in AirCopy.
- * The write_mode defines how the RX side must write the data.
- */
-typedef struct {
-    uint16_t start_offset;
-    uint16_t end_offset;
-    AIRCOPY_WriteMode_t write_mode;
-} AIRCOPY_Segment_t;
-
-// ============================================================================
-// Transfer map structure
-// ============================================================================
-
-/*
- * A transfer map is a collection of segments describing
- * one complete AirCopy operation (bank, settings, etc.).
- */
-typedef struct {
-    const AIRCOPY_Segment_t *segments;
-    uint16_t num_segments;
-    uint16_t total_blocks;
-} AIRCOPY_TransferMap_t;
 
 // ============================================================================
 // AirCopy state
@@ -82,7 +39,8 @@ typedef struct {
 typedef enum {
     AIRCOPY_READY = 0,
     AIRCOPY_TRANSFER,
-    AIRCOPY_COMPLETE
+    AIRCOPY_COMPLETE,
+    AIRCOPY_FAILED
 } AIRCOPY_State_t;
 
 // ============================================================================
@@ -93,6 +51,7 @@ extern AIRCOPY_State_t gAircopyState;
 extern uint16_t        gAirCopyBlockNumber;
 extern uint16_t        gErrorsDuringAirCopy;
 extern bool            gAirCopyIsSendMode;
+extern bool            gAircopyAll;          // All mode: banks + settings in one pass
 
 extern uint16_t        g_FSK_Buffer[36];
 
@@ -103,8 +62,8 @@ extern uint16_t        g_FSK_Buffer[36];
 bool AIRCOPY_SendMessage(void);
 void AIRCOPY_StorePacket(void);
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
-
-const AIRCOPY_TransferMap_t* AIRCOPY_GetCurrentMap(void);
+uint16_t AIRCOPY_GetTotalBlocks(void);
+uint8_t  AIRCOPY_CurrentSliceMap(void);   // map index of the block in progress (All slice label)
 
 // XOR-obfuscate `count` words of g_FSK_Buffer starting at index 1.
 // Self-inverse: applying twice restores the original buffer.

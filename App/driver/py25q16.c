@@ -27,6 +27,10 @@
 #include "external/printf/printf.h"
 #include "misc.h"
 
+/* MBMARK was an on-screen SPI trace used while bringing up multiboot (M1/M2).
+ * The tracer is gone; keep the call sites as no-ops. */
+#define MBMARK(s)
+
 // #define DEBUG
 
 #define SPIx SPI2
@@ -39,9 +43,41 @@
 #define PAGE_SIZE 0x100
 
 static uint32_t SectorCacheAddr = 0x1000000;
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY
+/* The restore-only RAM stub is copied over this cache immediately before it
+ * erases internal flash. A reset always follows, so the cache is never needed
+ * again after the overlay becomes active. */
+static uint8_t SectorCache[SECTOR_SIZE]
+    __attribute__((section(".bss.mb_workspace"), aligned(4), used));
+#else
 static uint8_t SectorCache[SECTOR_SIZE];
+#endif
 static uint8_t BlackHole[4] __attribute__((aligned(4)));
 static volatile bool TC_Flag;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+/* Active settings-bank base (see py25q16.h). 0 = bank 0 / historical
+ * config region, i.e. an identity mapping. */
+static uint32_t BankBase = 0;
+
+void PY25Q16_SetBankBase(uint32_t Base)
+{
+    BankBase = Base;
+}
+
+/* Redirect config-region accesses (addr < boundary) into the active bank.
+ * Calibration/logo/slots/marker (addr >= boundary) are returned unchanged.
+ * BankBase is sector-aligned, so alignment done by callers is preserved. */
+static inline uint32_t BankMap(uint32_t Address)
+{
+    return (Address < PY25Q16_BANK_SHARED_FROM) ? (Address + BankBase) : Address;
+}
+#else
+static inline uint32_t BankMap(uint32_t Address)
+{
+    return Address;
+}
+#endif
 
 static inline void CS_Assert()
 {
@@ -218,6 +254,7 @@ static void WriteEnable();
 static void SectorErase(uint32_t Addr);
 static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
 static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
+static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size);
 
 void PY25Q16_Init()
 {
@@ -225,19 +262,23 @@ void PY25Q16_Init()
     SPI_Init();
 }
 
-void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
+static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size)
 {
+    MBMARK("RD cmd");          // about to assert CS + send read command
     CS_Assert();
 
     SPI_WriteByte(0x03);      // Send read command
+    MBMARK("RD addr");         // command sent, about to send address
     WriteAddr(Address);        // Send address (3 bytes)
 
+    MBMARK("RD flush");        // address sent, about to flush RX FIFO
     // CRITICAL: Flush RX FIFO before DMA to remove residual data
     while (LL_SPI_RX_FIFO_EMPTY != LL_SPI_GetRxFIFOLevel(SPIx))
     {
         LL_SPI_ReceiveData8(SPIx);  // Read and discard
     }
 
+    MBMARK("RD data");         // FIFO flushed, about to read the data
     if (Size >= 16) {
         SPI_ReadBuf((uint8_t *)pBuffer, Size);
     } else {
@@ -247,11 +288,31 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
         }
     }
 
+    MBMARK("RD end");          // data read, about to release CS
     CS_Release();
+}
+
+void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
+{
+    ReadBufferRaw(BankMap(Address), pBuffer, Size);
+}
+
+// Like PY25Q16_ReadBuffer, but waits for the flash to be idle first (WIP=0),
+// exactly as PY25Q16_WriteBuffer does before its internal reads. A standalone
+// read issued while the chip is still busy from a prior program/erase never
+// returns the expected data.
+void PY25Q16_ReadBufferSafe(uint32_t Address, void *pBuffer, uint32_t Size)
+{
+    MBMARK("SAFE wip");        // about to WaitWIP()
+    WaitWIP();
+    MBMARK("SAFE rb");         // WaitWIP done, about to ReadBuffer
+    PY25Q16_ReadBuffer(Address, pBuffer, Size);
 }
 
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, bool Append)
 {
+    Address = BankMap(Address);   /* map once; internal reads use *Raw below */
+
 #ifdef DEBUG
     printf("spi flash write: %06x %ld %d\n", Address, Size, Append);
 #endif
@@ -277,7 +338,9 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
 
         if (SecAddr != SectorCacheAddr)
         {
-            PY25Q16_ReadBuffer(SecAddr, SectorCache, SECTOR_SIZE);
+            /* SecAddr is already in mapped space (Address was mapped above), so
+             * read raw to avoid mapping a second time. */
+            ReadBufferRaw(SecAddr, SectorCache, SECTOR_SIZE);
             SectorCacheAddr = SecAddr;
         }
 
@@ -337,6 +400,7 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
 
 void PY25Q16_SectorErase(uint32_t Address)
 {
+    Address = BankMap(Address);
     Address -= (Address % SECTOR_SIZE);
     SectorErase(Address);
     if (SectorCacheAddr == Address)
@@ -344,6 +408,23 @@ void PY25Q16_SectorErase(uint32_t Address)
         memset(SectorCache, 0xff, SECTOR_SIZE);
     }
 }
+
+void PY25Q16_InvalidateCache(void)
+{
+    /* Same "no sector cached" sentinel as the initial value: the next write
+     * re-reads its sector from flash instead of trusting SectorCache. */
+    SectorCacheAddr = 0x1000000;
+}
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Expose the 4 KiB sector cache as the overlay-app workspace. It lives in
+ * .bss.mb_workspace (the overlay VMA), so an app blob linked there runs in
+ * place once copied in. The caller InvalidateCache()s around its use. */
+uint8_t *PY25Q16_OverlayBuffer(void)
+{
+    return SectorCache;
+}
+#endif
 
 static inline void WriteAddr(uint32_t Addr)
 {

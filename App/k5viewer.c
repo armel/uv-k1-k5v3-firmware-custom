@@ -18,7 +18,12 @@
 #include "driver/st7565.h"
 #include "k5viewer.h"
 #include "misc.h"
+#ifdef ENABLE_UART
+#include "driver/uart.h"
+#endif
+#ifdef ENABLE_USB
 #include "driver/vcp.h"
+#endif
 #include "driver/keyboard.h"
 #include "driver/bk4819.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
@@ -67,26 +72,41 @@ void K5VIEWER_ParseInput(void)
     if (K5VIEWER_IsLocked())
         return;
 
+#ifdef ENABLE_UART
     if (UART_IsCableConnected()) {
         keepAlive = 15;
         hasConnectionPing = true;
         gUSB_K5ViewerEnabled = false;
+        return;
     }
-    else if (VCP_K5ViewerPing()) {
+#endif
+
+#ifdef ENABLE_USB
+    if (VCP_K5ViewerPing()) {
         keepAlive = 15;
         hasConnectionPing = true;
         gUSB_K5ViewerEnabled = true;
     }
+#endif
 
 }
 
 static void K5VIEWER_Send(const uint8_t *buf, uint16_t len)
 {
+#if defined(ENABLE_UART) && defined(ENABLE_USB)
     if (gUSB_K5ViewerEnabled) {
         cdc_acm_data_send_with_dtr(buf, len);
     } else {
         UART_Send(buf, len);
     }
+#elif defined(ENABLE_USB)
+    cdc_acm_data_send_with_dtr(buf, len);
+#elif defined(ENABLE_UART)
+    UART_Send(buf, len);
+#else
+    (void)buf;
+    (void)len;
+#endif
 }
 
 enum {

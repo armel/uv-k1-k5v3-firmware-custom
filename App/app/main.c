@@ -20,7 +20,7 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/common.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/generic.h"
@@ -31,8 +31,11 @@
 #include "app/spectrum.h"
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_GAME
-#include "app/breakout.h"
+#if defined(ENABLE_FEAT_F4HWN_GAME) && !defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#include "app/breakout.h"   // resident game only; the overlay path uses app_menu.h
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#include "apps/app_menu.h"
 #endif
 
 #include "audio.h"
@@ -269,9 +272,15 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             break;
 
         case KEY_7:
-#ifdef ENABLE_FEAT_F4HWN_GAME
+            // F + 7 opens the overlay-apps menu when that support is built;
+            // otherwise it launches the resident game (GAME); otherwise VOX.
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             if (!beep) {
-                APP_RunBreakout();
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+                APP_MenuOpen();            // overlay-apps selector
+#else
+                APP_RunBreakout();         // resident game (no overlay support)
+#endif
             } else {
 #endif
 #ifdef ENABLE_VOX
@@ -279,7 +288,7 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 //#else
 //              toggle_chan_scanlist();
 #endif
-#ifdef ENABLE_FEAT_F4HWN_GAME
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             }
 #endif
 
@@ -719,7 +728,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (!gFmRadioMode)
 #endif
     {
@@ -754,7 +763,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     ACTION_FM();
 #endif
     return;
@@ -1055,7 +1064,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
 void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && Key != KEY_PTT && Key != KEY_EXIT) {
         if (!bKeyHeld && bKeyPressed)
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;

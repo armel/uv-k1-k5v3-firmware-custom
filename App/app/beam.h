@@ -42,7 +42,6 @@ typedef enum {
 extern BEAM_Mode_t   gBeamMode;
 extern BEAM_Status_t gBeamStatus;
 extern uint16_t      gBeamCopiedChannel;
-extern uint8_t       gBeamRxWordCount;
 extern bool          gBeamActive;
 
 void ACTION_Beam(void);

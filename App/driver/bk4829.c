@@ -1133,7 +1133,7 @@ void BK4819_TurnsOffTones_TurnsOnRX(void)
         BK4819_REG_30_ENABLE_RX_DSP);
 }
 
-#ifdef ENABLE_AIRCOPY
+#if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     void BK4819_SetupAircopy(void)
     {
         BK4819_WriteRegister(BK4819_REG_70, 0x00C3);    // Enable Tone2, tuning gain 48

@@ -14,9 +14,11 @@
  *     limitations under the License.
  */
 
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 
+#include "../app/action.h"
 #include "../app/dtmf.h"
 #include "../app/menu.h"
 #include "../bitmaps.h"
@@ -42,6 +44,10 @@
 #include "menu.h"
 #include "ui.h"
 #include "welcome.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #include "multiboot.h"
+#endif
 
 
 const t_menu_item MenuList[] =
@@ -106,9 +112,6 @@ const t_menu_item MenuList[] =
     {"STE",         MENU_STE           },
     {"RP STE",      MENU_RP_STE        },
     {"1 Call",      MENU_1_CALL        },
-#ifdef ENABLE_ALARM
-    {"AlarmT",      MENU_AL_MOD        },
-#endif
 #ifdef ENABLE_DTMF_CALLING
     {"ANI ID",      MENU_ANI_ID        },
 #endif
@@ -126,11 +129,6 @@ const t_menu_item MenuList[] =
     {"D List",      MENU_D_LIST        },
 #endif
     {"D Live",      MENU_D_LIVE_DEC    }, // live DTMF decoder
-#ifndef ENABLE_FEAT_F4HWN
-    #ifdef ENABLE_AM_FIX
-        {"AM Fix",      MENU_AM_FIX        },
-    #endif
-#endif
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SysInf",      MENU_VOL           }, // was "VOL"
@@ -173,6 +171,9 @@ const t_menu_item MenuList[] =
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
     {"SetSav",      MENU_SET_SAV       },
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    {"SetCfg",      MENU_SET_CFG       }, // load another settings bank (reboots)
 #endif
 #endif
     // hidden menu items from here on
@@ -257,14 +258,6 @@ const char* const gSubMenu_MDF[] =
     "NAME",
     "NAME\n+\nFREQ"
 };
-
-#ifdef ENABLE_ALARM
-    const char* const gSubMenu_AL_MOD[] =
-    {
-        "SITE",
-        "TONE"
-    };
-#endif
 
 #ifdef ENABLE_DTMF_CALLING
 const char* const gSubMenu_D_RSP[] =
@@ -481,57 +474,33 @@ const char* const gSubMenu_SCRAMBLER[] =
 const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
 {
     {"NONE",            ACTION_OPT_NONE},
-#ifdef ENABLE_FLASHLIGHT
     {"FLASH\nLIGHT",    ACTION_OPT_FLASHLIGHT},
-#endif
     {"POWER",           ACTION_OPT_POWER},
     {"MONITOR",         ACTION_OPT_MONITOR},
     {"SCAN",            ACTION_OPT_SCAN},
-#ifdef ENABLE_VOX
     {"VOX",             ACTION_OPT_VOX},
-#endif
-#ifdef ENABLE_ALARM
-    {"ALARM",           ACTION_OPT_ALARM},
-#endif
-#ifdef ENABLE_FMRADIO
     {"FM RADIO",        ACTION_OPT_FM},
-#endif
-#ifdef ENABLE_TX1750
     {"1750Hz",          ACTION_OPT_1750},
-#endif
     {"LOCK\nKEYPAD",    ACTION_OPT_KEYLOCK},
     {"VFO A\nVFO B",    ACTION_OPT_A_B},
     {"VFO\nMEM",        ACTION_OPT_VFO_MR},
     {"MODE",            ACTION_OPT_SWITCH_DEMODUL},
-#ifdef ENABLE_BLMIN_TMP_OFF
-    {"BLMIN\nTMP OFF",  ACTION_OPT_BLMIN_TMP_OFF},      //BackLight Minimum Temporary OFF
-#endif
-#ifdef ENABLE_FEAT_F4HWN
     {"RX MODE",         ACTION_OPT_RXMODE},
     {"MAIN ONLY",       ACTION_OPT_MAINONLY},
     {"PTT",             ACTION_OPT_PTT},
     {"WIDE\nNARROW",    ACTION_OPT_WN},
     {"MUTE",            ACTION_OPT_MUTE},
-    #ifdef ENABLE_FEAT_F4HWN_AUDIO
-        {"RxA",            ACTION_OPT_RXA},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        {"POWER\nHIGH",    ACTION_OPT_POWER_HIGH},
-        {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_BEAM
-        {"BEAM",            ACTION_OPT_BEAM},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-        {"RF LOG",          ACTION_OPT_RXTX_LOG},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
-        {"FOX HUNT\nBEACON", ACTION_OPT_FOXHUNT},
-    #endif
-#endif
+    {"RxA",             ACTION_OPT_RXA},
+    {"RF LOG",          ACTION_OPT_RXTX_LOG},
+    {"BEAM",            ACTION_OPT_BEAM},
+    {"POWER\nHIGH",     ACTION_OPT_POWER_HIGH},
+    {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
+    {"FOX HUNT",        ACTION_OPT_FOXHUNT},
+    {"BEACON",          ACTION_OPT_BEACON},
 };
 
 const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);
+static_assert(ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS) == ACTION_OPT_LEN);
 
 bool    gIsInSubMenu;
 uint8_t gMenuCursor;
@@ -598,6 +567,9 @@ static const uint8_t CatChannels[] = {
 #endif
     MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK, MENU_PTT_ID, MENU_LIST_CH,
     MENU_MEM_CH, MENU_DEL_CH, MENU_MEM_NAME,
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    MENU_SET_CFG,
+#endif
 };
 static const uint8_t CatScan[]    = {
     MENU_S_LIST, MENU_S_PRI, MENU_S_PRI_CH_1, MENU_S_PRI_CH_2, MENU_SC_REV,
@@ -836,6 +808,28 @@ static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t lin
     UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
 }
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+/* Draw `text` (3x5 font) centred inside a fixed-width rounded inverse capsule:
+ * left edge `cap_left`, inclusive width `cap_w`, on framebuffer page `line`. Same
+ * capsule pattern as GUI_DisplaySmallestInverse (0x3E rounded ends, 0x7F body) but
+ * with the width decoupled from the text length, so two labels of different
+ * lengths (e.g. "SLOT 2" / "CFG 4") share one width and each stays centred. */
+static void UI_MENU_DrawFixedCapsule(const char *text, uint8_t cap_left,
+                                     uint8_t cap_w, uint8_t line)
+{
+    const uint8_t cap_right = (uint8_t)(cap_left + cap_w - 1u);
+    const uint8_t text_w    = (uint8_t)(strlen(text) * 4u - 1u); /* 3x5 glyphs: 4 px/char, last one 3 px wide */
+    const uint8_t tx        = (uint8_t)(cap_left + (cap_w - text_w) / 2u);
+
+    GUI_DisplaySmallest(text, tx, (uint8_t)(line * 8u + 1u), false, true);
+
+    gFrameBuffer[line][cap_left] ^= 0x3Eu;
+    for (uint8_t x = (uint8_t)(cap_left + 1u); x < cap_right; x++)
+        gFrameBuffer[line][x] ^= 0x7Fu;
+    gFrameBuffer[line][cap_right] ^= 0x3Eu;
+}
+#endif
+
 void UI_DisplayMenu(void)
 {
     const unsigned int menu_list_width = 6; // max no. of characters on the menu list (left side)
@@ -844,6 +838,7 @@ void UI_DisplayMenu(void)
     unsigned int       i;
     char               String[64];  // bigger cuz we can now do multi-line in one string (use '\n' char)
     char               top_right_badge[16];
+    uint8_t            top_right_badge_line = 1;
 
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
     if (gMenuLevel == MENU_LEVEL_CAT)
@@ -1132,11 +1127,6 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_RX_TX[gSubMenuSelection]);
             break;
 
-        #ifndef ENABLE_FEAT_F4HWN
-            #ifdef ENABLE_AM_FIX
-                case MENU_AM_FIX:
-            #endif
-        #endif
         case MENU_BCL:
         case MENU_BEEP:
         case MENU_STE:
@@ -1338,12 +1328,6 @@ void UI_DisplayMenu(void)
             }
             break;
             
-        #ifdef ENABLE_ALARM
-            case MENU_AL_MOD:
-                sprintf(String, gSubMenu_AL_MOD[gSubMenuSelection]);
-                break;
-        #endif
-
 #ifdef ENABLE_DTMF_CALLING
         case MENU_ANI_ID:
             strcpy(String, gEeprom.ANI_DTMF_ID);
@@ -1421,6 +1405,41 @@ void UI_DisplayMenu(void)
 #ifdef ENABLE_FEAT_F4HWN
                 sprintf(String, "%s\n%s", AUTHOR_STRING_2, DISPLAY_VERSION_STRING_2);
                 UI_PrintStringSmallNormal(Edition, menu_item_x1 - 1, menu_item_x2, 6);
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+                /* Two 3x5 inverse-capsule labels on one line (scan-list "label"
+                 * style): the running firmware slot (M = Main) and the active
+                 * config bank. They match unless SetCfg has pointed the bank at a
+                 * different bank (e.g. SLOT 2 / CFG 4). */
+                const uint8_t fw_slot = MB_GetRunningSlot();
+                const uint8_t bank    = MB_GetActiveBank();
+                char slot_lbl[8];
+                char cfg_lbl[8];
+
+                /* Only the last glyph varies (M / digit / ?), so poke it in place
+                 * instead of pulling sprintf for a single character. */
+                strcpy(slot_lbl, "SLOT ?");
+                if (fw_slot == 0u)
+                    slot_lbl[5] = 'M';
+                else if (fw_slot < MB_SLOT_COUNT)
+                    slot_lbl[5] = (char)('0' + fw_slot);
+                strcpy(cfg_lbl, "CFG M");            /* bank 0 = base config, like SLOT M */
+                if (bank != 0u)
+                    cfg_lbl[4] = (char)('0' + bank);
+
+                /* Both capsules share the wider label's width (6-char "SLOT x" ->
+                 * 4*6+3 = 27 px); the shorter CFG text is centred inside its own.
+                 * The two are drawn as one centred pair with a small gap, centred in
+                 * the space between the separator bar (x=48) and the right screen
+                 * edge, so they line up with the centred identity lines above. */
+                const uint8_t cap_w     = (uint8_t)(4u * 6u + 3u);                     /* 27 */
+                const uint8_t cap_gap   = 4u;
+                const uint8_t pair_w    = (uint8_t)(2u * cap_w + cap_gap);             /* 58 */
+                const uint8_t slot_left = (uint8_t)((48u + LCD_WIDTH - pair_w) / 2u);  /* 59 */
+                const uint8_t cfg_left  = (uint8_t)(slot_left + cap_w + cap_gap);      /* 90 */
+
+                UI_MENU_DrawFixedCapsule(slot_lbl, slot_left, cap_w, 5);
+                UI_MENU_DrawFixedCapsule(cfg_lbl,  cfg_left,  cap_w, 5);
+#endif
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
@@ -1542,13 +1561,28 @@ void UI_DisplayMenu(void)
             strcpy(String, gSubMenu_SET_NAV[gSubMenuSelection]);
             break;
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        case MENU_SET_CFG:
+            strcpy(String, "CFG M");         /* bank 0 = base config, like SysInfo */
+            if (gSubMenuSelection != 0)
+                String[4] = (char)('0' + gSubMenuSelection);
+            break;
+#endif
+
         case MENU_F1SHRT:
         case MENU_F1LONG:
         case MENU_F2SHRT:
         case MENU_F2LONG:
         case MENU_MLONG:
+        {
+            const uint8_t action = gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].id;
             strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].name);
+            if (!ACTION_IsAvailable(action)) {
+                strcpy(top_right_badge, "N/A");
+                top_right_badge_line = 5;
+            }
             break;
+        }
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
         case MENU_SET_OFF:
@@ -1791,12 +1825,15 @@ void UI_DisplayMenu(void)
 #endif
 
     if (top_right_badge[0] != '\0') {
-        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, 1, true, menu_item_x1, menu_item_x2);
+        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, top_right_badge_line, true, menu_item_x1, menu_item_x2);
     }
 
     if ((m == MENU_RESET    ||
          m == MENU_MEM_CH   ||
          m == MENU_MEM_NAME ||
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+         m == MENU_SET_CFG  ||
+#endif
          m == MENU_DEL_CH) && gAskForConfirmation)
     {   // display confirmation
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";

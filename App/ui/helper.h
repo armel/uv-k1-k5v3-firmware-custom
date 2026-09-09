@@ -20,7 +20,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-void UI_GenerateChannelString(char *pString, const uint16_t Channel);
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber);
 void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width);
 void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);
@@ -45,7 +44,7 @@ void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);
 void UI_DrawRectangleBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);
 
-void UI_DisplayClear();
-void UI_StatusClear();
+void UI_DisplayClear(void);
+void UI_StatusClear(void);
 
 #endif

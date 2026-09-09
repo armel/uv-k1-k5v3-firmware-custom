@@ -19,7 +19,7 @@
 
 #include "app/chFrScanner.h"
 #include "app/dtmf.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "driver/keyboard.h"
@@ -27,7 +27,7 @@
 #ifdef ENABLE_AIRCOPY
     #include "ui/aircopy.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "ui/fmradio.h"
 #endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
@@ -53,8 +53,14 @@ void (*const UI_DisplayFunctions[])(void) = {
     [DISPLAY_MENU] = &UI_DisplayMenu,
     [DISPLAY_SCANNER] = &UI_DisplayScanner,
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     [DISPLAY_FM] = &UI_DisplayFM,
+#elif defined(ENABLE_FMRADIO)
+    /* The FM overlay app replaces the resident FM screen (ui/fmradio.c is not
+       compiled). DISPLAY_FM still exists in the enum, so the slot must stay
+       initialised to keep ARRAY_SIZE == DISPLAY_N_ELEM; point it at a
+       never-reached stub - the resident FM screen can no longer open. */
+    [DISPLAY_FM] = &UI_DisplayMain,
 #endif
 
 #ifdef ENABLE_AIRCOPY
@@ -88,7 +94,7 @@ void GUI_SelectNextDisplay(GUI_DisplayType_t Display)
         gIsInSubMenu         = false;
         gCssBackgroundScan   = false;
         gScanStateDir        = SCAN_OFF;
-        #ifdef ENABLE_FMRADIO
+        #ifdef ENABLE_FMRADIO_EMBEDDED
             gFM_ScanState    = FM_SCAN_OFF;
         #endif
         gAskForConfirmation  = 0;

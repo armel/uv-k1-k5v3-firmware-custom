@@ -95,8 +95,7 @@ if(ENABLE_AIRCOPY OR ENABLE_UART OR ENABLE_USB)
 endif()
 
 enable_feature(ENABLE_UART
-    driver/uart.c 
-    app/uart.c
+    driver/uart.c
     # driver/aes.c
 )
 
@@ -118,11 +117,17 @@ endif()
 
 # ---- STOCK QUANSHENG FEATURES ----
 
+# ENABLE_FMRADIO keeps the BK1080 driver and the FM data/helpers shared with the
+# overlay.  ENABLE_FMRADIO_EMBEDDED additionally selects the legacy resident
+# state machine and its integration with the main scheduler.
 enable_feature(ENABLE_FMRADIO
-    driver/bk1080.c 
-    app/fm.c 
-    ui/fmradio.c
+    driver/bk1080.c
+    app/fm.c
 )
+if(ENABLE_FMRADIO AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    target_compile_definitions(App INTERFACE ENABLE_FMRADIO_EMBEDDED)
+    target_sources(App INTERFACE ui/fmradio.c)
+endif()
 enable_feature(ENABLE_AIRCOPY
     app/aircopy.c
     ui/aircopy.c
@@ -132,7 +137,6 @@ enable_feature(ENABLE_VOICE
     driver/voice.c
 )
 enable_feature(ENABLE_VOX)
-enable_feature(ENABLE_ALARM)
 enable_feature(ENABLE_TX1750)
 enable_feature(ENABLE_PWRON_PASSWORD
     ui/lock.c
@@ -152,7 +156,6 @@ enable_feature(ENABLE_SMALL_BOLD)
 enable_feature(ENABLE_CUSTOM_MENU_LAYOUT)
 enable_feature(ENABLE_KEEP_MEM_NAME)
 enable_feature(ENABLE_WIDE_RX)
-enable_feature(ENABLE_TX_WHEN_AM)
 enable_feature(ENABLE_F_CAL_MENU)
 enable_feature(ENABLE_CTCSS_TAIL_PHASE_SHIFT)
 enable_feature(ENABLE_BOOT_BEEPS)
@@ -167,7 +170,6 @@ enable_feature(ENABLE_FEAT_F4HWN_AUDIO_SCOPE)
 enable_feature(ENABLE_COPY_CHAN_TO_VFO)
 enable_feature(ENABLE_REDUCE_LOW_MID_TX_POWER)
 enable_feature(ENABLE_BYP_RAW_DEMODULATORS)
-enable_feature(ENABLE_BLMIN_TMP_OFF)
 enable_feature(ENABLE_SCAN_RANGES)
 
 # ---- CONTRIB MODS ----
@@ -177,10 +179,36 @@ enable_feature(ENABLE_EXTRA_UART_CMD)
 
 # ---- F4HWN MODS ----
 
+if(NOT ENABLE_UART AND NOT ENABLE_USB)
+    if(ENABLE_FEAT_F4HWN_K5VIEWER OR ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER)
+        message(STATUS "Disabling K5Viewer because both ENABLE_UART and ENABLE_USB are OFF.")
+    endif()
+    set(ENABLE_FEAT_F4HWN_K5VIEWER OFF)
+    set(ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER OFF)
+endif()
+
 enable_feature(ENABLE_FEAT_F4HWN)
-enable_feature(ENABLE_FEAT_F4HWN_GAME 
-    app/breakout.c
+# GAME keeps the F+7 hook; the resident breakout.c is compiled only when the
+# overlay does NOT provide Breakout as an app (that is the flash we recover).
+if(ENABLE_FEAT_F4HWN_GAME)
+    target_compile_definitions(App INTERFACE ENABLE_FEAT_F4HWN_GAME)
+    if(NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+        target_sources(App INTERFACE app/breakout.c)
+    endif()
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    apps/app_overlay.c
+    apps/app_menu.c
 )
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO)
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_BEAM)
+if(ENABLE_FEAT_F4HWN_OVERLAY_APPS AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_OVERLAY_APPS requires ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY (the 4 KiB overlay workspace).")
+endif()
+if((ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO OR ENABLE_FEAT_F4HWN_OVERLAY_BEAM) AND
+   NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    message(FATAL_ERROR "Overlay Triple VFO/Beam services require ENABLE_FEAT_F4HWN_OVERLAY_APPS.")
+endif()
 enable_feature(ENABLE_FEAT_F4HWN_K5VIEWER 
     k5viewer.c
 )
@@ -211,9 +239,11 @@ enable_feature(ENABLE_FEAT_F4HWN_BEAM
 enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG
     app/rxtx_log.c
 )
-enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT
-    app/foxhunt.c
-)
+enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT)
+enable_feature(ENABLE_FEAT_F4HWN_BEACON)
+if(ENABLE_FEAT_F4HWN_FOXHUNT OR ENABLE_FEAT_F4HWN_BEACON)
+    target_sources(App INTERFACE app/foxhunt.c)
+endif()
 enable_feature(ENABLE_FEAT_F4HWN_ACTION_PICKER)
 
 if(ENABLE_FEAT_F4HWN_ACTION_PICKER AND NOT ENABLE_FEAT_F4HWN)
@@ -230,6 +260,19 @@ endif()
 if(ENABLE_FEAT_F4HWN_BEAM AND NOT ENABLE_AIRCOPY)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_BEAM requires ENABLE_AIRCOPY (it reuses g_FSK_Buffer, AIRCOPY_Obfuscate and the FSK packet plumbing).")
 endif()
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT
+    driver/mb_flash.c
+    ui/multiboot.c
+)
+if(ENABLE_FEAT_F4HWN_MULTIBOOT AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT requires ENABLE_FEAT_F4HWN (the SetCfg menu, SysInfo badge and multiboot UI all live under ENABLE_FEAT_F4HWN).")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY requires ENABLE_FEAT_F4HWN_MULTIBOOT.")
+endif()
+
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO_SAV)

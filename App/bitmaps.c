@@ -22,16 +22,17 @@ const uint8_t gFontPttClassic[2][6] =
     {0x00, 0x7f, 0x40, 0x40, 0x40, 0x40},
 };
 
-const uint8_t gFontF[8] =
+const uint8_t gFontF[9] =
 {
+    0b00111110,
     0b01111111,
-    0b00000000,
-    0b01110110,
-    0b01110110,
-    0b01110110,
-    0b01110110,
-    0b01111110,
-    0b01111111
+    0b01000001,
+    0b01110101,
+    0b01110101,
+    0b01110101,
+    0b01111101,
+    0b01111111,
+    0b00111110
 };
 
 const uint8_t gFontS[6] =
@@ -301,7 +302,7 @@ const uint8_t BITMAP_NOAA[12] =
 };
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
 const uint8_t BITMAP_FoxHuntSignal[10] =
 {   // point source + the speaker bitmap's two sound waves, oriented horizontally
     0b00001000,

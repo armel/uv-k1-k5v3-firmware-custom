@@ -69,7 +69,6 @@ static_assert(sizeof(BEAM_Payload_t) <= 64);
 BEAM_Mode_t   gBeamMode = BEAM_MODE_TX;
 BEAM_Status_t gBeamStatus = BEAM_STATUS_READY;
 uint16_t      gBeamCopiedChannel = 0xFFFFu;
-uint8_t       gBeamRxWordCount;
 bool          gBeamActive;
 
 static VFO_Info_t gBeamRadioVfo;
@@ -120,7 +119,6 @@ static void BEAM_SendPacket(void)
     payload->dtmf_decoding_enable = vfo->DTMF_DECODING_ENABLE;
 #endif
     payload->step_setting = vfo->STEP_SETTING;
-    payload->scrambling_type = vfo->SCRAMBLING_TYPE;
     payload->band = vfo->Band;
     payload->scanlist = vfo->SCANLIST_PARTICIPATION;
     payload->compander = vfo->Compander;
@@ -174,7 +172,6 @@ static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
     VFO_Info_t vfo;
     RADIO_InitInfo(&vfo, channel, payload->rx_frequency);
 
-    // CRC + magic + version already validate the payload — no need to clamp fields.
     vfo.TX_OFFSET_FREQUENCY = payload->tx_offset_frequency;
     vfo.freq_config_RX.Code = payload->rx_code;
     vfo.freq_config_TX.Code = payload->tx_code;
@@ -191,21 +188,18 @@ static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
 #ifdef ENABLE_DTMF_CALLING
     vfo.DTMF_DECODING_ENABLE = payload->dtmf_decoding_enable;
 #endif
-    vfo.STEP_SETTING = payload->step_setting;
+    vfo.STEP_SETTING = payload->step_setting < STEP_N_ELEM ? payload->step_setting : STEP_12_5kHz;
     vfo.StepFrequency = gStepFrequencyTable[vfo.STEP_SETTING];
-    vfo.SCRAMBLING_TYPE = payload->scrambling_type;
-    vfo.Band = payload->band;
     vfo.SCANLIST_PARTICIPATION = payload->scanlist;
     vfo.Compander = payload->compander;
     
     memcpy(vfo.Name, payload->name, sizeof(vfo.Name));
     vfo.Name[sizeof(vfo.Name) - 1] = '\0';
     
-    RADIO_ApplyOffset(&vfo);
-    RADIO_ConfigureSquelchAndOutputPower(&vfo);
-
     SETTINGS_SaveChannel(channel, gEeprom.TX_VFO, &vfo, 3);
+#ifndef ENABLE_KEEP_MEM_NAME
     SETTINGS_SaveChannelName(channel, vfo.Name);
+#endif
 
     gBeamCopiedChannel = channel;
     gBeamStatus = BEAM_STATUS_RX_SAVED;
@@ -223,7 +217,6 @@ static void BEAM_KeyMenu(void)
     } else {
         gBeamStatus = BEAM_STATUS_RX_WAIT;
         gBeamCopiedChannel = 0xFFFFu;
-        gBeamRxWordCount = 0;
         gFSKWriteIndex = 0;
         BK4819_PrepareFSKReceive();
     }
@@ -251,7 +244,6 @@ void ACTION_Beam(void)
     gBeamMode = BEAM_MODE_TX;
     gBeamStatus = BEAM_STATUS_READY;
     gBeamCopiedChannel = 0xFFFFu;
-    gBeamRxWordCount = 0;
     gBeamActive = true;
     GUI_SelectNextDisplay(DISPLAY_MAIN);
 }
@@ -269,7 +261,6 @@ void BEAM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     case KEY_DOWN:
         gBeamMode ^= 1; // (gBeamMode == BEAM_MODE_TX) ? BEAM_MODE_RX : BEAM_MODE_TX
         gBeamStatus = BEAM_STATUS_READY;
-        gBeamRxWordCount = 0;
         break;
     case KEY_MENU:
         BEAM_KeyMenu();
@@ -292,7 +283,6 @@ void BEAM_StorePacket(void)
     if (gFSKWriteIndex < 36)
         return;
 
-    gBeamRxWordCount = gFSKWriteIndex;
     gFSKWriteIndex = 0;
 
     const uint16_t Status = BK4819_ReadRegister(BK4819_REG_0B);
@@ -317,7 +307,6 @@ void BEAM_StorePacket(void)
 
 error:
     gBeamStatus = BEAM_STATUS_ERROR;
-    gBeamRxWordCount = 0;
     gUpdateDisplay = true;
     BACKLIGHT_TurnOn();
 }

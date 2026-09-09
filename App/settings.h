@@ -25,6 +25,10 @@
 #include "radio.h"
 #include <driver/backlight.h>
 
+/* Shared PY25Q16 locations for the two configurable boot-message lines. */
+#define SETTINGS_BOOT_MESSAGE_LINE1_ADDR 0x00A0C8u
+#define SETTINGS_BOOT_MESSAGE_LINE2_ADDR 0x00A0D8u
+
 enum POWER_OnDisplayMode_t {
 #ifdef ENABLE_FEAT_F4HWN
     POWER_ON_DISPLAY_MODE_ALL,
@@ -100,43 +104,35 @@ enum {
 };
 
 enum ACTION_OPT_t {
-    ACTION_OPT_NONE = 0,
-    ACTION_OPT_FLASHLIGHT,
-    ACTION_OPT_POWER,
-    ACTION_OPT_MONITOR,
-    ACTION_OPT_SCAN,
-    ACTION_OPT_VOX,
-    ACTION_OPT_ALARM,
-    ACTION_OPT_FM,
-    ACTION_OPT_1750,
-    ACTION_OPT_KEYLOCK,
-    ACTION_OPT_A_B,
-    ACTION_OPT_VFO_MR,
-    ACTION_OPT_SWITCH_DEMODUL,
-    ACTION_OPT_BLMIN_TMP_OFF, //BackLight Minimum Temporay OFF
-#ifdef ENABLE_FEAT_F4HWN
-    ACTION_OPT_RXMODE,
-    ACTION_OPT_MAINONLY,
-    ACTION_OPT_PTT,
-    ACTION_OPT_WN,
-    ACTION_OPT_BACKLIGHT,
-    ACTION_OPT_MUTE,
-    ACTION_OPT_RXA,
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        ACTION_OPT_POWER_HIGH,
-        ACTION_OPT_REMOVE_OFFSET,
-    #endif
-#endif
-#ifdef ENABLE_FEAT_F4HWN_BEAM
-    ACTION_OPT_BEAM,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-    ACTION_OPT_RXTX_LOG,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
-    ACTION_OPT_FOXHUNT,
-#endif
-    ACTION_OPT_LEN
+    /* Persisted in EEPROM: never renumber or make these values conditional. */
+    ACTION_OPT_NONE           = 0,
+    ACTION_OPT_FLASHLIGHT     = 1,
+    ACTION_OPT_POWER          = 2,
+    ACTION_OPT_MONITOR        = 3,
+    ACTION_OPT_SCAN           = 4,
+    ACTION_OPT_VOX            = 5,
+    ACTION_OPT_FM             = 6,
+    ACTION_OPT_1750           = 7,
+    ACTION_OPT_KEYLOCK        = 8,
+    ACTION_OPT_A_B            = 9,
+    ACTION_OPT_VFO_MR         = 10,
+    ACTION_OPT_SWITCH_DEMODUL = 11,
+    ACTION_OPT_RXMODE         = 12,
+    ACTION_OPT_MAINONLY       = 13,
+    ACTION_OPT_PTT            = 14,
+    ACTION_OPT_WN             = 15,
+    ACTION_OPT_MUTE           = 16,
+    ACTION_OPT_RXA            = 17,
+
+    /* Preset-specific actions keep their IDs even when not compiled. */
+    ACTION_OPT_RXTX_LOG       = 18,
+    ACTION_OPT_BEAM           = 19,
+    ACTION_OPT_POWER_HIGH     = 20,
+    ACTION_OPT_REMOVE_OFFSET  = 21,
+    ACTION_OPT_FOXHUNT        = 22,
+    ACTION_OPT_BEACON         = 23,
+
+    ACTION_OPT_LEN            = 24
 };
 
 #ifdef ENABLE_VOICE
@@ -148,12 +144,6 @@ enum ACTION_OPT_t {
     };
     typedef enum VOICE_Prompt_t VOICE_Prompt_t;
 #endif
-
-enum ALARM_Mode_t {
-    ALARM_MODE_SITE = 0,
-    ALARM_MODE_TONE
-};
-typedef enum ALARM_Mode_t ALARM_Mode_t;
 
 enum ROGER_Mode_t {
     ROGER_MODE_OFF = 0,
@@ -237,9 +227,6 @@ typedef struct {
     uint8_t               field38_0x33;
 
     uint8_t               AUTO_KEYPAD_LOCK;
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    ALARM_Mode_t      ALARM_MODE;
-#endif
     POWER_OnDisplayMode_t POWER_ON_DISPLAY_MODE;
     ROGER_Mode_t          ROGER;
     uint8_t               REPEATER_TAIL_TONE_ELIMINATION;
@@ -301,9 +288,6 @@ typedef struct {
 
     uint8_t               KEY_M_LONG_PRESS_ACTION;
     uint8_t               BACKLIGHT_MIN;
-#ifdef ENABLE_BLMIN_TMP_OFF
-    BLMIN_STAT_t          BACKLIGHT_MIN_STAT;
-#endif
     uint8_t               BACKLIGHT_MAX;
     BATTERY_Type_t        BATTERY_TYPE;
 #ifdef ENABLE_RSSI_BAR
@@ -350,7 +334,6 @@ void SETTINGS_SaveChannelName(uint16_t channel, const char * name);
 void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode);
 void SETTINGS_SaveBatteryCalibration(const uint16_t * batteryCalibration);
 void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep);
-void SETTINGS_WriteBuildOptions(void);
 #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
     void SETTINGS_WriteCurrentState(void);
 #endif
