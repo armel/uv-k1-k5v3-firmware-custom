@@ -129,8 +129,8 @@ static void drawBall(void) {
     ball.x += ball.dx; ball.y += ball.dy;
 
     if (ball.y <= 0)        { ball.dx = randInt(-3, 3); ball.dy = 1; }
-    else if (ball.x <= 2)   { ball.dx = iabs(ball.dx); }
-    else if (ball.x >= 124) { ball.dx = -iabs(ball.dx); }
+    else if (ball.x <= 2)   { ball.x = 2;   ball.dx = iabs(ball.dx); }
+    else if (ball.x >= 124) { ball.x = 124; ball.dx = -iabs(ball.dx); }
 
     if (ball.y == 47) {
         if (ball.x + 1 >= racket.x && ball.x - 1 <= racket.x + RACKET_WIDTH) {

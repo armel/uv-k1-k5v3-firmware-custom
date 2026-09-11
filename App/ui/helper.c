@@ -235,6 +235,13 @@ void UI_DisplayFrequency(const char *string, uint8_t X, uint8_t Y, bool center)
 
 void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black)
 {
+    // x/y can arrive here already wrapped from a negative or out-of-range
+    // caller coordinate narrowed to uint8_t (e.g. UI_DrawLineBuffer takes
+    // int16_t); without this check that silently corrupts memory beyond
+    // gFrameBuffer[FRAME_LINES][128].
+    if (x >= LCD_WIDTH || y >= FRAME_LINES * 8)
+        return;
+
     const uint8_t pattern = 1 << (y % 8);
     if(black)
         buffer[y/8][x] |= pattern;
