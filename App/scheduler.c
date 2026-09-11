@@ -56,7 +56,15 @@ void SysTick_Handler(void)
 
 #ifdef ENABLE_FEAT_F4HWN
         DECREMENT_AND_TRIGGER(gVfoSaveCountdown_10ms, gScheduleVfoSave);
-        DECREMENT_AND_TRIGGER(gTxTimerCountdownAlert_500ms - ALERT_TOT * 2, gTxTimeoutReachedAlert);
+        // Not DECREMENT_AND_TRIGGER: that macro only triggers when the counter
+        // hits exactly zero, but this alert must fire once the counter drops to
+        // (or already starts at or below) the ALERT_TOT*2 threshold, ALERT_TOT
+        // seconds before the real TX timeout in gTxTimerCountdown_500ms.
+        if (gTxTimerCountdownAlert_500ms > 0) {
+            gTxTimerCountdownAlert_500ms--;
+            if (gTxTimerCountdownAlert_500ms <= ALERT_TOT * 2)
+                gTxTimeoutReachedAlert = true;
+        }
         #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
             DECREMENT(gRxTimerCountdown_500ms);
         #endif

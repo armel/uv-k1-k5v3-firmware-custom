@@ -360,7 +360,22 @@ uint8_t AUDIO_SetDigitVoice(uint8_t Index, uint16_t Value)
     Count     = 0;
     Result    = Value / 1000U;
     Remainder = Value % 1000U;
-    if (Remainder < 100U)
+
+    if (Result > 0)
+    {
+        // Value has a thousands digit (e.g. channel 1000+ now that this fork
+        // raised MR_CHANNELS_MAX past 999): speak it, then speak the
+        // remaining three digits in full — once a more significant digit has
+        // been spoken, the rest are no longer "leading" and can't be skipped.
+        gVoiceID[gVoiceWriteIndex++] = (VOICE_ID_t)Result;
+        Count++;
+
+        Result = Remainder / 100U;
+        gVoiceID[gVoiceWriteIndex++] = (VOICE_ID_t)Result;
+        Count++;
+        Remainder -= Result * 100U;
+    }
+    else if (Remainder < 100U)
     {
         if (Remainder < 10U)
             goto Skip;

@@ -410,20 +410,18 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     // Init attr cache
     MR_InitChannelAttributesCache();
 
-    // Load and check channel
+    // Load and check channel: only blank/erased attribute slots (__val == 0xFFFF,
+    // i.e. never written) need a sane default. Already-initialized channels must
+    // be left untouched here — this runs on every boot, and clearing `exclude`
+    // unconditionally on the else branch used to silently wipe the user's
+    // "exclude from scan" setting for every channel on every power-on.
     for (uint16_t i = 0; i < MR_CHANNELS_MAX + 7; i++) {
         ChannelAttributes_t *att = MR_GetChannelAttributes(i);
-        
-        if (att != NULL) {
-            if (att->__val == 0xFFFF) {
-                att->__val = 0;
-                att->band = 0x7;
-                MR_SetChannelAttributes(i, att);  // ⭐ IMPORTANT: Sauvegarder!
-            }
-            else {
-                att->exclude = 0;
-                MR_SetChannelAttributes(i, att);  // ⭐ IMPORTANT: Sauvegarder!
-            }
+
+        if (att != NULL && att->__val == 0xFFFF) {
+            att->__val = 0;
+            att->band = 0x7;
+            MR_SetChannelAttributes(i, att);  // ⭐ IMPORTANT: Sauvegarder!
         }
     }
 
