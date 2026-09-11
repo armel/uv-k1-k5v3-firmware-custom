@@ -177,21 +177,28 @@ static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
     vfo.freq_config_TX.Code = payload->tx_code;
     vfo.freq_config_RX.CodeType = payload->rx_codetype;
     vfo.freq_config_TX.CodeType = payload->tx_codetype;
-    vfo.TX_OFFSET_FREQUENCY_DIRECTION = payload->tx_offset_direction;
-    vfo.Modulation = payload->modulation;
+    // Every field below comes from a received over-the-air packet whose only
+    // integrity check is a non-cryptographic CRC, so a forged/corrupted packet
+    // can carry an out-of-range value here. Each enum-ish field is clamped to
+    // its valid range before being saved, mirroring the validation already
+    // done for step_setting (and for modulation/tx_offset_direction when
+    // loaded from flash elsewhere, see settings.c/radio.c).
+    vfo.TX_OFFSET_FREQUENCY_DIRECTION = payload->tx_offset_direction <= TX_OFFSET_FREQUENCY_DIRECTION_SUB
+        ? payload->tx_offset_direction : TX_OFFSET_FREQUENCY_DIRECTION_OFF;
+    vfo.Modulation = payload->modulation < MODULATION_UKNOWN ? payload->modulation : MODULATION_FM;
     vfo.TX_LOCK = payload->tx_lock;
     vfo.BUSY_CHANNEL_LOCK = payload->busy_channel_lock;
     vfo.OUTPUT_POWER = payload->output_power;
-    vfo.CHANNEL_BANDWIDTH = payload->channel_bandwidth;
+    vfo.CHANNEL_BANDWIDTH = payload->channel_bandwidth <= BANDWIDTH_NARROW ? payload->channel_bandwidth : BANDWIDTH_WIDE;
     vfo.FrequencyReverse = payload->frequency_reverse;
-    vfo.DTMF_PTT_ID_TX_MODE = payload->dtmf_ptt_id_mode;
+    vfo.DTMF_PTT_ID_TX_MODE = payload->dtmf_ptt_id_mode <= PTT_ID_APOLLO ? payload->dtmf_ptt_id_mode : PTT_ID_OFF;
 #ifdef ENABLE_DTMF_CALLING
     vfo.DTMF_DECODING_ENABLE = payload->dtmf_decoding_enable;
 #endif
     vfo.STEP_SETTING = payload->step_setting < STEP_N_ELEM ? payload->step_setting : STEP_12_5kHz;
     vfo.StepFrequency = gStepFrequencyTable[vfo.STEP_SETTING];
     vfo.SCANLIST_PARTICIPATION = payload->scanlist;
-    vfo.Compander = payload->compander;
+    vfo.Compander = payload->compander <= 3 ? payload->compander : 0;
     
     memcpy(vfo.Name, payload->name, sizeof(vfo.Name));
     vfo.Name[sizeof(vfo.Name) - 1] = '\0';
