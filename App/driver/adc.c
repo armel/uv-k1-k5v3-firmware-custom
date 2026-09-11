@@ -14,6 +14,15 @@
  *     limitations under the License.
  */
 
+/* DEAD CODE / NOT BUILT: this file is not listed in App/CMakeLists.txt and is
+ * not compiled into any firmware preset. It targets the SARADC peripheral of
+ * the original DP32G030 chip via bsp/dp32g030/*.h headers that no longer
+ * exist in this repository, from before this fork moved to PY32F071-based
+ * hardware — it cannot even compile as-is. Kept only for historical
+ * reference; do not rely on the register shift/mask values below (see the
+ * comment on FW_R_SARADC_SMPL_SHIFT, which the code itself flags as
+ * possibly wrong against the DP32G030 TRM). */
+
 #include "ARMCM0.h"
 #include "adc.h"
 #include "bsp/dp32g030/irq.h"

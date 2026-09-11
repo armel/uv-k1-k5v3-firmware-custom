@@ -42,6 +42,13 @@
 #define SECTOR_SIZE 0x1000
 #define PAGE_SIZE 0x100
 
+/* Bounded wait for the DMA1 transfer-complete IRQ (sets TC_Flag) that follows
+ * SPI_ReadBuf/SPI_WriteBuf. There is no hardware watchdog in this firmware, so
+ * an unbounded wait here would freeze the radio forever if that interrupt is
+ * ever missed (bus glitch, mis-armed channel, SPI stall). A full SECTOR_SIZE
+ * transfer normally completes in a few ms; this generously overshoots that. */
+#define SPI_DMA_TIMEOUT 2000000u
+
 static uint32_t SectorCacheAddr = 0x1000000;
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY
 /* The restore-only RAM stub is copied over this cache immediately before it
@@ -184,8 +191,14 @@ static void SPI_ReadBuf(uint8_t *Buf, uint32_t Size)
     LL_SPI_Enable(SPIx);
     LL_SPI_EnableDMAReq_TX(SPIx);
 
-    while (!TC_Flag)
+    uint32_t timeout = SPI_DMA_TIMEOUT;
+    while (!TC_Flag && --timeout)
         ;
+    if (!TC_Flag) {
+        LL_DMA_DisableChannel(DMA1, CHANNEL_RD);
+        LL_DMA_DisableChannel(DMA1, CHANNEL_WR);
+        LL_SPI_Disable(SPIx);
+    }
 }
 
 static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
@@ -233,8 +246,14 @@ static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
     LL_SPI_Enable(SPIx);
     LL_SPI_EnableDMAReq_TX(SPIx);
 
-    while (!TC_Flag)
+    uint32_t timeout = SPI_DMA_TIMEOUT;
+    while (!TC_Flag && --timeout)
         ;
+    if (!TC_Flag) {
+        LL_DMA_DisableChannel(DMA1, CHANNEL_RD);
+        LL_DMA_DisableChannel(DMA1, CHANNEL_WR);
+        LL_SPI_Disable(SPIx);
+    }
 }
 
 static uint8_t SPI_WriteByte(uint8_t Value)

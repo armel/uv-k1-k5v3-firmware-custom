@@ -14,6 +14,10 @@
  *     limitations under the License.
  */
 
+/* DEAD CODE / NOT BUILT: interface for driver/adc.c, which is not part of
+ * this fork's build (see the note at the top of that file). Not included by
+ * any compiled source. Kept only for historical reference. */
+
 #ifndef DRIVER_ADC_H
 #define DRIVER_ADC_H
 

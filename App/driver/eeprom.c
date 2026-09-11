@@ -14,6 +14,14 @@
  *     limitations under the License.
  */
 
+/* DEAD CODE / NOT BUILT: this file is not listed in App/CMakeLists.txt and is
+ * not compiled into any firmware preset. It targets an external I2C EEPROM
+ * chip, from the original DP32G030-based hardware this fork no longer
+ * targets. The active implementation of the EEPROM_ReadBuffer/WriteBuffer
+ * interface declared in driver/eeprom.h is driver/eeprom_compat.c, which is
+ * backed by the SPI NOR flash driver (driver/py25q16.c) on this fork's
+ * PY32F071-based hardware. Kept only for historical reference. */
+
 #include <stddef.h>
 #include <string.h>
 

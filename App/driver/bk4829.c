@@ -1096,6 +1096,11 @@ void BK4819_PlaySingleTone(const unsigned int tone_Hz, const unsigned int delay,
     }
 
     BK4819_WriteRegister(BK4819_REG_70, 0x0000);
+    // Reset to 0 first (as other REG_30 writers do) so this always goes
+    // through a real 0->pattern transition and retriggers VCO calibration,
+    // even if the write-cache already holds 0xC1FE from a prior tone/DTMF
+    // call with nothing else touching REG_30 in between.
+    BK4819_WriteRegister(BK4819_REG_30, 0);
     BK4819_WriteRegister(BK4819_REG_30, 0xC1FE);
     BK4819_ExitTxMute();
 }
@@ -1308,6 +1313,9 @@ void BK4819_ExitDTMF_TX(bool bKeep)
     BK4819_SetAF(BK4819_AF_MUTE);
     BK4819_WriteRegister(BK4819_REG_70, 0x0000);
     BK4819_DisableDTMF();
+    // See BK4819_PlaySingleTone: reset to 0 first so this write can't be
+    // silently skipped by the REG_30 write-cache.
+    BK4819_WriteRegister(BK4819_REG_30, 0);
     BK4819_WriteRegister(BK4819_REG_30, 0xC1FE);
     if (!bKeep)
         BK4819_ExitTxMute();
