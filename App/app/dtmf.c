@@ -264,39 +264,45 @@ void DTMF_HandleRequest(void)
 
         sprintf(String, "%s%c%s", gEeprom.ANI_DTMF_ID, gEeprom.DTMF_SEPARATE_CODE, gEeprom.KILL_CODE);
 
-        Offset = gDTMF_RX_index - strlen(String);
+        // ANI_DTMF_ID/KILL_CODE can each be up to 7 chars, so String can be
+        // longer than the ">= 9" gate above allows for; without this check
+        // Offset underflows and CompareMessage reads out of bounds.
+        if (gDTMF_RX_index >= strlen(String))
+        {
+            Offset = gDTMF_RX_index - strlen(String);
 
-        if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), true))
-        {   // bugger
+            if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), true))
+            {   // bugger
 
-            if (gEeprom.PERMIT_REMOTE_KILL)
-            {
-                gSetting_KILLED = true;      // oooerr !
+                if (gEeprom.PERMIT_REMOTE_KILL)
+                {
+                    gSetting_KILLED = true;      // oooerr !
 
-                DTMF_clear_RX();
+                    DTMF_clear_RX();
 
-                SETTINGS_SaveSettings();
+                    SETTINGS_SaveSettings();
 
-                gDTMF_ReplyState = DTMF_REPLY_AB;
+                    gDTMF_ReplyState = DTMF_REPLY_AB;
 
-                #ifdef ENABLE_FMRADIO_EMBEDDED
-                    if (gFmRadioMode)
-                    {
-                        FM_TurnOff();
-                        GUI_SelectNextDisplay(DISPLAY_MAIN);
-                    }
-                #endif
+                    #ifdef ENABLE_FMRADIO_EMBEDDED
+                        if (gFmRadioMode)
+                        {
+                            FM_TurnOff();
+                            GUI_SelectNextDisplay(DISPLAY_MAIN);
+                        }
+                    #endif
+                }
+                else
+                {
+                    gDTMF_ReplyState = DTMF_REPLY_NONE;
+                }
+
+                gDTMF_CallState = DTMF_CALL_STATE_NONE;
+
+                gUpdateDisplay  = true;
+                gUpdateStatus   = true;
+                return;
             }
-            else
-            {
-                gDTMF_ReplyState = DTMF_REPLY_NONE;
-            }
-
-            gDTMF_CallState = DTMF_CALL_STATE_NONE;
-
-            gUpdateDisplay  = true;
-            gUpdateStatus   = true;
-            return;
         }
     }
 
@@ -305,23 +311,27 @@ void DTMF_HandleRequest(void)
 
         sprintf(String, "%s%c%s", gEeprom.ANI_DTMF_ID, gEeprom.DTMF_SEPARATE_CODE, gEeprom.REVIVE_CODE);
 
-        Offset = gDTMF_RX_index - strlen(String);
+        // see the KILL code comment above: String can be longer than 9 chars.
+        if (gDTMF_RX_index >= strlen(String))
+        {
+            Offset = gDTMF_RX_index - strlen(String);
 
-        if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), true))
-        {   // shit, we're back !
+            if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), true))
+            {   // shit, we're back !
 
-            gSetting_KILLED  = false;
+                gSetting_KILLED  = false;
 
-            DTMF_clear_RX();
+                DTMF_clear_RX();
 
-            SETTINGS_SaveSettings();
+                SETTINGS_SaveSettings();
 
-            gDTMF_ReplyState = DTMF_REPLY_AB;
-            gDTMF_CallState  = DTMF_CALL_STATE_NONE;
+                gDTMF_ReplyState = DTMF_REPLY_AB;
+                gDTMF_CallState  = DTMF_CALL_STATE_NONE;
 
-            gUpdateDisplay   = true;
-            gUpdateStatus    = true;
-            return;
+                gUpdateDisplay   = true;
+                gUpdateStatus    = true;
+                return;
+            }
         }
     }
 
@@ -353,13 +363,17 @@ void DTMF_HandleRequest(void)
 
         sprintf(String, "%s%c%s", gDTMF_String, gEeprom.DTMF_SEPARATE_CODE, "AAAAA");
 
-        Offset = gDTMF_RX_index - strlen(String);
+        // gDTMF_String can be up to 14 chars, so String can be well past 9.
+        if (gDTMF_RX_index >= strlen(String))
+        {
+            Offset = gDTMF_RX_index - strlen(String);
 
-        if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), false))
-        {   // we got a response
-            gDTMF_State    = DTMF_STATE_CALL_OUT_RSP;
-            DTMF_clear_RX();
-            gUpdateDisplay = true;
+            if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), false))
+            {   // we got a response
+                gDTMF_State    = DTMF_STATE_CALL_OUT_RSP;
+                DTMF_clear_RX();
+                gUpdateDisplay = true;
+            }
         }
     }
 
@@ -375,42 +389,47 @@ void DTMF_HandleRequest(void)
 
         sprintf(String, "%s%c", gEeprom.ANI_DTMF_ID, gEeprom.DTMF_SEPARATE_CODE);
 
-        Offset = gDTMF_RX_index - strlen(String) - 3;
+        // ANI_DTMF_ID can be up to 7 chars, so len(String)+3 can exceed the
+        // ">= 7" gate above; without this check Offset underflows.
+        if (gDTMF_RX_index >= strlen(String) + 3)
+        {
+            Offset = gDTMF_RX_index - strlen(String) - 3;
 
-        if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), true))
-        {   // it's for us !
+            if (CompareMessage(gDTMF_RX + Offset, String, strlen(String), true))
+            {   // it's for us !
 
-            gDTMF_CallState = DTMF_CALL_STATE_RECEIVED;
+                gDTMF_CallState = DTMF_CALL_STATE_RECEIVED;
 
-            memset(gDTMF_Callee, 0, sizeof(gDTMF_Callee));
-            memset(gDTMF_Caller, 0, sizeof(gDTMF_Caller));
-            memcpy(gDTMF_Callee, gDTMF_RX + Offset + 0, 3);
-            memcpy(gDTMF_Caller, gDTMF_RX + Offset + 4, 3);
+                memset(gDTMF_Callee, 0, sizeof(gDTMF_Callee));
+                memset(gDTMF_Caller, 0, sizeof(gDTMF_Caller));
+                memcpy(gDTMF_Callee, gDTMF_RX + Offset + 0, 3);
+                memcpy(gDTMF_Caller, gDTMF_RX + Offset + 4, 3);
 
-            DTMF_clear_RX();
+                DTMF_clear_RX();
 
-            gUpdateDisplay = true;
+                gUpdateDisplay = true;
 
-            switch (gEeprom.DTMF_DECODE_RESPONSE)
-            {
-                case DTMF_DEC_RESPONSE_BOTH:
-                    gDTMF_DecodeRingCountdown_500ms = DTMF_decode_ring_countdown_500ms;
-                    [[fallthrough]];
-                case DTMF_DEC_RESPONSE_REPLY:
-                    gDTMF_ReplyState = DTMF_REPLY_AAAAA;
-                    break;
-                case DTMF_DEC_RESPONSE_RING:
-                    gDTMF_DecodeRingCountdown_500ms = DTMF_decode_ring_countdown_500ms;
-                    break;
-                default:
-                case DTMF_DEC_RESPONSE_NONE:
-                    gDTMF_DecodeRingCountdown_500ms = 0;
+                switch (gEeprom.DTMF_DECODE_RESPONSE)
+                {
+                    case DTMF_DEC_RESPONSE_BOTH:
+                        gDTMF_DecodeRingCountdown_500ms = DTMF_decode_ring_countdown_500ms;
+                        [[fallthrough]];
+                    case DTMF_DEC_RESPONSE_REPLY:
+                        gDTMF_ReplyState = DTMF_REPLY_AAAAA;
+                        break;
+                    case DTMF_DEC_RESPONSE_RING:
+                        gDTMF_DecodeRingCountdown_500ms = DTMF_decode_ring_countdown_500ms;
+                        break;
+                    default:
+                    case DTMF_DEC_RESPONSE_NONE:
+                        gDTMF_DecodeRingCountdown_500ms = 0;
+                        gDTMF_ReplyState = DTMF_REPLY_NONE;
+                        break;
+                }
+
+                if (gDTMF_IsGroupCall)
                     gDTMF_ReplyState = DTMF_REPLY_NONE;
-                    break;
             }
-
-            if (gDTMF_IsGroupCall)
-                gDTMF_ReplyState = DTMF_REPLY_NONE;
         }
     }
 }

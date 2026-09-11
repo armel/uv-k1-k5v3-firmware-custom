@@ -96,7 +96,11 @@ void UI_DisplayAircopy(void)
                                        : gErrorsDuringAirCopy;
 
         if (gAircopyState == AIRCOPY_COMPLETE || gAircopyState == AIRCOPY_FAILED) {
-            sprintf(String, "%s %u/%u %s:%u",
+            // doneBlocks/totalBlocks can each reach 3 digits (AIRCOPY_ALL_BLOCKS),
+            // which together with a 2-digit error count can exceed String's 16
+            // bytes (e.g. "KO 556/556 ER:99" is 17 chars + NUL) and overflow the
+            // stack buffer; snprintf truncates instead of overrunning it.
+            snprintf(String, sizeof(String), "%s %u/%u %s:%u",
                     gAircopyState == AIRCOPY_COMPLETE ? "OK" : "KO",
                     doneBlocks, totalBlocks,
                     gAirCopyIsSendMode ? "RT" : "ER",
