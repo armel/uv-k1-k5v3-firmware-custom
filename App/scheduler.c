@@ -132,6 +132,10 @@ void SysTick_Handler(void)
 
     DECREMENT_AND_TRIGGER(gTailNoteEliminationCountdown_10ms, gFlagTailNoteEliminationComplete);
 
+#if !defined(ENABLE_FEAT_F4HWN) || defined(ENABLE_FEAT_F4HWN_RESCUE_OPS)
+    DECREMENT(gFlashLightButtonTimeout_10ms);
+#endif
+
 #ifdef ENABLE_VOICE
     DECREMENT_AND_TRIGGER(gCountdownToPlayNextVoice_10ms, gFlagPlayQueuedVoice);
 #endif

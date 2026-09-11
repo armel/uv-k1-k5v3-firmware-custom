@@ -117,6 +117,10 @@ extern const uint16_t        NOAA_countdown_10ms;
 extern const uint16_t        NOAA_countdown_2_10ms;
 extern const uint16_t        NOAA_countdown_3_10ms;
 
+#if !defined(ENABLE_FEAT_F4HWN) || defined(ENABLE_FEAT_F4HWN_RESCUE_OPS)
+    extern const uint8_t         flashlight_button_countdown_10ms;
+#endif
+
 extern const uint16_t        dual_watch_count_after_tx_10ms;
 extern const uint16_t        dual_watch_count_after_rx_10ms;
 extern const uint16_t        dual_watch_count_after_1_10ms;
@@ -415,7 +419,10 @@ extern bool                  g_CxCSS_TAIL_Found;
 // true means we are receiving signal
 extern bool                  g_SquelchLost;
 
-extern volatile uint16_t     gFlashLightBlinkCounter;
+#if !defined(ENABLE_FEAT_F4HWN) || defined(ENABLE_FEAT_F4HWN_RESCUE_OPS)
+    extern volatile uint16_t     gFlashLightBlinkCounter;
+    extern volatile uint8_t      gFlashLightButtonTimeout_10ms;
+#endif
 
 extern bool                  gFlagEndTransmission;
 extern uint16_t              gNextMrChannel;

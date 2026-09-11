@@ -85,6 +85,10 @@ const uint16_t    NOAA_countdown_10ms              =  5000 / 10;   // 5 seconds
 const uint16_t    NOAA_countdown_2_10ms            =   500 / 10;   // 500ms
 const uint16_t    NOAA_countdown_3_10ms            =   200 / 10;   // 200ms
 
+#if !defined(ENABLE_FEAT_F4HWN) || defined(ENABLE_FEAT_F4HWN_RESCUE_OPS)
+    const uint8_t     flashlight_button_countdown_10ms =  2500 / 10;   // 2.5 seconds
+#endif
+
 const uint32_t    gDefaultAesKey[4]                = {0x4AA5CC60, 0x0312CC5F, 0xFFD2DABB, 0x6BBA7F92};
 
 const uint8_t     gMicGain_dB2[9]                  = {3, 8, 16, 24, 32, 40, 48, 56, 63}; // BK4819 {3, 8, 16, 24, 31};
@@ -274,7 +278,10 @@ bool              g_CxCSS_TAIL_Found;
 #endif
 bool              g_SquelchLost;
 
-volatile uint16_t gFlashLightBlinkCounter;
+#if !defined(ENABLE_FEAT_F4HWN) || defined(ENABLE_FEAT_F4HWN_RESCUE_OPS)
+    volatile uint16_t gFlashLightBlinkCounter;
+    volatile uint8_t  gFlashLightButtonTimeout_10ms;
+#endif
 
 bool              gFlagEndTransmission;
 uint16_t          gNextMrChannel;
