@@ -44,15 +44,28 @@ fi
 # The build output is piped through tee below, so checking stdout later from
 # run_preset_build() would always report a non-terminal.
 INTERACTIVE=0
+TTY_ROWS=0
+TTY_COLS=0
 if [[ -t 1 ]]; then
   INTERACTIVE=1
+  # Capture the real terminal size now, while the terminal is reachable. Piping
+  # the build through tee stops Docker from propagating the size to the
+  # container PTY (it ends up 0x0), and with an unknown width Ninja cannot elide
+  # its [current/total] progress line: it overflows, wraps and scrolls instead
+  # of updating in place. We forward this size and re-apply it with stty inside
+  # the container (see run_preset_build). Read from /dev/tty so a redirected
+  # stdin/stdout does not hide it.
+  if _sz=$(stty size </dev/tty 2>/dev/null) && [[ "$_sz" =~ ^[0-9]+[[:space:]]+[0-9]+$ ]]; then
+    TTY_ROWS=${_sz%%[[:space:]]*}
+    TTY_COLS=${_sz##*[[:space:]]}
+  fi
 fi
 
 # ---------------------------------------------
 # Build the Docker image (only needed once)
 # ---------------------------------------------
 if [[ "$(docker images -q "$IMAGE")" == "" ]]; then
-  echo "Building Docker image..."
+  echo "🐳 Building Docker image..."
   docker build -q -t "$IMAGE" . >/dev/null
 fi
 export MSYS_NO_PATHCONV=1
@@ -64,20 +77,46 @@ RESULT_RAM_SIZES=()
 run_preset_build() {
   local preset="$1"
   local docker_tty_arg=""
+  local docker_term_env=()
+  local docker_user_arg=()
+  local stty_prefix=""
 
   # Give Ninja a pseudo-terminal for an interactive single-preset build. This
   # lets it refresh its [current/total] progress on one line. Batch/redirected
   # builds keep plain line-oriented output suitable for logs and CI.
   if (( INTERACTIVE && ! QUIET )); then
     docker_tty_arg="-t"
+    # Ninja only draws its single-line [current/total] progress when TERM is
+    # set and not "dumb". `docker run -t` allocates a PTY but does not reliably
+    # export TERM when stdout is piped (here, into tee), so Ninja falls back to
+    # printing every progress line (the scrolling behaviour). Force a sane value.
+    docker_term_env=(-e "TERM=${TERM:-xterm-256color}")
+    # Piping the build through tee leaves the container PTY sized 0x0, so Ninja
+    # cannot elide its progress line and it wraps/scrolls. Re-apply the real
+    # terminal size (captured at start-up) with stty before building, so Ninja
+    # elides to the actual width and updates a single line in place.
+    if (( TTY_COLS > 0 && TTY_ROWS > 0 )); then
+      stty_prefix="stty rows ${TTY_ROWS} cols ${TTY_COLS} 2>/dev/null || true; "
+    fi
   fi
+
+  # --user is only needed on native Linux Docker, where it keeps build
+  # artefacts owned by the host user instead of root. Docker Desktop (macOS,
+  # Windows) already remaps bind-mount ownership to the host user, so --user is
+  # redundant there -- and worse, combined with an allocated TTY (-t) it stops
+  # the container process from seeing a pseudo-terminal, forcing Ninja back into
+  # scrolling line output. So drop it everywhere except native Linux.
+  case "$(uname -s)" in
+    Linux) docker_user_arg=(-u "$(id -u):$(id -g)") ;;
+  esac
 
   # The ${var:+...} and ${array[@]+...} forms avoid expanding an empty array,
   # which Bash 3.2 treats as an unbound variable when nounset is enabled.
   docker run --rm ${docker_tty_arg:+"$docker_tty_arg"} \
-    -u "$(id -u):$(id -g)" \
+    ${docker_term_env[@]+"${docker_term_env[@]}"} \
+    ${docker_user_arg[@]+"${docker_user_arg[@]}"} \
     -v "$PWD":/src -w /src "$IMAGE" \
-    bash -c 'which arm-none-eabi-gcc && arm-none-eabi-gcc --version &&
+    bash -c "${stty_prefix}"'which arm-none-eabi-gcc && arm-none-eabi-gcc --version &&
              cmake --fresh --preset "$1" "${@:2}" &&
              cmake --build --preset "$1" -j' \
     bash "$preset" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
@@ -95,7 +134,7 @@ build_preset() {
   find "build/${preset}" -maxdepth 1 -type f -name 'f4hwn.*' -delete 2>/dev/null || true
 
   if (( QUIET )); then
-    printf "Building %-10s ... " "$preset"
+    printf "🔨 Building %-10s ... " "$preset"
     if run_preset_build "$preset" >"$log_file" 2>&1; then
       status=0
     else
@@ -129,10 +168,10 @@ build_preset() {
 
   if (( status != 0 )); then
     if (( QUIET )); then
-      printf "FAILED\n\n"
+      printf "❌ FAILED\n\n"
       cat "$log_file"
     else
-      echo "Failed: ${preset}"
+      echo "❌ Failed: ${preset}"
     fi
     rm -f -- "$log_file"
     return "$status"
@@ -141,9 +180,9 @@ build_preset() {
   bin_file="build/${preset}/f4hwn.${preset_slug}.bin"
   if [[ -z "$bin_file" || ! -f "$bin_file" ]]; then
     if (( QUIET )); then
-      printf "FAILED\n"
+      printf "❌ FAILED\n"
     fi
-    echo "Expected binary not found: $bin_file"
+    echo "❌ Expected binary not found: $bin_file"
     if (( QUIET )); then
       cat "$log_file"
     fi
@@ -161,9 +200,9 @@ build_preset() {
 
   if [[ ! "$ram_size" =~ ^[0-9]+$ ]]; then
     if (( QUIET )); then
-      printf "FAILED\n"
+      printf "❌ FAILED\n"
     fi
-    echo "Could not read RAM usage from linker output"
+    echo "❌ Could not read RAM usage from linker output"
     if (( QUIET )); then
       cat "$log_file"
     fi
@@ -176,7 +215,7 @@ build_preset() {
   RESULT_RAM_SIZES+=("$ram_size")
 
   if (( QUIET )); then
-    printf "OK\n"
+    printf "✅ OK\n"
   else
     echo "✅ Done: ${preset}"
   fi
@@ -191,7 +230,7 @@ print_summary() {
   local ram_used_kib100 ram_free_kib100 ram_used_kib ram_free_kib
 
   echo ""
-  printf "Flash (limit: %d B / %d.00 KiB)\n" "$FLASH_LIMIT" "$((FLASH_LIMIT / 1024))"
+  printf "💾 Flash (limit: %d B / %d.00 KiB)\n" "$FLASH_LIMIT" "$((FLASH_LIMIT / 1024))"
   printf "%-10s | %10s | %10s | %10s | %10s | %7s\n" \
     "Preset" "Used (B)" "Used (KiB)" "Free (B)" "Free (KiB)" "Usage"
   printf "%-10s-+-%10s-+-%10s-+-%10s-+-%10s-+-%7s\n" \
@@ -213,7 +252,7 @@ print_summary() {
   done
 
   echo ""
-  printf "RAM (limit: %d B / %d.00 KiB)\n" "$RAM_LIMIT" "$((RAM_LIMIT / 1024))"
+  printf "🧠 RAM (limit: %d B / %d.00 KiB)\n" "$RAM_LIMIT" "$((RAM_LIMIT / 1024))"
   printf "%-10s | %10s | %10s | %10s | %10s | %7s\n" \
     "Preset" "Used (B)" "Used (KiB)" "Free (B)" "Free (KiB)" "Usage"
   printf "%-10s-+-%10s-+-%10s-+-%10s-+-%10s-+-%7s\n" \
