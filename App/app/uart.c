@@ -47,6 +47,9 @@
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     #include "driver/mb_flash.h"
+    #ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+        #include "driver/py25q16.h"
+    #endif
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
@@ -1033,6 +1036,139 @@ void UART_HandleCommand(uint32_t Port)
             SendReply(Port, &Reply, sizeof(Reply));
             break;
         }
+
+#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+        // ---- full external-flash dump / restore (host: UV Studio) ----------
+        // Raw access by physical address, bypassing the config-bank mapping;
+        // all three commands are timestamp-authenticated like the slot ops.
+        // Restore flow: erase each unprotected 4 KiB sector (0x073A), then
+        // program it in chunks (0x073C). The calibration sector is rejected.
+        case 0x0738: // read raw external flash by physical address (full-chip dump)
+        {
+            if (pUART_Command->Header.Size != 10u) break; // addr(4) + len(2) + timestamp(4)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint32_t addr = (uint32_t)pUART_Command->Data[0]
+                          | ((uint32_t)pUART_Command->Data[1] << 8)
+                          | ((uint32_t)pUART_Command->Data[2] << 16)
+                          | ((uint32_t)pUART_Command->Data[3] << 24);
+            uint16_t len  = (uint16_t)(pUART_Command->Data[4]
+                          | ((uint16_t)pUART_Command->Data[5] << 8));
+            uint32_t ts   = (uint32_t)pUART_Command->Data[6]
+                          | ((uint32_t)pUART_Command->Data[7] << 8)
+                          | ((uint32_t)pUART_Command->Data[8] << 16)
+                          | ((uint32_t)pUART_Command->Data[9] << 24);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Address;   // echoes the requested physical address
+                uint16_t Size;      // bytes returned (0 on error)
+                uint8_t  Status;    // MB_OK or an MB_ERR_* code
+                uint8_t  Data[PY25Q16_RAW_CHUNK_SIZE]; // capped to fit MAX_REPLY_SIZE
+            } Reply;
+            memset(&Reply, 0, sizeof(Reply));
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (len == 0u || len > sizeof(Reply.Data))
+                status = MB_ERR_SIZE;
+            else if (addr > PY25Q16_TOTAL_SIZE || len > PY25Q16_TOTAL_SIZE - addr)
+                status = MB_ERR_SIZE;
+            else
+            {
+                PY25Q16_ReadBufferPhysical(addr, Reply.Data, len);
+                status = MB_OK;
+            }
+            Reply.Header.ID   = 0x0739;
+            Reply.Address     = addr;
+            Reply.Size        = (status == MB_OK) ? len : 0;
+            Reply.Status      = status;
+            Reply.Header.Size = 7 + Reply.Size;          // Address(4)+Size(2)+Status(1)+Data
+            SendReply(Port, &Reply, 11 + Reply.Size);    // + Header(4)
+            break;
+        }
+
+        case 0x073A: // erase one 4 KiB external-flash sector by physical address
+        {
+            if (pUART_Command->Header.Size != 8u) break; // addr(4) + timestamp(4)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint32_t addr = (uint32_t)pUART_Command->Data[0]
+                          | ((uint32_t)pUART_Command->Data[1] << 8)
+                          | ((uint32_t)pUART_Command->Data[2] << 16)
+                          | ((uint32_t)pUART_Command->Data[3] << 24);
+            uint32_t ts   = (uint32_t)pUART_Command->Data[4]
+                          | ((uint32_t)pUART_Command->Data[5] << 8)
+                          | ((uint32_t)pUART_Command->Data[6] << 16)
+                          | ((uint32_t)pUART_Command->Data[7] << 24);
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (addr >= PY25Q16_TOTAL_SIZE ||
+                     (addr % PY25Q16_SECTOR_SIZE) != 0u)
+                status = MB_ERR_SIZE;
+            else if (addr == PY25Q16_CALIBRATION_SECTOR_BASE)
+                status = MB_ERR_PROTECTED; // device-specific data is never restorable
+            else
+            {
+                PY25Q16_SectorErasePhysical(addr);
+                status = MB_OK;
+            }
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Address;   // echoes the requested physical address
+                uint8_t  Status;    // MB_OK or an MB_ERR_* code
+            } Reply;
+            Reply.Header.ID   = 0x073B;
+            Reply.Address     = addr;
+            Reply.Status      = status;
+            Reply.Header.Size = 5;                 // Address(4)+Status(1)
+            SendReply(Port, &Reply, 9);            // + Header(4)
+            break;
+        }
+
+        case 0x073C: // program bytes into external flash by physical address (sector pre-erased)
+        {
+            if (pUART_Command->Header.Size < 10u) break;  // fixed fields + data
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint32_t addr = (uint32_t)pUART_Command->Data[0]
+                          | ((uint32_t)pUART_Command->Data[1] << 8)
+                          | ((uint32_t)pUART_Command->Data[2] << 16)
+                          | ((uint32_t)pUART_Command->Data[3] << 24);
+            uint16_t len  = (uint16_t)(pUART_Command->Data[4]
+                          | ((uint16_t)pUART_Command->Data[5] << 8));
+            uint32_t ts   = (uint32_t)pUART_Command->Data[6]
+                          | ((uint32_t)pUART_Command->Data[7] << 8)
+                          | ((uint32_t)pUART_Command->Data[8] << 16)
+                          | ((uint32_t)pUART_Command->Data[9] << 24);
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (len == 0u || len > PY25Q16_RAW_CHUNK_SIZE ||
+                     len != pUART_Command->Header.Size - 10u)
+                status = MB_ERR_SIZE;
+            else if (addr > PY25Q16_TOTAL_SIZE || len > PY25Q16_TOTAL_SIZE - addr)
+                status = MB_ERR_SIZE;
+            else if (addr < PY25Q16_CALIBRATION_SECTOR_BASE + PY25Q16_SECTOR_SIZE &&
+                     addr + len > PY25Q16_CALIBRATION_SECTOR_BASE)
+                status = MB_ERR_PROTECTED; // device-specific data is never restorable
+            else
+            {
+                PY25Q16_WriteBufferPhysical(addr, &pUART_Command->Data[10], len);
+                status = MB_OK;
+            }
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Address;   // echoes the requested physical address
+                uint16_t Size;      // bytes written (0 on error)
+                uint8_t  Status;    // MB_OK or an MB_ERR_* code
+            } Reply;
+            Reply.Header.ID   = 0x073D;
+            Reply.Address     = addr;
+            Reply.Size        = (status == MB_OK) ? len : 0;
+            Reply.Status      = status;
+            Reply.Header.Size = 7;                 // Address(4)+Size(2)+Status(1)
+            SendReply(Port, &Reply, 11);           // + Header(4)
+            break;
+        }
+#endif // ENABLE_FEAT_F4HWN_EXT_FLASH_RW
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS

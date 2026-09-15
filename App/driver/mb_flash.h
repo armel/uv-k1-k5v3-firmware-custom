@@ -81,7 +81,8 @@ enum {
     MB_ERR_SPI,          /* external flash read/write timed out*/
     MB_ERR_SLOT,         /* slot or bank index out of range   */
     MB_ERR_AUTH,         /* write refused: timestamp mismatch */
-    MB_ERR_RAM_LOAD      /* restore stub RAM copy mismatch    */
+    MB_ERR_RAM_LOAD,     /* restore stub RAM copy mismatch    */
+    MB_ERR_PROTECTED     /* write overlaps protected data     */
 };
 
 /* CRC-32 (zlib) over a resident memory buffer.  Multiboot and overlay apps

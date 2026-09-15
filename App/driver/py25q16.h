@@ -26,6 +26,36 @@ void PY25Q16_ReadBufferSafe(uint32_t Address, void *pBuffer, uint32_t Size);
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, bool Append);
 void PY25Q16_SectorErase(uint32_t Address);
 
+#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+/* Full external-flash access by TRUE physical address, bypassing the active
+ * config-bank mapping (BankMap) and the sector cache. Backs the host
+ * dump/restore UART commands (uart.c: 0x0738 read, 0x073A sector erase,
+ * 0x073C write), so the whole 2 MiB image can be captured and every
+ * non-calibration sector can be rewritten regardless of which config bank is
+ * currently selected. The UART layer protects calibration mutations. */
+
+/* Total capacity of the external SPI flash (2 MiB). */
+#define PY25Q16_TOTAL_SIZE  0x00200000u
+
+/* Physical erase granularity exposed by the raw host protocol. */
+#define PY25Q16_SECTOR_SIZE 0x00001000u
+
+/* Device-specific calibration occupies the start of this protected sector. */
+#define PY25Q16_CALIBRATION_SECTOR_BASE 0x00010000u
+
+/* Largest raw transfer accepted by one host command. */
+#define PY25Q16_RAW_CHUNK_SIZE 128u
+
+/* Raw read: waits for WIP=0, then reads by physical address. */
+void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size);
+
+/* Raw 4 KiB sector erase; Address must already be sector-aligned. */
+void PY25Q16_SectorErasePhysical(uint32_t Address);
+
+/* Raw page-program by physical address; the sector must already be erased. */
+void PY25Q16_WriteBufferPhysical(uint32_t Address, const void *pBuffer, uint32_t Size);
+#endif
+
 /* Drop the internal single-sector write cache. Call after erasing/programming
  * flash behind the driver's back (e.g. the raw multiboot slot/bank ops) so a
  * later write cannot skip or resurrect data based on a stale cached sector. It

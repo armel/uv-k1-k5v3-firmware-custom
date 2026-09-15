@@ -297,6 +297,32 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
     ReadBufferRaw(BankMap(Address), pBuffer, Size);
 }
 
+#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+// Raw physical read/erase/program, bypassing the active config-bank mapping
+// (BankMap) and the sector cache. These back the host dump/restore UART
+// commands. Every mutation drops the sector cache so the normal (logical,
+// cached) write path can never trust stale data afterwards.
+
+void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size)
+{
+    WaitWIP();
+    ReadBufferRaw(Address, pBuffer, Size);
+}
+
+void PY25Q16_SectorErasePhysical(uint32_t Address)
+{
+    SectorErase(Address);                 // caller supplies a 4 KiB-aligned address
+    PY25Q16_InvalidateCache();
+}
+
+void PY25Q16_WriteBufferPhysical(uint32_t Address, const void *pBuffer, uint32_t Size)
+{
+    // Program across page boundaries; the caller must have erased the sector(s).
+    SectorProgram(Address, (const uint8_t *)pBuffer, Size);
+    PY25Q16_InvalidateCache();
+}
+#endif
+
 // Like PY25Q16_ReadBuffer, but waits for the flash to be idle first (WIP=0),
 // exactly as PY25Q16_WriteBuffer does before its internal reads. A standalone
 // read issued while the chip is still busy from a prior program/erase never

@@ -146,6 +146,7 @@
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
                 "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
+                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": false,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
@@ -185,6 +186,7 @@
                 "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
                 "ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO": false,
                 "ENABLE_FEAT_F4HWN_OVERLAY_BEAM": true,
+                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "EDITION_STRING": "Labs",
                 "TARGET": "f4hwn.labs"
             }
