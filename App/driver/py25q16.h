@@ -30,7 +30,7 @@ void PY25Q16_SectorErase(uint32_t Address);
 /* Full external-flash access by TRUE physical address, bypassing the active
  * config-bank mapping (BankMap) and the sector cache. Backs the host
  * dump/restore UART commands (uart.c: 0x0738 read, 0x073A sector erase,
- * 0x073C write), so the whole 2 MiB image can be captured and every
+ * 0x073C write, 0x073E CRC32), so the whole 2 MiB image can be captured and every
  * non-calibration sector can be rewritten regardless of which config bank is
  * currently selected. The UART layer protects calibration mutations. */
 

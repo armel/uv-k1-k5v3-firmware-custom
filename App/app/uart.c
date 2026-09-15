@@ -1040,7 +1040,7 @@ void UART_HandleCommand(uint32_t Port)
 #ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
         // ---- full external-flash dump / restore (host: UV Studio) ----------
         // Raw access by physical address, bypassing the config-bank mapping;
-        // all three commands are timestamp-authenticated like the slot ops.
+        // all four commands are timestamp-authenticated like the slot ops.
         // Restore flow: erase each unprotected 4 KiB sector (0x073A), then
         // program it in chunks (0x073C). The calibration sector is rejected.
         case 0x0738: // read raw external flash by physical address (full-chip dump)
@@ -1166,6 +1166,47 @@ void UART_HandleCommand(uint32_t Port)
             Reply.Status      = status;
             Reply.Header.Size = 7;                 // Address(4)+Size(2)+Status(1)
             SendReply(Port, &Reply, 11);           // + Header(4)
+            break;
+        }
+
+        case 0x073E: // CRC-32 of a physical external-flash range
+        {
+            if (pUART_Command->Header.Size != 12u) break; // addr(4) + len(4) + timestamp(4)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint32_t addr = (uint32_t)pUART_Command->Data[0]
+                          | ((uint32_t)pUART_Command->Data[1] << 8)
+                          | ((uint32_t)pUART_Command->Data[2] << 16)
+                          | ((uint32_t)pUART_Command->Data[3] << 24);
+            uint32_t len  = (uint32_t)pUART_Command->Data[4]
+                          | ((uint32_t)pUART_Command->Data[5] << 8)
+                          | ((uint32_t)pUART_Command->Data[6] << 16)
+                          | ((uint32_t)pUART_Command->Data[7] << 24);
+            uint32_t ts   = (uint32_t)pUART_Command->Data[8]
+                          | ((uint32_t)pUART_Command->Data[9] << 8)
+                          | ((uint32_t)pUART_Command->Data[10] << 16)
+                          | ((uint32_t)pUART_Command->Data[11] << 24);
+            uint32_t crc = 0;
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (len == 0u || len > PY25Q16_SECTOR_SIZE)
+                status = MB_ERR_SIZE;
+            else
+                status = MB_ExternalFlashCrc32(addr, len, &crc);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Address;   // echoes the requested physical address
+                uint32_t Size;      // bytes covered by the CRC
+                uint32_t Crc32;     // zlib-compatible CRC-32
+                uint8_t  Status;    // MB_OK or an MB_ERR_* code
+            } Reply;
+            Reply.Header.ID   = 0x073F;
+            Reply.Address     = addr;
+            Reply.Size        = (status == MB_OK) ? len : 0;
+            Reply.Crc32       = (status == MB_OK) ? crc : 0;
+            Reply.Status      = status;
+            Reply.Header.Size = 13;                // Address(4)+Size(4)+CRC32(4)+Status(1)
+            SendReply(Port, &Reply, sizeof(Reply));
             break;
         }
 #endif // ENABLE_FEAT_F4HWN_EXT_FLASH_RW

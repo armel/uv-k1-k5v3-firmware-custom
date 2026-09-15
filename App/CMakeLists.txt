@@ -275,11 +275,11 @@ endif()
 
 # External-flash dump / restore over serial (host: UV Studio). Restore keeps the
 # device-specific calibration sector protected. Adds the
-# 0x0738 (read) / 0x073A (sector erase) / 0x073C (write) UART commands and the
-# PY25Q16 physical-address helpers they use.
+# 0x0738 (read) / 0x073A (sector erase) / 0x073C (write) / 0x073E (CRC32) UART
+# commands and the PY25Q16 physical-address helpers they use.
 enable_feature(ENABLE_FEAT_F4HWN_EXT_FLASH_RW)
 if(ENABLE_FEAT_F4HWN_EXT_FLASH_RW AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
-    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_EXT_FLASH_RW requires ENABLE_FEAT_F4HWN_MULTIBOOT (the 0x0738/0x073A/0x073C UART commands live under multiboot).")
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_EXT_FLASH_RW requires ENABLE_FEAT_F4HWN_MULTIBOOT (the 0x0738/0x073A/0x073C/0x073E UART commands live under multiboot).")
 endif()
 
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)

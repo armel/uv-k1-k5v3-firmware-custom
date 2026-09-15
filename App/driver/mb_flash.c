@@ -507,6 +507,23 @@ static uint32_t mb_ext_image_crc32(uint32_t addr, uint32_t len)
     return crc ^ 0xFFFFFFFFu;
 }
 
+#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+uint8_t MB_ExternalFlashCrc32(uint32_t address, uint32_t length, uint32_t *out_crc)
+{
+    if (out_crc == NULL || length == 0u ||
+        address > PY25Q16_TOTAL_SIZE || length > PY25Q16_TOTAL_SIZE - address)
+        return MB_ERR_SIZE;
+
+    mb_spi_err = 0;
+    const uint32_t crc = mb_ext_image_crc32(address, length);
+    if (mb_spi_err)
+        return MB_ERR_SPI;
+
+    *out_crc = crc;
+    return MB_OK;
+}
+#endif
+
 /* Polled read of `len` bytes from external flash into `buf` (no DMA), matching
  * the technique the RAM copier uses. Sets mb_spi_err on a stuck SPI. */
 static void mb_ext_read(uint32_t addr, uint8_t *buf, uint32_t len)

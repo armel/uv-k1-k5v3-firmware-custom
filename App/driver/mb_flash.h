@@ -90,6 +90,11 @@ enum {
  * bitwise CRC loops in the MCU flash. */
 uint32_t MB_Crc32Bytes(const uint8_t *data, uint32_t len);
 
+#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+/* CRC-32 (zlib) over a physical external-flash range. */
+uint8_t MB_ExternalFlashCrc32(uint32_t address, uint32_t length, uint32_t *out_crc);
+#endif
+
 /* Multi-slot API used by the boot selector. Validation always covers the full
  * image CRC before restore. progress_line may point to a 128-byte LCD page; the
  * RAM copier then fills it while reflashing. Pass NULL to disable LCD updates.
