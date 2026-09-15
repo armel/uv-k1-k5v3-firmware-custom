@@ -38,6 +38,9 @@
 #include "k5viewer.h"
 #endif
 #include "app/app.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+#include "app/rxtx_log.h"
+#endif
 #include "ui/helper.h"
 #include "ui/main.h"
 #include "ui/status.h"
@@ -1105,6 +1108,13 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     if (h.link_vma != (uint32_t)ws)
         return APP_ERR_VMA;
 
+    /* Flush and suspend RF logging before the sector cache becomes executable
+     * app code. Both a pending RX and an app-owned TX could otherwise write a
+     * log entry through the same 4 KiB buffer and overwrite the running app. */
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_Suspend();
+#endif
+
     /* Repurpose the sector cache: drop any cached config sector, load the code
      * straight in (ReadBuffer bypasses the cache), and verify it in RAM before
      * trusting it. Zeroing first leaves the app's .bss clean. */
@@ -1114,6 +1124,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 
     if (MB_Crc32Bytes(ws, h.code_size) != h.code_crc32) {
         PY25Q16_InvalidateCache();
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+        RXTX_LOG_Resume();
+#endif
         return APP_ERR_CRC;
     }
 
@@ -1210,6 +1223,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
         SETTINGS_SaveFM();
         PY25Q16_InvalidateCache();
     }
+#endif
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_Resume();
 #endif
     return APP_OK;
 }

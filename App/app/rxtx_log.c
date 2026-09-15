@@ -131,6 +131,7 @@ static uint16_t        gSessionChannel;
 static uint16_t        gSessionTicks500ms;
 static uint8_t         gSessionSMeter;
 static uint8_t         gSessionBattVolt;
+static bool            gSuspended;
 
 static uint16_t        gLogCursor;
 static uint8_t         gLogFilter;
@@ -922,7 +923,7 @@ uint32_t RXTX_LOG_SendK5ViewerHistoryPage(uint32_t beforeSeq, void (*send)(const
 
 static void RXTX_LOG_CaptureSession(uint8_t flags, const VFO_Info_t *vfo)
 {
-    if (!RXTX_LOG_IsEnabled() || vfo == NULL || gClearActive)
+    if (gSuspended || !RXTX_LOG_IsEnabled() || vfo == NULL || gClearActive)
         return;
 
     const uint32_t frequency = (flags & RXTX_LOG_FLAG_TX) ? vfo->pTX->Frequency : vfo->pRX->Frequency;
@@ -961,6 +962,7 @@ void RXTX_LOG_Init(void)
     gLogCursor        = 0;
     gLogFilter        = RXTX_LOG_FILTER_ALL;
     gSessionActive    = false;
+    gSuspended        = false;
     gSessionSMeter    = RXTX_LOG_SMETER_UNKNOWN;
     gSessionBattVolt  = RXTX_LOG_BATT_UNKNOWN;
     gClearActive        = false;
@@ -1058,6 +1060,17 @@ void RXTX_LOG_EndActive(void)
     RXTX_LOG_InvalidateViewCache();
 
     RXTX_LOG_ResetActiveSession();
+}
+
+void RXTX_LOG_Suspend(void)
+{
+    RXTX_LOG_EndActive();
+    gSuspended = true;
+}
+
+void RXTX_LOG_Resume(void)
+{
+    gSuspended = false;
 }
 
 void RXTX_LOG_Tick500ms(void)
