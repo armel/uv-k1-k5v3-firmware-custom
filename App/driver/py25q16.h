@@ -26,6 +26,11 @@ void PY25Q16_ReadBufferSafe(uint32_t Address, void *pBuffer, uint32_t Size);
 void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, bool Append);
 void PY25Q16_SectorErase(uint32_t Address);
 
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_FEAT_F4HWN_MULTIBOOT)
+/* Raw read by physical address, bypassing the active config-bank mapping. */
+void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size);
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
 /* Full external-flash access by TRUE physical address, bypassing the active
  * config-bank mapping (BankMap) and the sector cache. Backs the host
@@ -45,9 +50,6 @@ void PY25Q16_SectorErase(uint32_t Address);
 
 /* Largest raw transfer accepted by one host command. */
 #define PY25Q16_RAW_CHUNK_SIZE 128u
-
-/* Raw read: waits for WIP=0, then reads by physical address. */
-void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size);
 
 /* Raw 4 KiB sector erase; Address must already be sector-aligned. */
 void PY25Q16_SectorErasePhysical(uint32_t Address);

@@ -297,18 +297,19 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
     ReadBufferRaw(BankMap(Address), pBuffer, Size);
 }
 
-#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
-// Raw physical read/erase/program, bypassing the active config-bank mapping
-// (BankMap) and the sector cache. These back the host dump/restore UART
-// commands. Every mutation drops the sector cache so the normal (logical,
-// cached) write path can never trust stale data afterwards.
-
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_FEAT_F4HWN_MULTIBOOT)
+// Raw physical read bypassing the active config-bank mapping (BankMap).
 void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size)
 {
     WaitWIP();
     ReadBufferRaw(Address, pBuffer, Size);
 }
+#endif
 
+#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+// Raw physical erase/program backing the host dump/restore UART commands.
+// Every mutation drops the sector cache so the normal logical write path can
+// never trust stale data afterwards.
 void PY25Q16_SectorErasePhysical(uint32_t Address)
 {
     SectorErase(Address);                 // caller supplies a 4 KiB-aligned address

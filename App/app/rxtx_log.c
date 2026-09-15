@@ -14,6 +14,9 @@
 #include "app/rxtx_log.h"
 #include "audio.h"
 #include "driver/bk4819.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+#include "driver/mb_flash.h"
+#endif
 #include "driver/py25q16.h"
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
@@ -22,6 +25,9 @@
 #include "settings.h"
 #include "ui/helper.h"
 #include "ui/menu.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+#include "ui/multiboot.h"
+#endif
 #include "ui/ui.h"
 
 #define RXTX_LOG_FLASH_BASE          0x1E0000u
@@ -40,6 +46,8 @@
 // (1u << 1) was FLAG_NAMED, retired: names are resolved from the channel.
 #define RXTX_LOG_FLAG_MONITOR        (1u << 2)
 #define RXTX_LOG_FLAG_SESSION        (1u << 3)
+// Bits 5..7 store config bank + 1; zero identifies legacy untagged rows.
+#define RXTX_LOG_CONFIG_BANK_SHIFT   5u
 #define RXTX_LOG_FILTER_ALL          0u
 #define RXTX_LOG_FILTER_RX           1u
 #define RXTX_LOG_FILTER_TX           2u
@@ -198,6 +206,34 @@ static bool RXTX_LOG_IsTx(const RXTX_LogEntry_t *entry)
 static bool RXTX_LOG_IsSessionMarker(const RXTX_LogEntry_t *entry)
 {
     return (entry->flags & RXTX_LOG_FLAG_SESSION) != 0;
+}
+
+static void RXTX_LOG_FetchChannelName(char *name, uint16_t channel, uint8_t flags)
+{
+    name[0] = 0;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    const uint8_t storedBank = flags >> RXTX_LOG_CONFIG_BANK_SHIFT;
+    if (storedBank != 0) {
+        const uint8_t bank = storedBank - 1u;
+        if (bank >= MB_BANK_COUNT || !IS_MR_CHANNEL(channel))
+            return;
+
+        PY25Q16_ReadBufferPhysical(MB_BankBase(bank) + 0x004000u + (uint32_t)channel * 16u,
+                                   name, 10u);
+        uint8_t i;
+        for (i = 0; i < 10u && name[i] >= 32 && name[i] <= 127; i++)
+            ;
+        while (i > 0 && name[i - 1u] == ' ')
+            i--;
+        name[i] = 0;
+        return;
+    }
+#else
+    (void)flags;
+#endif
+
+    SETTINGS_FetchChannelName(name, channel);
 }
 
 static bool RXTX_LOG_IsTrafficFlags(uint8_t flags)
@@ -790,7 +826,9 @@ uint32_t RXTX_LOG_K5ViewerSignature(void)
     return hash;
 }
 
-static void RXTX_LOG_SetK5ViewerChannelName(RXTX_LogK5ViewerRow_t *row, uint16_t channel)
+static void RXTX_LOG_SetK5ViewerChannelName(RXTX_LogK5ViewerRow_t *row,
+                                             uint16_t channel,
+                                             uint8_t flags)
 {
     memset(row->channelName, 0, sizeof(row->channelName));
 
@@ -798,7 +836,7 @@ static void RXTX_LOG_SetK5ViewerChannelName(RXTX_LogK5ViewerRow_t *row, uint16_t
         return;
 
     char name[RXTX_LOG_K5VIEWER_NAME_LENGTH + 1u];
-    SETTINGS_FetchChannelName(name, channel);
+    RXTX_LOG_FetchChannelName(name, channel, flags);
     for (uint8_t i = 0; i < RXTX_LOG_K5VIEWER_NAME_LENGTH && name[i] != 0; i++)
         row->channelName[i] = name[i];
 }
@@ -812,7 +850,7 @@ static void RXTX_LOG_CopyK5ViewerRow(RXTX_LogK5ViewerRow_t *dst, const RXTX_LogF
     dst->flags           = src->flags;
     dst->meter           = src->sMeter;
     dst->battVolt        = src->battVolt;
-    RXTX_LOG_SetK5ViewerChannelName(dst, src->channel);
+    RXTX_LOG_SetK5ViewerChannelName(dst, src->channel, src->flags);
 }
 
 // Send up to `count` rows whose flash sequence is below `beforeSeq`, newest
@@ -903,7 +941,7 @@ void RXTX_LOG_SendK5ViewerPacket(void (*send)(const uint8_t *data, uint16_t size
     row.flags           = gSessionFlags;
     row.meter           = gSessionSMeter;
     row.battVolt        = gSessionBattVolt;
-    RXTX_LOG_SetK5ViewerChannelName(&row, gSessionChannel);
+    RXTX_LOG_SetK5ViewerChannelName(&row, gSessionChannel, gSessionFlags);
     send((const uint8_t *)&row, sizeof(row));
     RXTX_LOG_SendK5ViewerRows(gNextSequence, RXTX_LOG_K5VIEWER_ROW_COUNT, send);
 }
@@ -1049,6 +1087,9 @@ void RXTX_LOG_EndActive(void)
     entry.durationSeconds = (gSessionTicks500ms + 1u) / 2u;
     entry.channel         = gSessionChannel;
     entry.flags           = gSessionFlags;
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    entry.flags          |= (uint8_t)((MB_GetActiveBank() + 1u) << RXTX_LOG_CONFIG_BANK_SHIFT);
+#endif
     entry.sMeter          = gSessionSMeter;
     entry.battVolt        = gSessionBattVolt;
 
@@ -1260,7 +1301,7 @@ static void RXTX_LOG_FormatTitle(const RXTX_LogEntry_t *entry, char *buffer)
     buffer[0] = 0;
 
     if (entry->channel != RXTX_LOG_CHANNEL_NONE)
-        SETTINGS_FetchChannelName(buffer, entry->channel);
+        RXTX_LOG_FetchChannelName(buffer, entry->channel, entry->flags);
 
     if (buffer[0] == 0)
         RXTX_LOG_FormatFrequency(entry->frequency, buffer);
