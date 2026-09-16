@@ -112,13 +112,13 @@ static const uint8_t BITMAP_QR_GitHub_Wiki_Compressed[137] = {
 // Linker symbols (provided by the linker script)
 extern uint8_t _sdata;          // Start of .data in RAM
 extern uint8_t _edata;          // End of .data in RAM
-extern uint8_t _sbss;           // Start of .bss in RAM
+extern uint8_t _sbss;           // Start of zero-initialized RAM
 extern uint8_t _ebss;           // End of .bss in RAM
 
 // _eflash_used is defined by the linker at the end of the final section with a
 // FLASH load image. This is currently .mb_ramfunc (empty without the overlay),
-// after the load images for .data and .noncacheable. It therefore gives the
-// exact byte count that the linker reports as FLASH used.
+// after the load image for .data. The .noncacheable section is NOLOAD RAM. It
+// therefore gives the exact byte count that the linker reports as FLASH used.
 extern uint8_t _eflash_used;
 
 // Absolute symbols: their *address* IS the numeric size value (ARM/CMSIS convention).
@@ -148,7 +148,7 @@ static void build_usage(uint32_t* ram_used, uint32_t* flash_used)
     *ram_used = span(&_sdata, &_ebss) + heap_size + stack_size;
 
     // FLASH: _eflash_used follows the final FLASH load image (.mb_ramfunc,
-    // after the .data and .noncacheable load images).
+    // after the .data load image; .noncacheable is NOLOAD RAM).
     // Note: _etext is NOT usable here because this linker script places .rodata
     // sections AFTER _etext, making it an unreliable end-of-flash marker.
     *flash_used = span((void*)FLASH_BASE, &_eflash_used);

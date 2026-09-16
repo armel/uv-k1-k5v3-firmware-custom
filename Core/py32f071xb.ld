@@ -151,14 +151,17 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
   } >RAM AT> FLASH
 
-  /* Explicit placement of .noncacheable (CherryUSB) + end-of-FLASH symbol */
-  .noncacheable :
+  /* CherryUSB state is zero-initialized RAM. Keep it out of the FLASH load
+     image and include it in the range cleared by the startup BSS loop. */
+  .noncacheable (NOLOAD) :
   {
     . = ALIGN(4);
+    _sbss = .;
+    __bss_start__ = _sbss;
     *(.noncacheable)
     *(.noncacheable*)
     . = ALIGN(4);
-  } >RAM AT> FLASH
+  } >RAM
 
   /* Optional multiboot overlay. The restore stub is linked at the same RAM
      address as the 4 KiB PY25Q16 sector cache, but its load image remains in
@@ -172,7 +175,7 @@ SECTIONS
      loudly (raise the anchor) if a preset ever needs more. */
   ASSERT((ADDR(.noncacheable) + SIZEOF(.noncacheable)) <= (ORIGIN(RAM) + 0x280),
          "RAM before the overlay exceeds the fixed 0x280 anchor - raise MB_OVERLAY_VMA")
-  OVERLAY (ORIGIN(RAM) + 0x280) : NOCROSSREFS AT (LOADADDR(.noncacheable) + SIZEOF(.noncacheable))
+  OVERLAY (ORIGIN(RAM) + 0x280) : NOCROSSREFS AT (LOADADDR(.data) + SIZEOF(.data))
   {
     .mb_ramfunc
     {
@@ -213,17 +216,16 @@ SECTIONS
          (ORIGIN(FLASH) + LENGTH(FLASH)),
          "FLASH overflowed by multiboot RAM-stub load image")
 
-  /* .mb_ramfunc is the final section with a FLASH load image. The workspace
-     member is NOLOAD/BSS storage and therefore contributes RAM only. */
+  /* .mb_ramfunc is the final section with a FLASH load image. The
+     noncacheable and workspace sections are NOLOAD storage in RAM only. */
   _eflash_used = LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc);
   
   /* Uninitialized data section */
   . = ALIGN(4);
   .bss :
   {
-    /* This is used by the startup in order to initialize the .bss secion */
-    _sbss = .;         /* define a global symbol at bss start */
-    __bss_start__ = _sbss;
+    /* _sbss starts at .noncacheable so startup also clears the USB state,
+       overlay workspace and alignment gaps before reaching this section. */
     *(.bss)
     *(.bss*)
     *(COMMON)
