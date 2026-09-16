@@ -388,7 +388,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
         case MENU_F2LONG:
         case MENU_MLONG:
             //*pMin = 0;
-            *pMax = gSubMenu_SIDEFUNCTIONS_size-1;
+            *pMax = SIDEFUNCTION_COUNT - 1;
             break;
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
@@ -943,7 +943,7 @@ void MENU_AcceptSetting(void)
                     &gEeprom.KEY_2_SHORT_PRESS_ACTION,
                     &gEeprom.KEY_2_LONG_PRESS_ACTION,
                     &gEeprom.KEY_M_LONG_PRESS_ACTION};
-                *fun[UI_MENU_GetCurrentMenuId()-MENU_F1SHRT] = gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].id;
+                *fun[UI_MENU_GetCurrentMenuId()-MENU_F1SHRT] = gSubMenuSelection;
             }
             break;
 
@@ -1405,13 +1405,7 @@ void MENU_ShowCurrentSetting(void)
                 &gEeprom.KEY_M_LONG_PRESS_ACTION};
             uint8_t id = *fun[UI_MENU_GetCurrentMenuId()-MENU_F1SHRT];
 
-            for(int i = 0; i < gSubMenu_SIDEFUNCTIONS_size; i++) {
-                if(gSubMenu_SIDEFUNCTIONS[i].id==id) {
-                    gSubMenuSelection = i;
-                    break;
-                }
-
-            }
+            gSubMenuSelection = id < ACTION_OPT_LEN ? id : ACTION_OPT_NONE;
             break;
         }
 

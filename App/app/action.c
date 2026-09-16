@@ -400,9 +400,9 @@ bool ACTION_PickerProcessKey(KEY_Code_t key, bool isPressed, bool isHeld)
             if (isPressed && !isHeld) {
                 if (key == KEY_UP) {
                     if (--*selection == 0)
-                        *selection = gSubMenu_SIDEFUNCTIONS_size - 1;
+                        *selection = SIDEFUNCTION_COUNT - 1;
                 }
-                else if (++*selection >= gSubMenu_SIDEFUNCTIONS_size) {
+                else if (++*selection >= SIDEFUNCTION_COUNT) {
                     *selection = 1;
                 }
 
@@ -413,7 +413,7 @@ bool ACTION_PickerProcessKey(KEY_Code_t key, bool isPressed, bool isHeld)
 
         case KEY_MENU:
             if (!isPressed && !isHeld) {
-                const uint8_t action = gSubMenu_SIDEFUNCTIONS[*selection].id;
+                const uint8_t action = *selection;
                 gActionPickerKey = 0;
                 gUpdateDisplay = true;
                 ACTION_Execute(action);

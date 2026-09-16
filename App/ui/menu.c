@@ -471,36 +471,53 @@ const char* const gSubMenu_SCRAMBLER[] =
     #endif
 #endif
 
-const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
-{
-    {"NONE",            ACTION_OPT_NONE},
-    {"FLASH\nLIGHT",    ACTION_OPT_FLASHLIGHT},
-    {"POWER",           ACTION_OPT_POWER},
-    {"MONITOR",         ACTION_OPT_MONITOR},
-    {"SCAN",            ACTION_OPT_SCAN},
-    {"VOX",             ACTION_OPT_VOX},
-    {"FM RADIO",        ACTION_OPT_FM},
-    {"1750Hz",          ACTION_OPT_1750},
-    {"LOCK\nKEYPAD",    ACTION_OPT_KEYLOCK},
-    {"VFO A\nVFO B",    ACTION_OPT_A_B},
-    {"VFO\nMEM",        ACTION_OPT_VFO_MR},
-    {"MODE",            ACTION_OPT_SWITCH_DEMODUL},
-    {"RX MODE",         ACTION_OPT_RXMODE},
-    {"MAIN ONLY",       ACTION_OPT_MAINONLY},
-    {"PTT",             ACTION_OPT_PTT},
-    {"WIDE\nNARROW",    ACTION_OPT_WN},
-    {"MUTE",            ACTION_OPT_MUTE},
-    {"RxA",             ACTION_OPT_RXA},
-    {"RF LOG",          ACTION_OPT_RXTX_LOG},
-    {"BEAM",            ACTION_OPT_BEAM},
-    {"POWER\nHIGH",     ACTION_OPT_POWER_HIGH},
-    {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
-    {"FOX HUNT",        ACTION_OPT_FOXHUNT},
-    {"BEACON",          ACTION_OPT_BEACON},
-};
+#define SIDEFUNCTION_NAMES(X) \
+    X(ACTION_OPT_NONE,           "NONE") \
+    X(ACTION_OPT_FLASHLIGHT,     "FLASH\nLIGHT") \
+    X(ACTION_OPT_POWER,          "POWER") \
+    X(ACTION_OPT_MONITOR,        "MONITOR") \
+    X(ACTION_OPT_SCAN,           "SCAN") \
+    X(ACTION_OPT_VOX,            "VOX") \
+    X(ACTION_OPT_FM,             "FM RADIO") \
+    X(ACTION_OPT_1750,           "1750Hz") \
+    X(ACTION_OPT_KEYLOCK,        "LOCK\nKEYPAD") \
+    X(ACTION_OPT_A_B,            "VFO A\nVFO B") \
+    X(ACTION_OPT_VFO_MR,         "VFO\nMEM") \
+    X(ACTION_OPT_SWITCH_DEMODUL, "MODE") \
+    X(ACTION_OPT_RXMODE,         "RX MODE") \
+    X(ACTION_OPT_MAINONLY,       "MAIN ONLY") \
+    X(ACTION_OPT_PTT,            "PTT") \
+    X(ACTION_OPT_WN,             "WIDE\nNARROW") \
+    X(ACTION_OPT_MUTE,           "MUTE") \
+    X(ACTION_OPT_RXA,            "RxA") \
+    X(ACTION_OPT_RXTX_LOG,       "RF LOG") \
+    X(ACTION_OPT_BEAM,           "BEAM") \
+    X(ACTION_OPT_POWER_HIGH,     "POWER\nHIGH") \
+    X(ACTION_OPT_REMOVE_OFFSET,  "REMOVE\nOFFSET") \
+    X(ACTION_OPT_FOXHUNT,        "FOX HUNT") \
+    X(ACTION_OPT_BEACON,         "BEACON")
 
-const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);
-static_assert(ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS) == ACTION_OPT_LEN);
+#define SIDEFUNCTION_NAME_ENTRY(action, name) [action] = name,
+const char *const gSubMenu_SIDEFUNCTIONS[ACTION_OPT_LEN] =
+{
+    SIDEFUNCTION_NAMES(SIDEFUNCTION_NAME_ENTRY)
+};
+#undef SIDEFUNCTION_NAME_ENTRY
+
+#define SIDEFUNCTION_COUNT_ENTRY(action, name) + 1u
+#define SIDEFUNCTION_MASK_ENTRY(action, name) | (1u << (action))
+enum
+{
+    SIDEFUNCTION_NAME_COUNT = 0 SIDEFUNCTION_NAMES(SIDEFUNCTION_COUNT_ENTRY),
+    SIDEFUNCTION_NAME_MASK  = 0 SIDEFUNCTION_NAMES(SIDEFUNCTION_MASK_ENTRY)
+};
+#undef SIDEFUNCTION_COUNT_ENTRY
+#undef SIDEFUNCTION_MASK_ENTRY
+#undef SIDEFUNCTION_NAMES
+
+static_assert(ACTION_OPT_LEN < 32u);
+static_assert(SIDEFUNCTION_NAME_COUNT == ACTION_OPT_LEN);
+static_assert(SIDEFUNCTION_NAME_MASK == ((1u << ACTION_OPT_LEN) - 1u));
 
 bool    gIsInSubMenu;
 uint8_t gMenuCursor;
@@ -1575,8 +1592,8 @@ void UI_DisplayMenu(void)
         case MENU_F2LONG:
         case MENU_MLONG:
         {
-            const uint8_t action = gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].id;
-            strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].name);
+            const uint8_t action = gSubMenuSelection;
+            strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection]);
             if (!ACTION_IsAvailable(action)) {
                 strcpy(top_right_badge, "N/A");
                 top_right_badge_line = 5;

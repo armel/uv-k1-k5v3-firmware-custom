@@ -1337,7 +1337,7 @@ static void UI_PrintScanRangeCss(char *String, uint8_t LabelX, uint8_t ValueX, u
 static void UI_PrintActionPickerLabel(uint8_t index, uint8_t line, bool big)
 {
     char label[20];
-    strcpy(label, gSubMenu_SIDEFUNCTIONS[index].name);
+    strcpy(label, gSubMenu_SIDEFUNCTIONS[index]);
 
     char *newline = strchr(label, '\n');
     if (newline != NULL)
@@ -1377,14 +1377,14 @@ void UI_DisplayMain(void)
         uint8_t next = selection + 1;
 
         if (previous == 0)
-            previous = gSubMenu_SIDEFUNCTIONS_size - 1;
-        if (next >= gSubMenu_SIDEFUNCTIONS_size)
+            previous = SIDEFUNCTION_COUNT - 1;
+        if (next >= SIDEFUNCTION_COUNT)
             next = 1;
 
         UI_PrintActionPickerLabel(previous, 1, false);
         UI_PrintActionPickerLabel(selection, 2, true);
         UI_PrintActionPickerLabel(next, 4, false);
-        if (!ACTION_IsAvailable(gSubMenu_SIDEFUNCTIONS[selection].id))
+        if (!ACTION_IsAvailable(selection))
             UI_PrintStringSmallNormalInverse("N/A", 53, 0, 6);
         ST7565_BlitFullScreen();
         return;
