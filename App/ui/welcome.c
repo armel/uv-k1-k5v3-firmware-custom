@@ -310,7 +310,7 @@ void UI_DisplayWelcome(void)
         UI_PrintString(WelcomeString1, 0, 127, 2, 10);
 
 #ifdef ENABLE_FEAT_F4HWN
-        const size_t version_width = strlen(DisplayVersion) * (ARRAY_SIZE(gFontSmall[0]) + 1u);
+        const size_t version_width = strlen(DisplayVersion) * (FONT_SMALL_WIDTH + 1u);
         const uint8_t version_x = version_width < LCD_WIDTH
             ? (uint8_t)((LCD_WIDTH - version_width + 1u) / 2u)
             : 0u;

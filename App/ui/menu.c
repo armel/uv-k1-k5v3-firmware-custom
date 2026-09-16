@@ -771,7 +771,7 @@ bool    edit_is_uppercase = false;
 static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t line, const bool center_in_area, const uint8_t area_x1, const uint8_t area_x2)
 {
     const size_t length = strlen(text);
-    const size_t char_pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
+    const size_t char_pitch = FONT_SMALL_WIDTH + 1u;
     const size_t text_width = length * char_pitch;
     const size_t capsule_span = text_width + 1u; // matches UI_PrintStringSmallNormalInverse x_end computation
     uint8_t text_x;
