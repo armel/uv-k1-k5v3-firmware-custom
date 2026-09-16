@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 
-extern const uint8_t gFontBig[95 - 1][16 - 2];
+void FONT_DrawBigGlyph(uint8_t glyph, uint8_t *top, uint8_t *bottom);
 extern const uint8_t gFontBigDigits[11][26 - 6];
 extern const uint8_t gFont3x5[96][3];
 extern const uint8_t gFontSmall[95 - 1][6];
@@ -29,4 +29,3 @@ extern const uint8_t gFontSmall[95 - 1][6];
 #endif
 
 #endif
-
