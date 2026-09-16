@@ -573,7 +573,61 @@ static size_t _etoa(out_fct_type out, char* buffer, size_t idx, size_t maxlen, d
 #endif  // PRINTF_SUPPORT_FLOAT
 
 
+// Minimal integer formatter used by the firmware-specific printf profile.
+#if defined(PRINTF_USE_MINIMAL)
+static size_t _ntoa_minimal(out_fct_type out, char* buffer, size_t idx, size_t maxlen,
+                            unsigned int value, bool negative, unsigned int base,
+                            unsigned int width, unsigned int flags)
+{
+  char buf[PRINTF_NTOA_BUFFER_SIZE];
+  size_t len = 0U;
+  char sign = 0;
+
+  do {
+    buf[len++] = (char)('0' + (value % base));
+    value /= base;
+  } while (value && len < PRINTF_NTOA_BUFFER_SIZE);
+
+  if (negative) {
+    sign = '-';
+  }
+  else if (flags & FLAGS_PLUS) {
+    sign = '+';
+  }
+  else if (flags & FLAGS_SPACE) {
+    sign = ' ';
+  }
+
+  const size_t field_len = len + (sign != 0);
+  if (!(flags & FLAGS_ZEROPAD)) {
+    while (field_len < width) {
+      out(' ', buffer, idx++, maxlen);
+      width--;
+    }
+  }
+
+  if (sign) {
+    out(sign, buffer, idx++, maxlen);
+  }
+
+  if (flags & FLAGS_ZEROPAD) {
+    while (field_len < width) {
+      out('0', buffer, idx++, maxlen);
+      width--;
+    }
+  }
+
+  while (len) {
+    out(buf[--len], buffer, idx++, maxlen);
+  }
+
+  return idx;
+}
+
+#endif
+
 // internal vsnprintf
+#if !defined(PRINTF_USE_MINIMAL)
 static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const char* format, va_list va)
 {
   unsigned int flags, width, precision, n;
@@ -855,6 +909,121 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
   // return written chars without terminating \0
   return (int)idx;
 }
+#else
+static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const char* format, va_list va)
+{
+  size_t idx = 0U;
+
+  if (!buffer) {
+    out = _out_null;
+  }
+
+  while (*format)
+  {
+    if (*format != '%') {
+      out(*format++, buffer, idx++, maxlen);
+      continue;
+    }
+    format++;
+
+    unsigned int flags = 0U;
+    bool parsing_flags = true;
+    while (parsing_flags) {
+      switch (*format) {
+        case '0': flags |= FLAGS_ZEROPAD; format++; break;
+        case '+': flags |= FLAGS_PLUS;    format++; break;
+        case ' ': flags |= FLAGS_SPACE;   format++; break;
+        default : parsing_flags = false;             break;
+      }
+    }
+
+    unsigned int width = 0U;
+    if (_is_digit(*format)) {
+      width = _atoi(&format);
+    }
+    else if (*format == '*') {
+      const int value = va_arg(va, int);
+      width = value > 0 ? (unsigned int)value : 0U;
+      format++;
+    }
+
+    unsigned int precision = 0U;
+    bool has_precision = false;
+    if (*format == '.') {
+      has_precision = true;
+      format++;
+      if (_is_digit(*format)) {
+        precision = _atoi(&format);
+      }
+      else if (*format == '*') {
+        const int value = va_arg(va, int);
+        precision = value > 0 ? (unsigned int)value : 0U;
+        format++;
+      }
+    }
+
+    switch (*format)
+    {
+      case 'd': {
+        const int value = va_arg(va, int);
+        const bool negative = value < 0;
+        const unsigned int magnitude = negative ? 0U - (unsigned int)value : (unsigned int)value;
+        idx = _ntoa_minimal(out, buffer, idx, maxlen, magnitude, negative, 10U, width, flags);
+        format++;
+        break;
+      }
+
+      case 'u':
+      case 'o':
+        flags &= ~(FLAGS_PLUS | FLAGS_SPACE);
+        idx = _ntoa_minimal(out, buffer, idx, maxlen, va_arg(va, unsigned int), false,
+                            *format == 'o' ? 8U : 10U, width, flags);
+        format++;
+        break;
+
+      case 'c': {
+        unsigned int len = 1U;
+        while (len++ < width) {
+          out(' ', buffer, idx++, maxlen);
+        }
+        out((char)va_arg(va, int), buffer, idx++, maxlen);
+        format++;
+        break;
+      }
+
+      case 's': {
+        const char* str = va_arg(va, char*);
+        const unsigned int len = _strnlen_s(str, has_precision ? precision : (size_t)-1);
+        for (unsigned int i = len; i < width; i++) {
+          out(' ', buffer, idx++, maxlen);
+        }
+        for (unsigned int i = 0; i < len; i++) {
+          out(str[i], buffer, idx++, maxlen);
+        }
+        format++;
+        break;
+      }
+
+      case '%':
+        out('%', buffer, idx++, maxlen);
+        format++;
+        break;
+
+      default:
+        out(*format, buffer, idx++, maxlen);
+        if (*format) {
+          format++;
+        }
+        break;
+    }
+  }
+
+  if (maxlen) {
+    out((char)0, buffer, idx < maxlen ? idx : maxlen - 1U, maxlen);
+  }
+  return (int)idx;
+}
+#endif
 
 
 ///////////////////////////////////////////////////////////////////////////////

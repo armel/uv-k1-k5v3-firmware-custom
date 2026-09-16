@@ -26,8 +26,14 @@ static inline void LogUartf(const char* format, ...)
 static inline void LogRegUart(uint16_t reg)
 {
     uint16_t regVal = BK4819_ReadRegister(reg);
-    char buf[32];
-    sprintf(buf, "reg%02X: %04X\n", reg, regVal);
+    static const char HexDigits[] = "0123456789ABCDEF";
+    char buf[] = "reg00: 0000\n";
+    buf[3] = HexDigits[(reg >> 4) & 0x0F];
+    buf[4] = HexDigits[reg & 0x0F];
+    buf[7] = HexDigits[(regVal >> 12) & 0x0F];
+    buf[8] = HexDigits[(regVal >> 8) & 0x0F];
+    buf[9] = HexDigits[(regVal >> 4) & 0x0F];
+    buf[10] = HexDigits[regVal & 0x0F];
     LogUart(buf);
 }
 

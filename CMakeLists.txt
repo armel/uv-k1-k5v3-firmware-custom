@@ -94,6 +94,23 @@ add_subdirectory(App)
 
 target_link_libraries(${EXE_NAME} Core App)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(PRINTF_FORMAT_CHECK_ARGS
+    --source-root "${CMAKE_SOURCE_DIR}/App"
+)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    list(APPEND PRINTF_FORMAT_CHECK_ARGS --define DEBUG)
+endif()
+add_custom_target(check_printf_formats
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/cmake/check_printf_formats.py"
+            ${PRINTF_FORMAT_CHECK_ARGS}
+    DEPENDS "${CMAKE_SOURCE_DIR}/cmake/check_printf_formats.py"
+    COMMENT "Validating minimal printf formats"
+    VERBATIM
+)
+add_dependencies(${EXE_NAME} check_printf_formats)
+
 target_compile_definitions(${EXE_NAME} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 target_link_libraries(${EXE_NAME} ${TOOLCHAIN_LINK_LIBRARIES})
 
