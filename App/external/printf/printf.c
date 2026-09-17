@@ -195,6 +195,8 @@ static unsigned int _atoi(const char** str)
 }
 
 
+#if !defined(PRINTF_USE_MINIMAL)
+
 // output the specified string in reverse, taking care of any zero-padding
 static size_t _out_rev(out_fct_type out, char* buffer, size_t idx, size_t maxlen, const char* buf, size_t len, unsigned int width, unsigned int flags)
 {
@@ -571,6 +573,8 @@ static size_t _etoa(out_fct_type out, char* buffer, size_t idx, size_t maxlen, d
 }
 #endif  // PRINTF_SUPPORT_EXPONENTIAL
 #endif  // PRINTF_SUPPORT_FLOAT
+
+#endif  // PRINTF_USE_MINIMAL
 
 
 // Minimal integer formatter used by the firmware-specific printf profile.

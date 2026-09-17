@@ -124,7 +124,7 @@ run_preset_build() {
 
 build_preset() {
   local preset="$1"
-  local preset_slug log_file bin_file flash_size ram_size status
+  local preset_slug log_file bin_file flash_size ram_size status warning_count
 
   # macOS ships Bash 3.2, which does not support Bash 4's ${var,,} syntax.
   preset_slug="$(printf '%s' "$preset" | tr '[:upper:]' '[:lower:]')"
@@ -215,7 +215,12 @@ build_preset() {
   RESULT_RAM_SIZES+=("$ram_size")
 
   if (( QUIET )); then
-    printf "✅ OK\n"
+    warning_count="$(grep -c 'warning:' "$log_file" || true)"
+    if (( warning_count > 0 )); then
+      printf "⚠️  OK (%d warning%s)\n" "$warning_count" "$([[ "$warning_count" -eq 1 ]] || printf 's')"
+    else
+      printf "✅ OK\n"
+    fi
   else
     echo "✅ Done: ${preset}"
   fi
