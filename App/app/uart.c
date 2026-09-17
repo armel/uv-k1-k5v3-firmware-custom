@@ -911,7 +911,6 @@ void UART_HandleCommand(uint32_t Port)
         case 0x0720: // slot info: read the 64-byte header only (fast, no CRC)
         {
             if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
-            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
             uint8_t slot = pUART_Command->Data[0];
             mb_slot_header_t hdr;
             memset(&hdr, 0, sizeof(hdr));

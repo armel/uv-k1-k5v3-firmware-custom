@@ -1538,11 +1538,20 @@ void CheckKeys(void)
 #ifdef ENABLE_FEAT_F4HWN
     if (gSetting_set_ptt_session)
     {
-        if ((isPressed && (gPttOnePushCounter == 0 || gPttOnePushCounter == 2)) ||
-            (!isPressed && (gPttOnePushCounter == 1 || gPttOnePushCounter == 3)) ||
-            serialConfigInProgress) 
+        if (serialConfigInProgress)
         {
-            if (++gPttDebounceCounter >= 3 || (serialConfigInProgress && gPttOnePushCounter > 0))
+            gPttDebounceCounter = 0;
+
+            if (gPttOnePushCounter > 0 || gPttIsPressed)
+            {
+                StopTransmitting();
+                gPttOnePushCounter = 0;
+            }
+        }
+        else if ((isPressed && (gPttOnePushCounter == 0 || gPttOnePushCounter == 2)) ||
+                 (!isPressed && (gPttOnePushCounter == 1 || gPttOnePushCounter == 3)))
+        {
+            if (++gPttDebounceCounter >= 3)
             {
                 gPttDebounceCounter = 0;
                 
@@ -1553,7 +1562,7 @@ void CheckKeys(void)
                     gPttOnePushCounter = 1;
                     ProcessKey(KEY_PTT, true, false);
                 } 
-                else if (gPttOnePushCounter == 3 || serialConfigInProgress)
+                else if (gPttOnePushCounter == 3)
                 {   // stop transmitting
                     StopTransmitting();
                     gPttOnePushCounter = 0;
