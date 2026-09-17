@@ -516,7 +516,7 @@ enum
 #undef SIDEFUNCTION_NAMES
 
 static_assert(ACTION_OPT_LEN < 32u);
-static_assert(SIDEFUNCTION_NAME_COUNT == ACTION_OPT_LEN);
+static_assert((int)SIDEFUNCTION_NAME_COUNT == (int)ACTION_OPT_LEN);
 static_assert(SIDEFUNCTION_NAME_MASK == ((1u << ACTION_OPT_LEN) - 1u));
 
 bool    gIsInSubMenu;

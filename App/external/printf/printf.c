@@ -912,6 +912,8 @@ static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const
 #else
 static int _vsnprintf(out_fct_type out, char* buffer, const size_t maxlen, const char* format, va_list va)
 {
+  (void)_ntoa_long;
+  
   size_t idx = 0U;
 
   if (!buffer) {
