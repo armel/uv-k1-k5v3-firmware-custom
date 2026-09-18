@@ -29,6 +29,7 @@ target_sources(App INTERFACE
     bitmaps.c
     board.c
     dcs.c
+    dsp/vernier.c
     font.c
     frequencies.c
     functions.c
