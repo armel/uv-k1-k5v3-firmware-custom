@@ -131,5 +131,10 @@ uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header);
 uint8_t APP_SlotErase(uint8_t slot);
 uint8_t APP_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
 
+/* Change token used by the modal Apps selector.  A completed host install is
+ * published after validation; erasing a slot publishes directly. */
+uint8_t APP_SlotRevision(void);
+void APP_NotifySlotChanged(void);
+
 
 #endif /* APPS_APP_OVERLAY_H */

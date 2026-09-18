@@ -21,6 +21,7 @@
 #include <string.h>
 #include "apps/app_menu.h"
 #include "app/app.h"
+#include "app/uart.h"
 #include "driver/backlight.h"
 #include "driver/st7565.h"
 #include "driver/keyboard.h"
@@ -80,12 +81,21 @@ static void app_invert_name(uint8_t line)
 /* Debounced blocking key read, then wait for release (mirrors mb_get_key). */
 static KEY_Code_t app_get_key(void)
 {
+#if defined(ENABLE_UART) || defined(ENABLE_USB)
+    const uint8_t slot_revision = APP_SlotRevision();
+#endif
+
     for (;;)
     {
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
         /* APP_MenuOpen() is modal and does not return to APP_Update(). Keep
          * serial key injection and the viewer connection alive while waiting. */
         K5VIEWER_ParseInput();
+#endif
+#if defined(ENABLE_UART) || defined(ENABLE_USB)
+        UART_ServiceCommands();
+        if (APP_SlotRevision() != slot_revision)
+            return KEY_INVALID;
 #endif
         APP_ModalBacklightTick(true);
 
@@ -219,6 +229,16 @@ static void app_show_error(const app_header_t *header, uint8_t rc)
 _Static_assert(APP_MENU_SLOT_COUNT <= APP_SLOT_COUNT,
                "APP_MENU_SLOT_COUNT exceeds the physical app slot count");
 
+static void app_scan_slots(app_header_t hdr[APP_MENU_SLOT_COUNT],
+                           bool installed[APP_MENU_SLOT_COUNT])
+{
+    for (uint8_t slot = 0; slot < APP_MENU_SLOT_COUNT; slot++)
+    {
+        installed[slot] = APP_SlotInfo(slot, &hdr[slot]) == APP_OK &&
+                          (hdr[slot].flags & APP_FLAG_COMMITTED);
+    }
+}
+
 void APP_MenuOpen(void)
 {
     APP_ModalScreenSaverExit();
@@ -238,12 +258,8 @@ void APP_MenuOpen(void)
      * visible and selectable while scrolling. */
     app_header_t hdr[APP_MENU_SLOT_COUNT];
     bool installed[APP_MENU_SLOT_COUNT];
-
-    for (uint8_t slot = 0; slot < APP_MENU_SLOT_COUNT; slot++)
-    {
-        installed[slot] = APP_SlotInfo(slot, &hdr[slot]) == APP_OK &&
-                          (hdr[slot].flags & APP_FLAG_COMMITTED);
-    }
+    uint8_t slot_revision = APP_SlotRevision();
+    app_scan_slots(hdr, installed);
 
     /* Remember the physical slot and scrolling window across menu openings. */
     static uint8_t sel = 0;
@@ -254,6 +270,13 @@ void APP_MenuOpen(void)
 
     for (;;)
     {
+        const uint8_t current_revision = APP_SlotRevision();
+        if (current_revision != slot_revision)
+        {
+            app_scan_slots(hdr, installed);
+            slot_revision = current_revision;
+        }
+
         UI_DisplayClear();
         app_status_bar();   /* also wipes the VFO status line (DW, battery, ...) */
 

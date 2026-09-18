@@ -937,6 +937,18 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
 static bool app_shortcuts_cached;
 static uint8_t app_shortcut_mask;
 static uint8_t app_shortcut_slots[4];
+static uint8_t app_slot_revision;
+
+uint8_t APP_SlotRevision(void)
+{
+    return app_slot_revision;
+}
+
+void APP_NotifySlotChanged(void)
+{
+    app_shortcuts_cached = false;
+    app_slot_revision++;
+}
 
 static int8_t app_shortcut_index(uint8_t shortcut)
 {
@@ -1238,7 +1250,7 @@ uint8_t APP_SlotErase(uint8_t slot)
     for (uint32_t off = 0; off < APP_SLOT_STRIDE; off += APP_SECTOR_SIZE)
         PY25Q16_SectorErase(base + off);
     PY25Q16_InvalidateCache();
-    app_shortcuts_cached = false;
+    APP_NotifySlotChanged();
     return APP_OK;
 }
 

@@ -1304,6 +1304,8 @@ void UART_HandleCommand(uint32_t Port)
             gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
             uint8_t  slot = pUART_Command->Data[0];
             uint8_t  status = APP_ValidateSlot(slot, NULL);
+            if (status == APP_OK)
+                APP_NotifySlotChanged();
             struct __attribute__((packed)) {
                 Header_t Header;
                 uint8_t  Slot;
