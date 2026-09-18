@@ -27,11 +27,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include "../app_api.h"
 
 #define W                 128u
-#define H                 64u
 
 #define COLS              31u
 #define ROWS              13u
@@ -60,14 +58,14 @@ typedef struct {
 
 static const app_api_t *A;
 
-uint32_t board_map[ROWS];
-uint32_t randomState, best, initial_best;
-segment_t snake[RING_SIZE];
-uint16_t head_idx, tail_idx, repeatMs;
-int16_t moveTimer;
-uint8_t foodX, foodY, direction, nextDirection, previousKey;
-bool paused, gameOver, running, newBest;
-char text[6];
+static uint32_t board_map[ROWS];
+static uint32_t randomState, best, initial_best;
+static segment_t snake[RING_SIZE];
+static uint16_t head_idx, tail_idx, repeatMs;
+static int16_t moveTimer;
+static uint8_t foodX, foodY, direction, nextDirection, previousKey;
+static bool paused, gameOver, running, newBest, saverPaused, saverActive;
+static char text[6];
 
 static const int8_t DX[4] = { 0, 1, 0, -1 };
 static const int8_t DY[4] = {-1, 0, 1,  0 };
@@ -104,8 +102,8 @@ static void place_food(void)
 {
     for (uint32_t tries = 0; tries < 128u; tries++) {
         const uint32_t r = random_next();
-        const uint32_t x = ((r & 0xFFu) * COLS) >> 8;
-        const uint32_t y = (((r >> 8) & 0xFFu) * ROWS) >> 8;
+        const uint32_t x = ((r >> 24) * COLS) >> 8;
+        const uint32_t y = (((r >> 16) & 0xFFu) * ROWS) >> 8;
         
         if (!(board_map[y] & (1UL << x))) { 
             foodX = (uint8_t)x;
@@ -306,9 +304,28 @@ static void key_action(uint32_t key, bool repeat)
 
 static void poll_key(void)
 {
-    const uint32_t key = A->get_key();
+    uint8_t key = A->get_key();
 
-    if (key == APP_KEY_WAKE || key == APP_KEY_PTT || key == APP_KEY_INVALID) {
+    if (key == APP_KEY_SAVER) {
+        if (!paused && !gameOver) {
+            paused = true;
+            saverPaused = true;
+        }
+        saverActive = true;
+        previousKey = APP_KEY_INVALID;
+        repeatMs = 0;
+        return;
+    }
+
+    if (key == APP_KEY_WAKE || key == APP_KEY_PTT) {
+        if (saverPaused)
+            paused = false;
+        saverPaused = false;
+        saverActive = false;
+        key = APP_KEY_INVALID;
+    }
+
+    if (key == APP_KEY_INVALID) {
         previousKey = APP_KEY_INVALID;
         repeatMs = 0;
         return;
@@ -347,6 +364,8 @@ static void new_game(void)
     paused =      false;
     gameOver =    false;
     newBest =     false;
+    saverPaused = false;
+    saverActive = false;
 
     place_food();
 }
@@ -379,6 +398,12 @@ void app_main(const app_api_t *api)
         if (!running)
             break;
 
+        if (saverActive) {
+            A->backlight_update();
+            A->delay_ms(TICK_MS);
+            continue;
+        }
+
         if (!paused && !gameOver) {
             if (moveTimer <= 0) {
                 moveTimer = MOVE_INTERVAL;
@@ -391,6 +416,7 @@ void app_main(const app_api_t *api)
         render();
         A->blit_status();
         A->blit_full();
+        A->backlight_update();
         A->delay_ms(TICK_MS);
     }
 
