@@ -39,6 +39,7 @@
 #define RACKET_WIDTH 24
 #define RACKET_HEIGHT 2
 #define RACKET_Y     50
+#define TICK_MS      20u
 
 typedef struct { uint8_t x; uint8_t y; bool destroy; } Brick;
 typedef struct { int8_t  x; uint8_t p; } Racket;
@@ -73,9 +74,13 @@ static uint32_t randSeed;
 static uint8_t  blockAnim;
 static bool     isInitialized;
 static bool     isPaused;
+static bool     saverPaused, saverActive;
+static bool     gameOver, redrawRequired;
 static uint8_t  levelCountBreakout;
+static uint8_t  gameOverLevel;
 static uint16_t tone;
 static uint16_t score;
+static uint16_t gameOverScore;
 static int16_t  ballCount;
 static char     str[12];
 static uint8_t  kbdPrev, kbdCur;
@@ -95,12 +100,14 @@ static void reset(void) { ballCount = BALL_NUMBER; levelCountBreakout = 1; score
 
 static void playBeep(uint16_t t) { A->play_tone(t, 100); }
 
-static void drawScore(void) {
+static void drawScoreValues(uint8_t level, int16_t balls, uint16_t value) {
     A->status_clear();
-    u2str(str, "Level ", levelCountBreakout, 2); A->print_tiny(str, 0,  1, true, true);
-    u2str(str, "Ball ",  (ballCount < 0) ? 0 : ballCount, 2); A->print_tiny(str, 45, 1, true, true);
-    u2str(str, "Score ", score, 4); A->print_tiny(str, 88, 1, true, true);
+    u2str(str, "Level ", level, 2); A->print_tiny(str, 0,  1, true, true);
+    u2str(str, "Ball ",  (balls < 0) ? 0 : (uint16_t)balls, 2); A->print_tiny(str, 45, 1, true, true);
+    u2str(str, "Score ", value, 4); A->print_tiny(str, 88, 1, true, true);
 }
+
+static void drawScore(void) { drawScoreValues(levelCountBreakout, ballCount, score); }
 
 static void renderBall(bool state) {
     A->draw_rect(A->fb, ball.x, ball.y, ball.x + BALL_WIDTH - 1, ball.y + BALL_HEIGHT - 1, state);
@@ -142,6 +149,9 @@ static void drawBall(void) {
         drawScore();
         tone = 800;
         if (ballCount < 0) {
+            gameOverLevel = levelCountBreakout;
+            gameOverScore = score;
+            gameOver = true;
             reset(); initWall(); /* drawWall drawn by main loop */
             isPaused = true;
             A->print_bold("GAME OVER", 0, LCD_WIDTH - 1, 4);
@@ -151,14 +161,15 @@ static void drawBall(void) {
     renderBall(true);
 }
 
-static void drawWall(void) {
+static void drawWall(bool checkCollision) {
     for (uint8_t i = 0; i < BRICK_NUMBER; i++) {
         if (brick[i].destroy) continue;
         uint8_t *fb_ptr = A->fb[brick[i].y / 8] + brick[i].x;
         fb_ptr[0]  = 0b00011110;
         fb_ptr[14] = 0b00011110;
 
-        if ((ball.x + 1 >= brick[i].x && ball.x - 1 <= brick[i].x + BRICK_WIDTH) &&
+        if (checkCollision &&
+            (ball.x + 1 >= brick[i].x && ball.x - 1 <= brick[i].x + BRICK_WIDTH) &&
             (ball.y + 1 >= brick[i].y && ball.y - 1 <= brick[i].y + BRICK_HEIGHT)) {
             brick[i].destroy = true; score++;
             directionBall(brick[i].x, BRICK_WIDTH, 2);
@@ -196,6 +207,21 @@ static void drawRacket(void) {
     }
 }
 
+static void redrawScene(void) {
+    A->display_clear();
+    if (gameOver) {
+        drawScoreValues(gameOverLevel, -1, gameOverScore);
+    } else {
+        drawScore();
+        drawWall(false);
+    }
+    renderRacket(racket.x, true);
+    racket.p = racket.x;
+    renderBall(true);
+    if (isPaused)
+        A->print_bold(gameOver ? "GAME OVER" : "PAUSE", 0, LCD_WIDTH - 1, 4);
+}
+
 static void OnKeyDown(uint8_t key) {
     bool wasPaused = isPaused;
     switch (key) {
@@ -209,14 +235,39 @@ static void OnKeyDown(uint8_t key) {
         break;
     case APP_KEY_EXIT: isPaused = false; isInitialized = false; break;
     }
-    if (wasPaused && !isPaused)
+    if (wasPaused && !isPaused) {
+        gameOver = false;
         for (uint8_t i = 0; i < 8; i++)
             A->draw_line(A->fb, 32, 32 + i, 96, 32 + i, false);
+    }
 }
 
 static void handleInput(void) {
     kbdPrev = kbdCur;
     kbdCur = A->get_key();
+
+    if (kbdCur == APP_KEY_SAVER) {
+        if (!isPaused) {
+            isPaused = true;
+            saverPaused = true;
+        }
+        saverActive = true;
+        kbdPrev = APP_KEY_INVALID;
+        kbdCur = APP_KEY_INVALID;
+        return;
+    }
+
+    if (kbdCur == APP_KEY_WAKE || kbdCur == APP_KEY_PTT) {
+        if (saverPaused)
+            isPaused = false;
+        saverPaused = false;
+        saverActive = false;
+        redrawRequired = true;
+        kbdPrev = APP_KEY_INVALID;
+        kbdCur = APP_KEY_INVALID;
+        return;
+    }
+
     if (kbdCur == APP_KEY_INVALID) return;
     if (kbdCur == APP_KEY_UP || kbdCur == APP_KEY_DOWN ||
         kbdCur == APP_KEY_4  || kbdCur == APP_KEY_0    || kbdCur != kbdPrev)
@@ -238,7 +289,9 @@ void app_main(const app_api_t *api) {
 #endif
 
     /* reset all state (the overlay is not persistent across launches) */
-    blockAnim = 0; isPaused = false; tone = 0; score = 0;
+    blockAnim = 0; isPaused = false; saverPaused = false; saverActive = false;
+    gameOver = false; redrawRequired = false;
+    tone = 0; score = 0;
     kbdPrev = APP_KEY_INVALID; kbdCur = APP_KEY_INVALID;
     uint8_t swap = 0;
 
@@ -256,14 +309,29 @@ void app_main(const app_api_t *api) {
 
     while (isInitialized) {
         handleInput();
+
+        if (saverActive) {
+            A->backlight_update();
+            A->delay_ms(TICK_MS);
+            continue;
+        }
+
+        if (redrawRequired) {
+            redrawScene();
+            redrawRequired = false;
+        }
+
         if (!isPaused) {
             if (swap == 0) blockAnim = (blockAnim + 1) % 4;
             swap = (swap + 1) % 4;
-            drawScore(); drawWall(); drawRacket(); drawBall();
+            drawScore(); drawWall(true); drawRacket(); drawBall();
             if (tone != 0) { playBeep(tone); tone = 0; }
             else A->delay_ms(40 - imin(levelCountBreakout - 1, 20));
         }
         A->blit_status();
         A->blit_full();
+        A->backlight_update();
+        if (isPaused)
+            A->delay_ms(TICK_MS);
     }
 }
