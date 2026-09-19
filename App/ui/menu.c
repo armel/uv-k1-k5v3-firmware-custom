@@ -845,6 +845,31 @@ static void UI_MENU_DrawFixedCapsule(const char *text, uint8_t cap_left,
     gFrameBuffer[line][cap_right] ^= 0x3Eu;
 }
 
+static void UI_MENU_DrawScanMixSummary(const uint8_t area_x1,
+                                       const uint8_t area_x2)
+{
+    const uint8_t label_w = 35u;
+    const uint8_t count_w = 23u;
+    const uint8_t gap = 4u;
+    const uint8_t pair_w = label_w + gap + count_w;
+    const uint8_t label_x = (uint8_t)(area_x1 +
+                                      ((area_x2 - area_x1 + 1u - pair_w) / 2u));
+    uint32_t mask = gEeprom.SCAN_LIST_MIX_MASK & SCAN_LIST_MIX_MASK_ALL;
+    uint8_t selected = 0;
+    char count[6];
+
+    while (mask != 0u) {
+        selected += (uint8_t)(mask & 1u);
+        mask >>= 1;
+    }
+
+    sprintf(count, "%02u/%02u", (unsigned)selected,
+            (unsigned)MR_CHANNELS_LIST);
+    UI_MENU_DrawFixedCapsule("SELECTED", label_x, label_w, 6);
+    UI_MENU_DrawFixedCapsule(count, (uint8_t)(label_x + label_w + gap),
+                             count_w, 6);
+}
+
 static void UI_MENU_DrawScanMixEditor(void)
 {
     char text[9];
@@ -1878,6 +1903,11 @@ void UI_DisplayMenu(void)
 
     if (top_right_badge[0] != '\0') {
         UI_MENU_DrawTopRightRoundedBadge(top_right_badge, top_right_badge_line, true, menu_item_x1, menu_item_x2);
+    }
+
+    if (m == MENU_S_LIST &&
+        gSubMenuSelection == SCAN_LIST_MODE_MIX) {
+        UI_MENU_DrawScanMixSummary(menu_item_x1, menu_item_x2);
     }
 
     if ((m == MENU_RESET    ||
