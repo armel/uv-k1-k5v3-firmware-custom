@@ -1,58 +1,62 @@
 # Quansheng UV-K1 / UV-K5 V3 — CAT Edition (F4HWN 6.0.0 Base)
 
 > [!WARNING]
-> **WAŻNE OSTRZEŻENIE / DISCLAIMER**  
-> **Oprogramowanie instalujesz i używasz wyłącznie na własną odpowiedzialność!**  
-> Modyfikacje oprogramowania układowego (firmware) niosą ze sobą ryzyko nieprawidłowego działania lub uszkodzenia urządzenia ("uceglenia"). Autorzy i twórcy modyfikacji nie ponoszą żadnej odpowiedzialności za ewentualne szkody sprzętowe, utratę danych czy naruszenie lokalnych przepisów radiokomunikacyjnych. Przed wgraniem zaleca się wykonanie kopii zapasowej danych kalibracyjnych (np. przez UV Studio).
+> **IMPORTANT WARNING / DISCLAIMER**  
+> **Install and use this firmware entirely at your own risk!**  
+> Firmware modifications carry the inherent risk of device malfunction or bricking. The authors and contributors assume no responsibility or liability for any hardware damage, data loss, or violation of local radio communications laws and regulations. Before flashing, it is strongly recommended to back up your radio's calibration data (e.g. using UV Studio).
+
+> [!IMPORTANT]
+> **Installation & Flashing:**  
+> To install this firmware, download the **`f4hwn.cat.bin`** file (located in the main folder of this repository) and flash it to your radio using **[UV Studio](https://armel.github.io/uvstudio/#dump-calib)**. Remember to back up your calibration data first via the [Dump Calibration tool](https://armel.github.io/uvstudio/#dump-calib) before flashing!
 
 ---
 
-## Informacje o projekcie
+## Project Overview
 
-Niniejsza wersja projektu bazuje na oficjalnym oprogramowaniu **[F4HWN custom firmware](https://github.com/armel/uv-k1-k5v3-firmware-custom)** (v6.0.0 dla mikrokontrolera **PY32F071**).
+This project is based on the official **[F4HWN custom firmware](https://github.com/armel/uv-k1-k5v3-firmware-custom)** (v6.0.0 for the **PY32F071** microcontroller).
 
-Została ona rozszerzona o dedykowany wariant **CAT** (`f4hwn.cat` / preset `CAT`), wprowadzający:
-- **Rozszerzony protokół Kenwood CAT** do pełnej zdalnej kontroli radia z poziomu komputera (UART / USB VCP).
-- **Asynchroniczny skaner sprzętowy** oraz pomiary RSSI w tle (BK4819) bez blokowania interfejsu radia.
-- **Domyślne ustawienia pod pracę z PC/CAT**:
-  - **Wyłączone oszczędzanie energii** (`BATTERY_SAVE = 0`) — odbiornik nie przechodzi w cykliczne uśpienie, co zapewnia natychmiastową reakcję na sygnały i komendy.
-  - **Pojedyncze VFO** (`DUAL_WATCH = DUAL_WATCH_OFF`) — radio nie przełącza pasm w tle podczas zdalnego sterowania.
-  - Standardowa prędkość UART: **38400 baud** (8N1).
-- **Wsparcie dla zmiany oprogramowania (Multiboot)**: zachowano w 100% natywne wsparcie dla mechanizmu **multiboot** (komendy UART 0x0720–0x0728 oraz partycjonowanie flash). Umożliwia to bezpieczną i wygodną zmianę oprogramowania, powrót do innych wydań oraz wgrywanie wielu wersji firmware.
+It is extended with a dedicated **CAT** variant (`f4hwn.cat` / preset `CAT`), which introduces:
+- **Extended Kenwood CAT Protocol** for full remote transceiver control from a computer (UART / USB VCP).
+- **Asynchronous hardware scanner** and background RSSI measurements (BK4819) without blocking the radio user interface.
+- **Default settings optimized for PC/CAT operation**:
+  - **Battery Saver disabled** (`BATTERY_SAVE = 0`) — the receiver does not enter cyclic sleep mode, ensuring instantaneous response to RF signals and CAT commands.
+  - **Single VFO mode** (`DUAL_WATCH = DUAL_WATCH_OFF`) — prevents the radio from switching bands in the background during remote control.
+  - Standard UART baud rate: **38400 baud** (8N1).
+- **Multiboot support**: 100% native support for the **multiboot** mechanism is preserved (UART commands `0x0720`–`0x0728` and flash partitioning). This enables safe and convenient firmware changes, rolling back to previous releases, or flashing multiple firmware versions.
 
 ---
 
-## Krótka instrukcja komend CAT
+## CAT Commands Quick Reference
 
-Wszystkie komendy wysyłane są w formacie tekstowym ASCII przez port szeregowy i muszą być zakończone średnikiem (`;`).
+All commands are transmitted as ASCII text strings over the serial port and must be terminated with a semicolon (`;`).
 
-| Komenda | Przykład / Format | Odpowiedź | Opis działania |
+| Command | Example / Format | Response | Description |
 |---|---|---|---|
-| **FA** | `FA;`<br>`FA00145000000;` | `FA[11 cyfr Hz];`<br>*(brak)* | **Częstotliwość VFO A**: odczyt (bez argumentu) lub ustawienie częstotliwości (11 cyfr w Hz, np. `00145000000;` = 145.000 MHz). |
-| **FB** | `FB;`<br>`FB00433000000;` | `FB[11 cyfr Hz];`<br>*(brak)* | **Częstotliwość VFO B**: odczyt lub ustawienie częstotliwości VFO B (11 cyfr w Hz). |
-| **FR** | `FR0;`<br>`FR1;` | *(brak)* | **Wybór aktywnego VFO**: `FR0;` przełącza na VFO A, `FR1;` przełącza na VFO B. |
-| **TX** | `TX;` | *(brak)* | **Wymuszenie nadawania (PTT ON)**: przełącza radiotelefon w tryb nadawania. |
-| **RX** | `RX;` | *(brak)* | **Powrót do odbioru (PTT OFF)**: wyłącza nadawanie i wraca do odbioru. |
-| **MO** | `MO1;`<br>`MO0;` | *(brak)* | **Monitor (otwarcie squelcha)**: `MO1;` otwiera blokadę szumów, `MO0;` przywraca normalne działanie squelcha. |
-| **MD** | `MD;`<br>`MD4;` / `MD5;` / `MD2;` | `MD[tryb];`<br>*(brak)* | **Rodzaj modulacji**: `4` = FM, `5` = AM, `2` = USB. Bez parametru zwraca aktualną modulację aktywnego VFO. |
-| **PC** | `PC[0-7];` np. `PC6;` | *(brak)* | **Moc wyjściowa nadajnika**: `0`=Low1, `1`=Low2, `2`=Low3, `3`=Low4, `4`=Low5, `5`=Mid, `6`=High, `7`=User. |
-| **OF** | `OF;` | *(brak)* | **Wyłączenie subtonów**: wyłącza CTCSS/DCS na aktywnym VFO. |
-| **CT** | `CT0885;`<br>`CT0670;` | *(brak)* | **Ustawienie tonu CTCSS**: 4 cyfry w dziesiątych częściach Hz (np. `0885` = 88.5 Hz, `0670` = 67.0 Hz). |
-| **DT** | `DT023;`<br>`DT047;` | *(brak)* | **Ustawienie kodu DCS**: 3 cyfry w notacji ósemkowej (np. `023`, `047`). |
-| **SQ** | `SQ[0-9];` np. `SQ5;` | *(brak)* | **Poziom blokady szumów (Squelch)**: od `SQ0;` (otwarty) do `SQ9;`. |
-| **OS** | `OS0;` / `OS1;` / `OS2;` | *(brak)* | **Kierunek shiftu (offsetu)**: `0` = brak (simplex), `1` = offset dodatni (+), `2` = offset ujemny (-). |
-| **OV** | `OV00000600000;` | *(brak)* | **Wartość offsetu częstotliwości**: 11 cyfr w Hz (np. `00000600000;` = 600 kHz). |
-| **IF** | `IF;` | `IF[freq11]00000[mod][tx];` | **Informacja o stanie transceivera**: zwraca bieżącą częstotliwość, modulację i status TX/RX. |
-| **S1** | `S1;` | `S1,[vfo],[dbm],[sq];` | **Bieżący pomiar RSSI**: natychmiastowy odczyt siły sygnału (dBm) i stanu squelch (0/1) dla aktywnego VFO. |
-| **SM** | `SM[freq11];` | `SM[freq11],[dbm],[sq];` | **Szybki pomiar na częstotliwości**: mierzy poziom sygnału na podanej częstotliwości bez trwałej zmiany ustawień VFO. |
-| **RD** | `RD1;`<br>`RD0;` | Asynchronicznie:<br>`RR[vfo],[dbm];` | **Auto-raportowanie RSSI**: `RD1;` włącza cykliczne wysyłanie ramek `RR` co ~200 ms (lub przy zmianie poziomu), `RD0;` wyłącza. |
-| **SL** | `SL[idx2][freq11];` | `SL_OK;` | **Definicja listy skanera**: zapisuje częstotliwość do komórki listy (indeksy `00` do `24`, maks. 25 kanałów). |
-| **SC** | `SC[ilość2];` np. `SC03;` | Asynchronicznie:<br>`SR,[dbm],[sq],...;` | **Start sprzętowego skanera**: asynchronicznie mierzy zdefiniowane kanały i odsyła kompletny wektor wyników. |
-| **SCF** | `SCF[freq11][,ticks];` | Asynchronicznie:<br>`SQ[freq],[sq],[dbm],[noise],[glitch];` | **Pojedynczy pomiar sprzętowy (SCF)**: szczegółowy pomiar siły sygnału, szumu i zakłóceń (glitch) z układu BK4819. |
-| **DTMF** | *(automatyczne)* | Asynchronicznie:<br>`RD[znak],[dbm];` | **Raportowanie tonów DTMF**: przy odebraniu znaku DTMF radio automatycznie wysyła ramkę `RD` z odebranym kodem i poziomem RSSI. |
+| **FA** | `FA;`<br>`FA00145000000;` | `FA[11 digits Hz];`<br>*(none)* | **VFO A Frequency**: read (without argument) or set frequency (11 digits in Hz, e.g. `00145000000;` = 145.000 MHz). |
+| **FB** | `FB;`<br>`FB00433000000;` | `FB[11 digits Hz];`<br>*(none)* | **VFO B Frequency**: read or set VFO B frequency (11 digits in Hz). |
+| **FR** | `FR0;`<br>`FR1;` | *(none)* | **Active VFO Selection**: `FR0;` switches to VFO A, `FR1;` switches to VFO B. |
+| **TX** | `TX;` | *(none)* | **Force Transmit (PTT ON)**: switches the transceiver to transmit mode. |
+| **RX** | `RX;` | *(none)* | **Return to Receive (PTT OFF)**: stops transmitting and returns to receive mode. |
+| **MO** | `MO1;`<br>`MO0;` | *(none)* | **Monitor (Open Squelch)**: `MO1;` opens squelch, `MO0;` restores normal squelch operation. |
+| **MD** | `MD;`<br>`MD4;` / `MD5;` / `MD2;` | `MD[mode];`<br>*(none)* | **Modulation Mode**: `4` = FM, `5` = AM, `2` = USB. Without parameter, returns active VFO's current modulation. |
+| **PC** | `PC[0-7];` e.g. `PC6;` | *(none)* | **Transmitter Output Power**: `0`=Low1, `1`=Low2, `2`=Low3, `3`=Low4, `4`=Low5, `5`=Mid, `6`=High, `7`=User. |
+| **OF** | `OF;` | *(none)* | **Disable Subtones**: turns off CTCSS/DCS on active VFO. |
+| **CT** | `CT0885;`<br>`CT0670;` | *(none)* | **Set CTCSS Tone**: 4 digits in tenths of Hz (e.g. `0885` = 88.5 Hz, `0670` = 67.0 Hz). |
+| **DT** | `DT023;`<br>`DT047;` | *(none)* | **Set DCS Code**: 3 digits in octal notation (e.g. `023`, `047`). |
+| **SQ** | `SQ[0-9];` e.g. `SQ5;` | *(none)* | **Squelch Level**: from `SQ0;` (open) to `SQ9;`. |
+| **OS** | `OS0;` / `OS1;` / `OS2;` | *(none)* | **Shift Direction (Offset)**: `0` = none (simplex), `1` = positive offset (+), `2` = negative offset (-). |
+| **OV** | `OV00000600000;` | *(none)* | **Frequency Offset Value**: 11 digits in Hz (e.g. `00000600000;` = 600 kHz). |
+| **IF** | `IF;` | `IF[freq11]00000[mod][tx];` | **Transceiver Status**: returns current frequency, modulation, and TX/RX status. |
+| **S1** | `S1;` | `S1,[vfo],[dbm],[sq];` | **Instant RSSI Measurement**: immediate signal strength (dBm) and squelch status (0/1) for active VFO. |
+| **SM** | `SM[freq11];` | `SM[freq11],[dbm],[sq];` | **Fast Spot Frequency Measurement**: measures signal level on specified frequency without permanently altering VFO settings. |
+| **RD** | `RD1;`<br>`RD0;` | Asynchronously:<br>`RR[vfo],[dbm];` | **Auto RSSI Reporting**: `RD1;` enables periodic `RR` packets every ~200 ms (or upon signal level change), `RD0;` disables. |
+| **SL** | `SL[idx2][freq11];` | `SL_OK;` | **Scanner List Definition**: writes frequency into scanner list cell (indices `00` to `24`, up to 25 channels). |
+| **SC** | `SC[count2];` e.g. `SC03;` | Asynchronously:<br>`SR,[dbm],[sq],...;` | **Start Hardware Scanner**: asynchronously measures defined channels and returns complete results vector. |
+| **SCF** | `SCF[freq11][,ticks];` | Asynchronously:<br>`SQ[freq],[sq],[dbm],[noise],[glitch];` | **Single Hardware Measurement (SCF)**: detailed measurement of signal strength, noise, and glitches directly from BK4819. |
+| **DTMF** | *(automatic)* | Asynchronously:<br>`RD[char],[dbm];` | **DTMF Tone Reporting**: when a DTMF character is received, the radio automatically sends an `RD` packet with the decoded character and RSSI level. |
 
-### Testowanie i diagnostyka
-Do testowania wszystkich powyższych komend przygotowano skrypt w Pythonie:
+### Testing and Diagnostics
+A Python script is provided to test and demonstrate all CAT commands:
 ```powershell
 python tools\cat_tester.py COM16 38400
 ```
@@ -107,10 +111,12 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
 ## Table of Contents
 
+* [Project Overview](#project-overview)
+* [CAT Commands Quick Reference](#cat-commands-quick-reference)
 * [Main features and improvements from F4HWN](#main-features-and-improvements-from-f4hwn)
 * [Main Features from Egzumer](#main-features-from-egzumer)
 * [Manual](#manual)
-* [Compiling and Building from Docker](#compiling-and-Building-from-docker)
+* [Compiling and Building from Docker](#compiling-and-building-from-docker)
 * [Flashing the Firmware with UV Studio](#flashing-the-firmware-with-uv-studio)
 * [Credits](#credits)
 * [Other sources of information](#other-sources-of-information)
@@ -425,12 +431,15 @@ The default preset is **Fusion**. Available presets are:
 - **Transfer**
 - **FieldOps**
 - **Labs**
-- **All** (Fusion, Transfer, FieldOps and Labs)
+- **Max**
+- **CAT** (Kenwood CAT remote control edition)
+- **All** (Fusion, Transfer, FieldOps, Labs, Max, and CAT)
 
 Examples:
 
 ```bash
 ./compile-firmware.sh
+./compile-firmware.sh CAT
 ./compile-firmware.sh Fusion
 ./compile-firmware.sh Transfer
 ./compile-firmware.sh FieldOps
@@ -469,16 +478,25 @@ remains an explicit Git operation.
 
 ## Flashing the Firmware with UV Studio
 
-You can flash the UV-K5 V3 and UV-K1 directly from your web browser using the Web Serial-based [UV Studio](https://armel.github.io/uvstudio/).
+You can flash the UV-K5 V3 and UV-K1 directly from your web browser using the Web Serial-based [UV Studio](https://armel.github.io/uvstudio/#dump-calib).
 
 UV Studio combines firmware flashing, calibration maintenance, boot-logo management, K5Viewer and RF Log in a single interface. It requires no application installation, server or account. Use a desktop browser with Web Serial support, such as Chrome, Brave, Edge, Opera or Firefox 151+.
 
+> [!IMPORTANT]
+> **Flashing the CAT Firmware:**
+> 1. Download the **`f4hwn.cat.bin`** file (available in the root of this repository or in `build/CAT/`).
+> 2. Open [UV Studio](https://armel.github.io/uvstudio/#dump-calib).
+> 3. **Back up your calibration first!** Go to [Dump Calibration](https://armel.github.io/uvstudio/#dump-calib) with the radio in normal mode and download your `calibration.dat` file.
+> 4. Put your radio into **DFU mode (flash mode)** (hold PTT while turning the power knob on).
+> 5. Load and flash the downloaded **`f4hwn.cat.bin`** file using UV Studio.
+
 ## Steps to flash the firmware
 
-- Open the [Flash Firmware](https://armel.github.io/uvstudio/#flash) view in UV Studio.
-- Connect your radio to your computer using a compatible USB programming cable (USB-C or Baofeng/Kenwood like double jack USB cable).
-- Make sure your radio is in **DFU mode (flash mode)**.
-- Select an official F4HWN Fusion release from the catalog or load a local `.bin` firmware file.
+- Download the **`f4hwn.cat.bin`** file.
+- Open [UV Studio](https://armel.github.io/uvstudio/#dump-calib) in your browser.
+- Connect your radio to your computer using a compatible USB programming cable (USB-C or Baofeng/Kenwood style double-jack USB cable).
+- Make sure your radio is in **DFU mode (flash mode)** (power on while holding PTT).
+- Load your local **`f4hwn.cat.bin`** firmware file.
 - Click on `Flash Firmware`, then select the serial port associated with your radio.
 - The progress bar will guide you through the flashing steps.
 
