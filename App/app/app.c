@@ -2097,6 +2097,7 @@ void APP_TimeSlice500ms(void)
 
         if (exit_menu) {
             gMenuCountdown = 0;
+            gScanMixEditorActive = false;
 
             const int m = UI_MENU_GetCurrentMenuId();
 

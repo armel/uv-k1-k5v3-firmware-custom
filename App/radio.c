@@ -120,14 +120,38 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
     }
 #endif
 
+bool RADIO_IsChannelInScanList(uint8_t channelScanList, uint8_t scanList)
+{
+    if (scanList < 1 || scanList > SCAN_LIST_MODE_MIX)
+        return false;
+
+    if (channelScanList == 0)
+        return false;
+
+    if (channelScanList == SCAN_LIST_MODE_ALL)
+        return true;
+
+    if (scanList == SCAN_LIST_MODE_ALL)
+        return true;
+
+    if (scanList == SCAN_LIST_MODE_MIX) {
+        if (channelScanList > MR_CHANNELS_LIST)
+            return false;
+        return (gEeprom.SCAN_LIST_MIX_MASK & (1u << (channelScanList - 1u))) != 0;
+    }
+
+    return scanList >= 1 && scanList <= MR_CHANNELS_LIST && channelScanList == scanList;
+}
+
 bool RADIO_CheckValidList(uint8_t scanList)
 {
-    if(scanList == MR_CHANNELS_LIST + 1)
+    if (scanList == SCAN_LIST_MODE_ALL)
         return true;
 
     for (uint16_t i = 0; IS_MR_CHANNEL(i); i++) {
         const ChannelAttributes_t* att = MR_GetChannelAttributes(i);
-        if(att->scanlist == scanList && att->exclude == false)
+        if (att != NULL && !att->exclude && att->band <= BAND7_470MHz &&
+            RADIO_IsChannelInScanList(att->scanlist, scanList))
         {
             return true;
         }
@@ -135,20 +159,43 @@ bool RADIO_CheckValidList(uint8_t scanList)
     return false;
 }
 
+uint8_t RADIO_GetAdjacentScanList(uint8_t scanList, int8_t direction)
+{
+    if (scanList < 1 || scanList > SCAN_LIST_MODE_MIX)
+        scanList = 1;
+
+    if (direction > 0) {
+        if (scanList == MR_CHANNELS_LIST)
+            return SCAN_LIST_MODE_MIX;
+        if (scanList == SCAN_LIST_MODE_MIX)
+            return SCAN_LIST_MODE_ALL;
+        if (scanList == SCAN_LIST_MODE_ALL)
+            return 1;
+        return scanList + 1;
+    }
+
+    if (direction < 0) {
+        if (scanList == 1)
+            return SCAN_LIST_MODE_ALL;
+        if (scanList == SCAN_LIST_MODE_ALL)
+            return SCAN_LIST_MODE_MIX;
+        if (scanList == SCAN_LIST_MODE_MIX)
+            return MR_CHANNELS_LIST;
+        return scanList - 1;
+    }
+
+    return scanList;
+}
+
 void RADIO_NextValidList(int8_t direction)
 {
     uint8_t startList = gEeprom.SCAN_LIST_DEFAULT;
     uint8_t attempts = 0;
-    const uint8_t MAX_VALUE = MR_CHANNELS_LIST + 1;  // 25 (1-24 lists + ALL)
+    const uint8_t MAX_VALUE = SCAN_LIST_MODE_MIX;
     
     do {
-        if (direction > 0) {
-            // Forward: 1 → 2 → ... → 25 → 1
-            gEeprom.SCAN_LIST_DEFAULT = (gEeprom.SCAN_LIST_DEFAULT % MAX_VALUE) + 1;
-        } else {
-            // Backward: 25 → 24 → ... → 1 → 25
-            gEeprom.SCAN_LIST_DEFAULT = ((gEeprom.SCAN_LIST_DEFAULT - 2 + MAX_VALUE) % MAX_VALUE) + 1;
-        }
+        gEeprom.SCAN_LIST_DEFAULT = RADIO_GetAdjacentScanList(gEeprom.SCAN_LIST_DEFAULT,
+                                                              direction);
         attempts++;
         
         if (RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT))
@@ -158,7 +205,7 @@ void RADIO_NextValidList(int8_t direction)
     
     // Safety fallback: switch to ALL mode
     if (!RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT)) {
-        gEeprom.SCAN_LIST_DEFAULT = MAX_VALUE;  // ALL (25)
+        gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_ALL;
     }
 }
 
@@ -169,13 +216,15 @@ bool RADIO_CheckValidChannel(uint16_t channel, bool checkScanList, uint8_t scanL
     // return true if the channel appears valid
     if (!IS_MR_CHANNEL(channel))
         return false;
+    if (att == NULL)
+        return false;
     if (checkScanList && att->exclude == true)
         return false;
     if (att->band > BAND7_470MHz)
         return false;
-    if (!checkScanList || (scanList > MR_CHANNELS_LIST && att->scanlist != 0) || (scanList > 0 && att->scanlist == MR_CHANNELS_LIST + 1))
+    if (!checkScanList)
         return true;
-    if ((scanList == 0) || (scanList != att->scanlist)) {
+    if (!RADIO_IsChannelInScanList(att->scanlist, scanList)) {
         return false;
     }
     
@@ -322,7 +371,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
     }
     else {
         band = channel - FREQ_CHANNEL_FIRST;
-        bParticipation = MR_CHANNELS_LIST + 1;
+        bParticipation = SCAN_LIST_MODE_ALL;
     }
 
     pVfo->Band                    = band;

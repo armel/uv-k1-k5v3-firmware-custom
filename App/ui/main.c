@@ -268,7 +268,7 @@ static inline bool ScanProgress_GetBit(const uint8_t *map, uint16_t ch)
 
 static uint8_t ScanProgress_GetActiveScanList(void)
 {
-    const uint8_t max_scan_list = MR_CHANNELS_LIST + 1;
+    const uint8_t max_scan_list = SCAN_LIST_MODE_MIX;
     uint8_t scan_list = gEeprom.SCAN_LIST_DEFAULT;
 
     if (scan_list == 0 || scan_list > max_scan_list)
@@ -286,7 +286,9 @@ static void UI_MAIN_DrawScanListName(void)
     strcpy(text, "SCAN LIST ");
     char *p = text + 10;                     // sizeof("SCAN LIST ") - 1
 
-    if (scan_list > MR_CHANNELS_LIST) {
+    if (scan_list == SCAN_LIST_MODE_MIX) {
+        *p++ = 'M'; *p++ = 'I'; *p++ = 'X';
+    } else if (scan_list == SCAN_LIST_MODE_ALL) {
         *p++ = 'A'; *p++ = 'L'; *p++ = 'L';
     } else {
         const char *name = gListName[scan_list - 1];
@@ -312,13 +314,7 @@ static bool ScanProgress_ChannelBelongsToList(uint16_t channel, const ChannelAtt
     if (att->band > BAND7_470MHz)
         return false;
 
-    if (scan_list > MR_CHANNELS_LIST && att->scanlist != 0)
-        return true;
-
-    if (scan_list > 0 && att->scanlist == (MR_CHANNELS_LIST + 1))
-        return true;
-
-    if (scan_list == 0 || scan_list != att->scanlist)
+    if (!RADIO_IsChannelInScanList(att->scanlist, scan_list))
         return false;
 
     if (gEeprom.SCAN_LIST_ENABLED) {
@@ -1788,11 +1784,11 @@ void UI_DisplayMain(void)
                 {
                     // show the scan list assigment symbols
                     uint8_t countList = att->scanlist;
-                    if(countList > MR_CHANNELS_LIST + 1) {
+                    if(countList > SCAN_LIST_MODE_ALL) {
                         countList = 0;
                     }
 
-                    if (countList == MR_CHANNELS_LIST + 1) {
+                    if (countList == SCAN_LIST_MODE_ALL) {
                         displayStr = "ALL";
                     } 
                     else if (countList == 0) {

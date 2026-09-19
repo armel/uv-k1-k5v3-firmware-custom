@@ -37,6 +37,7 @@
 #include "frequencies.h"
 #include "helper/battery.h"
 #include "misc.h"
+#include "radio.h"
 #include "settings.h"
 #include "../driver/st7565.h"
 #if defined(ENABLE_OVERLAY)
@@ -48,6 +49,41 @@
 
 
 uint8_t gUnlockAllTxConfCnt;
+bool     gScanMixEditorActive;
+uint8_t  gScanMixEditorCursor;
+uint32_t gScanMixEditorMask;
+
+static void MENU_OpenScanMixEditor(void)
+{
+    gScanMixEditorMask = gEeprom.SCAN_LIST_MIX_MASK & SCAN_LIST_MIX_MASK_ALL;
+    if (gScanMixEditorMask == 0)
+        gScanMixEditorMask = SCAN_LIST_MIX_MASK_ALL;
+
+    gScanMixEditorCursor = 0;
+    while (gScanMixEditorCursor < MR_CHANNELS_LIST &&
+           (gScanMixEditorMask & (1u << gScanMixEditorCursor)) == 0)
+        gScanMixEditorCursor++;
+    if (gScanMixEditorCursor >= MR_CHANNELS_LIST)
+        gScanMixEditorCursor = 0;
+
+    gInputBoxIndex = 0;
+    gScanMixEditorActive = true;
+    gRequestDisplayScreen = DISPLAY_MENU;
+    gUpdateDisplay = true;
+}
+
+static void MENU_SaveScanMixEditor(void)
+{
+    gEeprom.SCAN_LIST_MIX_MASK = gScanMixEditorMask & SCAN_LIST_MIX_MASK_ALL;
+    gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_MIX;
+    gSubMenuSelection = SCAN_LIST_MODE_MIX;
+    gScanMixEditorActive = false;
+    gIsInSubMenu = false;
+    gInputBoxIndex = 0;
+    gFlagRefreshSetting = true;
+    gRequestSaveSettings = true;
+    gRequestDisplayScreen = DISPLAY_MENU;
+}
 
 #ifdef ENABLE_F_CAL_MENU
     void writeXtalFreqCal(const int32_t value, const bool update_eeprom)
@@ -319,12 +355,12 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 
         case MENU_LIST_CH:
             //*pMin = 0;
-            *pMax = MR_CHANNELS_LIST + 1;
+            *pMax = SCAN_LIST_MODE_ALL;
             break;
 
         case MENU_S_LIST:
             *pMin = 1;
-            *pMax = MR_CHANNELS_LIST + 1;
+            *pMax = SCAN_LIST_MODE_MIX;
             break;
 
 #ifdef ENABLE_DTMF_CALLING
@@ -1040,6 +1076,12 @@ static void MENU_ClampSelection(int8_t Direction)
     int32_t Min;
     int32_t Max;
 
+    if (UI_MENU_GetCurrentMenuId() == MENU_S_LIST)
+    {
+        gSubMenuSelection = RADIO_GetAdjacentScanList(gSubMenuSelection, Direction);
+        return;
+    }
+
     if (!MENU_GetLimits(UI_MENU_GetCurrentMenuId(), &Min, &Max))
     {
         int32_t Selection = gSubMenuSelection;
@@ -1528,6 +1570,26 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
 
+    if (gScanMixEditorActive)
+    {
+        if (bKeyHeld)
+            return;
+
+        INPUTBOX_Append(Key);
+        if (gInputBoxIndex < 2)
+            return;
+
+        gInputBoxIndex = 0;
+        Value = (gInputBox[0] * 10) + gInputBox[1];
+        if (Value >= 1 && Value <= MR_CHANNELS_LIST) {
+            gScanMixEditorCursor = (uint8_t)(Value - 1);
+            gRequestDisplayScreen = DISPLAY_MENU;
+        } else {
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        }
+        return;
+    }
+
     if (UI_MENU_GetCurrentMenuId() == MENU_MEM_NAME && edit_index >= 0)
     {   // currently editing the channel name
         if (edit_index >= 10)
@@ -1705,6 +1767,25 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
+    if (m == MENU_S_LIST)
+    {
+        if (gInputBoxIndex < 2)
+            return;
+
+        gInputBoxIndex = 0;
+        Value = (gInputBox[0] * 10) + gInputBox[1];
+
+        if (Value == 0)
+            gSubMenuSelection = SCAN_LIST_MODE_ALL;
+        else if (Value == SCAN_LIST_MIX_SHORTCUT)
+            gSubMenuSelection = SCAN_LIST_MODE_MIX;
+        else if (Value <= MR_CHANNELS_LIST)
+            gSubMenuSelection = Value;
+        else
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        return;
+    }
+
     if (MENU_GetLimits(UI_MENU_GetCurrentMenuId(), &Min, &Max))
     {
         gInputBoxIndex = 0;
@@ -1747,6 +1828,16 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
 static void MENU_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
 {
+    if (gScanMixEditorActive)
+    {
+        if (bKeyHeld || !bKeyPressed)
+            return;
+
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        MENU_SaveScanMixEditor();
+        return;
+    }
+
     if (MENU_IsEditingName())
     {
         if (!bKeyPressed)
@@ -1863,6 +1954,24 @@ Skip:
 
 static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 {
+    if (gScanMixEditorActive)
+    {
+        if (!bKeyPressed || bKeyHeld)
+            return;
+
+        const uint32_t bit = 1u << gScanMixEditorCursor;
+        if ((gScanMixEditorMask & bit) != 0 && (gScanMixEditorMask & ~bit) == 0) {
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+            return;
+        }
+
+        gScanMixEditorMask ^= bit;
+        gInputBoxIndex = 0;
+        gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        gRequestDisplayScreen = DISPLAY_MENU;
+        return;
+    }
+
     if (!bKeyPressed || (bKeyHeld && (!MENU_IsEditingName() || gAskForConfirmation)))
         return;
     
@@ -1964,6 +2073,13 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
                 gIsInSubMenu = false;
             }
         }
+    }
+
+    if (UI_MENU_GetCurrentMenuId() == MENU_S_LIST &&
+        gSubMenuSelection == SCAN_LIST_MODE_MIX)
+    {
+        MENU_OpenScanMixEditor();
+        return;
     }
 
     // exiting the sub menu
@@ -2121,6 +2237,26 @@ static void MENU_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
     if (!bKeyPressed)
         return;
+
+    if (gScanMixEditorActive)
+    {
+        if (!bKeyHeld) {
+            gInputBoxIndex = 0;
+            gBeepToPlay = BEEP_1KHZ_60MS_OPTIONAL;
+        }
+#ifdef ENABLE_FEAT_F4HWN
+        if (!gEeprom.SET_NAV)
+            Direction = -Direction;
+#else
+        Direction = -Direction;
+#endif
+        gScanMixEditorCursor = NUMBER_AddWithWraparound(gScanMixEditorCursor,
+                                                        Direction,
+                                                        0,
+                                                        MR_CHANNELS_LIST - 1);
+        gRequestDisplayScreen = DISPLAY_MENU;
+        return;
+    }
 
     if (!bKeyHeld) {
         gInputBoxIndex = 0;

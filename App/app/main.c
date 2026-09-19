@@ -25,6 +25,7 @@
 #endif
 #include "app/generic.h"
 #include "app/main.h"
+#include "app/menu.h"
 #include "app/scanner.h"
 
 #ifdef ENABLE_SPECTRUM
@@ -104,7 +105,7 @@ static void toggle_chan_scanlist(void)
 
         scanlist++;
 
-        if (scanlist > MR_CHANNELS_LIST + 1)
+        if (scanlist > SCAN_LIST_MODE_ALL)
             scanlist = 0;
 
         gTxVfo->SCANLIST_PARTICIPATION = scanlist;
@@ -491,26 +492,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     if (!gWasFKeyPressed) { // F-key wasn't pressed
 
         if (gScanStateDir != SCAN_OFF){
-            /*
-            switch(Key) {
-                case KEY_0:
-                    gEeprom.SCAN_LIST_DEFAULT = MR_CHANNELS_LIST + 1;
-                    #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
-                        SETTINGS_WriteCurrentState();
-                    #endif
-                    break;
-                case KEY_1...KEY_9:
-                    gEeprom.SCAN_LIST_DEFAULT = Key;
-                    #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
-                        SETTINGS_WriteCurrentState();
-                    #endif
-                    break;
-                default:
-                    break;
-            }
-            return;
-            */
-
             INPUTBOX_Append(Key);
 
             /* Wait until exactly two digits are entered */
@@ -525,8 +506,26 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             /* 00 = ALL scan lists */
             if (value == 0)
             {
-                gEeprom.SCAN_LIST_DEFAULT = MR_CHANNELS_LIST + 1;
+                gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_ALL;
                 UI_MAIN_NotifyScanListChanged();
+            #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+                SETTINGS_WriteCurrentState();
+            #endif
+                return;
+            }
+
+            /* 25 = saved MIX selection */
+            if (value == SCAN_LIST_MIX_SHORTCUT)
+            {
+                gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_MIX;
+
+                if (!RADIO_CheckValidList(SCAN_LIST_MODE_MIX))
+                {
+                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                    RADIO_NextValidList(1);
+                }
+                UI_MAIN_NotifyScanListChanged();
+
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
             #endif
@@ -854,6 +853,7 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
             #endif
 
             gFlagRefreshSetting = true;
+            gScanMixEditorActive = false;
             gRequestDisplayScreen = DISPLAY_MENU;
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
             gMenuLevel  = MENU_LEVEL_CAT;

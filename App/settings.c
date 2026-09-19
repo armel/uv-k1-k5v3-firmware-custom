@@ -28,6 +28,8 @@
 #include "settings.h"
 #include "ui/menu.h"
 
+#define SETTINGS_SCAN_MIX_ADDR 0x00A170u
+
 EEPROM_Config_t gEeprom = { 0 };
 
 // Load a DTMF code from EEPROM, falling back to default_val if invalid.
@@ -333,7 +335,7 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     PY25Q16_ReadBuffer(0x00A130, Data, 8);
 
     gEeprom.SCAN_LIST_DEFAULT =
-            (((Data[0] & 0x7F) >= 1) && ((Data[0] & 0x7F) <= (MR_CHANNELS_LIST + 1)))
+            (((Data[0] & 0x7F) >= 1) && ((Data[0] & 0x7F) <= SCAN_LIST_MODE_MIX))
                 ? (Data[0] & 0x7F)
                 : 1;
     gEeprom.SCAN_LIST_ENABLED = (Data[0] >> 7) & 0x01;
@@ -349,6 +351,19 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     gEeprom.CHAN_1_CALL =
             (uint16_t)Data[5] |
             ((uint16_t)Data[6] << 8);
+
+    // 0F58..0F5F
+    PY25Q16_ReadBuffer(SETTINGS_SCAN_MIX_ADDR, Data, 8);
+    if (Data[3] == 'M' && Data[4] == 'I' && Data[5] == 'X' && Data[6] == 1) {
+        gEeprom.SCAN_LIST_MIX_MASK =
+                (uint32_t)Data[0] |
+                ((uint32_t)Data[1] << 8) |
+                ((uint32_t)Data[2] << 16);
+        if (gEeprom.SCAN_LIST_MIX_MASK == 0)
+            gEeprom.SCAN_LIST_MIX_MASK = SCAN_LIST_MIX_MASK_ALL;
+    } else {
+        gEeprom.SCAN_LIST_MIX_MASK = SCAN_LIST_MIX_MASK_ALL;
+    }
 
     // 0F40..0F47
     PY25Q16_ReadBuffer(0x00A150, Data, 8);
@@ -1150,6 +1165,17 @@ void SETTINGS_SaveSettings(void)
 #ifdef ENABLE_FEAT_F4HWN_VOL
     SETTINGS_WriteCurrentVol();
 #endif
+
+    // 0F58..0F5F
+    PY25Q16_ReadBuffer(SETTINGS_SCAN_MIX_ADDR, SecBuf, 8);
+    SecBuf[0] = (uint8_t)(gEeprom.SCAN_LIST_MIX_MASK & 0xFFu);
+    SecBuf[1] = (uint8_t)((gEeprom.SCAN_LIST_MIX_MASK >> 8) & 0xFFu);
+    SecBuf[2] = (uint8_t)((gEeprom.SCAN_LIST_MIX_MASK >> 16) & 0xFFu);
+    SecBuf[3] = 'M';
+    SecBuf[4] = 'I';
+    SecBuf[5] = 'X';
+    SecBuf[6] = 1;
+    PY25Q16_WriteBuffer(SETTINGS_SCAN_MIX_ADDR, SecBuf, 8, false);
 }
 
 void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode)

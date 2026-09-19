@@ -157,7 +157,12 @@ void UI_DisplayStatus()
             if (IS_MR_CHANNEL(gNextMrChannel) && !SCANNER_IsScanning()) { // channel mode
                 uint8_t end = 0;
 
-                if(gEeprom.SCAN_LIST_DEFAULT == MR_CHANNELS_LIST + 1)
+                if (gEeprom.SCAN_LIST_DEFAULT == SCAN_LIST_MODE_MIX)
+                {
+                    strcpy(str, "MIX");
+                    end = 14;
+                }
+                else if(gEeprom.SCAN_LIST_DEFAULT == SCAN_LIST_MODE_ALL)
                 {
                     strcpy(str, "ALL");
                     end = 14;

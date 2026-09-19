@@ -825,7 +825,6 @@ static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t lin
     UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
 }
 
-#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
 /* Draw `text` (3x5 font) centred inside a fixed-width rounded inverse capsule:
  * left edge `cap_left`, inclusive width `cap_w`, on framebuffer page `line`. Same
  * capsule pattern as GUI_DisplaySmallestInverse (0x3E rounded ends, 0x7F body) but
@@ -845,7 +844,34 @@ static void UI_MENU_DrawFixedCapsule(const char *text, uint8_t cap_left,
         gFrameBuffer[line][x] ^= 0x7Fu;
     gFrameBuffer[line][cap_right] ^= 0x3Eu;
 }
-#endif
+
+static void UI_MENU_DrawScanMixEditor(void)
+{
+    char text[9];
+
+    // Keep the cursor centred, with two neighbouring lists above and below.
+    for (int8_t row = -2; row <= 2; row++) {
+        const uint8_t index = (uint8_t)((gScanMixEditorCursor + row +
+                                        MR_CHANNELS_LIST) % MR_CHANNELS_LIST);
+        const uint8_t line = (uint8_t)(3 + row);
+        const char *name = gListName[index];
+
+        if (IsEmptyName(name, sizeof(gListName[0])))
+            sprintf(text, "%02u", (unsigned)(index + 1));
+        else
+            sprintf(text, "%02u (%.3s)", (unsigned)(index + 1), name);
+
+        // The longest label ends at x=109; the compact ON capsule stays right-aligned.
+        if (row == 0) {
+            UI_PrintStringSmallBold(text, 54, 0, line);
+        } else {
+            UI_PrintStringSmallNormal(text, 54, 0, line);
+        }
+
+        if (gScanMixEditorMask & (1u << index))
+            UI_MENU_DrawFixedCapsule("ON", 115, 11, line);
+    }
+}
 
 void UI_DisplayMenu(void)
 {
@@ -971,6 +997,13 @@ void UI_DisplayMenu(void)
        It also has to be set back to max when pressing the Exit key. */
 
     BACKLIGHT_TurnOn();
+
+    if (gScanMixEditorActive)
+    {
+        UI_MENU_DrawScanMixEditor();
+        ST7565_BlitFullScreen();
+        return;
+    }
 
     //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
         uint8_t gaugeLine = 0;
@@ -1330,7 +1363,9 @@ void UI_DisplayMenu(void)
 
         case MENU_LIST_CH:
         case MENU_S_LIST:
-            if (gSubMenuSelection == MR_CHANNELS_LIST + 1)
+            if (gSubMenuSelection == SCAN_LIST_MODE_MIX && m == MENU_S_LIST)
+                strcpy(String, "MIX");
+            else if (gSubMenuSelection == SCAN_LIST_MODE_ALL)
                 strcpy(String, "ALL");
             else if (gSubMenuSelection == 0 && m == MENU_LIST_CH)
                 strcpy(String, "OFF");
