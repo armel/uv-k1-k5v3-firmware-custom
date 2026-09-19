@@ -70,6 +70,7 @@ if(ENABLE_FEAT_F4HWN)
         "AUTHOR_STRING_2=\"${AUTHOR_STRING_2}\""
         "VERSION_STRING_1=\"${VERSION_STRING_1}\""
         "VERSION_STRING_2=\"${VERSION_STRING_2}\""
+        "DISPLAY_VERSION_STRING_2=\"${DISPLAY_VERSION_STRING_2}\""
         "EDITION_STRING=\"${EDITION_STRING}\""
         ALERT_TOT=10
     )
@@ -78,6 +79,7 @@ endif()
 target_compile_definitions(App INTERFACE 
     "AUTHOR_STRING=\"${AUTHOR_STRING}\""
     "VERSION_STRING=\"${VERSION_STRING}\""
+    "BUILD_COMMIT=\"${BUILD_COMMIT}\""
 )
 
 if(NOT SQL_TONE)
@@ -93,8 +95,7 @@ if(ENABLE_AIRCOPY OR ENABLE_UART OR ENABLE_USB)
 endif()
 
 enable_feature(ENABLE_UART
-    driver/uart.c 
-    app/uart.c
+    driver/uart.c
     # driver/aes.c
 )
 
@@ -116,13 +117,19 @@ endif()
 
 # ---- STOCK QUANSHENG FEATURES ----
 
+# ENABLE_FMRADIO keeps the BK1080 driver and the FM data/helpers shared with the
+# overlay.  ENABLE_FMRADIO_EMBEDDED additionally selects the legacy resident
+# state machine and its integration with the main scheduler.
 enable_feature(ENABLE_FMRADIO
-    driver/bk1080.c 
-    app/fm.c 
-    ui/fmradio.c
+    driver/bk1080.c
+    app/fm.c
 )
+if(ENABLE_FMRADIO AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    target_compile_definitions(App INTERFACE ENABLE_FMRADIO_EMBEDDED)
+    target_sources(App INTERFACE ui/fmradio.c)
+endif()
 enable_feature(ENABLE_AIRCOPY
-    app/aircopy.c 
+    app/aircopy.c
     ui/aircopy.c
 )
 enable_feature(ENABLE_NOAA)
@@ -130,7 +137,6 @@ enable_feature(ENABLE_VOICE
     driver/voice.c
 )
 enable_feature(ENABLE_VOX)
-enable_feature(ENABLE_ALARM)
 enable_feature(ENABLE_TX1750)
 enable_feature(ENABLE_PWRON_PASSWORD
     ui/lock.c
@@ -150,7 +156,6 @@ enable_feature(ENABLE_SMALL_BOLD)
 enable_feature(ENABLE_CUSTOM_MENU_LAYOUT)
 enable_feature(ENABLE_KEEP_MEM_NAME)
 enable_feature(ENABLE_WIDE_RX)
-enable_feature(ENABLE_TX_WHEN_AM)
 enable_feature(ENABLE_F_CAL_MENU)
 enable_feature(ENABLE_CTCSS_TAIL_PHASE_SHIFT)
 enable_feature(ENABLE_BOOT_BEEPS)
@@ -165,26 +170,47 @@ enable_feature(ENABLE_FEAT_F4HWN_AUDIO_SCOPE)
 enable_feature(ENABLE_COPY_CHAN_TO_VFO)
 enable_feature(ENABLE_REDUCE_LOW_MID_TX_POWER)
 enable_feature(ENABLE_BYP_RAW_DEMODULATORS)
-enable_feature(ENABLE_BLMIN_TMP_OFF)
 enable_feature(ENABLE_SCAN_RANGES)
 
 # ---- CONTRIB MODS ----
 
-# Thank you @markusb
-enable_feature(ENABLE_REGA
-    app/rega.c
-) 
 # Thank you @reppad
 enable_feature(ENABLE_EXTRA_UART_CMD)
 
 # ---- F4HWN MODS ----
 
+if(NOT ENABLE_UART AND NOT ENABLE_USB)
+    if(ENABLE_FEAT_F4HWN_K5VIEWER OR ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER)
+        message(STATUS "Disabling K5Viewer because both ENABLE_UART and ENABLE_USB are OFF.")
+    endif()
+    set(ENABLE_FEAT_F4HWN_K5VIEWER OFF)
+    set(ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER OFF)
+endif()
+
 enable_feature(ENABLE_FEAT_F4HWN)
-enable_feature(ENABLE_FEAT_F4HWN_GAME 
-    app/breakout.c
+# GAME keeps the F+7 hook; the resident breakout.c is compiled only when the
+# overlay does NOT provide Breakout as an app (that is the flash we recover).
+if(ENABLE_FEAT_F4HWN_GAME)
+    target_compile_definitions(App INTERFACE ENABLE_FEAT_F4HWN_GAME)
+    if(NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+        target_sources(App INTERFACE app/breakout.c)
+    endif()
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    apps/app_overlay.c
+    apps/app_menu.c
 )
-enable_feature(ENABLE_FEAT_F4HWN_SCREENSHOT 
-    screenshot.c
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO)
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_BEAM)
+if(ENABLE_FEAT_F4HWN_OVERLAY_APPS AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_OVERLAY_APPS requires ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY (the 4 KiB overlay workspace).")
+endif()
+if((ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO OR ENABLE_FEAT_F4HWN_OVERLAY_BEAM) AND
+   NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    message(FATAL_ERROR "Overlay Triple VFO/Beam services require ENABLE_FEAT_F4HWN_OVERLAY_APPS.")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_K5VIEWER 
+    k5viewer.c
 )
 enable_feature(ENABLE_FEAT_F4HWN_SPECTRUM)
 enable_feature(ENABLE_FEAT_F4HWN_RX_TX_TIMER)
@@ -194,6 +220,10 @@ enable_feature(ENABLE_FEAT_F4HWN_RESUME_STATE)
 enable_feature(ENABLE_FEAT_F4HWN_NARROWER)
 enable_feature(ENABLE_FEAT_F4HWN_INV)
 enable_feature(ENABLE_FEAT_F4HWN_CTR)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_PROGRESS)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_FASTER)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_RSSI)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_SUBAUDIBLE)
 enable_feature(ENABLE_FEAT_F4HWN_RESCUE_OPS)
 enable_feature(ENABLE_FEAT_F4HWN_VOL)
 enable_feature(ENABLE_FEAT_F4HWN_AUDIO)
@@ -203,6 +233,66 @@ enable_feature(ENABLE_FEAT_F4HWN_GMRS_FRS_MURS)
 enable_feature(ENABLE_FEAT_F4HWN_CA)
 enable_feature(ENABLE_FEAT_F4HWN_DEBUG)
 enable_feature(ENABLE_FEAT_F4HWN_MEM)
+enable_feature(ENABLE_FEAT_F4HWN_BEAM
+    app/beam.c
+)
+enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG
+    app/rxtx_log.c
+)
+enable_feature(ENABLE_FEAT_F4HWN_FOXHUNT)
+enable_feature(ENABLE_FEAT_F4HWN_BEACON)
+if(ENABLE_FEAT_F4HWN_FOXHUNT OR ENABLE_FEAT_F4HWN_BEACON)
+    target_sources(App INTERFACE app/foxhunt.c)
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_ACTION_PICKER)
+
+if(ENABLE_FEAT_F4HWN_ACTION_PICKER AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_ACTION_PICKER requires ENABLE_FEAT_F4HWN.")
+endif()
+
+enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP)
+enable_feature(ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER)
+
+if(ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER AND NOT (ENABLE_FEAT_F4HWN_RXTX_LOG AND ENABLE_FEAT_F4HWN_K5VIEWER))
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER requires ENABLE_FEAT_F4HWN_RXTX_LOG (log data) and ENABLE_FEAT_F4HWN_K5VIEWER (serial transport).")
+endif()
+
+if(ENABLE_FEAT_F4HWN_BEAM AND NOT ENABLE_AIRCOPY)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_BEAM requires ENABLE_AIRCOPY (it reuses g_FSK_Buffer, AIRCOPY_Obfuscate and the FSK packet plumbing).")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT
+    driver/mb_flash.c
+    ui/multiboot.c
+)
+if(ENABLE_FEAT_F4HWN_MULTIBOOT AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT requires ENABLE_FEAT_F4HWN (the SetCfg menu, SysInfo badge and multiboot UI all live under ENABLE_FEAT_F4HWN).")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY requires ENABLE_FEAT_F4HWN_MULTIBOOT.")
+endif()
+
+enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
+enable_feature(ENABLE_FEAT_F4HWN_LOGO)
+enable_feature(ENABLE_FEAT_F4HWN_LOGO_SAV)
+enable_feature(ENABLE_FEAT_F4HWN_MENU_CAT)
+
+if(ENABLE_FEAT_F4HWN_LOGO_SAV AND NOT ENABLE_FEAT_F4HWN_LOGO)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_LOGO_SAV requires ENABLE_FEAT_F4HWN_LOGO.")
+endif()
+
+if(ENABLE_FEAT_F4HWN_MENU_CAT AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_MENU_CAT requires ENABLE_FEAT_F4HWN.")
+endif()
+
+# ---- CAT (Kenwood CAT + hardware scanner + RSSI telemetry) ----
+
+enable_feature(ENABLE_CAT)
+
+if(ENABLE_CAT AND NOT ENABLE_UART AND NOT ENABLE_USB)
+    message(FATAL_ERROR "ENABLE_CAT requires ENABLE_UART or ENABLE_USB.")
+endif()
 
 # ---- DEBUGGING ----
 

@@ -1,0 +1,358 @@
+/* Copyright 2024 Armel F4HWN
+ * https://github.com/armel
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
+ */
+
+#include "debugging.h"
+#include "driver/st7565.h"
+#include "k5viewer.h"
+#include "misc.h"
+#ifdef ENABLE_UART
+#include "driver/uart.h"
+#endif
+#ifdef ENABLE_USB
+#include "driver/vcp.h"
+#endif
+#include "driver/keyboard.h"
+#include "driver/bk4819.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+#include "app/rxtx_log.h"
+#endif
+
+// SRAM optimization: minimize static allocations
+// - previousHash: one fingerprint per 8-byte chunk instead of a full
+//   1024-byte copy of the previous frame (chunks are only compared,
+//   never retransmitted from history). A 16-bit fingerprint keeps the
+//   collision odds at ~1/65536 per chunk, so a stale chunk slipping
+//   through is rare; the forcedBlock rotation repairs that residual
+//   within at most 128 frames.
+// Stack optimization: chunks are computed on demand straight from
+// gStatusLine/gFrameBuffer instead of building the whole 1024-byte
+// frame on the stack. Changed chunks are tracked in a 16-byte bitmap.
+// Peak stack drops from ~1.3 KB to ~40 bytes, at the cost of
+// transforming each transmitted chunk twice (negligible next to the
+// blocking UART transfer).
+static uint16_t previousHash[128];
+static uint8_t previousStateFlags = 0xFF;
+static uint8_t forcedBlock = 0;
+static uint8_t keepAlive = 3;
+static bool hasConnectionPing = false;
+static bool wasConnected = false;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+static uint32_t previousRfLogSignature = 0;
+static bool rfLogSent = false;
+// Pagination bound of the history dump: rows with trafficSeq below this
+// value remain to be sent; HISTORY_START arms a new dump, 0 means done.
+static uint32_t rfLogHistoryBefore = RXTX_LOG_K5VIEWER_HISTORY_START;
+#endif
+
+// FNV-1a over one 8-byte chunk, folded to 16 bits
+static uint16_t K5VIEWER_Hash(const uint8_t *data)
+{
+    uint32_t h = 2166136261u;
+    for (uint8_t i = 0; i < 8; i++) {
+        h = (h ^ data[i]) * 16777619u;
+    }
+    return (uint16_t)(h ^ (h >> 16));
+}
+
+void K5VIEWER_ParseInput(void)
+{
+    if (K5VIEWER_IsLocked())
+        return;
+
+#ifdef ENABLE_UART
+    if (UART_IsCableConnected()) {
+        keepAlive = 15;
+        hasConnectionPing = true;
+        gUSB_K5ViewerEnabled = false;
+        return;
+    }
+#endif
+
+#ifdef ENABLE_USB
+    if (VCP_K5ViewerPing()) {
+        keepAlive = 15;
+        hasConnectionPing = true;
+        gUSB_K5ViewerEnabled = true;
+    }
+#endif
+
+}
+
+static void K5VIEWER_Send(const uint8_t *buf, uint16_t len)
+{
+#if defined(ENABLE_UART) && defined(ENABLE_USB)
+    if (gUSB_K5ViewerEnabled) {
+        cdc_acm_data_send_with_dtr(buf, len);
+    } else {
+        UART_Send(buf, len);
+    }
+#elif defined(ENABLE_USB)
+    cdc_acm_data_send_with_dtr(buf, len);
+#elif defined(ENABLE_UART)
+    UART_Send(buf, len);
+#else
+    (void)buf;
+    (void)len;
+#endif
+}
+
+enum {
+    K5VIEWER_CHUNK_SIZE = 8,
+    K5VIEWER_CHUNKS_PER_LINE = 16,
+    K5VIEWER_HALF_LINE_COLUMNS = LCD_WIDTH / 2,
+    K5VIEWER_MARKER_BASE = 0xF0,
+    K5VIEWER_TYPE_DIFF = 0x02,
+    K5VIEWER_TYPE_RXTX_LOG = 0x05,
+    K5VIEWER_TYPE_RXTX_LOG_HISTORY = 0x06,
+    K5VIEWER_FLAG_DEEP_SLEEP = 1 << 0,
+    K5VIEWER_FLAG_LED_RED = 1 << 1,
+    K5VIEWER_FLAG_LED_GREEN = 1 << 2,
+};
+
+static uint8_t K5VIEWER_StateFlags(void)
+{
+    uint8_t flags = 0;
+
+#ifdef ENABLE_FEAT_F4HWN_SLEEP
+    if (gWakeUp)
+        flags |= K5VIEWER_FLAG_DEEP_SLEEP;
+#endif
+
+    if (BK4819_IsGpioOutSet(BK4819_GPIO5_PIN1_RED))
+        flags |= K5VIEWER_FLAG_LED_RED;
+
+    if (BK4819_IsGpioOutSet(BK4819_GPIO6_PIN2_GREEN))
+        flags |= K5VIEWER_FLAG_LED_GREEN;
+
+    return flags;
+}
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+static bool K5VIEWER_HasPendingRfLogUpdate(void)
+{
+    if (!RXTX_LOG_IsEnabled())
+        rfLogHistoryBefore = RXTX_LOG_K5VIEWER_HISTORY_START;
+
+    if ((gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG_RESTART) != 0) {
+        gSerialViewerFeatures &= ~SERIAL_VIEWER_FEATURE_RF_LOG_RESTART;
+        rfLogSent = false;
+        rfLogHistoryBefore = RXTX_LOG_K5VIEWER_HISTORY_START;
+    }
+
+    if ((gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG) == 0)
+        return false;
+
+    return !rfLogSent || RXTX_LOG_K5ViewerSignature() != previousRfLogSignature;
+}
+
+static void K5VIEWER_SendRfLogFrameHeader(uint8_t type, uint16_t len)
+{
+    uint8_t header[5] = {0xAA, 0x55, type, (uint8_t)(len >> 8), (uint8_t)len};
+
+    K5VIEWER_Send(header, sizeof(header));
+}
+
+static void K5VIEWER_SendRfLogFrameEnd(void)
+{
+    const uint8_t end = 0x0A;
+
+    K5VIEWER_Send(&end, 1);
+}
+
+static void K5VIEWER_SendRfLog(void)
+{
+    // Capture the signature before streaming: a state change landing
+    // during the blocking send still differs afterwards and triggers a
+    // resend on the next cycle.
+    previousRfLogSignature = RXTX_LOG_K5ViewerSignature();
+    rfLogSent = true;
+
+    const uint16_t size = RXTX_LOG_IsEnabled()
+                            ? RXTX_LOG_K5VIEWER_PACKET_SIZE
+                            : RXTX_LOG_K5VIEWER_STATUS_PACKET_SIZE;
+    K5VIEWER_SendRfLogFrameHeader(K5VIEWER_TYPE_RXTX_LOG, size);
+    RXTX_LOG_SendK5ViewerPacket(K5VIEWER_Send);
+    K5VIEWER_SendRfLogFrameEnd();
+}
+
+static bool K5VIEWER_HasPendingRfLogHistory(void)
+{
+    return RXTX_LOG_IsEnabled() &&
+           (gSerialViewerFeatures & SERIAL_VIEWER_FEATURE_RF_LOG_HISTORY) != 0 &&
+           rfLogHistoryBefore != 0;
+}
+
+static void K5VIEWER_SendRfLogHistory(void)
+{
+    K5VIEWER_SendRfLogFrameHeader(K5VIEWER_TYPE_RXTX_LOG_HISTORY,
+                                  RXTX_LOG_K5VIEWER_HISTORY_PACKET_SIZE);
+    rfLogHistoryBefore = RXTX_LOG_SendK5ViewerHistoryPage(rfLogHistoryBefore, K5VIEWER_Send);
+    K5VIEWER_SendRfLogFrameEnd();
+}
+#endif
+
+bool K5VIEWER_HasPendingStateChange(void)
+{
+    if (gUART_LockK5Viewer > 0 || keepAlive == 0 || !hasConnectionPing)
+        return false;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    if (K5VIEWER_HasPendingRfLogUpdate())
+        return true;
+    if (K5VIEWER_HasPendingRfLogHistory())
+        return true;
+#endif
+
+    return !wasConnected || K5VIEWER_StateFlags() != previousStateFlags;
+}
+
+// Compute one 8-byte output chunk directly from the display buffers.
+// Frame layout: per line (status + 7 frame lines), 8 bit layers of
+// 16 bytes each. Each bit layer is split into two 64-column chunks.
+static void K5VIEWER_Chunk(uint8_t chunkIdx, uint8_t *dest)
+{
+    const uint8_t chunkInLine = chunkIdx % K5VIEWER_CHUNKS_PER_LINE;
+    const uint8_t line = chunkIdx / K5VIEWER_CHUNKS_PER_LINE;
+    const uint8_t bit = chunkInLine / 2;
+    const uint8_t columnBase = (chunkInLine % 2) * K5VIEWER_HALF_LINE_COLUMNS;
+    const uint8_t *src = (line == 0 ? gStatusLine : gFrameBuffer[line - 1])
+                         + columnBase;
+
+    for (uint8_t j = 0; j < K5VIEWER_CHUNK_SIZE; j++) {
+        uint8_t acc = 0;
+        for (uint8_t k = 0; k < K5VIEWER_CHUNK_SIZE; k++) {
+            if (src[j * K5VIEWER_CHUNK_SIZE + k] & (1 << bit)) acc |= (1 << k);
+        }
+        dest[j] = gSetting_set_inv ? ~acc : acc;
+    }
+}
+
+void K5VIEWER_Update(bool force)
+{
+    if (K5VIEWER_IsLocked())
+        return;
+
+    if (keepAlive > 0) {
+        if (--keepAlive == 0) {
+            // Connection just lost → reset state for next reconnection
+            wasConnected = false;
+            hasConnectionPing = false;
+            previousStateFlags = 0xFF;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+            gSerialViewerFeatures = 0;
+            rfLogSent = false;
+            rfLogHistoryBefore = RXTX_LOG_K5VIEWER_HISTORY_START;
+#endif
+            return;
+        }
+    } else {
+        return;
+    }
+
+    // Connection is alive — detect reconnection and force full frame
+    if (!wasConnected) {
+        force = true;
+    }
+
+    const uint8_t stateFlags = K5VIEWER_StateFlags();
+    const bool stateChanged = (stateFlags != previousStateFlags);
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    const bool rfLogPending = K5VIEWER_HasPendingRfLogUpdate();
+    const bool rfLogHistoryPending = K5VIEWER_HasPendingRfLogHistory();
+#else
+    const bool rfLogPending = false;
+    const bool rfLogHistoryPending = false;
+#endif
+
+    // ==== FIRST PASS: Count changed chunks ====
+    uint16_t deltaLen = 0;
+    uint8_t changedBitmap[16] = {0};  // 1 bit per chunk
+    uint8_t chunk[9];                 // [0] = index, [1..8] = payload
+
+    for (uint8_t chunkIdx = 0; chunkIdx < 128; chunkIdx++) {
+        K5VIEWER_Chunk(chunkIdx, &chunk[1]);
+
+        bool changed = K5VIEWER_Hash(&chunk[1]) != previousHash[chunkIdx];
+        bool isForced = (chunkIdx == forcedBlock);
+
+        if (changed || isForced || force) {
+            changedBitmap[chunkIdx >> 3] |= 1 << (chunkIdx & 7);
+            deltaLen += 9;
+        }
+    }
+
+    forcedBlock = (forcedBlock + 1) % 128;
+
+    if (deltaLen == 0 && !stateChanged && !rfLogPending && !rfLogHistoryPending)
+        return;
+
+    // Skip transmission if a key is currently pressed
+    // UART_Send is blocking - would freeze the main loop and lose keypresses
+    if (gKeyReading0 != KEY_INVALID)
+        return;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    // A pending RF log packet may be the only thing to send: skip the
+    // frame section when it carries nothing. Without the RF log stream
+    // the early return above already guarantees this condition.
+    if (deltaLen != 0 || stateChanged)
+#endif
+    {
+        // ==== Send version marker and state flags ====
+        // 0xF0 keeps a resync-safe marker before the standard AA 55 header.
+        uint8_t versionMarker = K5VIEWER_MARKER_BASE | stateFlags;
+        K5VIEWER_Send(&versionMarker, 1);
+
+        // ==== Send header ====
+        uint8_t header[5] = {
+            0xAA, 0x55, K5VIEWER_TYPE_DIFF,
+            (uint8_t)(deltaLen >> 8),
+            (uint8_t)(deltaLen & 0xFF)
+        };
+
+        K5VIEWER_Send(header, 5);
+
+        // ==== SECOND PASS: Send only changed chunks ====
+        for (uint8_t chunkIdx = 0; chunkIdx < 128; chunkIdx++) {
+            if (!(changedBitmap[chunkIdx >> 3] & (1 << (chunkIdx & 7))))
+                continue;
+
+            chunk[0] = chunkIdx;
+            K5VIEWER_Chunk(chunkIdx, &chunk[1]);
+
+            K5VIEWER_Send(chunk, 9);
+
+            // Update the fingerprint only once the chunk is actually sent,
+            // so chunks skipped by an early return stay marked as changed.
+            // Hashing the recomputed payload also keeps the fingerprint in
+            // sync if the display buffer changed between the two passes.
+            previousHash[chunkIdx] = K5VIEWER_Hash(&chunk[1]);
+        }
+
+        uint8_t end = 0x0A;
+        K5VIEWER_Send(&end, 1);
+    }
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
+    if (rfLogPending)
+        K5VIEWER_SendRfLog();
+    if (rfLogHistoryPending)
+        K5VIEWER_SendRfLogHistory();
+#endif
+
+    previousStateFlags = stateFlags;
+    wasConnected = true;
+}

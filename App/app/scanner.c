@@ -41,6 +41,101 @@ bool              gScanUseCssResult;
 STEP_Setting_t    stepSetting;
 uint8_t           scanHitCount;
 
+typedef enum
+{
+    SCAN_FREQ_VERIFY_OFF,
+    SCAN_FREQ_VERIFY_FUNDAMENTAL,
+    SCAN_FREQ_VERIFY_HARMONIC
+} SCAN_FrequencyVerifyState_t;
+
+static SCAN_FrequencyVerifyState_t scanFreqVerifyState;
+static uint32_t                    scanVerifyFundamental;
+static uint32_t                    scanVerifyHarmonic;
+static uint16_t                    scanVerifyFundamentalRssi;
+
+static bool SCANNER_ShouldVerifyVhfSecondHarmonic(const uint32_t frequency)
+{
+    const uint32_t fundamental = frequency / 2;
+
+    return frequency >= (frequencyBandTable[BAND3_137MHz].lower * 2) &&
+           frequency <  (frequencyBandTable[BAND4_174MHz].lower * 2) &&
+           fundamental >= frequencyBandTable[BAND3_137MHz].lower &&
+           fundamental <  frequencyBandTable[BAND4_174MHz].lower;
+}
+
+static void SCANNER_StartCssScanAtFrequency(const uint32_t frequency)
+{
+    gScanFrequency         = frequency;
+    gScanCssResultCode     = 0xFF;
+    gScanCssResultType     = 0xFF;
+    scanHitCount           = 0;
+    gScanUseCssResult      = false;
+    gScanProgressIndicator = 0;
+    gScanCssState          = SCAN_CSS_STATE_SCANNING;
+    gScanDelay_10ms        = scan_delay_10ms;
+
+    BK4819_SetScanFrequency(gScanFrequency);
+
+    if (!gCssBackgroundScan)
+        GUI_SelectNextDisplay(DISPLAY_SCANNER);
+
+    gUpdateStatus = true;
+}
+
+static void SCANNER_TuneForFrequencyVerification(const uint32_t frequency)
+{
+    BK4819_SetFrequency(frequency);
+    BK4819_PickRXFilterPathBasedOnFrequency(frequency);
+    BK4819_RX_TurnOn();
+}
+
+static uint16_t SCANNER_ReadVerificationRssi(void)
+{
+    (void)BK4819_GetRSSI();
+    return BK4819_GetRSSI();
+}
+
+static void SCANNER_StartFrequencyVerification(const uint32_t harmonic)
+{
+    scanVerifyFundamental = harmonic / 2;
+    scanVerifyHarmonic    = harmonic;
+    scanFreqVerifyState   = SCAN_FREQ_VERIFY_FUNDAMENTAL;
+
+    SCANNER_TuneForFrequencyVerification(scanVerifyFundamental);
+    gScanDelay_10ms = 2;
+}
+
+static bool SCANNER_HandleFrequencyVerification(void)
+{
+    switch (scanFreqVerifyState) {
+        case SCAN_FREQ_VERIFY_FUNDAMENTAL:
+            scanVerifyFundamentalRssi = SCANNER_ReadVerificationRssi();
+            scanFreqVerifyState       = SCAN_FREQ_VERIFY_HARMONIC;
+            SCANNER_TuneForFrequencyVerification(scanVerifyHarmonic);
+            gScanDelay_10ms = 2;
+            return true;
+
+        case SCAN_FREQ_VERIFY_HARMONIC: {
+            const uint16_t harmonicRssi = SCANNER_ReadVerificationRssi();
+            const uint16_t margin       = 4;
+            uint32_t verifiedFrequency  = scanVerifyHarmonic;
+
+            if (scanVerifyFundamentalRssi > harmonicRssi &&
+                scanVerifyFundamentalRssi - harmonicRssi >= margin)
+            {
+                verifiedFrequency = scanVerifyFundamental;
+            }
+
+            scanFreqVerifyState = SCAN_FREQ_VERIFY_OFF;
+            SCANNER_StartCssScanAtFrequency(verifiedFrequency);
+            return true;
+        }
+
+        default:
+            return false;
+    }
+}
+
 static void SCANNER_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
     if (!bKeyHeld && bKeyPressed)
@@ -62,7 +157,7 @@ static void SCANNER_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             gInputBoxIndex = 0;
 
             // uint16_t chan = ((gInputBox[0] * 100) + (gInputBox[1] * 10) + gInputBox[2]) - 1;
-            uint16_t chan = ((gInputBox[0] * 1000) + (gInputBox[1] * 100) + (gInputBox[2] * 10) + gInputBox[3]) - 1;
+            uint16_t chan = (((gInputBox[0] * 10 + gInputBox[1]) * 10 + gInputBox[2]) * 10 + gInputBox[3]) - 1;
             if (IS_MR_CHANNEL(chan)) {
 #ifdef ENABLE_VOICE
                 gAnotherVoiceID = (VOICE_ID_t)Key;
@@ -243,16 +338,13 @@ static void SCANNER_Key_STAR(bool bKeyPressed, bool bKeyHeld)
     return;
 }
 
-static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool pKeyHeld, int8_t Direction)
+static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 {
-    if (pKeyHeld) {
-        if (!bKeyPressed)
-            return;
+    if (!bKeyPressed) {
+        return;
     }
-    else {
-        if (!bKeyPressed)
-            return;
 
+    if (!bKeyHeld) {
         gInputBoxIndex = 0;
         gBeepToPlay    = BEEP_1KHZ_60MS_OPTIONAL;
     }
@@ -266,7 +358,7 @@ static void SCANNER_Key_UP_DOWN(bool bKeyPressed, bool pKeyHeld, int8_t Directio
         gShowChPrefix         = RADIO_CheckValidChannel(gScanChannel, false, 0);
         gRequestDisplayScreen = DISPLAY_SCANNER;
     }
-    else
+    else if (!bKeyHeld)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
 }
 
@@ -344,8 +436,9 @@ void SCANNER_Start(bool singleFreq)
         gScanCssState  = SCAN_CSS_STATE_OFF;
         gScanFrequency = 0xFFFFFFFF;
 
-        BK4819_PickRXFilterPathBasedOnFrequency(gScanFrequency);
-        BK4819_EnableFrequencyScan();
+        // Keep the RX input path selected by RADIO_SetupRegisters().
+        // 0xFFFFFFFF means "unknown frequency" here and would turn both LNAs off.
+        BK4819_SetFrequencyScan(true);
 
         gUpdateStatus = true;
     }
@@ -369,6 +462,7 @@ void SCANNER_Start(bool singleFreq)
     g_SquelchLost          = false;
     gScannerSaveState      = SCAN_SAVE_NO_PROMPT;
     gScanProgressIndicator = 0;
+    scanFreqVerifyState    = SCAN_FREQ_VERIFY_OFF;
 }
 
 void SCANNER_Stop(void)
@@ -380,6 +474,7 @@ void SCANNER_Stop(void)
         gUpdateStatus            = true;
         gCssBackgroundScan       = false;
         gScanUseCssResult        = false;
+        scanFreqVerifyState      = SCAN_FREQ_VERIFY_OFF;
 #ifdef ENABLE_VOICE
         gAnotherVoiceID          = VOICE_ID_CANCEL;
 #endif
@@ -401,6 +496,10 @@ void SCANNER_TimeSlice10ms(void)
         return;
     }
 
+    if (SCANNER_HandleFrequencyVerification()) {
+        return;
+    }
+
     switch (gScanCssState) {
         case SCAN_CSS_STATE_OFF: {
             // must be RF frequency scanning if we're here ?
@@ -418,27 +517,21 @@ void SCANNER_TimeSlice10ms(void)
             else
                 scanHitCount = 0;
 
-            BK4819_DisableFrequencyScan();
+            BK4819_SetFrequencyScan(false);
 
             if (scanHitCount < 3) {
-                BK4819_EnableFrequencyScan();
+                BK4819_SetFrequencyScan(true);
+            }
+            else if (SCANNER_ShouldVerifyVhfSecondHarmonic(gScanFrequency)) {
+                SCANNER_StartFrequencyVerification(gScanFrequency);
             }
             else {
-                BK4819_SetScanFrequency(gScanFrequency);
-                gScanCssResultCode     = 0xFF;
-                gScanCssResultType     = 0xFF;
-                scanHitCount           = 0;
-                gScanUseCssResult      = false;
-                gScanProgressIndicator = 0;
-                gScanCssState          = SCAN_CSS_STATE_SCANNING;
-
-                if(!gCssBackgroundScan)
-                    GUI_SelectNextDisplay(DISPLAY_SCANNER);
-
-                gUpdateStatus          = true;
+                SCANNER_StartCssScanAtFrequency(gScanFrequency);
             }
 
-            gScanDelay_10ms = scan_delay_10ms;
+            if (scanFreqVerifyState == SCAN_FREQ_VERIFY_OFF) {
+                gScanDelay_10ms = scan_delay_10ms;
+            }
             //gScanDelay_10ms = 1;   // 10ms
             break;
         }
@@ -509,8 +602,8 @@ void SCANNER_TimeSlice500ms(void)
     if (SCANNER_IsScanning() && gScannerSaveState == SCAN_SAVE_NO_PROMPT && gScanCssState < SCAN_CSS_STATE_FOUND) {
         gScanProgressIndicator++;
 #ifndef ENABLE_NO_CODE_SCAN_TIMEOUT
-        if (gScanProgressIndicator > 32) {
-            if (gScanCssState == SCAN_CSS_STATE_SCANNING && !gScanSingleFrequency)
+        if (gScanCssState == SCAN_CSS_STATE_SCANNING && gScanProgressIndicator > 32) {
+            if (!gScanSingleFrequency)
                 gScanCssState = SCAN_CSS_STATE_FOUND;
             else
                 gScanCssState = SCAN_CSS_STATE_FAILED;

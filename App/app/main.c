@@ -20,7 +20,7 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/common.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/generic.h"
@@ -31,8 +31,11 @@
 #include "app/spectrum.h"
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_GAME
-#include "app/breakout.h"
+#if defined(ENABLE_FEAT_F4HWN_GAME) && !defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#include "app/breakout.h"   // resident game only; the overlay path uses app_menu.h
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#include "apps/app_menu.h"
 #endif
 
 #include "audio.h"
@@ -44,6 +47,8 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/inputbox.h"
+#include "ui/main.h"
+#include "ui/menu.h"
 #include "ui/ui.h"
 #include <stdlib.h>
 
@@ -104,7 +109,7 @@ static void toggle_chan_scanlist(void)
 
         gTxVfo->SCANLIST_PARTICIPATION = scanlist;
 
-        SETTINGS_UpdateChannel(gTxVfo->CHANNEL_SAVE, gTxVfo, true, true, true);
+        SETTINGS_UpdateChannel(gTxVfo->CHANNEL_SAVE, gTxVfo, true);
     }
 
     gVfoConfigureMode = VFO_CONFIGURE;
@@ -224,6 +229,12 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
         case KEY_4:
             HideFKeyIcon();
 
+            if (gScanStateDir != SCAN_OFF) {
+                // Stop the channel/frequency scan before saving the RX mode for Close Call.
+                gScanKeepResult = false;
+                CHFRSCANNER_Stop();
+            }
+
             gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
             gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;     
 
@@ -261,34 +272,57 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             break;
 
         case KEY_7:
-#ifdef ENABLE_VOX
-            ACTION_Vox();
-//#else
-//          toggle_chan_scanlist();
+            // F + 7 opens the overlay-apps menu when that support is built;
+            // otherwise it launches the resident game (GAME); otherwise VOX.
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
+            if (!beep) {
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+                APP_MenuOpen();            // overlay-apps selector
+#else
+                APP_RunBreakout();         // resident game (no overlay support)
 #endif
+            } else {
+#endif
+#ifdef ENABLE_VOX
+                ACTION_Vox();
+//#else
+//              toggle_chan_scanlist();
+#endif
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
+            }
+#endif
+
             break;
 
         case KEY_8:
-            gTxVfo->FrequencyReverse = gTxVfo->FrequencyReverse == false;
-            gRequestSaveChannel = 1;
+            if (!beep) {
+                ACTION_BackLightOnDemand(); 
+            }
+            else {
+                gTxVfo->FrequencyReverse = gTxVfo->FrequencyReverse == false;
+                gRequestSaveChannel = 1;
+            }
+
             break;
 
         case KEY_9:
-            if (RADIO_CheckValidChannel(gEeprom.CHAN_1_CALL, false, 0)) {
-                gEeprom.MrChannel[Vfo]     = gEeprom.CHAN_1_CALL;
-                gEeprom.ScreenChannel[Vfo] = gEeprom.CHAN_1_CALL;
+            if (!beep) {
+                ACTION_BackLight();
+            }
+            else {
+                if (RADIO_CheckValidChannel(gEeprom.CHAN_1_CALL, false, 0)) {
+                    gEeprom.MrChannel[Vfo]     = gEeprom.CHAN_1_CALL;
+                    gEeprom.ScreenChannel[Vfo] = gEeprom.CHAN_1_CALL;
 #ifdef ENABLE_VOICE
-                AUDIO_SetVoiceID(0, VOICE_ID_CHANNEL_MODE);
-                AUDIO_SetDigitVoice(1, gEeprom.CHAN_1_CALL + 1);
-                gAnotherVoiceID        = (VOICE_ID_t)0xFE;
+                    AUDIO_SetVoiceID(0, VOICE_ID_CHANNEL_MODE);
+                    AUDIO_SetDigitVoice(1, gEeprom.CHAN_1_CALL + 1);
+                    gAnotherVoiceID        = (VOICE_ID_t)0xFE;
 #endif
-                gRequestSaveVFO            = true;
-                gVfoConfigureMode          = VFO_CONFIGURE_RELOAD;
-                break;
+                    gRequestSaveVFO            = true;
+                    gVfoConfigureMode          = VFO_CONFIGURE_RELOAD;
+                }
             }
 
-            if (beep)
-                gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
             break;
 
 #ifdef ENABLE_FEAT_F4HWN // Set Squelch F + UP or Down and Step F + SIDE1 or F + SIDE2
@@ -299,15 +333,16 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 
                 if (gScanStateDir != SCAN_OFF) {
                     RADIO_NextValidList(isKeyUp ? 1 : -1);
+                    UI_MAIN_NotifyScanListChanged();
                 } else {
                     // Adjust squelch: UP increments, DOWN decrements
                     if (gSquelchLevelOriginal == 10)
                         gSquelchLevelOriginal =  gEeprom.SQUELCH_LEVEL;
 
                     if (isKeyUp) {
-                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL < 9) ? gEeprom.SQUELCH_LEVEL + 1 : 9;
+                        if (gEeprom.SQUELCH_LEVEL < 9) gEeprom.SQUELCH_LEVEL++;
                     } else {
-                        gEeprom.SQUELCH_LEVEL = (gEeprom.SQUELCH_LEVEL > 0) ? gEeprom.SQUELCH_LEVEL - 1 : 0;
+                        if (gEeprom.SQUELCH_LEVEL > 0) gEeprom.SQUELCH_LEVEL--;
                     }
                     gVfoConfigureMode = VFO_CONFIGURE;
                 }
@@ -429,6 +464,16 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                     gRequestDisplayScreen = DISPLAY_MAIN;
                 }
 
+#ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
+                if (gWasFKeyPressed && (Key == KEY_SIDE1 || Key == KEY_SIDE2)) {
+                    gActionPickerKey = (Key == KEY_SIDE1) ? 1 : 2;
+                    gActionPickerTimeout_500ms = ACTION_PICKER_TIMEOUT_500MS;
+                    gUpdateDisplay = true;
+                    HideFKeyIcon();
+                    return;
+                }
+#endif
+
                 HideFKeyIcon();
 
                 processFKeyFunction(Key, true);
@@ -481,6 +526,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             if (value == 0)
             {
                 gEeprom.SCAN_LIST_DEFAULT = MR_CHANNELS_LIST + 1;
+                UI_MAIN_NotifyScanListChanged();
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
             #endif
@@ -499,6 +545,7 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                     gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
                     RADIO_NextValidList(1);
                 }
+                UI_MAIN_NotifyScanListChanged();
 
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
@@ -555,10 +602,10 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 return;
             }
             
-            gKeyInputCountdown = (gInputBoxIndex >= totalDigits) ? (key_input_timeout_500ms / 16) : (key_input_timeout_500ms / 3);
+            gKeyInputCountdown = key_input_timeout_500ms / (gInputBoxIndex >= totalDigits ? 16 : 3);
 
             if (gInputBoxIndex > totalDigits) {
-                gInputBoxIndex =  totalDigits;
+                gInputBoxIndex = totalDigits;
 
                 return;
             }
@@ -569,11 +616,8 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             // convert to int
             uint32_t inputFreq = StrToUL(inputStr);
 
-            // how many zero to add
-            uint8_t zerosToAdd = totalDigits - inputLength;
-
             // add missing zero
-            for (uint8_t i = 0; i < zerosToAdd; i++) {
+            for (uint8_t i = 0; i < totalDigits - inputLength; i++) {
                 inputFreq *= 10;
             }
 
@@ -654,30 +698,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     HideFKeyIcon();
 
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        if(gEeprom.MENU_LOCK == true && Key != 2) {
-            return;
-        }
-    #endif
-
-    if(Key == 8)
-    {
-        ACTION_BackLightOnDemand();
-        return;
-    }
-    else if(Key == 9)
-    {
-        ACTION_BackLight();
-        return;
-    }
-    #ifdef ENABLE_FEAT_F4HWN_GAME
-    else if(Key == 7)
-    {
-        APP_RunBreakout();
-        return;
-    }
-    #endif
-
     processFKeyFunction(Key, false);
 }
 
@@ -708,7 +728,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (!gFmRadioMode)
 #endif
     {
@@ -743,7 +763,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     ACTION_FM();
 #endif
     return;
@@ -758,15 +778,30 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
         if (bKeyPressed) { // long press MENU key
 
             #ifdef ENABLE_FEAT_F4HWN
-            // Exclude channel
+            // Exclude current scan entry
             if(gScanStateDir != SCAN_OFF)
             {
                 if(FUNCTION_IsRx() || gScanPauseDelayIn_10ms > 9)
                 {
+#ifdef ENABLE_SCAN_RANGES
+                    if(gScanRangeStart && !IS_MR_CHANNEL(gNextMrChannel))
+                    {
+                        if(CHFRSCANNER_ExcludeCurrentScanRange())
+                        {
+                            UI_MAIN_NotifyScanProgressDataChanged();
+                            lastFoundFrqOrChan = lastFoundFrqOrChanOld;
+                            CHFRSCANNER_ContinueScanning();
+                        }
+
+                        return;
+                    }
+#endif
+
                     ChannelAttributes_t *att = MR_GetChannelAttributes(lastFoundFrqOrChan);
                     att->exclude = true;
 
                     MR_SaveChannelAttributesToFlash(lastFoundFrqOrChan, att);
+                    UI_MAIN_NotifyScanProgressDataChanged();
 
                     gVfoConfigureMode = VFO_CONFIGURE;
                     gFlagResetVfos    = true;
@@ -820,6 +855,11 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
 
             gFlagRefreshSetting = true;
             gRequestDisplayScreen = DISPLAY_MENU;
+#ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+            gMenuLevel  = MENU_LEVEL_CAT;
+            UI_MENU_BuildCategoryScreen();
+            gMenuCursor = (gMenuCatCursor < gMenuListCount) ? gMenuCatCursor : 0;
+#endif
             #ifdef ENABLE_VOICE
                 gAnotherVoiceID   = VOICE_ID_MENU;
             #endif
@@ -909,6 +949,12 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             return;
         }               
 #endif
+        if (gScanStateDir != SCAN_OFF) {
+            // Stop the channel/frequency scan before saving the RX mode for the CTCSS/DCS scan.
+            gScanKeepResult = false;
+            CHFRSCANNER_Stop();
+        }
+
         // scan the CTCSS/DCS code
         gBackup_CROSS_BAND_RX_TX  = gEeprom.CROSS_BAND_RX_TX;
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
@@ -941,12 +987,12 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
     uint16_t Channel = gEeprom.ScreenChannel[gEeprom.TX_VFO];
 
-    if (bKeyHeld || !bKeyPressed) { // key held or released
-        if (gInputBoxIndex > 0) {
-            gInputBoxIndex = 0;
-            gHasVfoBackup = false;
-        }
+    if (gInputBoxIndex > 0) {
+        gInputBoxIndex = 0;
+        gHasVfoBackup = false;
+    }
 
+    if (bKeyHeld || !bKeyPressed) { // key held or released
         if (!bKeyPressed) {
             if (!bKeyHeld || IS_FREQ_CHANNEL(Channel))
                 return;
@@ -1011,16 +1057,14 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     }
 
     // jump to the next channel
-    CHFRSCANNER_Start(false, Direction);
-    gScanPauseDelayIn_10ms = 1;
-    gScheduleScanListen = false;
+    CHFRSCANNER_ManualResume(Direction);
 
     gPttWasReleased = true;
 }
 
 void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && Key != KEY_PTT && Key != KEY_EXIT) {
         if (!bKeyHeld && bKeyPressed)
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;

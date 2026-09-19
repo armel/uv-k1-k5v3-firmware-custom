@@ -34,8 +34,8 @@ enum GUI_DisplayType_t
     DISPLAY_AIRCOPY,
 #endif
 
-#ifdef ENABLE_REGA
-    DISPLAY_REGA,
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    DISPLAY_RXTX_LOG,
 #endif
 
     DISPLAY_N_ELEM,

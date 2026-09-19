@@ -25,23 +25,6 @@
 #include "settings.h"
 
 
-void UI_GenerateChannelString(char *pString, const uint16_t Channel)
-{
-    unsigned int i;
-
-    if (gInputBoxIndex == 0)
-    {
-        sprintf(pString, "CH-%02u", Channel + 1);
-        return;
-    }
-
-    pString[0] = 'C';
-    pString[1] = 'H';
-    pString[2] = '-';
-    for (i = 0; i < 2; i++)
-        pString[i + 3] = (gInputBox[i] == 10) ? '-' : gInputBox[i] + '0';
-}
-
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber)
 {
     if (gInputBoxIndex > 0) {
@@ -323,6 +306,23 @@ static void sort(int16_t *a, int16_t *b)
       }
     }
 
+    void GUI_DisplaySmallestInverse(const char *pString, uint8_t x, uint8_t Line,
+                                bool statusbar, bool fill, uint8_t end)
+    {
+        // First draw the string normally
+        GUI_DisplaySmallest(pString, x, (Line * 8) + 1, statusbar, fill);
+
+        // Now invert the framebuffer/statusline bits for the rendered area
+        uint8_t start = (x - 2);
+        uint8_t *buffer = statusbar ? gStatusLine : gFrameBuffer[Line];
+
+        buffer[start] ^= 0x3E;
+        for (uint8_t i = start + 1; i < end; i++) {
+            buffer[i] ^= 0x7F;
+        }
+        buffer[end] ^= 0x3E;
+    }
+
     void UI_DisplayUnlockKeyboard(uint8_t shift) {
         if (gEeprom.KEY_LOCK && gKeypadLocked > 0)
         {   // tell user how to unlock the keyboard
@@ -402,7 +402,12 @@ void UI_DisplayPopup(const char *string)
     UI_PrintStringSmallNormal("Press EXIT", 9, 118, 6);
 }
 
-void UI_DisplayClear()
+void UI_DisplayClear(void)
 {
     memset(gFrameBuffer, 0, sizeof(gFrameBuffer));
+}
+
+void UI_StatusClear(void)
+{
+    memset(gStatusLine, 0, sizeof(gStatusLine));
 }

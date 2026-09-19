@@ -107,13 +107,13 @@ bool              gSetting_ScrambleEnable;
 
 enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 
-#ifdef ENABLE_AM_FIX
-    bool          gSetting_AM_fix = true;
-#endif
-
 #ifdef ENABLE_FEAT_F4HWN_SLEEP 
     uint8_t       gSetting_set_off = 1;
     bool          gWakeUp = false;
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    bool          gSetting_set_scn = 1;
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -123,7 +123,7 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     uint8_t       gSetting_set_ctr = 10;
     bool          gSetting_set_inv = false;
     uint8_t       gSetting_set_eot = 0;
-    bool          gSetting_set_lck = false;
+    uint8_t       gSetting_set_lck = SET_LCK_KEYS;
     bool          gSetting_set_met = 0;
     bool          gSetting_set_gui = 0;
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
@@ -133,6 +133,9 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         bool          gSetting_set_nfm = 0;
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+        uint8_t       gSetting_set_sav = SET_SAV_OFF;
+    #endif
     bool          gSetting_set_tmr = 0;
     bool          gSetting_set_ptt_session;
     #ifdef ENABLE_FEAT_F4HWN_DEBUG
@@ -141,9 +144,6 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     uint8_t       gDW = 0;
     uint8_t       gCB = 0;
     bool          gSaveRxMode = false;
-    uint8_t       crc[15] = { 0 };
-    uint8_t       lErrorsDuringAirCopy = 0;
-    uint8_t       gAircopyStep = 0;
     uint8_t       gAircopyCurrentMapIndex = 0;
     bool          gAirCopyBootMode = 0;
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
@@ -203,9 +203,9 @@ volatile bool     gTxTimeoutReached;
     #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
         volatile uint16_t gRxTimerCountdown_500ms;
     #endif
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        volatile uint8_t  gUART_LockScreenshot = 0; // lock screenshot if Chirp is used
-        bool gUSB_ScreenshotEnabled = false;
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        volatile uint8_t  gUART_LockK5Viewer = 0; // lock the K5Viewer stream if Chirp is used
+        bool gUSB_K5ViewerEnabled = false;
     #endif
 #endif
 
@@ -237,8 +237,8 @@ bool              gCssBackgroundScan;
 volatile bool     gScheduleScanListen = true;
 volatile uint16_t gScanPauseDelayIn_10ms;
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    AlarmState_t  gAlarmState;
+#ifdef ENABLE_TX1750
+    bool gTx1750Active;
 #endif
 uint16_t          gMenuCountdown;
 bool              gPttWasReleased;
@@ -251,7 +251,7 @@ bool              gFlagResetVfos;
 bool              gRequestSaveVFO;
 uint16_t          gRequestSaveChannel;
 bool              gRequestSaveSettings;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     bool          gRequestSaveFM;
 #endif
 bool              gFlagPrepareTX;
@@ -259,7 +259,7 @@ bool              gFlagPrepareTX;
 bool              gFlagAcceptSetting;
 bool              gFlagRefreshSetting;
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     bool          gFlagSaveFM;
 #endif
 bool              g_CDCSS_Lost;
@@ -281,10 +281,6 @@ uint16_t          gNextMrChannel;
 ReceptionMode_t   gRxReceptionMode;
 
 bool              gRxVfoIsActive;
-#ifdef ENABLE_ALARM
-    uint8_t       gAlarmToneCounter;
-    uint16_t      gAlarmRunningCounter;
-#endif
 bool              gKeyBeingHeld;
 bool              gPttIsPressed;
 uint8_t           gPttDebounceCounter;
@@ -316,7 +312,7 @@ volatile bool     gNextTimeslice40ms;
     volatile bool     gScheduleNOAA       = true;
 #endif
 volatile bool     gFlagTailNoteEliminationComplete;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     volatile bool gScheduleFM;
 #endif
 
@@ -639,11 +635,11 @@ void MR_PrintCacheStats(void)
 
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-    bool SCREENSHOT_IsLocked(void) 
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    bool K5VIEWER_IsLocked(void) 
     {
-        if (gUART_LockScreenshot > 0) {
-            gUART_LockScreenshot--;
+        if (gUART_LockK5Viewer > 0) {
+            gUART_LockK5Viewer--;
             return true;
         }
         

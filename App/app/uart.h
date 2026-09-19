@@ -32,6 +32,12 @@ enum
 
 bool UART_IsCommandAvailable(uint32_t Port);
 void UART_HandleCommand(uint32_t Port);
+void UART_ServiceCommands(void);
 
+#ifdef ENABLE_CAT
+void UART_ReportRSSI_Periodic(void);
+void UART_ReportDTMF(char dtmf_code);
+void UART_SendText(uint32_t Port, const char *str);
 #endif
 
+#endif

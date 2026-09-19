@@ -20,7 +20,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-void UI_GenerateChannelString(char *pString, const uint16_t Channel);
 void UI_GenerateChannelStringEx(char *pString, const bool bShowPrefix, const uint16_t ChannelNumber);
 void UI_PrintString(const char *pString, uint8_t Start, uint8_t End, uint8_t Line, uint8_t Width);
 void UI_PrintStringSmallNormal(const char *pString, uint8_t Start, uint8_t End, uint8_t Line);
@@ -38,12 +37,14 @@ void UI_DrawPixelBuffer(uint8_t (*buffer)[128], uint8_t x, uint8_t y, bool black
     void PutPixel(uint8_t x, uint8_t y, bool fill);
     void PutPixelStatus(uint8_t x, uint8_t y, bool fill);
     void GUI_DisplaySmallest(const char *pString, uint8_t x, uint8_t y, bool statusbar, bool fill);
+    void GUI_DisplaySmallestInverse(const char *pString, uint8_t x, uint8_t Line, bool statusbar, bool fill, uint8_t endX);
     void UI_DisplayUnlockKeyboard(uint8_t shift);
     bool IsEmptyName(const char *name, uint8_t len);
 #endif
 void UI_DrawLineBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);
 void UI_DrawRectangleBuffer(uint8_t (*buffer)[128], int16_t x1, int16_t y1, int16_t x2, int16_t y2, bool black);
 
-void UI_DisplayClear();
+void UI_DisplayClear(void);
+void UI_StatusClear(void);
 
 #endif

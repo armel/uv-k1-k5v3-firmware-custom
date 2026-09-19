@@ -17,6 +17,7 @@
 #include <assert.h>
 
 #include "battery.h"
+#include "board.h"
 #include "driver/backlight.h"
 #include "driver/st7565.h"
 #include "functions.h"
@@ -129,6 +130,16 @@ unsigned int BATTERY_VoltsToPercent(const unsigned int voltage_10mV)
     return 0;
 }
 
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
+void BATTERY_Sample(const bool bDisplayBatteryLevel)
+{
+    BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);
+    if (gBatteryVoltageIndex > 3u)
+        gBatteryVoltageIndex = 0u;
+    BATTERY_GetReadings(bDisplayBatteryLevel);
+}
+#endif
+
 void BATTERY_GetReadings(const bool bDisplayBatteryLevel)
 {
     const uint8_t  PreviousBatteryLevel = gBatteryDisplayLevel;
@@ -228,7 +239,7 @@ void BATTERY_TimeSlice500ms(void)
 
     if (lowBatteryCountdown < lowBatteryPeriod) {
         if (lowBatteryCountdown == lowBatteryPeriod-1 && !gChargingWithTypeC && !gLowBatteryConfirmed) {
-            AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP);
+            AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
         }
         return;
     }
@@ -241,7 +252,7 @@ void BATTERY_TimeSlice500ms(void)
 
     // not on charge
     if (!gLowBatteryConfirmed) {
-        AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP);
+        AUDIO_PlayBeep(BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL);
 #ifdef ENABLE_VOICE
         AUDIO_SetVoiceID(0, VOICE_ID_LOW_VOLTAGE);
 #endif

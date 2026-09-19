@@ -17,13 +17,13 @@
 #include <string.h>
 
 #include "app/dtmf.h"
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     #include "app/fm.h"
 #endif
 #include "audio.h"
 #include "dcs.h"
 #include "driver/backlight.h"
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     #include "driver/bk1080.h"
 #endif
 #include "driver/bk4819.h"
@@ -33,6 +33,9 @@
 #include "frequencies.h"
 #include "functions.h"
 #include "helper/battery.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    #include "app/rxtx_log.h"
+#endif
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
@@ -100,7 +103,7 @@ void FUNCTION_Foreground(const FUNCTION_Type_t PreviousFunction)
         return;
     }
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     if (gFmRadioMode)
         gFM_RestoreCountdown_10ms = fm_restore_countdown_10ms;
 #endif
@@ -151,34 +154,11 @@ void FUNCTION_Transmit()
 
     // clear the DTMF RX live decoder buffer
     gDTMF_RX_live_timeout = 0;
-    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+    DTMF_clear_input_box_memory();
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     if (gFmRadioMode)
         BK1080_Init0();
-#endif
-
-#ifdef ENABLE_ALARM
-    if (gAlarmState == ALARM_STATE_SITE_ALARM)
-    {
-        GUI_DisplayScreen();
-
-        AUDIO_AudioPathOff();
-
-        SYSTEM_DelayMs(20);
-        BK4819_PlayTone(500, 0);
-        SYSTEM_DelayMs(2);
-
-        AUDIO_AudioPathOn();
-
-        gEnableSpeaker = true;
-
-        SYSTEM_DelayMs(60);
-        BK4819_ExitTxMute();
-
-        gAlarmToneCounter = 0;
-        return;
-    }
 #endif
 
     gUpdateStatus = true;
@@ -195,20 +175,9 @@ void FUNCTION_Transmit()
     if (gCurrentVfo->DTMF_PTT_ID_TX_MODE == PTT_ID_APOLLO)
         BK4819_PlaySingleTone(2525, 250, 0, gEeprom.DTMF_SIDE_TONE);
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    if (gAlarmState != ALARM_STATE_OFF) {
-        #ifdef ENABLE_TX1750
-        if (gAlarmState == ALARM_STATE_TX1750)
-            BK4819_TransmitTone(true, 1750);
-        #endif
-
-        #ifdef ENABLE_ALARM
-        if (gAlarmState == ALARM_STATE_TXALARM)
-            BK4819_TransmitTone(true, 500);
-
-        gAlarmToneCounter = 0;
-        #endif
-
+#ifdef ENABLE_TX1750
+    if (gTx1750Active) {
+        BK4819_TransmitTone(true, 1750);
         SYSTEM_DelayMs(2);
         AUDIO_AudioPathOn();
         gEnableSpeaker = true;
@@ -239,7 +208,30 @@ void FUNCTION_Select(FUNCTION_Type_t Function)
     const FUNCTION_Type_t PreviousFunction = gCurrentFunction;
     const bool bWasPowerSave = PreviousFunction == FUNCTION_POWER_SAVE;
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    const bool previousWasActive =
+        PreviousFunction == FUNCTION_TRANSMIT ||
+        PreviousFunction == FUNCTION_MONITOR ||
+        PreviousFunction == FUNCTION_RECEIVE;
+    const bool previousWasTx = PreviousFunction == FUNCTION_TRANSMIT;
+    const bool nextIsActive =
+        Function == FUNCTION_TRANSMIT ||
+        Function == FUNCTION_MONITOR ||
+        Function == FUNCTION_RECEIVE;
+    const bool nextIsTx = Function == FUNCTION_TRANSMIT;
+
+    if (previousWasActive &&
+        (!nextIsActive ||
+         (previousWasTx != nextIsTx)))
+        RXTX_LOG_EndActive();
+#endif
+
     gCurrentFunction = Function;
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    if (nextIsActive && !nextIsTx && (!previousWasActive || previousWasTx))
+        RXTX_LOG_BeginRx(gRxVfo, Function);
+#endif
 
     if (bWasPowerSave && Function != FUNCTION_POWER_SAVE) {
         BK4819_Conditional_RX_TurnOn_and_GPIO6_Enable();
@@ -292,7 +284,7 @@ void FUNCTION_Select(FUNCTION_Type_t Function)
     gBatterySaveCountdown_10ms = battery_save_count_10ms;
     gSchedulePowerSave         = false;
 
-#if defined(ENABLE_FMRADIO)
+#if defined(ENABLE_FMRADIO_EMBEDDED)
     if(Function != FUNCTION_INCOMING)
         gFM_RestoreCountdown_10ms = 0;
 #endif

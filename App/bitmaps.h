@@ -7,11 +7,12 @@
 extern const uint8_t gFontPowerSave[2][6];
 extern const uint8_t gFontPttOnePush[2][6];
 extern const uint8_t gFontPttClassic[2][6];
-extern const uint8_t gFontF[8];
+extern const uint8_t gFontF[9];
 extern const uint8_t gFontS[6];
 
 extern const uint8_t gFontKeyLock[9];
 extern const uint8_t gFontLight[9];
+extern const uint8_t gFontLightOff[9];
 extern const uint8_t gFontMute[12];
 
 extern const uint8_t gFontXB[2][6];
@@ -43,6 +44,17 @@ extern const uint8_t BITMAP_PowerUser[3];
 extern const uint8_t BITMAP_compand[6];
 
 extern const uint8_t BITMAP_NOAA[12];
+
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
+    extern const uint8_t BITMAP_FoxHuntSignal[10];
+    extern const uint8_t BITMAP_FoxHuntSpeaker[10];
+    extern const uint8_t BITMAP_FoxHuntUp[11];
+    extern const uint8_t BITMAP_FoxHuntDown[11];
+    extern const uint8_t BITMAP_FoxHuntFlat[11];
+    extern const uint8_t BITMAP_FoxHuntBars[11];
+    extern const uint8_t BITMAP_FoxHuntGraph[15];
+    extern const uint8_t BITMAP_FoxHuntTx[16];
+#endif
 
 #ifndef ENABLE_CUSTOM_MENU_LAYOUT
     extern const uint8_t BITMAP_CurrentIndicator[8];

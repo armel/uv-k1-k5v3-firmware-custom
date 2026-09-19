@@ -19,6 +19,23 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 
 enable_language(C ASM)
 
+option(DEV "Prepare the rolling Fusion development firmware" OFF)
+
+find_package(Git QUIET)
+set(BUILD_COMMIT "unknown")
+if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE BUILD_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT BUILD_COMMIT)
+        set(BUILD_COMMIT "unknown")
+    endif()
+endif()
+
 if(ENABLE_FEAT_F4HWN)
     if(NOT AUTHOR_STRING_1)
         set(AUTHOR_STRING_1 "EGZUMER")
@@ -56,7 +73,17 @@ else()
     set(EXE_NAME "firmware")
 endif()
 
+if(DEV)
+    if(NOT "${TARGET}" STREQUAL "f4hwn.fusion")
+        message(FATAL_ERROR "DEV is only supported for the Fusion target")
+    endif()
+    set(DISPLAY_VERSION_STRING_2 "${VERSION_STRING_2} Dev")
+else()
+    set(DISPLAY_VERSION_STRING_2 "${VERSION_STRING_2}")
+endif()
+
 message("EXE_NAME = " ${EXE_NAME})
+message("Development build = " ${DEV})
 
 add_executable(${EXE_NAME})
 
@@ -83,9 +110,36 @@ set_target_properties(${EXE_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${EXE_NAME}.
 # Force linker to ignore RWX segment warning even if cache exists
 target_link_options(${EXE_NAME} PRIVATE -Wl,--no-warn-rwx-segment)
 
+# ENABLE_NO_HEAP: no malloc/sbrk is linked (libc is discarded in py32f071xb.ld),
+# so the reserved heap is dead weight. Zero it to reclaim ~512 B of RAM. This is
+# a global toolchain optimization, independent of multiboot. The linker script
+# reads __min_heap_size when defined, else keeps its 0x200 default.
+if(ENABLE_NO_HEAP)
+    target_link_options(${EXE_NAME} PRIVATE "-Wl,--defsym=__min_heap_size=0")
+endif()
+
 # -----------------------------------
 #  Post build processing
 #
+
+# The restore stub executes while application flash is unavailable. Reject an
+# overlay build if the linked stub branches outside its RAM section or if its
+# input section refers to any external code/data. This is deliberately a hard
+# build gate: either condition could make a restore unrecoverable without DFU.
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                "-DOBJDUMP=${CMAKE_OBJDUMP}"
+                "-DELF=$<TARGET_FILE:${EXE_NAME}>"
+                "-DMAP=${CMAKE_CURRENT_BINARY_DIR}/${EXE_NAME}.map"
+                "-DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/check_mb_ramfunc.cmake"
+        COMMENT "Checking multiboot RAM stub isolation"
+        VERBATIM
+    )
+endif()
 
 # Generate .bin file
 add_custom_command(
@@ -94,6 +148,17 @@ add_custom_command(
     COMMAND ${CMAKE_OBJCOPY} -O binary ${EXE_NAME}.elf ${EXE_NAME}.bin
     COMMENT "Generating .bin file"
 )
+
+if(DEV)
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_BINARY_DIR}/${EXE_NAME}.bin"
+                "${CMAKE_SOURCE_DIR}/archive/f4hwn.fusion.development.bin"
+        COMMENT "Preparing archive/f4hwn.fusion.development.bin"
+    )
+endif()
 
 # Generate .hex file
 add_custom_command(

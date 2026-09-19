@@ -20,6 +20,7 @@
 #include "driver/py25q16.h"
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
+#include "font.h"
 #include "helper/battery.h"
 #include "settings.h"
 #include "misc.h"
@@ -29,8 +30,82 @@
 #include "version.h"
 #include "bitmaps.h"
 
-#ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-    #include "screenshot.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    #include "k5viewer.h"
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_LOGO
+// Boot logo storage in PY25Q16 external flash, aligned on a 4 KB sector,
+// placed past the calibration zone (0x010000-0x010200).
+//
+// Layout inside the sector starting at LOGO_FLASH_ADDR:
+//   [0x00..0x07] : 8-byte header (reserved for future magic/version/flags)
+//   [0x08..0x407]: 128x64 monochrome bitmap (1024 B)
+//                  ST7565-native: 8 pages * 128 columns, column-major LSB-top
+#define LOGO_FLASH_ADDR     0x011000
+#define LOGO_HEADER_SIZE    8
+#define LOGO_BITMAP_ADDR    (LOGO_FLASH_ADDR + LOGO_HEADER_SIZE)
+
+static void UI_LoadLogo(void)
+{
+    // Skip 8-byte header, then read 128x64 bitmap (1024 B):
+    // page 0 -> gStatusLine, pages 1..7 -> gFrameBuffer.
+    PY25Q16_ReadBuffer(LOGO_BITMAP_ADDR, gStatusLine, sizeof(gStatusLine));
+    PY25Q16_ReadBuffer(LOGO_BITMAP_ADDR + sizeof(gStatusLine), gFrameBuffer, sizeof(gFrameBuffer));
+}
+
+void UI_DisplayLogo(void)
+{
+    UI_LoadLogo();
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+}
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_QRCODE
+// QR code (version 4, 33x33 modules, EC level L) encoding:
+// https://github.com/armel/uv-k1-k5v3-firmware-custom
+// Stored in framebuffer column-major format: 5 fb-lines x 33 columns.
+// Each byte packs 8 vertical pixels (bit 0 = top). Last fb-line uses
+// only bit 0 (row 32); bits 1..7 are always 0.
+//
+// static const uint8_t BITMAP_QR_GitHub[5][33] = {
+//     { 0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F, 0x00, 0x6A, 0xB8, 0xCB, 0xA0, 0x6D, 0x07, 0xCB, 0x1F, 0xD2, 0x18, 0x59, 0x15, 0x79, 0x86, 0xCE, 0x15, 0x43, 0x00, 0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F },
+//     { 0x87, 0xA3, 0x69, 0xC3, 0x19, 0x0E, 0x55, 0x1F, 0x43, 0x11, 0x16, 0xC1, 0x5A, 0x0E, 0x96, 0x3E, 0xA5, 0x15, 0x06, 0x2A, 0xFE, 0xCE, 0xCA, 0x3A, 0x70, 0xD9, 0xEA, 0xF5, 0x5C, 0x15, 0x8A, 0x67, 0x22 },
+//     { 0xE0, 0x0B, 0x1D, 0x28, 0xF5, 0x87, 0x55, 0xEB, 0xA8, 0x11, 0xA3, 0xC1, 0x5A, 0x0E, 0x96, 0x3E, 0xA5, 0x15, 0x84, 0x2B, 0x72, 0xE8, 0xE9, 0x23, 0x11, 0xCD, 0xE6, 0xC1, 0x91, 0xE6, 0x88, 0x77, 0x22 },
+//     { 0xFD, 0x04, 0x75, 0x75, 0x75, 0x04, 0xFD, 0x01, 0xF7, 0xE0, 0xD6, 0xC1, 0x5A, 0x0E, 0x96, 0x3E, 0xA5, 0x37, 0x22, 0x2B, 0xEA, 0xAA, 0xA7, 0x8D, 0x5F, 0x31, 0x55, 0xB1, 0x3F, 0xCE, 0xCA, 0x2C, 0x2B },
+//     { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00 }
+// };
+
+static const uint8_t BITMAP_QR_GitHub_Compressed[137] = {
+    0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F, 0x00, 0x6A, 0xB8, 0xCB, 0xA0, 0x6D, 0x07, 0xCB, 0x1F, 0xD2, 0x18, 0x59, 0x15, 0x79, 0x86, 0xCE, 0x15, 0x43, 0x00, 0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F,
+    0x87, 0xA3, 0x69, 0xC3, 0x19, 0x0E, 0x55, 0x1F, 0x43, 0x11, 0x16, 0xC1, 0x5A, 0x0E, 0x96, 0x3E, 0xA5, 0x15, 0x06, 0x2A, 0xFE, 0xCE, 0xCA, 0x3A, 0x70, 0xD9, 0xEA, 0xF5, 0x5C, 0x15, 0x8A, 0x67, 0x22,
+    0xE0, 0x0B, 0x1D, 0x28, 0xF5, 0x87, 0x55, 0xEB, 0xA8, 0x11, 0xA3, 0xC1, 0x5A, 0x0E, 0x96, 0x3E, 0xA5, 0x15, 0x84, 0x2B, 0x72, 0xE8, 0xE9, 0x23, 0x11, 0xCD, 0xE6, 0xC1, 0x91, 0xE6, 0x88, 0x77, 0x22,
+    0xFD, 0x04, 0x75, 0x75, 0x75, 0x04, 0xFD, 0x01, 0xF7, 0xE0, 0xD6, 0xC1, 0x5A, 0x0E, 0x96, 0x3E, 0xA5, 0x37, 0x22, 0x2B, 0xEA, 0xAA, 0xA7, 0x8D, 0x5F, 0x31, 0x55, 0xB1, 0x3F, 0xCE, 0xCA, 0x2C, 0x2B,
+    0x7F, 0x09, 0x8C, 0xA3, 0x00
+};
+
+
+// QR code (version 4, 33x33 modules, EC level L) encoding:
+// https://github.com/armel/uv-k1-k5v3-firmware-custom/wiki
+// Stored in framebuffer column-major format: 5 fb-lines x 33 columns.
+// Last fb-line uses only bit 0 (row 32); bits 1..7 are always 0.
+//
+// static const uint8_t BITMAP_QR_GitHub_Wiki[5][33] = {
+//     { 0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F, 0x00, 0x6A, 0x0F, 0x74, 0x0E, 0xD2, 0xB0, 0x74, 0xB1, 0x6D, 0x18, 0x59, 0x15, 0x79, 0x86, 0xCE, 0x15, 0x43, 0x00, 0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F },
+//     { 0xCD, 0x5D, 0x83, 0x65, 0xE7, 0xC6, 0x55, 0xBD, 0x6B, 0x3F, 0xA9, 0x1C, 0xA5, 0xE0, 0x69, 0xE3, 0x4A, 0x15, 0x06, 0x2A, 0xFE, 0xCE, 0xCA, 0x3A, 0x70, 0xD9, 0xEA, 0xF5, 0x5C, 0x15, 0x8A, 0x67, 0x22 },
+//     { 0xFF, 0x25, 0xAE, 0xB6, 0x30, 0xF8, 0x55, 0xDD, 0x07, 0xB6, 0xC2, 0x1C, 0xA5, 0xE0, 0x69, 0xC4, 0x66, 0x15, 0x84, 0x2B, 0x72, 0xE8, 0xE9, 0x23, 0x11, 0xCD, 0xE6, 0xC1, 0x91, 0xE6, 0x88, 0x77, 0x22 },
+//     { 0xFD, 0x04, 0x74, 0x74, 0x74, 0x05, 0xFD, 0x01, 0xF7, 0xAE, 0x81, 0x1C, 0xA5, 0xE0, 0x69, 0x54, 0xFE, 0x37, 0x22, 0x2B, 0xEA, 0xAA, 0xA7, 0x8D, 0x5F, 0x31, 0x55, 0xB1, 0x3F, 0xCE, 0xCA, 0x24, 0x33 },
+//     { 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00 }
+// };
+
+static const uint8_t BITMAP_QR_GitHub_Wiki_Compressed[137] = {
+    0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F, 0x00, 0x6A, 0x0F, 0x74, 0x0E, 0xD2, 0xB0, 0x74, 0xB1, 0x6D, 0x18, 0x59, 0x15, 0x79, 0x86, 0xCE, 0x15, 0x43, 0x00, 0x7F, 0x41, 0x5D, 0x5D, 0x5D, 0x41, 0x7F,
+    0xCD, 0x5D, 0x83, 0x65, 0xE7, 0xC6, 0x55, 0xBD, 0x6B, 0x3F, 0xA9, 0x1C, 0xA5, 0xE0, 0x69, 0xE3, 0x4A, 0x15, 0x06, 0x2A, 0xFE, 0xCE, 0xCA, 0x3A, 0x70, 0xD9, 0xEA, 0xF5, 0x5C, 0x15, 0x8A, 0x67, 0x22,
+    0xFF, 0x25, 0xAE, 0xB6, 0x30, 0xF8, 0x55, 0xDD, 0x07, 0xB6, 0xC2, 0x1C, 0xA5, 0xE0, 0x69, 0xC4, 0x66, 0x15, 0x84, 0x2B, 0x72, 0xE8, 0xE9, 0x23, 0x11, 0xCD, 0xE6, 0xC1, 0x91, 0xE6, 0x88, 0x77, 0x22,
+    0xFD, 0x04, 0x74, 0x74, 0x74, 0x05, 0xFD, 0x01, 0xF7, 0xAE, 0x81, 0x1C, 0xA5, 0xE0, 0x69, 0x54, 0xFE, 0x37, 0x22, 0x2B, 0xEA, 0xAA, 0xA7, 0x8D, 0x5F, 0x31, 0x55, 0xB1, 0x3F, 0xCE, 0xCA, 0x24, 0x33,
+    0x7F, 0x53, 0x8E, 0xA3, 0x00
+};
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_MEM
@@ -40,15 +115,10 @@ extern uint8_t _edata;          // End of .data in RAM
 extern uint8_t _sbss;           // Start of .bss in RAM
 extern uint8_t _ebss;           // End of .bss in RAM
 
-// _eflash_used must be defined in the linker script immediately after the last
-// section with a FLASH load address (after .noncacheable). Example:
-//
-//   .noncacheable : {
-//       ...
-//   } > RAM AT> FLASH
-//   _eflash_used = LOADADDR(.noncacheable) + SIZEOF(.noncacheable);
-//
-// This gives the exact byte count that the linker reports as FLASH used.
+// _eflash_used is defined by the linker at the end of the final section with a
+// FLASH load image. This is currently .mb_ramfunc (empty without the overlay),
+// after the load images for .data and .noncacheable. It therefore gives the
+// exact byte count that the linker reports as FLASH used.
 extern uint8_t _eflash_used;
 
 // Absolute symbols: their *address* IS the numeric size value (ARM/CMSIS convention).
@@ -77,8 +147,8 @@ static void build_usage(uint32_t* ram_used, uint32_t* flash_used)
     const uint32_t stack_size = (uint32_t)(uintptr_t)&_Min_Stack_Size;
     *ram_used = span(&_sdata, &_ebss) + heap_size + stack_size;
 
-    // FLASH: _eflash_used is placed by the linker script right after the last
-    // section copied to FLASH (.data LMA + .noncacheable LMA).
+    // FLASH: _eflash_used follows the final FLASH load image (.mb_ramfunc,
+    // after the .data and .noncacheable load images).
     // Note: _etext is NOT usable here because this linker script places .rodata
     // sections AFTER _etext, making it an unreliable end-of-flash marker.
     *flash_used = span((void*)FLASH_BASE, &_eflash_used);
@@ -88,11 +158,62 @@ static inline uint16_t pct_x100(uint32_t used, uint32_t total)
 {
     return (uint16_t)((used * 10000u) / total); // 7559 => 75.59%
 }
+
+void UI_GetMemPercents(uint16_t *flash_pct_x100, uint16_t *ram_pct_x100)
+{
+    uint32_t ram_used   = 0;
+    uint32_t flash_used = 0;
+    build_usage(&ram_used, &flash_used);
+    if (flash_pct_x100) *flash_pct_x100 = pct_x100(flash_used, FLASH_SIZE_BYTES);
+    if (ram_pct_x100)   *ram_pct_x100   = pct_x100(ram_used,   RAM_SIZE_BYTES);
+}
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_QRCODE
+// Set a single pixel at LCD-physical (x, y). y=0..7 maps to gStatusLine,
+// y=8..63 maps to gFrameBuffer (line = (y-8)/8, bit = (y-8)%8).
+static void QR_SetPixel(uint8_t x, uint8_t y)
+{
+    if (x >= 128 || y >= 64) return;
+    if (y < 8) {
+        gStatusLine[x] |= (uint8_t)(1u << y);
+    } else {
+        const uint8_t fb_y = (uint8_t)(y - 8u);
+        gFrameBuffer[fb_y >> 3][x] |= (uint8_t)(1u << (fb_y & 7u));
+    }
+}
+
+// Render a square QR bitmap stored in framebuffer column-major format
+// (size cols × ceil(size/8) fb-lines, row-major in memory).
+static void QR_Draw(const uint8_t *bitmap, uint8_t size, uint8_t origin_x, uint8_t origin_y)
+{
+    for (uint8_t qy = 0; qy < size; qy++) {
+        for (uint8_t qx = 0; qx < size; qx++) {
+            // const uint16_t idx = (uint16_t)(qy >> 3) * (uint16_t)size + (uint16_t)qx;
+            // if ((bitmap[idx] >> (qy & 7u)) & 1u) {
+            if (qy < 32 ?
+                ((bitmap[(uint16_t)(qy >> 3) * (uint16_t)size + (uint16_t)qx] >> (qy & 7u)) & 1u) : 
+                ((bitmap[132 + (qx >> 3)] >> (qx & 7u)) & 1u)) {
+                QR_SetPixel((uint8_t)(origin_x + qx),
+                            (uint8_t)(origin_y + qy));
+            }
+        }
+    }
+}
+
+void UI_DrawQRCode(bool wiki, uint8_t origin_x, uint8_t origin_y)
+{
+//  QR_Draw(wiki ? (const uint8_t *)BITMAP_QR_GitHub_Wiki
+//               : (const uint8_t *)BITMAP_QR_GitHub,
+    QR_Draw(wiki ? (const uint8_t *)BITMAP_QR_GitHub_Wiki_Compressed
+                 : (const uint8_t *)BITMAP_QR_GitHub_Compressed,
+            33, origin_x, origin_y);
+}
 #endif
 
 void UI_DisplayReleaseKeys(void)
 {
-    memset(gStatusLine,  0, sizeof(gStatusLine));
+    UI_StatusClear();
 #if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
         ST7565_ContrastAndInv();
 #endif
@@ -107,12 +228,7 @@ void UI_DisplayReleaseKeys(void)
 
 void UI_DisplayWelcome(void)
 {
-    char WelcomeString0[16];
-    char WelcomeString1[16];
-    char WelcomeString2[16];
-    char WelcomeString3[32];
-
-    memset(gStatusLine,  0, sizeof(gStatusLine));
+    UI_StatusClear();
 
 #if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
         ST7565_ContrastAndInv();
@@ -122,21 +238,34 @@ void UI_DisplayWelcome(void)
 #ifdef ENABLE_FEAT_F4HWN
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
-    
+
     if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_NONE || gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_SOUND) {
         ST7565_FillScreen(0x00);
+        return;
+    }
 #else
     if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_NONE || gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_FULL_SCREEN) {
         ST7565_FillScreen(0xFF);
+        return;
+    }
 #endif
-    } else {
-        memset(WelcomeString0, 0, sizeof(WelcomeString0));
-        memset(WelcomeString1, 0, sizeof(WelcomeString1));
+#ifdef ENABLE_FEAT_F4HWN_LOGO
+    else if (gEeprom.POWER_ON_DISPLAY_MODE == POWER_ON_DISPLAY_MODE_LOGO) {
+        UI_LoadLogo();
+    }
+#endif
+    else {
+        char WelcomeString0[17];
+        char WelcomeString1[17];
+        char WelcomeString2[16];
+        char WelcomeString3[32];
 
         // 0x0EB0
-        PY25Q16_ReadBuffer(0x00A0C8, WelcomeString0, 16);
+        PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, WelcomeString0, 16);
+        WelcomeString0[16] = '\0';
         // 0x0EC0
-        PY25Q16_ReadBuffer(0x00A0D8, WelcomeString1, 16);
+        PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE2_ADDR, WelcomeString1, 16);
+        WelcomeString1[16] = '\0';
 
         sprintf(WelcomeString2, "%u.%02uV %u%%",
                 gBatteryVoltageAverage / 100,
@@ -181,18 +310,35 @@ void UI_DisplayWelcome(void)
         UI_PrintString(WelcomeString1, 0, 127, 2, 10);
 
 #ifdef ENABLE_FEAT_F4HWN
-        UI_PrintStringSmallNormal(Version, 0, 128, 4);
+        const size_t version_width = strlen(DisplayVersion) * (ARRAY_SIZE(gFontSmall[0]) + 1u);
+        const uint8_t version_x = version_width < LCD_WIDTH
+            ? (uint8_t)((LCD_WIDTH - version_width + 1u) / 2u)
+            : 0u;
+        const uint8_t capsule_left = version_x > 2u ? (uint8_t)(version_x - 3u) : 0u;
+        const size_t capsule_right_candidate = version_x + version_width + 2u;
+        const uint8_t capsule_right = capsule_right_candidate < LCD_WIDTH
+            ? (uint8_t)capsule_right_candidate
+            : (LCD_WIDTH - 1u);
 
-        UI_DrawLineBuffer(gFrameBuffer, 0, 35, 18, 35, 1);
-        gFrameBuffer[4][19] ^= 0x7F;
-        for (uint8_t x = 20; x < 108; x++)
+        UI_PrintStringSmallNormal(DisplayVersion, version_x, 0, 4);
+
+        if (capsule_left > 0u)
+        {
+            UI_DrawLineBuffer(gFrameBuffer, 0, 35, capsule_left - 1u, 35, 1);
+        }
+        gFrameBuffer[4][capsule_left] ^= 0x7F;
+        for (uint8_t x = capsule_left + 1u; x < capsule_right; x++)
         {
             gFrameBuffer[4][x] ^= 0xFF;
             gFrameBuffer[3][x] ^= 0x80;
         }
-        gFrameBuffer[4][108] ^= 0x7F;
-        UI_DrawLineBuffer(gFrameBuffer, 109, 35, 127, 35, 1);
+        gFrameBuffer[4][capsule_right] ^= 0x7F;
+        if (capsule_right < LCD_WIDTH - 1u)
+        {
+            UI_DrawLineBuffer(gFrameBuffer, capsule_right + 1u, 35, LCD_WIDTH - 1u, 35, 1);
+        }
 
+        /*
         #ifdef ENABLE_FEAT_F4HWN_MEM
             uint32_t ram_used   = 0;
             uint32_t flash_used = 0;
@@ -210,6 +356,7 @@ void UI_DisplayWelcome(void)
             GUI_DisplaySmallest(WelcomeString3, 5, 1, true, true);
             ST7565_BlitStatusLine();
         #endif
+        */
 
         sprintf(WelcomeString3, "%s Edition", Edition);
         UI_PrintStringSmallNormal(WelcomeString3, 0, 127, 6);
@@ -217,12 +364,12 @@ void UI_DisplayWelcome(void)
 #else
         UI_PrintStringSmallNormal(Version, 0, 127, 6);
 #endif
-
-        //ST7565_BlitStatusLine();  // blank status line : I think it's useless
-        ST7565_BlitFullScreen();
-
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            SCREENSHOT_Update(true);
-        #endif
     }
+
+    ST7565_BlitStatusLine();
+    ST7565_BlitFullScreen();
+
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        K5VIEWER_Update(true);
+    #endif
 }

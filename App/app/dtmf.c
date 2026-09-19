@@ -18,7 +18,7 @@
 #include <stdio.h>   // NULL
 
 #include "app/chFrScanner.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/scanner.h"
@@ -212,6 +212,10 @@ DTMF_CallMode_t DTMF_CheckGroupCall(const char *pMsg, const unsigned int size)
 }
 #endif
 
+void DTMF_clear_input_box_memory() {
+    memset(gDTMF_RX_live, 0, sizeof(gDTMF_RX_live));
+}
+
 void DTMF_clear_input_box(void)
 {
     memset(gDTMF_InputBox, 0, sizeof(gDTMF_InputBox));
@@ -275,7 +279,7 @@ void DTMF_HandleRequest(void)
 
                 gDTMF_ReplyState = DTMF_REPLY_AB;
 
-                #ifdef ENABLE_FMRADIO
+                #ifdef ENABLE_FMRADIO_EMBEDDED
                     if (gFmRadioMode)
                     {
                         FM_TurnOff();
@@ -470,7 +474,7 @@ void DTMF_Reply(void)
     if (pString == NULL)
         return;
 
-    Delay = (gEeprom.DTMF_PRELOAD_TIME < 200) ? 200 : gEeprom.DTMF_PRELOAD_TIME;
+    Delay = MAX(gEeprom.DTMF_PRELOAD_TIME, 200);
 
     if (gEeprom.DTMF_SIDE_TONE)
     {   // the user will also hear the transmitted tones

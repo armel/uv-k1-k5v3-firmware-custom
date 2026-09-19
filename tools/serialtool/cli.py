@@ -17,14 +17,11 @@
 
 
 import argparse
-import serial
 import signal
 from time import sleep
 import os
 
-import _prog as pp
-import _dump as dd
-import _restore as rr
+import _fwcodec as fc
 
 
 def load_image(file: str) -> bytes:
@@ -42,7 +39,9 @@ def load_image(file: str) -> bytes:
     return a
 
 
-def main_dump(args, ser: serial.Serial):
+def main_dump(args, ser):
+
+    import _dump as dd
 
     dump_file: str = args.file
 
@@ -73,7 +72,10 @@ def main_dump(args, ser: serial.Serial):
         sleep(0)
 
 
-def main_restore(args, ser: serial.Serial):
+def main_restore(args, ser):
+
+    import _dump as dd
+    import _restore as rr
 
     dump_file: str = args.file
 
@@ -105,7 +107,9 @@ def main_restore(args, ser: serial.Serial):
         sleep(0)
 
 
-def main_flash(args, ser: serial.Serial):
+def main_flash(args, ser):
+
+    import _prog as pp
 
     bl_ver: str = args.bl_ver
     fw_file: str = args.file
@@ -139,6 +143,56 @@ def main_flash(args, ser: serial.Serial):
         sleep(0)
 
 
+def get_raw_output_path(file: str) -> str:
+
+    root, ext = os.path.splitext(file)
+    if ext:
+        file_name = "{}.raw{}".format(os.path.basename(root), ext)
+        candidate = "{}.raw{}".format(root, ext)
+    else:
+        file_name = os.path.basename(file) + ".raw.bin"
+        candidate = file + ".raw.bin"
+
+    out_dir = os.path.dirname(candidate) or "."
+    if os.access(out_dir, os.W_OK):
+        return candidate
+
+    return os.path.join(os.getcwd(), file_name)
+
+
+def main_decode(args):
+
+    fw_file: str = args.file
+    out_file: str = args.output or get_raw_output_path(fw_file)
+
+    try:
+        fw_image = load_image(fw_file)
+        if 0 == len(fw_image):
+            print("Invalid firmware image: {}: empty file".format(fw_file))
+            return
+    except Exception as e:
+        print("Cannot load firmware image '{}': {}".format(fw_file, e))
+        return
+
+    if fc.is_raw_image(fw_image):
+        print("Firmware image already looks raw")
+        raw_image = fw_image
+        version = None
+    else:
+        try:
+            raw_image, version = fc.decode_packed_image(fw_image)
+        except Exception as e:
+            print("Cannot decode firmware image '{}': {}".format(fw_file, e))
+            return
+
+    with open(out_file, "wb") as fd:
+        fd.write(raw_image)
+
+    print("Raw firmware image written: {}, size = {}".format(out_file, len(raw_image)))
+    if version:
+        print("Packed version field: {}".format(version))
+
+
 def main():
 
     # Usage:
@@ -146,6 +200,7 @@ def main():
     # serialtool.py .. flash [--bl-ver <ver>] <file>
     # serialtool.py .. dump {--config | --calib [| --all]} file
     # serialtool.py .. restore {--config | --calib [| --all]} file
+    # serialtool.py decode <packed.bin> [raw.bin]
     ap = argparse.ArgumentParser(description="UV-K5 V2 serial tool")
 
     # TODO: have to add option to each of subcommands ??
@@ -198,14 +253,31 @@ def main():
     )
     ap_restore.add_argument("file", help="input dump file")
 
+    ap_decode = sp.add_parser(
+        "decode", help="decode a packed Quansheng stock firmware into a raw image"
+    )
+    ap_decode.add_argument("file", help="input firmware image file")
+    ap_decode.add_argument(
+        "output",
+        nargs="?",
+        help="output raw firmware image file (default: <input>.raw.bin)",
+    )
+
     args = ap.parse_args()
-    port: str = args.port
     sub_name: str = args.subcommand
 
     print(ap.description)
     # print("Press Ctrl-C to quit")
 
+    if "decode" == sub_name:
+        main_decode(args)
+        return
+
+    port: str = args.port
+
     try:
+        import serial
+
         ser = serial.Serial(port, baudrate=38400, timeout=0.0001, write_timeout=None)
     except Exception as e:
         print("Cannot open port '{}': {}".format(port, e))

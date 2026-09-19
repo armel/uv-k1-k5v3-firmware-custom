@@ -55,7 +55,9 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of RAM */
 /* Generate a link error if heap and stack don't fit into RAM */
-_Min_Heap_Size = 0x200;      /* required amount of heap  */
+/* ENABLE_NO_HEAP passes --defsym=__min_heap_size=0 to drop the reserved heap
+ * (no malloc/sbrk is linked); default stays 0x200 otherwise. */
+_Min_Heap_Size = DEFINED(__min_heap_size) ? __min_heap_size : 0x200;      /* required amount of heap  */
 _Min_Stack_Size = 0x400; /* required amount of stack */
 
 /* Specify the memory areas */
@@ -134,10 +136,14 @@ SECTIONS
   _sidata = LOADADDR(.data);
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
-  .data : 
+  .data :
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
+
+    *(.RamFunc)        /* functions that must execute from RAM (e.g. internal */
+    *(.RamFunc*)       /* flash reprogramming); copied to RAM with .data      */
+
     *(.data)           /* .data sections */
     *(.data*)          /* .data* sections */
 
@@ -153,7 +159,63 @@ SECTIONS
     *(.noncacheable*)
     . = ALIGN(4);
   } >RAM AT> FLASH
-  _eflash_used = LOADADDR(.noncacheable) + SIZEOF(.noncacheable);
+
+  /* Optional multiboot overlay. The restore stub is linked at the same RAM
+     address as the 4 KiB PY25Q16 sector cache, but its load image remains in
+     FLASH and is copied into the cache only immediately before reflashing.
+
+     The VMA is PINNED to a fixed RAM address (ORIGIN + 0x280) so a single
+     overlay-app blob runs on EVERY preset: without pinning, the sector-cache
+     VMA shifts with the per-preset .data size (Fusion 0x1dc, Transfer/Max 0x1e0,
+     ...), and a blob linked for one preset is refused by the loader's VMA guard
+     on another. 0x280 clears the ~0x1ec of RAM used before it; the assert fails
+     loudly (raise the anchor) if a preset ever needs more. */
+  ASSERT((ADDR(.noncacheable) + SIZEOF(.noncacheable)) <= (ORIGIN(RAM) + 0x280),
+         "RAM before the overlay exceeds the fixed 0x280 anchor - raise MB_OVERLAY_VMA")
+  OVERLAY (ORIGIN(RAM) + 0x280) : NOCROSSREFS AT (LOADADDR(.noncacheable) + SIZEOF(.noncacheable))
+  {
+    .mb_ramfunc
+    {
+      . = ALIGN(4);
+      __mb_ramfunc_start = .;
+      KEEP(*(.MBRamFunc))
+      KEEP(*(.MBRamFunc*))
+      . = ALIGN(4);
+      __mb_ramfunc_end = .;
+    }
+
+    .mb_workspace
+    {
+      . = ALIGN(4);
+      __mb_workspace_start = .;
+      KEEP(*(.bss.mb_workspace))
+      KEEP(*(.bss.mb_workspace*))
+      . = ALIGN(4);
+      __mb_workspace_end = .;
+    }
+  } >RAM
+
+  __mb_ramfunc_load_start = LOADADDR(.mb_ramfunc);
+  __mb_ramfunc_size = SIZEOF(.mb_ramfunc);
+  __mb_workspace_size = SIZEOF(.mb_workspace);
+
+  ASSERT(__mb_ramfunc_size <= __mb_workspace_size,
+         "Multiboot RAM stub does not fit in PY25Q16 sector-cache overlay")
+  ASSERT((__mb_ramfunc_size == 0) || (__mb_workspace_size == 0x1000),
+         "Multiboot overlay workspace is not the 4 KiB sector cache")
+  ASSERT((__mb_ramfunc_size == 0) ||
+         (ADDR(.mb_ramfunc) == ADDR(.mb_workspace)),
+         "Multiboot RAM stub and workspace do not share the same VMA")
+  ASSERT((__mb_ramfunc_size == 0) ||
+         (LOADADDR(.mb_ramfunc) != ADDR(.mb_ramfunc)),
+         "Multiboot RAM stub load and execution addresses must differ")
+  ASSERT((LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc)) <=
+         (ORIGIN(FLASH) + LENGTH(FLASH)),
+         "FLASH overflowed by multiboot RAM-stub load image")
+
+  /* .mb_ramfunc is the final section with a FLASH load image. The workspace
+     member is NOLOAD/BSS storage and therefore contributes RAM only. */
+  _eflash_used = LOADADDR(.mb_ramfunc) + SIZEOF(.mb_ramfunc);
   
   /* Uninitialized data section */
   . = ALIGN(4);
@@ -194,5 +256,3 @@ SECTIONS
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
 }
-
-

@@ -17,6 +17,9 @@
 #ifndef APP_ACTION_H
 #define APP_ACTION_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "driver/keyboard.h"
 
 void ACTION_Power(void);
@@ -30,10 +33,6 @@ void ACTION_Scan(bool bRestart);
     void ACTION_FM(void);
 #endif
 void ACTION_SwitchDemodul(void);
-
-#ifdef ENABLE_BLMIN_TMP_OFF
-    void ACTION_BlminTmpOff(void);
-#endif
 
 #ifdef ENABLE_FEAT_F4HWN
     void ACTION_RxMode(void);
@@ -50,8 +49,19 @@ void ACTION_SwitchDemodul(void);
         void ACTION_Power_High(void);
         void ACTION_Remove_Offset(void);
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+        void ACTION_RxTxLog(void);
+    #endif
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
+#define ACTION_PICKER_TIMEOUT_500MS 10u
+extern uint8_t gActionPickerKey;
+extern uint8_t gActionPickerSelection[2];
+extern uint8_t gActionPickerTimeout_500ms;
+bool ACTION_PickerProcessKey(KEY_Code_t key, bool isPressed, bool isHeld);
+#endif
+bool ACTION_IsAvailable(uint8_t action);
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 #endif

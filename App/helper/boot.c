@@ -29,19 +29,39 @@
 #include "settings.h"
 #include "ui/menu.h"
 #include "ui/ui.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "ui/multiboot.h"
+#endif
 
 BOOT_Mode_t BOOT_GetMode(void)
 {
     unsigned int i;
     KEY_Code_t   Keys[2];
+    bool         PttPressed[2];
 
+    /* Poll the keypad even without PTT: holding MENU alone enters multiboot.
+     * The two samples keep the same debounce rule as the legacy boot modes. */
     for (i = 0; i < 2; i++)
     {
-        if (!GPIO_IsPttPressed())
-            return BOOT_MODE_NORMAL;   // PTT not pressed
+        PttPressed[i] = GPIO_IsPttPressed();
         Keys[i] = KEYBOARD_Poll();
         SYSTEM_DelayMs(20);
     }
+
+    #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    if (!PttPressed[0] && !PttPressed[1] &&
+        Keys[0] == KEY_MENU && Keys[1] == KEY_MENU)
+    {
+        gKeyReading0 = Keys[0];
+        gKeyReading1 = Keys[0];
+        gDebounceCounter = 2;
+        return BOOT_MODE_MULTIBOOT;
+    }
+    #endif
+
+    /* All historical special modes still require PTT for both samples. */
+    if (!PttPressed[0] || !PttPressed[1])
+        return BOOT_MODE_NORMAL;
 
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     if (Keys[0] == (10 + gEeprom.SET_KEY))
@@ -73,12 +93,14 @@ BOOT_Mode_t BOOT_GetMode(void)
 
 void BOOT_ProcessMode(BOOT_Mode_t Mode)
 {
+    GUI_DisplayType_t display = DISPLAY_MAIN;
+
     if (Mode == BOOT_MODE_F_LOCK)
     {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
             gEeprom.CURRENT_STATE = 0; // Don't resume is active...
         #endif 
-        GUI_SelectNextDisplay(DISPLAY_MENU);
+        display = DISPLAY_MENU;
     }
     #ifdef ENABLE_AIRCOPY
         else
@@ -119,11 +141,14 @@ void BOOT_ProcessMode(BOOT_Mode_t Mode)
                 gEeprom.CURRENT_STATE = 0; // Don't resume is active...
             #endif 
 
-            GUI_SelectNextDisplay(DISPLAY_AIRCOPY);
+            display = DISPLAY_AIRCOPY;
         }
     #endif
-    else
-    {
-        GUI_SelectNextDisplay(DISPLAY_MAIN);
-    }
+
+    #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        else if (Mode == BOOT_MODE_MULTIBOOT)
+            UI_MultibootSelector();
+    #endif
+
+    GUI_SelectNextDisplay(display);
 }

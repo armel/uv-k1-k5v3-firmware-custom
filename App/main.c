@@ -18,12 +18,11 @@
 #include <string.h>
 #include <stdio.h>     // NULL
 
-#ifdef ENABLE_AM_FIX
-    #include "am_fix.h"
-#endif
-
 #include "audio.h"
 #include "board.h"
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    #include "app/rxtx_log.h"
+#endif
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
@@ -49,6 +48,10 @@
 #include "driver/system.h"
 #include "driver/systick.h"
 #include "driver/py25q16.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #include "ui/multiboot.h"
+#endif
 #ifdef ENABLE_UART
     #include "driver/uart.h"
 #endif
@@ -78,6 +81,14 @@ void Main(void)
     SYSTICK_Init();
     BOARD_Init();
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Resolve the active settings bank BEFORE any EEPROM/settings access
+     * below. This also adopts a normally-flashed firmware as slot 0 (discreet
+     * self-backup) when the running image isn't the slot the marker points to.
+     * Calibration stays shared regardless of the selected bank. */
+    PY25Q16_SetBankBase(MB_BankBase(MB_BootResolveState()));
+#endif
+
     boot_counter_10ms = 250;   // 2.5 sec
 
 #ifdef ENABLE_UART
@@ -99,12 +110,15 @@ void Main(void)
 
     SETTINGS_InitEEPROM();
 
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    RXTX_LOG_Init();
+#endif
+
     #ifdef ENABLE_FEAT_F4HWN
         gDW = gEeprom.DUAL_WATCH;
         gCB = gEeprom.CROSS_BAND_RX_TX;
     #endif
 
-    SETTINGS_WriteBuildOptions();
     SETTINGS_LoadCalibration();
 
     RADIO_ConfigureChannel(0, VFO_CONFIGURE_RELOAD);
@@ -119,11 +133,17 @@ void Main(void)
 
     BATTERY_GetReadings(false);
 
-#ifdef ENABLE_AM_FIX
-    AM_fix_init();
-#endif
-
     BOOT_Mode_t  BootMode = BOOT_GetMode();
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    /* Run before the welcome screen and the normal application UI. EXIT from
+     * the selector simply resumes this boot as if no special mode was held. */
+    if (BootMode == BOOT_MODE_MULTIBOOT)
+    {
+        BOOT_ProcessMode(BootMode);
+        BootMode = BOOT_MODE_NORMAL;
+    }
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     if (BootMode == BOOT_MODE_RESCUE_OPS)
@@ -157,23 +177,17 @@ void Main(void)
         #ifdef ENABLE_FEAT_F4HWN
             gEeprom.KEY_LOCK = 0;
             SETTINGS_SaveSettings();
-            gMenuCursor = MENU_ITEMS; 
-            
-            #ifdef ENABLE_NOAA
-                gMenuCursor += 1; // move to hidden section, fix me if change... !!!
+            #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+                gMenuLevel    = MENU_LEVEL_ITEMS;
+                gMenuCategory = CAT_ALL;
             #endif
+            gMenuCursor = UI_MENU_GetMenuIdx(FIRST_HIDDEN_MENU_ITEM);
             gSubMenuSelection = gSetting_F_LOCK;
         #endif
     }
 
-    // count the number of menu items
-    gMenuListCount = 0;
-    while (MenuList[gMenuListCount].name[0] != '\0') {
-        if(!gF_LOCK && MenuList[gMenuListCount].menu_id == FIRST_HIDDEN_MENU_ITEM)
-            break;
-
-        gMenuListCount++;
-    }
+    // build the current menu view (Etape 1: vue = All, identite)
+    UI_MENU_BuildView();
 
     // wait for user to release all butts before moving on
     if (GPIO_IsPttPressed() ||
@@ -248,6 +262,9 @@ void Main(void)
 #endif
 
         BOOT_ProcessMode(BootMode);
+
+        if (gEeprom.AUTO_KEYPAD_LOCK && !gEeprom.KEY_LOCK)
+            gKeyLockCountdown = gEeprom.AUTO_KEYPAD_LOCK * 30; // 15 seconds step
 
         // GPIO_ClearBit(&GPIOA->DATA, GPIOA_PIN_VOICE_0);
 

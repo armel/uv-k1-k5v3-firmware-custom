@@ -16,8 +16,12 @@
 
 #include <string.h>
 
+#include "app/app.h"
 #include "app/chFrScanner.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+#include "app/rxtx_log.h"
+#endif
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/scanner.h"
@@ -43,46 +47,99 @@ static void convertTime(uint8_t *line, uint8_t type)
     uint8_t m = t / 60;
     uint8_t s = t - (m * 60); // Replace modulo with subtraction for efficiency
 
-    gStatusLine[0] = gStatusLine[7] = gStatusLine[14] = 0x00; // Quick fix on display (on scanning I, II, etc.)
-
     char str[6];
     sprintf(str, "%02u:%02u", m, s);
     UI_PrintStringSmallBufferNormal(str, line);
-
-    gUpdateStatus = true;
 }
 #endif
 #endif
 
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+void UI_DrawStatusBattery(uint8_t *line, char *str)
+#else
+static __attribute__((always_inline)) inline void UI_DrawStatusBattery(uint8_t *line, char *str)
+#endif
+{
+    unsigned int x = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1);
+
+    UI_DrawBattery(line + x, gBatteryDisplayLevel, gLowBatteryBlink);
+
+    if (gSetting_battery_text == 1) {
+        const uint16_t voltage = MIN(gBatteryVoltageAverage, 999);
+        sprintf(str, "%u.%02u", voltage / 100, voltage % 100);
+    } else if (gSetting_battery_text == 2) {
+        sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
+    } else {
+        return;
+    }
+
+    x -= 7 * strlen(str);
+    UI_PrintStringSmallBufferNormal(str, line + x);
+}
+
 void UI_DisplayStatus()
 {
-    char str[8] = "";
-
     gUpdateStatus = false;
-    memset(gStatusLine, 0, sizeof(gStatusLine));
+
+    if (APP_IsScreenSaverDisplayed())
+        return;
+
+    UI_StatusClear();
 
     uint8_t     *line = gStatusLine;
     unsigned int x    = 0;
+    unsigned int x1   = 0;
 
-#ifdef ENABLE_NOAA
-    // NOAA indicator
-    if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) && gIsNoaaMode) { // NOASS SCAN indicator
-        memcpy(line + x, BITMAP_NOAA, sizeof(BITMAP_NOAA));
+    char str[8] = "";
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    // The filter label reuses the leftmost slot (pixels 2..16) normally
+    // reserved by the power-save and scan indicators; those two are skipped
+    // on the log screen so the rest of the bar keeps its usual layout.
+    const bool isRxTxLogScreen = gScreenToDisplay == DISPLAY_RXTX_LOG;
+    if (isRxTxLogScreen) {
+        const char *filter = RXTX_LOG_GetFilterName();
+        const uint8_t end = (filter[2] == 0) ? 10 : 14;
+
+        GUI_DisplaySmallestInverse(filter, 2, 0, true, true, end);
     }
-    // Power Save indicator
-    else if (gCurrentFunction == FUNCTION_POWER_SAVE) {
-        memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
-    }
-    x += 8;
-#else
-    // Power Save indicator
-    if (gCurrentFunction == FUNCTION_POWER_SAVE) {
-        memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
-    }
-    x += 8;
 #endif
 
-    unsigned int x1 = x;
+#if defined(ENABLE_FEAT_F4HWN_RX_TX_TIMER) && !defined(ENABLE_FEAT_F4HWN_DEBUG)
+    bool isTransmit = gCurrentFunction == FUNCTION_TRANSMIT;
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    if (!isRxTxLogScreen && gSetting_set_tmr && (isTransmit || FUNCTION_IsRx())) {
+#else
+    if (gSetting_set_tmr && (isTransmit || FUNCTION_IsRx())) {
+#endif
+        convertTime(line, !isTransmit);
+        x += 39;
+    } else {
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+    if (!isRxTxLogScreen)
+#endif
+    {
+#ifdef ENABLE_NOAA
+        // NOAA indicator
+        if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) && gIsNoaaMode) { // NOASS SCAN indicator
+            memcpy(line + x, BITMAP_NOAA, sizeof(BITMAP_NOAA));
+        }
+        // Power Save indicator
+        else if (gCurrentFunction == FUNCTION_POWER_SAVE) {
+            memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
+        }
+#else
+        // Power Save indicator
+        if (gCurrentFunction == FUNCTION_POWER_SAVE) {
+            memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
+        }
+#endif
+    }
+    x += 8;
+
+    x1 = x;
 
 #ifdef ENABLE_DTMF_CALLING
     if (gSetting_KILLED) {
@@ -92,15 +149,18 @@ void UI_DisplayStatus()
     else
 #endif
     { // SCAN indicator
-        if (gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) {
+        if ((gScanStateDir != SCAN_OFF || SCANNER_IsScanning())
+#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
+            && !isRxTxLogScreen
+#endif
+        ) {
             if (IS_MR_CHANNEL(gNextMrChannel) && !SCANNER_IsScanning()) { // channel mode
-
                 uint8_t end = 0;
 
                 if(gEeprom.SCAN_LIST_DEFAULT == MR_CHANNELS_LIST + 1)
                 {
-                    sprintf(str, gEeprom.SCAN_LIST_ENABLED ? "%s+" : "%s", "ALL");
-                    end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
+                    strcpy(str, "ALL");
+                    end = 14;
                 }
                 else
                 {
@@ -108,15 +168,22 @@ void UI_DisplayStatus()
 
                     // Check if name is valid
                     if (!IsEmptyName(name, sizeof(gListName[0]))) {
-                        sprintf(str, "%.3s%s", name, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 18 : 14;
-                    } 
-                    else {
-                        sprintf(str, "%02d%s", gEeprom.SCAN_LIST_DEFAULT, gEeprom.SCAN_LIST_ENABLED ? "+" : "");
-                        end = gEeprom.SCAN_LIST_ENABLED ? 14 : 10;
+                        sprintf(str, "%.3s", name);
+                        end = 14;
+                    } else {
+                        sprintf(str, "%02d", gEeprom.SCAN_LIST_DEFAULT);
+                        end = 10;
                     }
                 }
 
+                if (gEeprom.SCAN_LIST_ENABLED) {
+                    strcat(str, "+");
+                    end += 4;
+                }
+
+#ifdef ENABLE_FEAT_F4HWN
+                GUI_DisplaySmallestInverse(str, 2, 0, true, true, end);
+#else
                 GUI_DisplaySmallest(str, 2, 1, true, true);
 
                 gStatusLine[0] ^= 0x3E;
@@ -125,6 +192,7 @@ void UI_DisplayStatus()
                     gStatusLine[x] ^= 0x7F;
                 }
                 gStatusLine[end] ^= 0x3E;
+#endif
             }
             else {  // frequency mode
                 memcpy(line + x + 1, gFontS, sizeof(gFontS));
@@ -154,48 +222,48 @@ void UI_DisplayStatus()
         #endif
 
         if(!SCANNER_IsScanning()) {
-        #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
-            if(gCurrentFunction == FUNCTION_TRANSMIT && gSetting_set_tmr == true)
-            {
-                convertTime(line, 0);
-            }
-            else if(FUNCTION_IsRx() && gSetting_set_tmr == true)
-            {
-                convertTime(line, 1);
-            }
-            else
-        #endif
-            {
-                if(!gAirCopyBootMode) {
-                    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-                    if(gEeprom.MENU_LOCK == true) {
-                        memcpy(line + x + 2, gFontRO, sizeof(gFontRO));
+            if(!gAirCopyBootMode) {
+                const void *src = NULL;    // Pointer to the font/bitmap to copy
+                size_t sSize = 0;          // Size of the font/bitmap
+                uint8_t sOff = 2;          // Offset relative to the reference position
+
+                #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+                    if (gEeprom.MENU_LOCK) {
+                        src = gFontRO;
+                        sSize = sizeof(gFontRO);
+                    } else 
+                #endif
+                {
+                    uint8_t xb = (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF);
+
+                    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) {
+                        if (gDualWatchActive) { // DWR - dual watch + respond
+                            src = gFontDWR;
+                            sOff = xb ? 2 : 0;
+                            sSize = sizeof(gFontDWR) - (xb ? 5 : 0);
+                        } else {
+                            src = gFontHold;
+                            sOff = 3;
+                            sSize = sizeof(gFontHold);
+                        }
+                    } else {
+                        src   = xb ? gFontXB         : gFontMO;          // XB - crossband
+                        sSize = xb ? sizeof(gFontXB) : sizeof(gFontMO);  // MO - main only
                     }
-                    else
-                    {
-                    #endif
-                        uint8_t dw = (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF) + (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF) * 2;
-                        if(dw == 1 || dw == 3) { // DWR - dual watch + respond
-                            if(gDualWatchActive)
-                                memcpy(line + x + (dw==1?0:2), gFontDWR, sizeof(gFontDWR) - (dw==1?0:5));
-                            else
-                                memcpy(line + x + 3, gFontHold, sizeof(gFontHold));
-                        }
-                        else if(dw == 2) { // XB - crossband
-                            memcpy(line + x + 2, gFontXB, sizeof(gFontXB));
-                        }
-                        else
-                        {
-                            memcpy(line + x + 2, gFontMO, sizeof(gFontMO));
-                        }
-                    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-                    }
-                    #endif
+                }
+
+                // Perform the memcpy if a source was selected
+                if (src) {
+                    memcpy(line + x + sOff, src, sSize);
                 }
             }
         }
         x += sizeof(gFontDWR) + 3;
     #endif
+
+#if defined(ENABLE_FEAT_F4HWN_RX_TX_TIMER) && !defined(ENABLE_FEAT_F4HWN_DEBUG)
+    }
+#endif
 
 #ifdef ENABLE_VOX
     // VOX indicator
@@ -243,8 +311,19 @@ void UI_DisplayStatus()
         }
     #endif
     else if (gBackLight) {
-        src = gFontLight;
-        size = sizeof(gFontLight);
+        // Distinguish the manual backlight sub-state: BACKLIGHT_TIME == 0
+        // means the light is currently off (hollow bulb), otherwise it is
+        // forced on (bulb with filament).
+
+        if (gEeprom.BACKLIGHT_TIME == 0) {
+            src = gFontLightOff;
+            size = sizeof(gFontLightOff);
+        }
+        else
+        {
+            src = gFontLight;
+            size = sizeof(gFontLight);     
+        }
     }
     #ifdef ENABLE_FEAT_F4HWN_CHARGING_C
     else if (gChargingWithTypeC) {
@@ -258,42 +337,7 @@ void UI_DisplayStatus()
         memcpy(line + x + 1, src, size);
     }
 
-    // Battery
-    unsigned int x2 = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1) - 0;
-
-    UI_DrawBattery(line + x2, gBatteryDisplayLevel, gLowBatteryBlink);
-
-    bool BatTxt = true;
-
-    switch (gSetting_battery_text) {
-        default:
-        case 0:
-            BatTxt = false;
-            break;
-
-        case 1:    // voltage
-            const uint16_t voltage = (gBatteryVoltageAverage <= 999) ? gBatteryVoltageAverage : 999; // limit to 9.99V
-            sprintf(str, "%u.%02u", voltage / 100, voltage % 100);
-            break;
-
-        case 2:     // percentage
-            //gBatteryVoltageAverage = 999;
-            sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-            break;
-    }
-
-    if (BatTxt) {
-        x2 -= (7 * strlen(str));
-        UI_PrintStringSmallBufferNormal(str, line + x2);
-        /*
-        uint8_t shift = (strlen(str) < 5) ? 92 : 88;
-        GUI_DisplaySmallest(str, shift, 1, true, true);
-
-        for (uint8_t i = shift - 2; i < 110; i++) {
-            gStatusLine[i] ^= 0x7F; // invert
-        }
-        */
-    }
+    UI_DrawStatusBattery(line, str);
 
     // **************
 

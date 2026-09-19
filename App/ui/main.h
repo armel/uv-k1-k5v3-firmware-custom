@@ -18,16 +18,20 @@
 #define UI_MAIN_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 enum center_line_t {
     CENTER_LINE_NONE = 0,
     CENTER_LINE_IN_USE,
+    CENTER_LINE_SCAN_PROGRESS,
     CENTER_LINE_AUDIO_BAR,
     CENTER_LINE_AUDIO_SCOPE,
     CENTER_LINE_RSSI,
-    CENTER_LINE_AM_FIX_DATA,
     CENTER_LINE_DTMF_DEC,
-    CENTER_LINE_CHARGE_DATA
+    CENTER_LINE_CHARGE_DATA,
+#ifdef ENABLE_FEAT_F4HWN_BEAM
+    CENTER_LINE_BEAM
+#endif
 };
 
 enum Vfo_txtr_mode{
@@ -43,11 +47,26 @@ extern center_line_t center_line;
 #ifdef ENABLE_AUDIO_BAR
 void UI_DisplayAudioBar(void);
 #endif
+#if defined(ENABLE_FEAT_F4HWN_AUDIO_SCOPE) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+void UI_DisplayAudioScopeOverlay(uint8_t line, bool active);
+#endif
 #ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
 void UI_DisplayAudioScope(void);
 #endif
 void UI_MAIN_TimeSlice500ms(void);
 void UI_DisplayMain(void);
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
+void UI_MAIN_NotifyScanProgressDataChanged(void);
+void UI_MAIN_NotifyScanListChanged(void);
+bool UI_MAIN_ShouldHoldScanResume(void);
+void UI_MAIN_TimeSlice10ms(void);
+#else
+static inline void UI_MAIN_NotifyScanProgressDataChanged(void) {}
+static inline void UI_MAIN_NotifyScanListChanged(void) {}
+static inline bool UI_MAIN_ShouldHoldScanResume(void) { return false; }
+static inline void UI_MAIN_TimeSlice10ms(void) {}
+#endif
 
 #ifdef ENABLE_AGC_SHOW_DATA
 void UI_MAIN_PrintAGC(bool force);

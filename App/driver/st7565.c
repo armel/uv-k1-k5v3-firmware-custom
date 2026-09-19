@@ -24,7 +24,7 @@
 #include "driver/st7565.h"
 #include "driver/system.h"
 #include "misc.h"
-#include "screenshot.h"
+#include "k5viewer.h"
 
 #define SPIx SPI1
 
@@ -164,8 +164,8 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
     void ST7565_BlitLine(unsigned line)
     {
         ST7565_BlitScreen(line + 1);
-        #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-            SCREENSHOT_Update(true);  // Force immediate capture
+        #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+            K5VIEWER_Update(true);  // Force immediate capture
         #endif
     }
 
@@ -204,9 +204,11 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
 void ST7565_FillScreen(uint8_t value)
 {
     CS_Assert();
-    for (unsigned i = 0; i < 8; i++) {
-        // TODO: This is wrong
-        DrawLine(0, i, NULL, value);
+    for (uint8_t line = 0; line < 8u; line++) {
+        ST7565_SelectColumnAndLine(4u, line);
+        A0_Set();
+        for (uint8_t column = 0; column < LCD_WIDTH; column++)
+            SPI_WriteByte(value);
     }
     CS_Release();
 }
@@ -260,7 +262,7 @@ void ST7565_FillScreen(uint8_t value)
 // D=0, display OFF
 #define ST7565_CMD_DISPLAY_ON_OFF 0xAE 
 
-uint8_t cmds[] = {
+const uint8_t cmds[] = {
     ST7565_CMD_BIAS_SELECT | 0,             // Select bias setting: 1/9
     ST7565_CMD_COM_DIRECTION  | (0 << 3),   // Set output direction of COM: normal
     ST7565_CMD_SEG_DIRECTION | 1,           // Set scan direction of SEG: reverse
@@ -333,6 +335,10 @@ void ST7565_Init(void)
     SPI_Init();
     ST7565_HardwareReset();
     CS_Assert();
+
+    /* Hide the controller RAM immediately.  On K1 there is no usable hardware
+     * reset pin, so its power-on contents can otherwise briefly reach the LCD. */
+    ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 0);
     ST7565_WriteByte(ST7565_CMD_SOFTWARE_RESET);   // software reset
     SYSTEM_DelayMs(120);
 
@@ -354,13 +360,16 @@ void ST7565_Init(void)
         ST7565_WriteByte(ST7565_CMD_POWER_CIRCUIT | 0b111);   // VB=1 VR=1 VF=1
 
     SYSTEM_DelayMs(40);
-    
-    ST7565_WriteByte(ST7565_CMD_SET_START_LINE | 0);   // line 0
-    ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 1);   // D=1
 
+    ST7565_WriteByte(ST7565_CMD_SET_START_LINE | 0);   // line 0
     CS_Release();
 
+    /* Clear all eight LCD RAM pages while the display is still disabled. */
     ST7565_FillScreen(0x00);
+
+    CS_Assert();
+    ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 1);   // D=1
+    CS_Release();
 }
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP

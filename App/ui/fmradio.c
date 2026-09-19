@@ -31,7 +31,14 @@
 
 void UI_DisplayFM(void)
 {
-    char String[16] = {0};
+    // Keep these labels in sync with the limits in driver/bk1080.c.
+    static const char BandNames[][10] = {
+        "87.5-108M",
+        "76-108M",
+        "76-90M",
+        "64-76M",
+    };
+    char String[16];
     char *pPrintStr = String;
     UI_DisplayClear();
 
@@ -41,13 +48,7 @@ void UI_DisplayFM(void)
 
     UI_PrintString("FM", 2, 0, 0, 8);
 
-    sprintf(String, "%d%s-%dM", 
-        BK1080_GetFreqLoLimit(gEeprom.FM_Band)/10,
-        gEeprom.FM_Band == 0 ? ".5" : "",
-        BK1080_GetFreqHiLimit(gEeprom.FM_Band)/10
-        );
-    
-    UI_PrintStringSmallNormal(String, 1, 0, 6);
+    UI_PrintStringSmallNormal(BandNames[gEeprom.FM_Band], 1, 0, 6);
 
     //uint8_t spacings[] = {20,10,5};
     //sprintf(String, "%d0k", spacings[gEeprom.FM_Space % 3]);
@@ -80,9 +81,17 @@ void UI_DisplayFM(void)
 
     UI_PrintString(pPrintStr, 0, 127, 3, 10); // memory, vfo, scan
 
-    memset(String, 0, sizeof(String));
     if (gAskToSave || (gEeprom.FM_IsMrMode && gInputBoxIndex > 0)) {
-        UI_GenerateChannelString(String, gFM_ChannelPosition);
+        if (gInputBoxIndex == 0) {
+            sprintf(String, "CH-%02u", gFM_ChannelPosition + 1);
+        } else {
+            String[0] = 'C';
+            String[1] = 'H';
+            String[2] = '-';
+            for (unsigned int i = 0; i < 2; i++)
+                String[i + 3] = (gInputBox[i] == 10) ? '-' : gInputBox[i] + '0';
+            String[5] = '\0';
+        }
     } else if (gAskToDelete) {
         sprintf(String, "CH-%02u", gEeprom.FM_SelectedChannel + 1);
     } else {

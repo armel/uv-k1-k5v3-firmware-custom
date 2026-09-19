@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "dcs.h"
+#include "driver/bk4819.h"
 #include "frequencies.h"
 
 enum {
@@ -49,7 +50,6 @@ enum VfoState_t
     VFO_STATE_BAT_LOW,
     VFO_STATE_TX_DISABLE,
     VFO_STATE_TIMEOUT,
-    VFO_STATE_ALARM,
     VFO_STATE_VOLTAGE_HIGH,
     _VFO_STATE_LAST_ELEMENT
 };
@@ -148,6 +148,9 @@ extern DCS_CodeType_t gCurrentCodeType;
 
 extern VfoState_t     VfoState[2];
 
+// Human-readable label per VfoState_t (defined in ui/main.c), e.g. "TX DISABLE".
+extern const char *const VfoStateStr[];
+
 bool     RADIO_CheckValidList(uint8_t scanList);
 void     RADIO_NextValidList(int8_t direction);
 bool     RADIO_CheckValidChannel(uint16_t channel, bool checkScanList, uint8_t scanList);
@@ -155,12 +158,14 @@ uint16_t RADIO_FindNextChannel(uint16_t ChNum, int8_t Direction, bool bCheckScan
 void     RADIO_InitInfo(VFO_Info_t *pInfo, const uint16_t ChannelSave, const uint32_t Frequency);
 void     RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure);
 void     RADIO_ConfigureSquelchAndOutputPower(VFO_Info_t *pInfo);
+void     RADIO_ValidateAndSetCode(FREQ_Config_t *pFreq_Config, uint8_t tmp);
 void     RADIO_ApplyOffset(VFO_Info_t *pInfo);
 void     RADIO_SelectVfos(void);
 void     RADIO_SetupRegisters(bool switchToForeground);
 #ifdef ENABLE_NOAA
     void RADIO_ConfigureNOAA(void);
 #endif
+BK4819_FilterBandwidth_t RADIO_GetAMFilterBandwidth(const VFO_Info_t *pVfo);
 void     RADIO_SetTxParameters(void);
 void     RADIO_SetupAGC(bool listeningAM, bool disable);
 void     RADIO_SetModulation(ModulationMode_t modulation);

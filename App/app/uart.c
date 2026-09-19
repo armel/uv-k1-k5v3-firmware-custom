@@ -6,24 +6,21 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
  */
-
-// FORCE CAT COMPILATION
-#define ENABLE_CAT 1
 
 #include <string.h>
 
 #if !defined(ENABLE_OVERLAY)
     #include "py32f0xx.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/uart.h"
@@ -34,6 +31,7 @@
 #include "driver/crc.h"
 #include "driver/eeprom.h"
 #include "driver/gpio.h"
+#include "external/printf/printf.h"
 
 #if defined(ENABLE_UART)
 #include "driver/uart.h"
@@ -49,11 +47,19 @@
 #include "version.h"
 
 #ifdef ENABLE_CAT
-    #include "dcs.h"        // Access to CTCSS/DCS tables
-    #include "app/action.h" // Access to ACTION_Monitor()
+    #include "dcs.h"
+    #include "app/action.h"
     #include "frequencies.h"
     #include "radio.h"
-    #include "ui/ui.h" 
+    #include "ui/ui.h"
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_overlay.h"
 #endif
 
 #if defined(ENABLE_OVERLAY)
@@ -70,11 +76,6 @@
 
 // !! Make sure this is correct!
 #define MAX_REPLY_SIZE 144
-
-#ifdef ENABLE_CAT
-// --- LINKER ERROR FIX ---
-void *_sbrk(int incr) { return (void *)-1; }
-#endif
 
 typedef struct {
     uint16_t ID;
@@ -168,6 +169,7 @@ typedef struct {
     } Data;
 } REPLY_052D_t;
 
+
 #ifdef ENABLE_EXTRA_UART_CMD
 typedef struct {
     Header_t Header;
@@ -205,49 +207,89 @@ typedef union
 // static bool     bIsEncrypted = true;
 #define bIsEncrypted true
 
-
+// ============================================================
+// === KENWOOD CAT — Rozszerzony protokół telemetrii i skanera
+// === Port z uv-k1-k5v3-firmware-CAT (muzkr 2025)
+// ============================================================
 #ifdef ENABLE_CAT
 
-// --- CAT PROTOCOL VARIABLES ---
-static char cat_buffer[64];
+extern bool gRxIdleMode;
+extern bool g_SquelchLost;
+
+// --- Zmienne S-Metra / auto-raportowanie RSSI ---
+static bool    g_AutoReportRSSI     = false;
+static int16_t g_LastReportedRSSI   = 0;
+static uint16_t g_UartRssiTimer_10ms = 0;
+
+// --- Zmienne skanera SC (lista) ---
+#define MAX_UART_SCAN_LIST 25
+static uint32_t g_UartScanList[MAX_UART_SCAN_LIST];
+static uint8_t  g_UartScanCount        = 0;
+static uint8_t  g_UartScanIndex        = 0;
+static uint8_t  g_UartScanDelay_10ms   = 0;
+static char     g_UartScanResponse[256];
+static bool     g_UartScanActive       = false;
+static uint32_t g_UartScanOriginalFreq = 0;
+static uint8_t  g_UartScanOriginalBand = 0;
+
+// --- Zmienne skanera SCF (pojedynczy kanał) ---
+static uint8_t  g_SingleScanState        = 0;
+static uint8_t  g_SingleScanDelay_10ms   = 0;
+static uint32_t g_SingleScanTargetFreq   = 0;
+static uint32_t g_SingleScanOriginalFreq = 0;
+static uint8_t  g_SingleScanOriginalBand = 0;
+static uint32_t g_SingleScanPort         = 0;
+
+// --- Bufor ASCII CAT ---
+static char    cat_buffer[64];
 static uint8_t cat_pos = 0;
 
-// --- CAT HELPER FUNCTIONS ---
+// --- Forward declarations ---
+static void UART_HardwareScanner_Periodic(void);
+static void UART_SingleScan_Periodic(void);
+static void Process_Kenwood_CAT(uint32_t Port);
 
-void UART_SendText(uint32_t Port, const char *str) {
+// ---------------------------------------------------------------------------
+// UART_SendText — wysyłanie tekstu ASCII (asynchronicznie, bez blokowania)
+// ---------------------------------------------------------------------------
+void UART_SendText(uint32_t Port, const char *str)
+{
 #if defined(ENABLE_USB)
-    if (Port == UART_PORT_VCP)
-    {
+    if (Port == UART_PORT_VCP) {
         VCP_SendAsync((uint8_t *)str, strlen(str));
         return;
     }
 #endif
 #if defined(ENABLE_UART)
-    if (Port == UART_PORT_UART)
-    {
+    if (Port == UART_PORT_UART) {
         UART_Send((const uint8_t *)str, strlen(str));
     }
 #endif
 }
 
-void UIntToText(char* buffer, uint32_t value, int digits, int offset) {
+// ---------------------------------------------------------------------------
+// Konwertery liczba ↔ tekst (bez biblioteki stdio do wypisywania)
+// ---------------------------------------------------------------------------
+static void UIntToText(char *buffer, uint32_t value, int digits, int offset)
+{
     for (int i = offset + digits - 1; i >= offset; i--) {
         buffer[i] = (value % 10) + '0';
         value /= 10;
     }
 }
 
-uint32_t TextToUInt(const char* buffer, int start, int len) {
+static uint32_t TextToUInt(const char *buffer, int start, int len)
+{
     uint32_t val = 0;
     for (int i = start; i < start + len; i++) {
-        if (buffer[i] >= '0' && buffer[i] <= '9') {
+        if (buffer[i] >= '0' && buffer[i] <= '9')
             val = (val * 10) + (buffer[i] - '0');
-        }
     }
     return val;
 }
 
-uint16_t ParseDCSCode(const char* buffer, int start) {
+static uint16_t ParseDCSCode(const char *buffer, int start)
+{
     uint16_t val = 0;
     for (int i = 0; i < 3; i++) {
         char c = buffer[start + i];
@@ -257,91 +299,267 @@ uint16_t ParseDCSCode(const char* buffer, int start) {
     return val;
 }
 
-void ForceScreenUpdate(void) {
-    gUpdateStatus = true;
+// ---------------------------------------------------------------------------
+// Helperów UI/radia
+// ---------------------------------------------------------------------------
+static void ForceScreenUpdate(void)
+{
+    gUpdateStatus  = true;
     gUpdateDisplay = true;
-    #ifdef ENABLE_FEAT_F4HWN
-        gRequestDisplayScreen = DISPLAY_MAIN;
-    #endif
+#ifdef ENABLE_FEAT_F4HWN
+    gRequestDisplayScreen = DISPLAY_MAIN;
+#endif
 }
 
-// Bypasses the keypad ProcessKey() loop to apply and permanently save settings immediately
-void CAT_ApplyAndSave(bool bIsGlobal) {
+static void CAT_ApplyAndSave(bool bIsGlobal)
+{
     if (bIsGlobal) {
-        // Global settings like Squelch
         SETTINGS_SaveSettings();
         RADIO_ConfigureChannel(gEeprom.TX_VFO, VFO_CONFIGURE);
     } else {
-        // VFO specific settings like Offset, Tone, Power
-        SETTINGS_SaveChannel(gEeprom.VfoInfo[gEeprom.TX_VFO].CHANNEL_SAVE, gEeprom.TX_VFO, &gEeprom.VfoInfo[gEeprom.TX_VFO], 1);
+        SETTINGS_SaveChannel(gEeprom.VfoInfo[gEeprom.TX_VFO].CHANNEL_SAVE,
+                             gEeprom.TX_VFO,
+                             &gEeprom.VfoInfo[gEeprom.TX_VFO], 1);
         RADIO_ConfigureChannel(gEeprom.TX_VFO, VFO_CONFIGURE_RELOAD);
     }
-    
+
     if (gRxIdleMode) {
         BK4819_RX_TurnOn();
         gRxIdleMode = false;
     }
 
-    // Apply changes to hardware immediately
     RADIO_SelectVfos();
     RADIO_SetupRegisters(true);
     ForceScreenUpdate();
 }
 
-void Apply_Tone_To_Active_VFO(uint8_t code_type, uint8_t code_index) {
+static void Apply_Tone_To_Active_VFO(uint8_t code_type, uint8_t code_index)
+{
     gEeprom.VfoInfo[gEeprom.TX_VFO].pTX->CodeType = code_type;
-    gEeprom.VfoInfo[gEeprom.TX_VFO].pTX->Code = code_index;
+    gEeprom.VfoInfo[gEeprom.TX_VFO].pTX->Code     = code_index;
     gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->CodeType = code_type;
-    gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Code = code_index;
+    gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Code     = code_index;
 
     if (gTxVfo) {
         gTxVfo->pTX->CodeType = code_type;
-        gTxVfo->pTX->Code = code_index;
+        gTxVfo->pTX->Code     = code_index;
         gTxVfo->pRX->CodeType = code_type;
-        gTxVfo->pRX->Code = code_index;
+        gTxVfo->pRX->Code     = code_index;
     }
     CAT_ApplyAndSave(false);
 }
 
-// --- KENWOOD CAT COMMAND PARSER ---
-static void Process_Kenwood_CAT(uint32_t Port) {
-    
-    // 1. ID (Identify)
-    if (strncmp(cat_buffer, "ID;", 3) == 0) {
-        UART_SendText(Port, "ID020;");
+// ---------------------------------------------------------------------------
+// UART_GetRSSI_dBm — odczyt RSSI z BK4819 w dBm
+// ---------------------------------------------------------------------------
+static int16_t UART_GetRSSI_dBm(void)
+{
+    if (gRxIdleMode)
+        return -160;
+    uint16_t rssi_raw = BK4819_ReadRegister(BK4819_REG_67) & 0x01FF;
+    return (rssi_raw / 2) - 160;
+}
+
+// ---------------------------------------------------------------------------
+// UART_HardwareScanner_Periodic — maszyna stanów SC (lista kanałów)
+// Wywoływana co 10ms z APP_TimeSlice10ms
+// ---------------------------------------------------------------------------
+static void UART_HardwareScanner_Periodic(void)
+{
+    if (!g_UartScanActive) return;
+
+    if (g_UartScanDelay_10ms > 0) {
+        g_UartScanDelay_10ms--;
+
+        if (g_UartScanDelay_10ms == 0) {
+            uint32_t target_freq = g_UartScanList[g_UartScanIndex];
+            uint8_t  band        = FREQUENCY_GetBand(target_freq);
+
+            int16_t dbm = BK4819_GetRSSI_dBm() + dBmCorrTable[band];
+            uint8_t sq  = g_SquelchLost ? 1 : 0;
+
+            char temp[16];
+            sprintf(temp, ",%d,%d", dbm, sq);
+            strcat(g_UartScanResponse, temp);
+
+            g_UartScanIndex++;
+
+            if (g_UartScanIndex >= g_UartScanCount) {
+                g_UartScanActive = false;
+
+                VFO_Info_t *vfo       = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+                vfo->pRX->Frequency   = g_UartScanOriginalFreq;
+                vfo->Band             = g_UartScanOriginalBand;
+                RADIO_ConfigureSquelchAndOutputPower(vfo);
+                RADIO_SetupRegisters(true);
+                gUpdateDisplay = true;
+
+                strcat(g_UartScanResponse, ";");
+#if defined(ENABLE_UART)
+                UART_SendText(UART_PORT_UART, g_UartScanResponse);
+#endif
+                return;
+            }
+        }
         return;
     }
 
-    // 2. FA/FB (VFO Frequency Control)
+    uint32_t target_freq = g_UartScanList[g_UartScanIndex];
+    if (target_freq == 0) {
+        strcat(g_UartScanResponse, ",0,0");
+        g_UartScanIndex++;
+        return;
+    }
+
+    VFO_Info_t *vfo     = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+    vfo->pRX->Frequency = target_freq;
+    vfo->Band           = FREQUENCY_GetBand(target_freq);
+
+    RADIO_ConfigureSquelchAndOutputPower(vfo);
+    RADIO_SetupRegisters(true);
+    gUpdateDisplay = true;
+
+    g_UartScanDelay_10ms = 9;   // ~90ms na kanał
+}
+
+// ---------------------------------------------------------------------------
+// UART_SingleScan_Periodic — maszyna stanów SCF (pojedynczy pomiar)
+// Wywoływana co 10ms z APP_TimeSlice10ms
+// ---------------------------------------------------------------------------
+static void UART_SingleScan_Periodic(void)
+{
+    if (g_SingleScanState == 0) return;
+
+    if (g_SingleScanState == 1) {
+        if (g_SingleScanDelay_10ms > 0) {
+            g_SingleScanDelay_10ms--;
+
+            if (g_SingleScanDelay_10ms == 0) {
+                uint8_t  band     = FREQUENCY_GetBand(g_SingleScanTargetFreq);
+                uint16_t rssi_raw = BK4819_ReadRegister(BK4819_REG_67) & 0x01FF;
+                int16_t  dbm      = (rssi_raw / 2) - 160 + dBmCorrTable[band];
+                uint16_t noise    = BK4819_ReadRegister(BK4819_REG_65) & 0x007F;
+                uint16_t glitch   = BK4819_ReadRegister(BK4819_REG_63);
+                uint8_t  sq       = g_SquelchLost ? 1 : 0;
+
+                uint32_t freqHz   = g_SingleScanTargetFreq * 10;
+
+                char resp[64];
+                sprintf(resp, "SQ%011u,%d,%+04d,%u,%u;", freqHz, sq, dbm, noise, glitch);
+
+                VFO_Info_t *vfo   = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+                vfo->pRX->Frequency = g_SingleScanOriginalFreq;
+                vfo->Band           = g_SingleScanOriginalBand;
+
+                RADIO_ConfigureSquelchAndOutputPower(vfo);
+                RADIO_SetupRegisters(true);
+                gUpdateDisplay = true;
+
+                g_SingleScanState = 0;
+                UART_SendText(g_SingleScanPort, resp);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UART_ReportRSSI_Periodic — główna pętla 10ms: S-metr + dispatch skanerów
+// ---------------------------------------------------------------------------
+void UART_ReportRSSI_Periodic(void)
+{
+    // Dispatcher maszyn stanów (zawsze aktywny, nawet przy wyłączonym auto-raporcie)
+    UART_HardwareScanner_Periodic();
+    UART_SingleScan_Periodic();
+
+    if (!g_AutoReportRSSI) return;
+
+    g_UartRssiTimer_10ms++;
+
+    uint8_t  active_vfo  = gEeprom.RX_VFO;
+    int16_t  current_dbm = UART_GetRSSI_dBm();
+    static uint8_t g_LastReportedVFO = 0xFF;
+
+    bool time_for_1s   = (g_UartRssiTimer_10ms >= 100);
+    bool time_for_200ms = (g_UartRssiTimer_10ms >= 20);
+    bool dbm_changed   = (current_dbm != g_LastReportedRSSI);
+    bool vfo_changed   = (active_vfo  != g_LastReportedVFO);
+
+    if (time_for_1s || (time_for_200ms && (dbm_changed || vfo_changed))) {
+        char resp[32];
+        sprintf(resp, "RR%d,%+04d;", active_vfo, current_dbm);
+#if defined(ENABLE_UART)
+        UART_SendText(UART_PORT_UART, resp);
+#endif
+        g_LastReportedRSSI    = current_dbm;
+        g_LastReportedVFO     = active_vfo;
+        g_UartRssiTimer_10ms  = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UART_ReportDTMF — asynchroniczne raportowanie odebranego tonu DTMF
+// ---------------------------------------------------------------------------
+void UART_ReportDTMF(char dtmf_code)
+{
+    SYSTEM_DelayMs(10);
+
+    uint8_t  active_vfo = gEeprom.RX_VFO;
+    int16_t  dbm        = BK4819_GetRSSI_dBm() + dBmCorrTable[gEeprom.VfoInfo[active_vfo].Band];
+
+    char resp[32];
+    sprintf(resp, "RD%c,%+04d;", dtmf_code, dbm);
+
+#if defined(ENABLE_UART)
+    UART_SendText(UART_PORT_UART, resp);
+#endif
+#if defined(ENABLE_USB)
+    UART_SendText(UART_PORT_VCP, resp);
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Process_Kenwood_CAT — parser ASCII komend Kenwood CAT
+// ---------------------------------------------------------------------------
+static void Process_Kenwood_CAT(uint32_t Port)
+{
+    if (gRxIdleMode) {
+        BK4819_RX_TurnOn();
+        gRxIdleMode = false;
+        SYSTEM_DelayMs(20);
+    }
+
+    // FA/FB — częstotliwość VFO A lub B
     bool is_fa = (strncmp(cat_buffer, "FA", 2) == 0);
     bool is_fb = (strncmp(cat_buffer, "FB", 2) == 0);
     if (is_fa || is_fb) {
-        int vfo_idx = is_fa ? 0 : 1; 
-        if (cat_buffer[2] == ';') { // GET Frequency
+        int vfo_idx = is_fa ? 0 : 1;
+        if (cat_buffer[2] == ';') {
             uint32_t freqHz = gEeprom.VfoInfo[vfo_idx].pRX->Frequency * 10;
             char resp[16];
             resp[0] = 'F'; resp[1] = is_fa ? 'A' : 'B';
             UIntToText(resp, freqHz, 11, 2);
             resp[13] = ';'; resp[14] = 0;
             UART_SendText(Port, resp);
-        } else if (cat_pos >= 13) { // SET Frequency
-            uint32_t freqHz = TextToUInt(cat_buffer, 2, 11);
-            if (gEeprom.VfoInfo[vfo_idx].pRX->Frequency != freqHz / 10) {
-                gEeprom.VfoInfo[vfo_idx].pRX->Frequency = freqHz / 10;
-                gEeprom.VfoInfo[vfo_idx].pTX->Frequency = freqHz / 10;
-                if (gEeprom.TX_VFO == vfo_idx) {
+        } else if (cat_pos >= 13) {
+            uint32_t freqHz  = TextToUInt(cat_buffer, 2, 11);
+            uint32_t newFreq = freqHz / 10;
+            if (gEeprom.VfoInfo[vfo_idx].pRX->Frequency != newFreq) {
+                gEeprom.VfoInfo[vfo_idx].pRX->Frequency = newFreq;
+                gEeprom.VfoInfo[vfo_idx].pTX->Frequency = newFreq;
+                gEeprom.VfoInfo[vfo_idx].Band = FREQUENCY_GetBand(newFreq);
+                if (gEeprom.TX_VFO == vfo_idx)
                     CAT_ApplyAndSave(false);
-                } else {
-                    SETTINGS_SaveChannel(gEeprom.VfoInfo[vfo_idx].CHANNEL_SAVE, vfo_idx, &gEeprom.VfoInfo[vfo_idx], 1);
-                }
+                else
+                    SETTINGS_SaveChannel(gEeprom.VfoInfo[vfo_idx].CHANNEL_SAVE, vfo_idx,
+                                         &gEeprom.VfoInfo[vfo_idx], 1);
             }
         }
         return;
     }
 
-    // 3. FR (Switch Active VFO)
+    // FR — przełączenie aktywnego VFO
     if (strncmp(cat_buffer, "FR", 2) == 0 && cat_buffer[3] == ';') {
-        char vfo_char = cat_buffer[2];
+        char    vfo_char   = cat_buffer[2];
         uint8_t target_vfo = (vfo_char == '1') ? 1 : 0;
         if (gEeprom.TX_VFO != target_vfo) {
             gEeprom.TX_VFO = target_vfo;
@@ -351,51 +569,50 @@ static void Process_Kenwood_CAT(uint32_t Port) {
         return;
     }
 
-    // 4. TX / RX (PTT Control)
+    // TX — wymuszenie nadawania
     if (strncmp(cat_buffer, "TX", 2) == 0) {
-        if (gCurrentFunction != FUNCTION_TRANSMIT) { 
-            FUNCTION_Select(FUNCTION_TRANSMIT); 
-            ForceScreenUpdate(); 
-        }
-        return;
-    }
-    if (strncmp(cat_buffer, "RX", 2) == 0) {
-        if (gCurrentFunction == FUNCTION_TRANSMIT) { 
-            FUNCTION_Select(FUNCTION_FOREGROUND); 
-            ForceScreenUpdate(); 
+        if (gCurrentFunction != FUNCTION_TRANSMIT) {
+            FUNCTION_Select(FUNCTION_TRANSMIT);
+            ForceScreenUpdate();
         }
         return;
     }
 
-    // 5. MO (Hardware Monitor ON/OFF)
+    // RX — powrót do odbioru
+    if (strncmp(cat_buffer, "RX", 2) == 0) {
+        if (gCurrentFunction == FUNCTION_TRANSMIT) {
+            FUNCTION_Select(FUNCTION_FOREGROUND);
+            ForceScreenUpdate();
+        }
+        return;
+    }
+
+    // MO — monitor (otwórz squelch)
     if (strncmp(cat_buffer, "MO", 2) == 0 && cat_buffer[3] == ';') {
         char m = cat_buffer[2];
-        if (m == '1') { // Monitor ON
-            if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT) {
-                ACTION_Monitor(); // Fully unmutes hardware audio amp
-            }
-        } else if (m == '0') { // Monitor OFF
-            if (gCurrentFunction == FUNCTION_MONITOR) {
-                ACTION_Monitor(); // Toggles monitor off
-            }
+        if (m == '1') {
+            if (gCurrentFunction != FUNCTION_MONITOR && gCurrentFunction != FUNCTION_TRANSMIT)
+                ACTION_Monitor();
+        } else if (m == '0') {
+            if (gCurrentFunction == FUNCTION_MONITOR)
+                ACTION_Monitor();
         }
         return;
     }
 
-    // 6. MD (Modulation Mode)
+    // MD — modulacja (4=FM, 5=AM, 2=USB)
     if (strncmp(cat_buffer, "MD", 2) == 0) {
-        if (cat_buffer[2] == ';') { // GET Mode
-            uint8_t mod = gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation; 
-            char resp[6] = "MD4;"; 
-            if (mod == 1) resp[2] = '5'; // AM
-            else if (mod == 2) resp[2] = '2'; // USB
+        if (cat_buffer[2] == ';') {
+            uint8_t mod  = gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation;
+            char resp[6] = "MD4;";
+            if (mod == 1) resp[2] = '5';
+            else if (mod == 2) resp[2] = '2';
             UART_SendText(Port, resp);
-        } else { // SET Mode
-            char m = cat_buffer[2];
-            uint8_t target_mod = 0; 
-            if (m == '5') target_mod = 1; // AM 
-            else if (m == '2') target_mod = 2; // USB
-            
+        } else {
+            char    m          = cat_buffer[2];
+            uint8_t target_mod = 0;
+            if (m == '5') target_mod = 1;
+            else if (m == '2') target_mod = 2;
             if (gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation != target_mod) {
                 gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation = target_mod;
                 if (gTxVfo) gTxVfo->Modulation = target_mod;
@@ -405,42 +622,39 @@ static void Process_Kenwood_CAT(uint32_t Port) {
         return;
     }
 
-    // 7. PC (Power Level)
+    // PC — moc nadajnika (0-7)
     if (strncmp(cat_buffer, "PC", 2) == 0 && cat_buffer[2] != ';') {
-         char p = cat_buffer[2];
-         if (p >= '0' && p <= '7') {
-             uint8_t cat_level = p - '0';
-             uint8_t radio_level = OUTPUT_POWER_HIGH;
-             
-             // Używamy natywnego enuma z settings.h
-             switch(cat_level) {
-                 case 0: radio_level = OUTPUT_POWER_LOW1; break; // Najsłabsza
-                 case 1: radio_level = OUTPUT_POWER_LOW2; break; 
-                 case 2: radio_level = OUTPUT_POWER_LOW3; break; 
-                 case 3: radio_level = OUTPUT_POWER_LOW4; break; 
-                 case 4: radio_level = OUTPUT_POWER_LOW5; break; 
-                 case 5: radio_level = OUTPUT_POWER_MID;  break; 
-                 case 6: radio_level = OUTPUT_POWER_HIGH; break; // Najmocniejsza
-                 case 7: radio_level = OUTPUT_POWER_USER; break; // Własna (USER - 0)
-                 default: radio_level = OUTPUT_POWER_HIGH; break;
-             }
-
-             if (gEeprom.VfoInfo[gEeprom.TX_VFO].OUTPUT_POWER != radio_level) {
-                 gEeprom.VfoInfo[gEeprom.TX_VFO].OUTPUT_POWER = radio_level;
-                 if (gTxVfo) gTxVfo->OUTPUT_POWER = radio_level;
-                 CAT_ApplyAndSave(false);
-             }
-         }
-         return;
-    }
-
-    // 8. OF (Turn OFF CTCSS/DCS)
-    if (strncmp(cat_buffer, "OF;", 3) == 0) {
-        Apply_Tone_To_Active_VFO(0, 0); 
+        char p = cat_buffer[2];
+        if (p >= '0' && p <= '7') {
+            uint8_t cat_level   = p - '0';
+            uint8_t radio_level = OUTPUT_POWER_HIGH;
+            switch (cat_level) {
+                case 0: radio_level = OUTPUT_POWER_LOW1; break;
+                case 1: radio_level = OUTPUT_POWER_LOW2; break;
+                case 2: radio_level = OUTPUT_POWER_LOW3; break;
+                case 3: radio_level = OUTPUT_POWER_LOW4; break;
+                case 4: radio_level = OUTPUT_POWER_LOW5; break;
+                case 5: radio_level = OUTPUT_POWER_MID;  break;
+                case 6: radio_level = OUTPUT_POWER_HIGH; break;
+                case 7: radio_level = OUTPUT_POWER_USER; break;
+                default: radio_level = OUTPUT_POWER_HIGH; break;
+            }
+            if (gEeprom.VfoInfo[gEeprom.TX_VFO].OUTPUT_POWER != radio_level) {
+                gEeprom.VfoInfo[gEeprom.TX_VFO].OUTPUT_POWER = radio_level;
+                if (gTxVfo) gTxVfo->OUTPUT_POWER = radio_level;
+                CAT_ApplyAndSave(false);
+            }
+        }
         return;
     }
 
-    // 9. CT (Set CTCSS Tone)
+    // OF — wyłącz subton
+    if (strncmp(cat_buffer, "OF;", 3) == 0) {
+        Apply_Tone_To_Active_VFO(0, 0);
+        return;
+    }
+
+    // CT — CTCSS (4 cyfry, np. CT08850;)
     if (strncmp(cat_buffer, "CT", 2) == 0 && cat_pos >= 7) {
         uint32_t ct_freq = TextToUInt(cat_buffer, 2, 4);
         for (uint8_t i = 0; i < 50; i++) {
@@ -452,7 +666,7 @@ static void Process_Kenwood_CAT(uint32_t Port) {
         return;
     }
 
-    // 10. DT (Set DCS Code)
+    // DT — DCS (3 cyfry ósemkowe, np. DT023;)
     if (strncmp(cat_buffer, "DT", 2) == 0 && cat_pos >= 6) {
         uint16_t dcs_val = ParseDCSCode(cat_buffer, 2);
         if (dcs_val != 0xFFFF) {
@@ -466,26 +680,25 @@ static void Process_Kenwood_CAT(uint32_t Port) {
         return;
     }
 
-    // 11. SQ (Set Squelch Threshold)
+    // SQ — poziom squelch (0-9)
     if (strncmp(cat_buffer, "SQ", 2) == 0 && cat_buffer[3] == ';') {
         char s = cat_buffer[2];
         if (s >= '0' && s <= '9') {
             uint8_t new_sq = s - '0';
             if (gEeprom.SQUELCH_LEVEL != new_sq) {
                 gEeprom.SQUELCH_LEVEL = new_sq;
-                CAT_ApplyAndSave(true); // Save to EEPROM and force hardware recalculation
+                CAT_ApplyAndSave(true);
             }
         }
         return;
     }
 
-    // 12. OS (Offset Shift Direction)
+    // OS — kierunek offsetu (0=off, 1=+, 2=-)
     if (strncmp(cat_buffer, "OS", 2) == 0 && cat_buffer[3] == ';') {
-        char d = cat_buffer[2];
-        uint8_t dir = 0; 
-        if (d == '1') dir = 1; // Add (+)
-        if (d == '2') dir = 2; // Sub (-)
-        
+        char    d   = cat_buffer[2];
+        uint8_t dir = 0;
+        if (d == '1') dir = 1;
+        if (d == '2') dir = 2;
         if (gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY_DIRECTION != dir) {
             gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY_DIRECTION = dir;
             if (gTxVfo) gTxVfo->TX_OFFSET_FREQUENCY_DIRECTION = dir;
@@ -494,7 +707,7 @@ static void Process_Kenwood_CAT(uint32_t Port) {
         return;
     }
 
-    // 13. OV (Offset Value)
+    // OV — wartość offsetu (11 cyfr Hz)
     if (strncmp(cat_buffer, "OV", 2) == 0 && cat_pos >= 13) {
         uint32_t offsetHz = TextToUInt(cat_buffer, 2, 11);
         if (gEeprom.VfoInfo[gEeprom.TX_VFO].TX_OFFSET_FREQUENCY != offsetHz / 10) {
@@ -505,34 +718,174 @@ static void Process_Kenwood_CAT(uint32_t Port) {
         return;
     }
 
-    // 14. IF (Global Status Request)
+    // IF — informacja o bieżącym VFO (status transceivera)
     if (strncmp(cat_buffer, "IF;", 3) == 0) {
-        char resp[40]; memset(resp, ' ', 38);
+        char resp[40];
+        memset(resp, ' ', 38);
         resp[0] = 'I'; resp[1] = 'F';
-        
+
         uint32_t freqHz = 0;
-        if(gTxVfo) freqHz = gTxVfo->pRX->Frequency * 10;
-        else freqHz = gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Frequency * 10;
+        if (gTxVfo)
+            freqHz = gTxVfo->pRX->Frequency * 10;
+        else
+            freqHz = gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Frequency * 10;
 
         UIntToText(resp, freqHz, 11, 2);
-        resp[13]='0'; resp[14]='0'; resp[15]='0'; resp[16]='0'; resp[17]='0';
-        
-        uint8_t mod = gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation;
-        resp[29] = (mod == 1) ? '5' : '4'; 
-        bool is_tx = (gCurrentFunction == FUNCTION_TRANSMIT);
+        resp[13] = '0'; resp[14] = '0'; resp[15] = '0'; resp[16] = '0'; resp[17] = '0';
+
+        uint8_t mod  = gEeprom.VfoInfo[gEeprom.TX_VFO].Modulation;
+        resp[29] = (mod == 1) ? '5' : '4';
+        bool is_tx   = (gCurrentFunction == FUNCTION_TRANSMIT);
         resp[30] = is_tx ? '1' : '0';
         resp[31] = ';'; resp[32] = 0;
         UART_SendText(Port, resp);
         return;
     }
-}
-#endif // ENABLE_CAT
 
+    // SM — szybki pomiar sygnału na wskazanej częstotliwości
+    if (strncmp(cat_buffer, "SM", 2) == 0 && cat_pos >= 13) {
+        if (gCurrentFunction == FUNCTION_TRANSMIT) {
+            UART_SendText(Port, "SM,busy;");
+            return;
+        }
+        uint32_t freqHz      = TextToUInt(cat_buffer, 2, 11);
+        uint32_t target_freq = freqHz / 10;
+        uint32_t current_freq = gEeprom.VfoInfo[gEeprom.TX_VFO].pRX->Frequency;
+        uint8_t  current_band = gEeprom.VfoInfo[gEeprom.TX_VFO].Band;
+
+        if (current_freq != target_freq) {
+            BK4819_SetFrequency(target_freq);
+            BK4819_RX_TurnOn();
+            SYSTEM_DelayMs(60);
+        } else {
+            if (gRxIdleMode) {
+                BK4819_RX_TurnOn();
+                gRxIdleMode = false;
+                SYSTEM_DelayMs(10);
+            }
+        }
+
+        int16_t dbm = BK4819_GetRSSI_dBm() + dBmCorrTable[current_band];
+        uint8_t sq  = g_SquelchLost ? 1 : 0;
+
+        if (current_freq != target_freq) {
+            BK4819_SetFrequency(current_freq);
+            BK4819_RX_TurnOn();
+        }
+
+        char resp[32];
+        sprintf(resp, "SM%011u,%+04d,%d;", freqHz, dbm, sq);
+        UART_SendText(Port, resp);
+        return;
+    }
+
+    // S1 — odczyt RSSI bieżącego VFO
+    if (strncmp(cat_buffer, "S1;", 3) == 0) {
+        if (gRxIdleMode) {
+            BK4819_RX_TurnOn();
+            gRxIdleMode = false;
+            SYSTEM_DelayMs(10);
+        }
+        uint8_t  active_vfo = gEeprom.RX_VFO;
+        int16_t  dbm        = BK4819_GetRSSI_dBm() + dBmCorrTable[gEeprom.VfoInfo[active_vfo].Band];
+        uint8_t  sq         = g_SquelchLost ? 1 : 0;
+
+        char resp[32];
+        sprintf(resp, "S1,%d,%+04d,%d;", active_vfo, dbm, sq);
+        UART_SendText(Port, resp);
+        return;
+    }
+
+    // SL — załaduj jeden kanał do listy skanowania (SL<idx2><freq11>;)
+    if (strncmp(cat_buffer, "SL", 2) == 0 && cat_pos >= 16) {
+        uint8_t  idx    = TextToUInt(cat_buffer, 2, 2);
+        uint32_t freqHz = TextToUInt(cat_buffer, 5, 11);
+        if (idx < MAX_UART_SCAN_LIST)
+            g_UartScanList[idx] = freqHz / 10;
+        UART_SendText(Port, "SL_OK;");
+        return;
+    }
+
+    // SCF — szybki pomiar sprzętowy na żądanie (asynchroniczny)
+    if (strncmp(cat_buffer, "SCF", 3) == 0 && cat_pos >= 14) {
+        if (gCurrentFunction == FUNCTION_TRANSMIT) {
+            UART_SendText(Port, "SQ,busy;");
+            return;
+        }
+        if (g_SingleScanState != 0) {
+            UART_SendText(Port, "SQ,busy;");
+            return;
+        }
+
+        uint32_t freqHz      = TextToUInt(cat_buffer, 3, 11);
+        uint32_t target_freq = freqHz / 10;
+        uint8_t  ticks       = 25;
+
+        if (cat_pos >= 16 && cat_buffer[14] == ',') {
+            uint8_t ticks_len = cat_pos - 16;
+            if (ticks_len > 0 && ticks_len <= 3)
+                ticks = (uint8_t)TextToUInt(cat_buffer, 15, ticks_len);
+        }
+
+        VFO_Info_t *vfo          = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+        g_SingleScanOriginalFreq = vfo->pRX->Frequency;
+        g_SingleScanOriginalBand = vfo->Band;
+        g_SingleScanTargetFreq   = target_freq;
+        g_SingleScanPort         = Port;
+
+        vfo->pRX->Frequency = target_freq;
+        vfo->Band           = FREQUENCY_GetBand(target_freq);
+
+        RADIO_ConfigureSquelchAndOutputPower(vfo);
+        RADIO_SetupRegisters(true);
+        gUpdateDisplay = true;
+
+        g_SingleScanDelay_10ms = ticks;
+        g_SingleScanState      = 1;
+        return;
+    }
+
+    // SC — start ultraszybkiego skanowania grupowego (SC<count2>;)
+    if (strncmp(cat_buffer, "SC", 2) == 0 && cat_buffer[2] != 'F' && cat_pos >= 4) {
+        if (gCurrentFunction == FUNCTION_TRANSMIT) {
+            UART_SendText(Port, "SC,busy;");
+            return;
+        }
+
+        g_UartScanCount = (uint8_t)TextToUInt(cat_buffer, 2, 2);
+        if (g_UartScanCount > MAX_UART_SCAN_LIST) g_UartScanCount = MAX_UART_SCAN_LIST;
+        if (g_UartScanCount == 0) return;
+
+        VFO_Info_t *vfo        = &gEeprom.VfoInfo[gEeprom.RX_VFO];
+        g_UartScanOriginalFreq = vfo->pRX->Frequency;
+        g_UartScanOriginalBand = vfo->Band;
+
+        strcpy(g_UartScanResponse, "SR");
+        g_UartScanIndex      = 0;
+        g_UartScanDelay_10ms = 0;
+        g_UartScanActive     = true;
+        return;
+    }
+
+    // RD — włącz/wyłącz auto-raportowanie RSSI
+    if (strncmp(cat_buffer, "RD", 2) == 0 && cat_buffer[3] == ';') {
+        char d = cat_buffer[2];
+        if (d == '1')      g_AutoReportRSSI = true;
+        else if (d == '0') g_AutoReportRSSI = false;
+        return;
+    }
+}
+
+#endif // ENABLE_CAT
+// ============================================================
+// === Koniec bloku CAT
+// ============================================================
 
 #ifdef ENABLE_USB
 static void SendReply_VCP(void *pReply, uint16_t Size)
 {
-    static uint8_t VCP_ReplyBuf[MAX_REPLY_SIZE + sizeof(Header_t) + sizeof(Footer_t)];
+    static uint8_t VCP_ReplyBuf[MAX_REPLY_SIZE + sizeof(Header_t) + sizeof(Footer_t)]
+        __attribute__((aligned(4)));
 
     // !!
     if (Size > MAX_REPLY_SIZE)
@@ -540,11 +893,11 @@ static void SendReply_VCP(void *pReply, uint16_t Size)
         return;
     }
 
-    memcpy(VCP_ReplyBuf + sizeof(Header_t), pReply, Size);
+    uint8_t *pBody   = VCP_ReplyBuf + sizeof(Header_t);
+    uint8_t *pFooter = pBody + Size;
 
-    Header_t *pHeader = (Header_t *)VCP_ReplyBuf;
-    Footer_t *pFooter = (Footer_t *)(VCP_ReplyBuf + sizeof(Header_t) + Size);
-    pReply = VCP_ReplyBuf + sizeof(Header_t);
+    memcpy(pBody, pReply, Size);
+    pReply = pBody;
 
     if (bIsEncrypted)
     {
@@ -554,23 +907,29 @@ static void SendReply_VCP(void *pReply, uint16_t Size)
             pBytes[i] ^= Obfuscation[i % 16];
     }
 
-    pHeader->ID = 0xCDAB;
-    pHeader->Size = Size;
+    /* Build the transport header/footer byte by byte. The reply body may have
+     * an odd size, so pFooter is not necessarily half-word aligned; casting it
+     * to Footer_t and storing ID as uint16_t can HardFault on Cortex-M0+. */
+    VCP_ReplyBuf[0] = 0xAB;
+    VCP_ReplyBuf[1] = 0xCD;
+    VCP_ReplyBuf[2] = (uint8_t)(Size & 0xFFu);
+    VCP_ReplyBuf[3] = (uint8_t)(Size >> 8);
 
     // VCP_Send((uint8_t *)&Header, sizeof(Header));
     // VCP_Send(pReply, Size);
-   
+
     if (bIsEncrypted)
     {
-        pFooter->Padding[0] = Obfuscation[(Size + 0) % 16] ^ 0xFF;
-        pFooter->Padding[1] = Obfuscation[(Size + 1) % 16] ^ 0xFF;
+        pFooter[0] = Obfuscation[(Size + 0) % 16] ^ 0xFF;
+        pFooter[1] = Obfuscation[(Size + 1) % 16] ^ 0xFF;
     }
     else
     {
-        pFooter->Padding[0] = 0xFF;
-        pFooter->Padding[1] = 0xFF;
+        pFooter[0] = 0xFF;
+        pFooter[1] = 0xFF;
     }
-    pFooter->ID = 0xBADC;
+    pFooter[2] = 0xDC;
+    pFooter[3] = 0xBA;
 
     // VCP_Send((uint8_t *)&Footer, sizeof(Footer));
 
@@ -588,6 +947,7 @@ static void SendReply(uint32_t Port, void *pReply, uint16_t Size)
     }
 #endif
 
+#if defined(ENABLE_UART)
     Header_t Header;
     Footer_t Footer;
 
@@ -618,15 +978,17 @@ static void SendReply(uint32_t Port, void *pReply, uint16_t Size)
     Footer.ID = 0xBADC;
 
     UART_Send(&Footer, sizeof(Footer));
+#endif
 }
 
 static void SendVersion(uint32_t Port)
 {
     REPLY_0514_t Reply;
 
+    Reply.Data.Padding[0] = Reply.Data.Padding[1] = 0;
     Reply.Header.ID = 0x0515;
     Reply.Header.Size = sizeof(Reply.Data);
-    strcpy(Reply.Data.Version, Version);
+    strncpy(Reply.Data.Version, Version, sizeof(Reply.Data.Version));
     Reply.Data.bHasCustomAesKey = bHasCustomAesKey;
     Reply.Data.bIsInLockScreen = bIsInLockScreen;
     Reply.Data.Challenge[0] = gChallenge[0];
@@ -681,14 +1043,14 @@ static void CMD_0514(uint32_t Port, const uint8_t *pBuffer)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
 #endif
 
     gSerialConfigCountDown_500ms = 12; // 6 sec
-    
-    // turn the LCD backlight off
-    BACKLIGHT_TurnOff();
+
+    // Backlight left untouched: a serial session is neutral, so the normal BLTime
+    // inactivity countdown keeps running from the last keypress (no forced turn-off).
 
     SendVersion(Port);
 }
@@ -725,9 +1087,13 @@ static void CMD_051B(uint32_t Port, const uint8_t *pBuffer)
 
     gSerialConfigCountDown_500ms = 12; // 6 sec
 
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
+
+    // Reject reads that do not fit in the fixed-size reply buffer.
+    if (pCmd->Size > sizeof(Reply.Data.Data))
+        return;
 
     memset(&Reply, 0, sizeof(Reply));
     Reply.Header.ID   = 0x051C;
@@ -742,7 +1108,7 @@ static void CMD_051B(uint32_t Port, const uint8_t *pBuffer)
     {
         EEPROM_ReadBuffer(pCmd->Offset, Reply.Data.Data, pCmd->Size);
     }
-    
+
     SendReply(Port, &Reply, pCmd->Size + 8);
 }
 
@@ -755,6 +1121,14 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
     bool bIsLocked;
 
     uint32_t Timestamp = 0;
+
+    /* Bound the write against the received frame: Data[] must hold pCmd->Size
+     * bytes, otherwise the loop below would read adjacent RAM and persist it to
+     * EEPROM (memory disclosure). A non-multiple-of-8 Size is NOT rejected: the
+     * Size/8 loop simply truncates the sub-page tail, matching the historical
+     * behavior CHIRP relies on for its final (unaligned) config block. */
+    if (pCmd->Header.Size < 8u + pCmd->Size)
+        return;
 
     if(0) {}
 #if defined(ENABLE_UART)
@@ -781,7 +1155,7 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
     
     bReloadEeprom = false;
 
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
 
@@ -804,7 +1178,7 @@ static void CMD_051D(uint32_t Port, const uint8_t *pBuffer)
 
             if ((Offset < 0x0E98 || Offset >= 0x0EA0) || !bIsInLockScreen || pCmd->bAllowPassword)
             {    
-                EEPROM_WriteBuffer(Offset, &pCmd->Data[i * 8U]);
+                EEPROM_WriteBuffer(Offset, &pCmd->Data[i * 8U], 8);
             }
         }
 
@@ -851,7 +1225,7 @@ static void CMD_052D(uint32_t Port, const uint8_t *pBuffer)
     REPLY_052D_t      Reply;
     bool              bIsLocked;
 
-    #ifdef ENABLE_FMRADIO
+    #ifdef ENABLE_FMRADIO_EMBEDDED
         gFmRadioCountdown_500ms = fm_radio_countdown_500ms;
     #endif
     Reply.Header.ID   = 0x052E;
@@ -882,6 +1256,7 @@ static void CMD_052D(uint32_t Port, const uint8_t *pBuffer)
     
     gIsLocked            = bIsLocked;
     Reply.Data.bIsLocked = bIsLocked;
+    Reply.Data.Padding[0] = Reply.Data.Padding[1] = Reply.Data.Padding[2] = 0;
 
     SendReply(Port, &Reply, sizeof(Reply));
 }
@@ -932,8 +1307,8 @@ static void CMD_052F(uint32_t Port, const uint8_t *pBuffer)
     }
 #endif
 
-    // turn the LCD backlight off
-    BACKLIGHT_TurnOff();
+    // Backlight left untouched: a serial session is neutral, so the normal BLTime
+    // inactivity countdown keeps running from the last keypress (no forced turn-off).
 
     SendVersion(Port);
 }
@@ -1028,25 +1403,23 @@ bool UART_IsCommandAvailable(uint32_t Port)
         uint16_t searchLimit = ReadBufSize;
         while ((*pReadPointer) != DmaLength && ReadBuf[*pReadPointer] != 0xABU && searchLimit--)
         {
-            #ifdef ENABLE_CAT
-            uint8_t byte = ReadBuf[*pReadPointer];
-            // Intercept CAT ASCII Commands
-            if ((byte >= 32 && byte <= 126) || byte == '\r' || byte == '\n') {
+#ifdef ENABLE_CAT
+            uint8_t cat_byte = ReadBuf[*pReadPointer];
+            if ((cat_byte >= 32 && cat_byte <= 126) || cat_byte == '\r' || cat_byte == '\n') {
                 if (cat_pos < sizeof(cat_buffer) - 1) {
-                    if (byte != '\r' && byte != '\n') {
-                        cat_buffer[cat_pos++] = byte;
-                        cat_buffer[cat_pos] = 0;
+                    if (cat_byte != '\r' && cat_byte != '\n') {
+                        cat_buffer[cat_pos++] = cat_byte;
+                        cat_buffer[cat_pos]   = 0;
                     }
                 }
-                if (byte == ';') { 
-                    Process_Kenwood_CAT(Port); 
-                    cat_pos = 0; 
+                if (cat_byte == ';') {
+                    Process_Kenwood_CAT(Port);
+                    cat_pos = 0;
                 }
-            } else { 
-                cat_pos = 0; 
+            } else {
+                cat_pos = 0;
             }
-            #endif
-            
+#endif
             *pReadPointer = DMA_INDEX((*pReadPointer), 1, ReadBufSize);
         }
 
@@ -1139,8 +1512,28 @@ bool UART_IsCommandAvailable(uint32_t Port)
 
     Crc = pUART_Command->Buffer[Size] | (pUART_Command->Buffer[Size + 1] << 8);
 
-    return CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
+    return Size >= sizeof(Header_t) &&
+           pUART_Command->Header.Size <= Size - sizeof(Header_t) &&
+           CRC_Calculate(pUART_Command->Buffer, Size) == Crc;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+/* Timestamp latched by the device-info handshake (0x0514) for this port. Slot
+ * writes/erases require it to match, like the EEPROM write command (CMD_051D). */
+static uint32_t mb_port_timestamp(uint32_t Port)
+{
+#if defined(ENABLE_UART)
+    if (Port == UART_PORT_UART)
+        return UART_Timestamp;
+#endif
+#if defined(ENABLE_USB)
+    if (Port == UART_PORT_VCP)
+        return VCP_Timestamp;
+#endif
+    (void)Port;
+    return 0;
+}
+#endif
 
 void UART_HandleCommand(uint32_t Port)
 {
@@ -1212,6 +1605,245 @@ void UART_HandleCommand(uint32_t Port)
             #endif
             break;
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        // ---- M4 slot management ("Firmware Slots") ------------------------
+        case 0x0720: // slot info: read the 64-byte header only (fast, no CRC)
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t slot = pUART_Command->Data[0];
+            mb_slot_header_t hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            uint8_t status = MB_SlotInfo(slot, &hdr);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+                uint8_t  Hdr[sizeof(mb_slot_header_t)];
+            } Reply;
+            Reply.Header.ID   = 0x0721;
+            Reply.Header.Size = 2 + sizeof(mb_slot_header_t);
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            memcpy(Reply.Hdr, &hdr, sizeof(hdr));
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0722: // slot erase: wipe the whole 128 KiB slot region
+        {
+            if (pUART_Command->Header.Size < 6u) break;   // needs Data[0] slot + Data[2..5] timestamp
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t ts   = (uint32_t)pUART_Command->Data[2]
+                          | ((uint32_t)pUART_Command->Data[3] << 8)
+                          | ((uint32_t)pUART_Command->Data[4] << 16)
+                          | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint8_t status = (ts != mb_port_timestamp(Port))
+                           ? MB_ERR_AUTH : MB_SlotErase(slot);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0723;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0724: // slot write: program bytes at slot+offset (slot pre-erased)
+        {
+            if (pUART_Command->Header.Size < 12u)
+                break;
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot   = pUART_Command->Data[0];
+            uint32_t offset = (uint32_t)pUART_Command->Data[2]
+                            | ((uint32_t)pUART_Command->Data[3] << 8)
+                            | ((uint32_t)pUART_Command->Data[4] << 16)
+                            | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint16_t len    = (uint16_t)(pUART_Command->Data[6]
+                            | ((uint16_t)pUART_Command->Data[7] << 8));
+            uint32_t ts     = (uint32_t)pUART_Command->Data[8]
+                            | ((uint32_t)pUART_Command->Data[9] << 8)
+                            | ((uint32_t)pUART_Command->Data[10] << 16)
+                            | ((uint32_t)pUART_Command->Data[11] << 24);
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (len > pUART_Command->Header.Size - 12u)
+                status = MB_ERR_SIZE;
+            else
+                status = MB_SlotWrite(slot, offset, &pUART_Command->Data[12], len);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0725;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0726: // slot validate: full image CRC-32, no reflash
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t crc  = 0;
+            uint8_t  status = MB_ValidateSlot(slot, NULL, &crc);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Crc32;   // offset 4: 4-byte aligned, no unaligned store
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0727;
+            Reply.Header.Size = 6;
+            Reply.Crc32       = crc;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0728: // config reset: wipe the 64 KiB of a config bank (1..4)
+        {
+            if (pUART_Command->Header.Size < 6u) break;   // needs Data[0] bank + Data[2..5] timestamp
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  bank = pUART_Command->Data[0];
+            uint32_t ts   = (uint32_t)pUART_Command->Data[2]
+                          | ((uint32_t)pUART_Command->Data[3] << 8)
+                          | ((uint32_t)pUART_Command->Data[4] << 16)
+                          | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint8_t status = (ts != mb_port_timestamp(Port))
+                           ? MB_ERR_AUTH : MB_BankErase(bank);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Bank;   // echoes the erased bank (same wire layout as slot replies)
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0729;
+            Reply.Header.Size = 2;
+            Reply.Bank        = bank;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+        // ---- overlay-app slot management ("Apps") -------------------------
+        // Parallels the firmware-slot family (0x072x); targets the external-flash
+        // Apps region. External flash only, never brick-critical.
+        case 0x0730: // app slot info: read the 64-byte header only
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t slot = pUART_Command->Data[0];
+            app_header_t hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            uint8_t status = APP_SlotInfo(slot, &hdr);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+                uint8_t  Hdr[sizeof(app_header_t)];
+            } Reply;
+            Reply.Header.ID   = 0x0731;
+            Reply.Header.Size = 2 + sizeof(app_header_t);
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            memcpy(Reply.Hdr, &hdr, sizeof(hdr));
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0732: // app slot erase: wipe the whole 8 KiB slot region
+        {
+            if (pUART_Command->Header.Size < 6u) break;   // needs Data[0] slot + Data[2..5] timestamp
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t ts   = (uint32_t)pUART_Command->Data[2]
+                          | ((uint32_t)pUART_Command->Data[3] << 8)
+                          | ((uint32_t)pUART_Command->Data[4] << 16)
+                          | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint8_t status = (ts != mb_port_timestamp(Port))
+                           ? APP_ERR_AUTH : APP_SlotErase(slot);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0733;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0734: // app slot write: program bytes at slot+offset (pre-erased)
+        {
+            if (pUART_Command->Header.Size < 12u)
+                break;
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot   = pUART_Command->Data[0];
+            uint32_t offset = (uint32_t)pUART_Command->Data[2]
+                            | ((uint32_t)pUART_Command->Data[3] << 8)
+                            | ((uint32_t)pUART_Command->Data[4] << 16)
+                            | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint16_t len    = (uint16_t)(pUART_Command->Data[6]
+                            | ((uint16_t)pUART_Command->Data[7] << 8));
+            uint32_t ts     = (uint32_t)pUART_Command->Data[8]
+                            | ((uint32_t)pUART_Command->Data[9] << 8)
+                            | ((uint32_t)pUART_Command->Data[10] << 16)
+                            | ((uint32_t)pUART_Command->Data[11] << 24);
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = APP_ERR_AUTH;
+            else if (len > pUART_Command->Header.Size - 12u)
+                status = APP_ERR_SIZE;
+            else
+                status = APP_SlotWrite(slot, offset, &pUART_Command->Data[12], len);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0735;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0736: // app slot validate: header only (code CRC is checked at launch)
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint8_t  status = APP_ValidateSlot(slot, NULL);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0737;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+#endif
+
 #ifdef ENABLE_UART_RW_BK_REGS
         case 0x0601:
             CMD_0601_ReadBK4819Reg(Port, pUART_Command->Buffer);
@@ -1223,7 +1855,20 @@ void UART_HandleCommand(uint32_t Port)
 #endif
     } // switch
 
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        gUART_LockScreenshot = 20; // lock screenshot
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        gUART_LockK5Viewer = 20; // lock the K5Viewer stream
     #endif
+}
+
+void UART_ServiceCommands(void)
+{
+#ifdef ENABLE_USB
+    if (UART_IsCommandAvailable(UART_PORT_VCP))
+        UART_HandleCommand(UART_PORT_VCP);
+#endif
+
+#ifdef ENABLE_UART
+    if (UART_IsCommandAvailable(UART_PORT_UART))
+        UART_HandleCommand(UART_PORT_UART);
+#endif
 }

@@ -51,7 +51,12 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
     _MK_MAPPING(0x008000, 0x008000, 0x00886E),  // 1024 MR  + 7 VFO Attributes * 2 Bytes (ex 0x002000) 0x008000 -> 0x00880E
                                                 // List name * 4 Bytes 0x00880E -> 0x00886E
 
-    _MK_MAPPING(0x009000, 0x009000, 0x0090D6),  // 14 VFO * 16 Bytes (ex 0x001000)
+    _MK_MAPPING(0x009000, 0x009000, 0x0090E8),  // 14 VFO * 16 Bytes = 0x9000 -> 0x90E0 (the old
+                                                // 0x90D6 bound was 10 B short: it truncated the
+                                                // 470 MHz VFO1 record at 0x90D0 -> 0x90DF)
+                                                // Fox Hunt / Beacon settings * 8 Bytes 0x90E0 -> 0x90E8
+                                                // (written directly by app/foxhunt.c; concatenated
+                                                // here so aircopy clones them with the VFOs)
 
     _MK_MAPPING(0x00A000, 0x00A000, 0x00A170),  // Settings * 16 Bytes (ex 0x004000)        0x00A000 -> 0x00A010
                                                 // Settings * 16 Bytes (ex 0x005000)        0x00A010 -> 0x00A020
@@ -59,13 +64,26 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // MR FM * 128 Bytes (0x003000)             0x00A028 -> 0x00A0A8
                                                 // Settings * 80 Bytes (0x007000)           0x00A0A8 -> 0x00A0F8
                                                 // Settings * 56 Bytes (0x008000)           0x00A0F8 -> 0x00A130
-                                                // Settings Scanlist * 8 Bytes (0x009000)   0x00A130 -> 0x00A140
-                                                // Settings AES * 16 Bytes (0x00A000)       0x00A140 -> 0x00A150
+                                                // Settings Scanlist * 8 Bytes (0x009000)   0x00A130 -> 0x00A138
+                                                // Settings AES * 16 Bytes (0x00A000)       0x00A138 -> 0x00A148
+                                                // Settings Spectrum * 8 Bytes              0x00A148 -> 0x00A150
                                                 // Settings * 8 Bytes (0x00B000)            0x00A150 -> 0x00A158
                                                 // Settings F4HWN * 8 Bytes (0x00C000)      0x00A158 -> 0x00A160
                                                 // Settings Version * 16 Bytes              0x00A160 -> 0x00A170
 
     _MK_MAPPING(0x010000, 0x00B000, 0x00B200),  // Calibration 512 Bytes!!!
+
+    _MK_MAPPING(0x011000, 0x00C000, 0x00D000),  // Boot Logo sector (4 KB):
+                                                // [0x00..0x07] 8-byte header (reserved)
+                                                // [0x08..0x407] 128x64 monochrome bitmap, 1024 Bytes
+                                                // ST7565-native: 8 pages * 128 columns, column-major LSB-top
+
+    // Not mapped, for documentation only (the EEPROM API uses 16-bit
+    // addresses and could not reach a 32 KB window anyway):
+    //
+    // 0x1E0000 -> 0x1E8000: RX/TX append-only log * 32 KB / 8 sectors
+    //                       (ENABLE_FEAT_F4HWN_RXTX_LOG, accessed directly
+    //                       by app/rxtx_log.c, not through this layer)
 };
 
 static void AddrTranslate(uint16_t EEPROM_Addr, uint16_t Size, uint32_t *PY25Q16_Addr_out, uint16_t *Size_out, bool *End_out);
@@ -91,11 +109,8 @@ void EEPROM_ReadBuffer(uint16_t Address, void *pBuffer, uint8_t Size)
     }
 }
 
-void EEPROM_WriteBuffer(uint16_t Address, const void *pBuffer)
+void EEPROM_WriteBuffer(uint16_t Address, const void *pBuffer, uint8_t Size)
 {
-    // Write 8 bytes!!
-
-    uint16_t Size = 8;
     while (Size)
     {
         uint32_t PY_Addr;

@@ -39,8 +39,6 @@
 #define FM_CHANNELS_MAX 48
 #define MR_CHANNELS_MAX 1024
 #define MR_CHANNELS_LIST 24
-#define MENU_ITEMS 69
-
 // CACHE-BASED OPTIMIZATION: Only keep active channels in RAM
 // Full array stays in EEPROM, cache holds ~10 most-used channels
 #define MR_CHANNELS_CACHE_SIZE 10
@@ -66,14 +64,6 @@ enum {
     VFO_CONFIGURE,
     VFO_CONFIGURE_RELOAD
 };
-
-enum AlarmState_t {
-    ALARM_STATE_OFF = 0,
-    ALARM_STATE_TXALARM,
-    ALARM_STATE_SITE_ALARM,
-    ALARM_STATE_TX1750
-};
-typedef enum AlarmState_t AlarmState_t;
 
 enum ReceptionMode_t {
     RX_MODE_NONE = 0,   // squelch close ?
@@ -169,23 +159,46 @@ extern bool                  gSetting_ScrambleEnable;
 
 extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 
-#ifdef ENABLE_AM_FIX
-    extern bool              gSetting_AM_fix;
-#endif
-
 #ifdef ENABLE_FEAT_F4HWN_SLEEP 
     extern uint8_t           gSetting_set_off;
     extern bool              gWakeUp;
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    extern bool              gSetting_set_scn;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
+    // Keypad lock scope. Values are BOTH a bitmask (ACTIONS/PTT bits tested
+    // individually) AND a contiguous 0..3 menu index: the order must stay
+    // aligned with gSubMenu_SET_LCK[] and any new entry must keep the range
+    // contiguous so that SET_LCK_LEN remains valid as menu bound and EEPROM
+    // range check.
+    enum SET_LCK_t {
+        SET_LCK_KEYS        = 0u,
+        SET_LCK_ACTIONS     = 1u,
+        SET_LCK_PTT         = 2u,
+        SET_LCK_ACTIONS_PTT = SET_LCK_ACTIONS | SET_LCK_PTT,
+        SET_LCK_LEN
+    };
+
+    #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+        enum SET_SAV_t {
+            SET_SAV_OFF,
+            SET_SAV_LOGO,
+            SET_SAV_LOGO_PLUS,
+            SET_SAV_MATRIX,
+            SET_SAV_LEN
+        };
+    #endif
+
     extern uint8_t            gSetting_set_pwr;
     extern bool               gSetting_set_ptt;
     extern uint8_t            gSetting_set_tot;
     extern uint8_t            gSetting_set_ctr;
     extern bool               gSetting_set_inv;
     extern uint8_t            gSetting_set_eot;
-    extern bool               gSetting_set_lck;
+    extern uint8_t            gSetting_set_lck;
     extern bool               gSetting_set_met;
     extern bool               gSetting_set_gui;
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
@@ -195,6 +208,9 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         extern bool               gSetting_set_nfm;
     #endif
+    #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+        extern uint8_t            gSetting_set_sav;
+    #endif
     extern bool               gSetting_set_tmr;
     extern bool               gSetting_set_ptt_session;
     #ifdef ENABLE_FEAT_F4HWN_DEBUG
@@ -203,9 +219,6 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern uint8_t            gDW;
     extern uint8_t            gCB;
     extern bool               gSaveRxMode;
-    extern uint8_t            crc[15];
-    extern uint8_t            lErrorsDuringAirCopy;
-    extern uint8_t            gAircopyStep;
     extern uint8_t            gAircopyCurrentMapIndex;
     extern bool               gAirCopyBootMode;
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
@@ -321,11 +334,11 @@ extern volatile bool         gTxTimeoutReached;
     #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
         extern volatile uint16_t gRxTimerCountdown_500ms;
     #endif
-    #ifdef ENABLE_FEAT_F4HWN_SCREENSHOT
-        extern volatile uint8_t  gUART_LockScreenshot; // lock screenshot if Chirp is used
-        extern bool gUSB_ScreenshotEnabled;
+    #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        extern volatile uint8_t  gUART_LockK5Viewer; // lock the K5Viewer stream if Chirp is used
+        extern bool gUSB_K5ViewerEnabled;
 
-        bool SCREENSHOT_IsLocked(void);
+        bool K5VIEWER_IsLocked(void);
     #endif
 #endif
 
@@ -365,7 +378,7 @@ enum
 extern volatile bool     gScheduleScanListen;
 extern volatile uint16_t gScanPauseDelayIn_10ms;
 
-extern AlarmState_t          gAlarmState;
+extern bool                  gTx1750Active;
 extern uint16_t              gMenuCountdown;
 extern bool                  gPttWasReleased;
 extern bool                  gPttWasPressed;
@@ -376,7 +389,7 @@ extern bool                  gFlagResetVfos;
 extern bool                  gRequestSaveVFO;
 extern uint16_t              gRequestSaveChannel;
 extern bool                  gRequestSaveSettings;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern bool              gRequestSaveFM;
 #endif
 extern uint8_t               gKeypadLocked;
@@ -385,7 +398,7 @@ extern bool                  gFlagPrepareTX;
 extern bool                  gFlagAcceptSetting;   // accept menu setting
 extern bool                  gFlagRefreshSetting;  // refresh menu display
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern bool              gFlagSaveFM;
 #endif
 extern bool                  g_CDCSS_Lost;
@@ -410,8 +423,6 @@ extern ReceptionMode_t       gRxReceptionMode;
 
  //TRUE when dual watch is momentarly suspended and RX_VFO is locked to either last TX or RX
 extern bool                  gRxVfoIsActive;
-extern uint8_t               gAlarmToneCounter;
-extern uint16_t              gAlarmRunningCounter;
 extern bool                  gKeyBeingHeld;
 extern bool                  gPttIsPressed;
 extern uint8_t               gPttDebounceCounter;
@@ -426,7 +437,7 @@ extern uint8_t               gFSKWriteIndex;
 extern volatile bool         gNextTimeslice;
 extern bool                  gUpdateDisplay;
 extern bool                  gF_LOCK;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern uint8_t           gFM_ChannelPosition;
 #endif
 extern uint8_t               gShowChPrefix;
@@ -442,7 +453,7 @@ extern volatile bool         gNextTimeslice40ms;
 #endif
 extern volatile bool         gFlagTailNoteEliminationComplete;
 extern volatile uint8_t      gVFOStateResumeCountdown_500ms;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern volatile bool     gScheduleFM;
 #endif
 extern uint8_t               gIsLocked;
