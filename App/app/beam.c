@@ -141,7 +141,7 @@ static void BEAM_SendPacket(void)
     ST7565_BlitFullScreen();
 
     RADIO_SetTxParameters();
-    BK4819_SendFSKData(g_FSK_Buffer);
+    BK4819_SendFSKData(g_FSK_Buffer, 36);   // BEAM uses a fixed 36-word frame
     BK4819_SetupPowerAmplifier(0, 0);
     BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
 

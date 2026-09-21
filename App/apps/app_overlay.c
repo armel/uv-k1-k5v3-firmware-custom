@@ -727,7 +727,7 @@ static void app_beam_send(uint16_t *packet)
     if (packet == NULL)
         return;
     RADIO_SetTxParameters();
-    BK4819_SendFSKData(packet);
+    BK4819_SendFSKData(packet, 36);   // overlay Beam uses a fixed 36-word frame
     BK4819_SetupPowerAmplifier(0, 0);
     BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
     RADIO_SelectVfos();

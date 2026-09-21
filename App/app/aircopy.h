@@ -26,6 +26,26 @@
 // ============================================================================
 
 #define AIRCOPY_BLOCK_SIZE           0x0040u  // 64 bytes per AirCopy block
+#define AIRCOPY_BLOCK_WORDS          (AIRCOPY_BLOCK_SIZE / 2u)  // 32 FSK words per block
+
+// Multi-block framing. Each DATA frame carries N blocks so the fixed per-frame
+// overhead (TX/RX guard delays + the ACK round-trip) is amortised over more
+// payload. A frame is [0]=type, [1]=header (start block | count<<12), then
+// N*32 payload words (unused blocks zero-padded), then [CRC][END]. Control
+// frames (ACK/RESEND) stay tiny to keep the reverse channel almost free.
+//
+// This is a NEW wire format, NOT compatible with the previous single-block
+// protocol: [1] now carries a block index (+ count), not the raw EEPROM offset,
+// and ACKs are AIRCOPY_CTRL_WORDS long instead of a full 36-word frame. Even
+// AIRCOPY_BLOCKS_PER_FRAME==1 differs from the old format on both counts, so both
+// radios must run this same firmware to exchange - it is a debug/bisect knob, not
+// a legacy-compatibility mode. Keep the DATA frame within the 128-word TX FIFO
+// (N<=3) to avoid TX-FIFO refills.
+#define AIRCOPY_BLOCKS_PER_FRAME     3u
+#define AIRCOPY_DATA_WORDS           (2u + AIRCOPY_BLOCKS_PER_FRAME * AIRCOPY_BLOCK_WORDS + 2u)
+#define AIRCOPY_CTRL_WORDS           8u   // tiny ACK/RESEND frame (multiple of the 4-word RX FIFO threshold)
+#define AIRCOPY_FRAME_WORDS_MAX      AIRCOPY_DATA_WORDS
+
 #define AIRCOPY_CHANNELS_PER_BANK    128
 #define AIRCOPY_NUM_BANKS            MR_CHANNELS_MAX / AIRCOPY_CHANNELS_PER_BANK
 #define AIRCOPY_NUM_MAPS             (AIRCOPY_NUM_BANKS + 1u)  // banks + one settings map
@@ -53,7 +73,8 @@ extern uint16_t        gErrorsDuringAirCopy;
 extern bool            gAirCopyIsSendMode;
 extern bool            gAircopyAll;          // All mode: banks + settings in one pass
 
-extern uint16_t        g_FSK_Buffer[36];
+extern uint16_t        g_FSK_Buffer[AIRCOPY_FRAME_WORDS_MAX];
+extern uint8_t         gFskRxExpectedWords;   // frame length the current role expects on RX
 
 // ============================================================================
 // API

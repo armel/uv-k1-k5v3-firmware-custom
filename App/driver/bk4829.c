@@ -1134,6 +1134,15 @@ void BK4819_TurnsOffTones_TurnsOnRX(void)
 }
 
 #if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    // AirCopy runs at 1200 bps. Every 2400 path was tried and abandoned:
+    //  - plain FSK 2.4K: doubling REG_72 (0x60CA) broke the modulation; REG_58
+    //    <3:1>=100 alone only widened the RX filter (RX-only) without raising the
+    //    TX rate;
+    //  - FFSK1200/2400 (REG_58 mode 011, 0x70C9): nothing transmitted.
+    // The BK4829 Application Notes state the 2400 variants (FSK2400 / MDC2400)
+    // require Beken's proprietary macros, i.e. extra register config the public
+    // datasheet does not expose — the documented mode bits alone are not enough.
+    // The throughput win therefore comes from multi-block framing, not 2400 bps.
     void BK4819_SetupAircopy(void)
     {
         BK4819_WriteRegister(BK4819_REG_70, 0x00C3);    // Enable Tone2, tuning gain 48
@@ -1713,10 +1722,15 @@ uint8_t BK4819_GetCTCType(void)
     return (BK4819_ReadRegister(BK4819_REG_0C) >> 10) & 3u;
 }
 
-void BK4819_SendFSKData(uint16_t *pData)
+void BK4819_SendFSKData(uint16_t *pData, uint8_t words)
 {
     unsigned int i;
-    uint8_t Timeout = 200;
+    // TX-finished poll ceiling (units of 5 ms). It must exceed the on-air time of
+    // the whole frame or a large frame gets cut off mid-transmission. At 1200 bps
+    // one word (16 bits) takes ~13 ms (~3 ticks); +100 ticks of margin covers the
+    // preamble/sync/CRC. A 100-word frame (~1.4 s) needs ~280 ticks, not the 200
+    // (1 s) that only ever sufficed for the legacy 36-word frame.
+    uint16_t Timeout = (uint16_t)words * 3u + 100u;
 
     SYSTEM_DelayMs(30);
 
@@ -1724,7 +1738,9 @@ void BK4819_SendFSKData(uint16_t *pData)
     BK4819_WriteRegister(BK4819_REG_59, 0x8068);
     BK4819_WriteRegister(BK4819_REG_59, 0x0068);
 
-    for (i = 0; i < 36; i++)
+    // The FSK Data Length (REG_5D) is programmed by the caller before this call
+    // so `words` here must match it; the whole frame fits the 128-word TX FIFO.
+    for (i = 0; i < words; i++)
         BK4819_WriteRegister(BK4819_REG_5F, pData[i]);
 
     SYSTEM_DelayMs(20);

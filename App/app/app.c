@@ -1094,12 +1094,19 @@ static void CheckRadioInterrupts(void)
 
             if (fskTarget != 0)
             {
+                // BEAM uses fixed 36-word frames; AirCopy's expected length
+                // depends on the role (DATA vs tiny ACK) and is set when RX is armed.
+                unsigned int expectedWords = 36u;
+#ifdef ENABLE_AIRCOPY
+                if (fskTarget == 1)
+                    expectedWords = gFskRxExpectedWords;
+#endif
                 const unsigned int wordsToRead = interrupts.fskRxFinied
-                                               ? (gFSKWriteIndex < 36 ? 36u - gFSKWriteIndex : 0u)
+                                               ? (gFSKWriteIndex < expectedWords ? expectedWords - gFSKWriteIndex : 0u)
                                                : 4u;
                 for (unsigned int i = 0; i < wordsToRead; i++) {
                     const uint16_t word = BK4819_ReadRegister(BK4819_REG_5F);
-                    if (gFSKWriteIndex < 36)
+                    if (gFSKWriteIndex < ARRAY_SIZE(g_FSK_Buffer))
                         g_FSK_Buffer[gFSKWriteIndex++] = word;
                 }
 
