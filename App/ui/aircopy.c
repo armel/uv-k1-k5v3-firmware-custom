@@ -85,7 +85,7 @@ void UI_DisplayAircopy(void)
     if (gAircopyState == AIRCOPY_READY) 
     {
         if(gAircopyCurrentMapIndex < AIRCOPY_NUM_BANKS) {
-            sprintf(String, "MEM %03u - %03u", (gAircopyCurrentMapIndex * 128) + 1, (gAircopyCurrentMapIndex + 1) * 128);
+            sprintf(String, "MEM %03u-%03u", (gAircopyCurrentMapIndex * 128) + 1, (gAircopyCurrentMapIndex + 1) * 128);
         } else if(gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS) {
             strcpy(String, "Settings");
         } else {
@@ -123,22 +123,12 @@ void UI_DisplayAircopy(void)
         // Match the former DDA gauge exactly, including its partial first pixel.
         const uint8_t filled = (doneBlocks * AIRCOPY_BAR_WIDTH + totalBlocks - 1u)
                              / totalBlocks;
-        // Each interior row has one hatch pixel followed by two clear pixels.
+        // Common blocks stay hatched; copied blocks are solid.
         static const uint8_t hatch[3] = { 0xA5, 0x89, 0x91 };
         for (uint8_t col = 0; col < AIRCOPY_BAR_WIDTH; col++)
-            gFrameBuffer[4][col + 4] = col < filled ? hatch[col % 3u] : 0x81;
-        // A changed block makes its entire pixel span solid, including pixels
-        // shared with skipped blocks.
-        for (uint16_t block = 0; block < doneBlocks; block++)
-        {
-            if (AIRCOPY_BlockWasSkipped(block))
-                continue;
-            const uint8_t first = (uint32_t)block * AIRCOPY_BAR_WIDTH / totalBlocks;
-            const uint8_t last = ((uint32_t)(block + 1u) * AIRCOPY_BAR_WIDTH
-                                + totalBlocks - 1u) / totalBlocks;
-            for (uint8_t col = first; col < last && col < filled; col++)
-                gFrameBuffer[4][col + 4] = 0xBD;
-        }
+            gFrameBuffer[4][col + 4] = col >= filled ? 0x81
+                                      : AIRCOPY_PixelWasCopied(col) ? 0xBD
+                                      : hatch[col % 3u];
         // Leave one clear interior column on each side of a copied run.
         for (uint8_t col = 0; col < filled; col++)
         {

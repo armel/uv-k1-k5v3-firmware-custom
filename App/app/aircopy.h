@@ -29,10 +29,11 @@
 #define AIRCOPY_BLOCK_WORDS          (AIRCOPY_BLOCK_SIZE / 2u)  // 32 FSK words per block
 
 // Every forward frame stays 100 words long. HASH carries 24 per-block CRC32
-// values; the receiver replies SKIP or a 24-bit difference mask (DIFF).
+// values and the selected map; the receiver replies with an ACK carrying a
+// 24-bit difference mask or a rejection when the selections do not match.
 // DATA retains the proven [type][header][up to 3 blocks][CRC16][END] layout,
-// with unused blocks zero-padded. Only blocks selected by DIFF are sent.
-// Reverse control frames (ACK/DIFF/SKIP/RESEND) are eight words long.
+// with unused blocks zero-padded. Only blocks selected by the mask are sent.
+// Reverse ACK frames are eight words long. A missing ACK triggers a retry.
 //
 // This wire format is not compatible with earlier AirCopy versions. Both radios
 // must run the same firmware.
@@ -87,7 +88,7 @@ bool AIRCOPY_SendMessage(void);
 void AIRCOPY_StorePacket(void);
 void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 uint16_t AIRCOPY_GetTotalBlocks(void);
-bool AIRCOPY_BlockWasSkipped(uint16_t block);
+bool AIRCOPY_PixelWasCopied(uint8_t col);
 uint8_t  AIRCOPY_CurrentSliceMap(void);   // map index of the block in progress (All slice label)
 
 // XOR-obfuscate `count` words of g_FSK_Buffer starting at index 1.
