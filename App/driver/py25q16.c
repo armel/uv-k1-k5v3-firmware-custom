@@ -306,7 +306,7 @@ void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size)
 }
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_AIRCOPY_FLASH)
 // Raw physical erase/program backing the host dump/restore UART commands.
 // Every mutation drops the sector cache so the normal logical write path can
 // never trust stale data afterwards.

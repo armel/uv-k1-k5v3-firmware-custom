@@ -39,11 +39,13 @@ void UI_DisplayAircopy(void)
     const bool receiveComplete = gAircopyState == AIRCOPY_TRANSFER &&
                                  !gAirCopyIsSendMode &&
                                  gAirCopyBlockNumber >= totalBlocks;
+    const bool uart = AIRCOPY_UsesUart();
+    const bool flash = AIRCOPY_IsFlash();
 
     if (gAircopyState == AIRCOPY_READY) {
-        pPrintStr = "AIR COPY(RDY)";
+        pPrintStr = flash ? "FLASH COPY" : uart ? "CABLE COPY" : "AIR COPY(RDY)";
     } else if (gAircopyState == AIRCOPY_TRANSFER && !receiveComplete) {
-        if (gAircopyAll) {
+        if (gAircopyAll && !flash) {
             // All mode: show the slice being replicated in place of the title.
             const uint8_t m = AIRCOPY_CurrentSliceMap();
             if (m < AIRCOPY_NUM_BANKS)
@@ -52,29 +54,41 @@ void UI_DisplayAircopy(void)
                 strcpy(String, "SETTINGS");
             pPrintStr = String;
         } else {
-            pPrintStr = "AIR COPY";
+            pPrintStr = flash ? "FLASH COPY" : uart ? "CABLE COPY" : "AIR COPY";
         }
     } else if (gAircopyState == AIRCOPY_COMPLETE || receiveComplete) {
-        pPrintStr = "AIR COPY OK";
+        pPrintStr = flash && !gAirCopyIsSendMode ? "FLASH REBOOT"
+                  : flash ? "FLASH COPY OK"
+                  : uart ? "CABLE COPY OK" : "AIR COPY OK";
     } else {
-        pPrintStr = "AIR COPY FAIL";
+        pPrintStr = flash ? "FLASH COPY FAIL" : uart ? "CABLE COPY FAIL" : "AIR COPY FAIL";
     }
 
     UI_PrintString(pPrintStr, 2, 127, 0, 8);
 
-    if (gInputBoxIndex == 0) {
-        uint32_t frequency = gRxVfo->freq_config_RX.Frequency;
-        sprintf(String, "%3u.%05u", frequency / 100000, frequency % 100000);
-        // show the remaining 2 small frequency digits
-        UI_PrintStringSmallNormal(String + 7, 97, 0, 3);
-        String[7] = 0;
-    } else {
-        const char *ascii = INPUTBOX_GetAscii();
-        sprintf(String, "%.3s.%.3s", ascii, ascii + 3);
+#ifdef ENABLE_AIRCOPY_UART
+    if (uart)
+    {
+        sprintf(String, "UART %u", (unsigned)AIRCOPY_UART_BAUD_RATE);
+        UI_PrintString(String, 2, 127, 2, 8);
     }
+    else
+#endif
+    {
+        if (gInputBoxIndex == 0) {
+            uint32_t frequency = gRxVfo->freq_config_RX.Frequency;
+            sprintf(String, "%3u.%05u", frequency / 100000, frequency % 100000);
+            // show the remaining 2 small frequency digits
+            UI_PrintStringSmallNormal(String + 7, 97, 0, 3);
+            String[7] = 0;
+        } else {
+            const char *ascii = INPUTBOX_GetAscii();
+            sprintf(String, "%.3s.%.3s", ascii, ascii + 3);
+        }
 
-    // show the main large frequency digits
-    UI_DisplayFrequency(String, 16, 2, false);
+        // show the main large frequency digits
+        UI_DisplayFrequency(String, 16, 2, false);
+    }
 
     uint16_t doneBlocks = gAirCopyBlockNumber;
 
@@ -84,7 +98,9 @@ void UI_DisplayAircopy(void)
     // Draw memory selection
     if (gAircopyState == AIRCOPY_READY) 
     {
-        if(gAircopyCurrentMapIndex < AIRCOPY_NUM_BANKS) {
+        if (flash) {
+            strcpy(String, "Flash 2M");
+        } else if(gAircopyCurrentMapIndex < AIRCOPY_NUM_BANKS) {
             sprintf(String, "MEM %03u-%03u", (gAircopyCurrentMapIndex * 128) + 1, (gAircopyCurrentMapIndex + 1) * 128);
         } else if(gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS) {
             strcpy(String, "Settings");

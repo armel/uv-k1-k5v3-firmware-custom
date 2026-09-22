@@ -129,8 +129,10 @@ void BOOT_ProcessMode(BOOT_Mode_t Mode)
             gCurrentVfo = gRxVfo;
 
             RADIO_SetupRegisters(true);
+#ifndef ENABLE_AIRCOPY_UART
             BK4819_SetupAircopy();
             BK4819_ResetFSK();
+#endif
 
             gAircopyState = AIRCOPY_READY;
 

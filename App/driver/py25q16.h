@@ -31,13 +31,12 @@ void PY25Q16_SectorErase(uint32_t Address);
 void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size);
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_AIRCOPY_FLASH)
 /* Full external-flash access by TRUE physical address, bypassing the active
  * config-bank mapping (BankMap) and the sector cache. Backs the host
- * dump/restore UART commands (uart.c: 0x0738 read, 0x073A sector erase,
- * 0x073C write, 0x073E CRC32), so the whole 2 MiB image can be captured and every
- * non-calibration sector can be rewritten regardless of which config bank is
- * currently selected. The UART layer protects calibration mutations. */
+ * dump/restore UART commands and cable AirCopy, so the whole 2 MiB image can be
+ * captured and every non-calibration sector can be rewritten regardless of
+ * which config bank is currently selected. Callers protect calibration. */
 
 /* Total capacity of the external SPI flash (2 MiB). */
 #define PY25Q16_TOTAL_SIZE  0x00200000u

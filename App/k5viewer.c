@@ -15,6 +15,9 @@
  */
 
 #include "debugging.h"
+#ifdef ENABLE_AIRCOPY_UART
+#include "app/aircopy.h"
+#endif
 #include "driver/st7565.h"
 #include "k5viewer.h"
 #include "misc.h"
@@ -69,6 +72,11 @@ static uint16_t K5VIEWER_Hash(const uint8_t *data)
 
 void K5VIEWER_ParseInput(void)
 {
+#ifdef ENABLE_AIRCOPY_UART
+    if (gAircopyState == AIRCOPY_TRANSFER && AIRCOPY_UsesUart())
+        return;
+#endif
+
     if (K5VIEWER_IsLocked())
         return;
 
@@ -242,6 +250,11 @@ static void K5VIEWER_Chunk(uint8_t chunkIdx, uint8_t *dest)
 
 void K5VIEWER_Update(bool force)
 {
+#ifdef ENABLE_AIRCOPY_UART
+    if (gAircopyState == AIRCOPY_TRANSFER && AIRCOPY_UsesUart())
+        return;
+#endif
+
     if (K5VIEWER_IsLocked())
         return;
 

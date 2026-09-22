@@ -24,6 +24,9 @@
     #include "app/fm.h"
 #endif
 #include "app/uart.h"
+#ifdef ENABLE_AIRCOPY_UART
+#include "app/aircopy.h"
+#endif
 #include "board.h"
 #include "py32f071_ll_dma.h"
 #include "driver/backlight.h"
@@ -70,6 +73,10 @@
 
 // !! Make sure this is correct!
 #define MAX_REPLY_SIZE 144
+
+#ifdef ENABLE_AIRCOPY_UART
+#define UART_CMD_AIRCOPY 0x0740u
+#endif
 
 typedef struct {
     uint16_t ID;
@@ -300,6 +307,50 @@ static void SendReply(uint32_t Port, void *pReply, uint16_t Size)
     UART_Send(&Footer, sizeof(Footer));
 #endif
 }
+
+#ifdef ENABLE_AIRCOPY_UART
+void UART_SendAircopy(const uint16_t *data, uint8_t words)
+{
+    static union {
+        uint8_t Bytes[sizeof(Header_t) + 2u +
+                      AIRCOPY_FRAME_WORDS_MAX * sizeof(uint16_t) + sizeof(uint16_t)];
+        struct __attribute__((packed, aligned(4))) {
+            Header_t Header;
+            uint8_t Words;
+            uint8_t Reserved;
+            uint16_t Data[AIRCOPY_FRAME_WORDS_MAX];
+        } Packet;
+    } Frame;
+    Header_t transportHeader;
+    const uint16_t transportFooter = 0xBADCu;
+
+    if (words == 0u || words > AIRCOPY_FRAME_WORDS_MAX)
+        return;
+
+    Frame.Packet.Header.ID = UART_CMD_AIRCOPY;
+    Frame.Packet.Header.Size = (uint16_t)(2u + words * sizeof(Frame.Packet.Data[0]));
+    Frame.Packet.Words = words;
+    Frame.Packet.Reserved = 0;
+    memcpy(Frame.Packet.Data, data, words * sizeof(Frame.Packet.Data[0]));
+
+    const uint16_t bodySize = (uint16_t)(sizeof(Frame.Packet.Header) +
+                                         Frame.Packet.Header.Size);
+    const uint16_t crc = CRC_Calculate(Frame.Bytes, bodySize);
+    Frame.Bytes[bodySize] = (uint8_t)crc;
+    Frame.Bytes[bodySize + 1u] = (uint8_t)(crc >> 8);
+
+    // Peer radios feed this packet back through UART_IsCommandAvailable(), so
+    // unlike a PC reply it must carry a real CRC instead of the 0xFFFF marker.
+    for (uint16_t i = 0; i < bodySize + sizeof(crc); i++)
+        Frame.Bytes[i] ^= Obfuscation[i % 16u];
+
+    transportHeader.ID = 0xCDABu;
+    transportHeader.Size = bodySize;
+    UART_Send(&transportHeader, sizeof(transportHeader));
+    UART_Send(Frame.Bytes, bodySize + sizeof(crc));
+    UART_Send(&transportFooter, sizeof(transportFooter));
+}
+#endif
 
 static void SendVersion(uint32_t Port)
 {
@@ -860,6 +911,22 @@ void UART_HandleCommand(uint32_t Port)
 
     switch (pUART_Command->Header.ID)
     {
+#ifdef ENABLE_AIRCOPY_UART
+        case UART_CMD_AIRCOPY:
+        {
+            const uint8_t words = pUART_Command->Data[0];
+            const uint16_t payloadSize = (uint16_t)(2u + words * sizeof(uint16_t));
+
+            if (Port == UART_PORT_UART &&
+                words > 0u && words <= AIRCOPY_FRAME_WORDS_MAX &&
+                pUART_Command->Header.Size == payloadSize)
+            {
+                AIRCOPY_StoreUartPacket(&pUART_Command->Data[2], words);
+            }
+            break;
+        }
+#endif
+
         case 0x0514:
             CMD_0514(Port, pUART_Command->Buffer);
             break;

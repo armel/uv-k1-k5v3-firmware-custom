@@ -507,7 +507,7 @@ static uint32_t mb_ext_image_crc32(uint32_t addr, uint32_t len)
     return crc ^ 0xFFFFFFFFu;
 }
 
-#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_AIRCOPY_FLASH)
 uint8_t MB_ExternalFlashCrc32(uint32_t address, uint32_t length, uint32_t *out_crc)
 {
     if (out_crc == NULL || length == 0u ||

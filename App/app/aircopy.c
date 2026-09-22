@@ -17,6 +17,11 @@
 #ifdef ENABLE_AIRCOPY
 
 #include "app/aircopy.h"
+#ifdef ENABLE_AIRCOPY_UART
+#include "app/uart.h"
+#include "driver/py25q16.h"
+#include "driver/uart.h"
+#endif
 #include "audio.h"
 #include "driver/bk4819.h"
 #include "driver/crc.h"
@@ -46,6 +51,7 @@ uint16_t gAirCopyBlockNumber;
 uint16_t gErrorsDuringAirCopy;
 bool     gAirCopyIsSendMode;
 bool     gAircopyAll;
+AIRCOPY_Transport_t gAircopyTransport = AIRCOPY_TRANSPORT_AIR;
 
 uint16_t g_FSK_Buffer[AIRCOPY_FRAME_WORDS_MAX];
 uint8_t  gFskRxExpectedWords = AIRCOPY_DATA_WORDS;
@@ -55,6 +61,12 @@ uint8_t  gFskRxExpectedWords = AIRCOPY_DATA_WORDS;
 #define AIRCOPY_PACKET_DATA          0xABCDu
 #define AIRCOPY_PACKET_ACK           0xABCEu
 #define AIRCOPY_PACKET_HASH          0xABD1u
+#ifdef ENABLE_AIRCOPY_FLASH
+#define AIRCOPY_PACKET_FLASH_HASH     0xABD2u
+#define AIRCOPY_PACKET_FLASH_HASH_ACK 0xABD3u
+#define AIRCOPY_PACKET_FLASH_DATA     0xABD4u
+#define AIRCOPY_PACKET_FLASH_DATA_ACK 0xABD5u
+#endif
 #define AIRCOPY_PACKET_END           0xDCBAu
 #define AIRCOPY_REJECT_MASK          0xFFFFFFFFu
 #define AIRCOPY_HASH_GROUP_BLOCKS    24u
@@ -71,11 +83,26 @@ uint8_t  gFskRxExpectedWords = AIRCOPY_DATA_WORDS;
 static uint16_t AircopyCountdown;
 static uint8_t  AircopyRetries;
 static uint8_t  AircopyInFlight;
+#ifdef ENABLE_AIRCOPY_UART
+static bool     AircopyUartHighSpeed;
+#endif
 static uint8_t  AircopyGroupCount;
 static uint16_t AircopyGroupStart;
 static uint32_t AircopyPendingMask;
 static bool     AircopyProbePending;
 static uint32_t AircopyLastAckMask;
+
+#ifdef ENABLE_AIRCOPY_FLASH
+#define AIRCOPY_FLASH_SECTOR_SIZE       PY25Q16_SECTOR_SIZE
+#define AIRCOPY_FLASH_DATA_HEADER_WORDS 4u
+#define AIRCOPY_FLASH_DATA_WORDS        (AIRCOPY_DATA_WORDS - AIRCOPY_FLASH_DATA_HEADER_WORDS - 2u)
+#define AIRCOPY_FLASH_DATA_BYTES        (AIRCOPY_FLASH_DATA_WORDS * 2u)
+
+static uint16_t AircopyFlashOffset;
+static uint16_t AircopyFlashInFlight;
+static uint32_t AircopyFlashExpectedCRC[AIRCOPY_HASH_GROUP_BLOCKS];
+
+#endif
 
 // Header packing: DATA carries a block count, HASH carries the selected map.
 #define AIRCOPY_HDR_BLOCK(hdr)  ((hdr) & 0x0FFFu)
@@ -92,8 +119,30 @@ static uint8_t AircopyCopiedPixels[(AIRCOPY_BAR_WIDTH + 7u) / 8u];
 // Helper Functions
 // ============================================================================
 
+bool AIRCOPY_UsesUart(void)
+{
+#ifdef ENABLE_AIRCOPY_UART
+    return gAircopyTransport == AIRCOPY_TRANSPORT_UART;
+#else
+    return false;
+#endif
+}
+
+bool AIRCOPY_IsFlash(void)
+{
+#ifdef ENABLE_AIRCOPY_FLASH
+    return AIRCOPY_UsesUart() && gAircopyCurrentMapIndex == AIRCOPY_FLASH_INDEX;
+#else
+    return false;
+#endif
+}
+
 uint16_t AIRCOPY_GetTotalBlocks(void)
 {
+#ifdef ENABLE_AIRCOPY_FLASH
+    if (AIRCOPY_IsFlash())
+        return AIRCOPY_FLASH_SECTORS;
+#endif
     if (gAircopyAll)
         return AIRCOPY_ALL_BLOCKS;                 // banks + settings, one continuous run
     return gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS
@@ -174,6 +223,30 @@ static uint8_t AIRCOPY_GroupBlockCount(uint16_t start, uint16_t total)
                    ? remaining : AIRCOPY_HASH_GROUP_BLOCKS);
 }
 
+#ifdef ENABLE_AIRCOPY_FLASH
+static bool AIRCOPY_FlashSectorAllowed(uint16_t sector)
+{
+    const uint16_t calibration = PY25Q16_CALIBRATION_SECTOR_BASE /
+                                 AIRCOPY_FLASH_SECTOR_SIZE;
+
+    if (sector == calibration)
+        return false;
+    return sector < AIRCOPY_FLASH_SECTORS;
+}
+
+static bool AIRCOPY_FlashSectorCRC(uint16_t sector, uint32_t *crc)
+{
+    if (!AIRCOPY_FlashSectorAllowed(sector))
+    {
+        *crc = 0;
+        return true;
+    }
+
+    return MB_ExternalFlashCrc32((uint32_t)sector * AIRCOPY_FLASH_SECTOR_SIZE,
+                                 AIRCOPY_FLASH_SECTOR_SIZE, crc) == MB_OK;
+}
+#endif
+
 // Hash one logical block. Each call needs only a 64-byte scratch buffer.
 static uint32_t AIRCOPY_BlockCRC32(uint16_t blockNumber)
 {
@@ -215,6 +288,13 @@ static void AIRCOPY_Finish(AIRCOPY_State_t state)
     AircopyCountdown = 0;
     gAircopyState = state;
     gUpdateDisplay = true;
+#ifdef ENABLE_AIRCOPY_UART
+    if (AircopyUartHighSpeed)
+    {
+        if (UART_SetBaudRate(AIRCOPY_UART_DEFAULT_BAUD))
+            AircopyUartHighSpeed = false;
+    }
+#endif
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     K5VIEWER_Update(false);
 #endif
@@ -235,19 +315,28 @@ static uint16_t AIRCOPY_Reg5D(uint8_t words)
     return (uint16_t)(((len & 0x00FFu) << 8) | (((len >> 8) & 0x07u) << 5));
 }
 
-// Arm FSK RX for the frame this role expects: the receiver waits for DATA, the
-// sender waits for a tiny ACK. Both REG_5D and the drain length must be
-// set before the frame arrives so RX-finished fires at the right byte count.
+// Arm reception for the frame this role expects: the receiver waits for DATA,
+// while the sender waits for a tiny ACK.
 static void AIRCOPY_ArmReceive(void)
 {
     const uint8_t words = gAirCopyIsSendMode ? AIRCOPY_CTRL_WORDS : AIRCOPY_DATA_WORDS;
     gFskRxExpectedWords = words;
-    BK4819_WriteRegister(BK4819_REG_5D, AIRCOPY_Reg5D(words));
-    BK4819_PrepareFSKReceive();
+    if (!AIRCOPY_UsesUart())
+    {
+        BK4819_WriteRegister(BK4819_REG_5D, AIRCOPY_Reg5D(words));
+        BK4819_PrepareFSKReceive();
+    }
 }
 
 static void AIRCOPY_TransmitBuffer(uint8_t words)
 {
+#ifdef ENABLE_AIRCOPY_UART
+    if (AIRCOPY_UsesUart())
+    {
+        UART_SendAircopy(g_FSK_Buffer, words);
+        return;
+    }
+#endif
     // Both sides need time to leave TX and re-arm FSK RX before the reply.
     SYSTEM_DelayMs(50);
     RADIO_SetTxParameters();
@@ -262,7 +351,8 @@ static void AIRCOPY_FinalizeAndSend(uint8_t words)
     g_FSK_Buffer[words - 2u] = CRC_Calculate(&g_FSK_Buffer[0], (uint16_t)(words - 2u) * 2u);
     g_FSK_Buffer[words - 1u] = AIRCOPY_PACKET_END;
     AIRCOPY_Obfuscate(words - 2u);
-    BK4819_WriteRegister(BK4819_REG_5D, AIRCOPY_Reg5D(words));
+    if (!AIRCOPY_UsesUart())
+        BK4819_WriteRegister(BK4819_REG_5D, AIRCOPY_Reg5D(words));
     AIRCOPY_TransmitBuffer(words);
     gFSKWriteIndex = 0;
     AIRCOPY_ArmReceive();
@@ -305,6 +395,308 @@ static bool AIRCOPY_Retry(void)
     return true;
 }
 
+#ifdef ENABLE_AIRCOPY_FLASH
+static void AIRCOPY_SendFlashHashAck(uint16_t start, uint32_t mask, uint8_t status)
+{
+    AircopyCountdown = gAirCopyBlockNumber >= AIRCOPY_FLASH_SECTORS
+                     ? AIRCOPY_RX_LINGER_10MS : AIRCOPY_RX_TIMEOUT_10MS;
+    g_FSK_Buffer[0] = AIRCOPY_PACKET_FLASH_HASH_ACK;
+    g_FSK_Buffer[1] = start;
+    g_FSK_Buffer[2] = (uint16_t)mask;
+    g_FSK_Buffer[3] = (uint16_t)(mask >> 16);
+    g_FSK_Buffer[4] = status;
+    g_FSK_Buffer[5] = 0;
+    AIRCOPY_FinalizeAndSend(AIRCOPY_CTRL_WORDS);
+}
+
+static void AIRCOPY_SendFlashDataAck(uint16_t sector, uint16_t nextOffset,
+                                     uint8_t status)
+{
+    AircopyCountdown = gAirCopyBlockNumber >= AIRCOPY_FLASH_SECTORS
+                     ? AIRCOPY_RX_LINGER_10MS : AIRCOPY_RX_TIMEOUT_10MS;
+    g_FSK_Buffer[0] = AIRCOPY_PACKET_FLASH_DATA_ACK;
+    g_FSK_Buffer[1] = sector;
+    g_FSK_Buffer[2] = nextOffset;
+    g_FSK_Buffer[3] = status;
+    g_FSK_Buffer[4] = 0;
+    g_FSK_Buffer[5] = 0;
+    AIRCOPY_FinalizeAndSend(AIRCOPY_CTRL_WORDS);
+}
+
+static bool AIRCOPY_SendFlashMessage(void)
+{
+    const uint16_t sector = gAirCopyBlockNumber;
+
+    if (AircopyProbePending)
+    {
+        AircopyGroupStart = sector;
+        AircopyGroupCount = AIRCOPY_GroupBlockCount(sector, AIRCOPY_FLASH_SECTORS);
+        AircopyFlashInFlight = 0;
+        g_FSK_Buffer[0] = AIRCOPY_PACKET_FLASH_HASH;
+        g_FSK_Buffer[1] = sector;
+        memset(&g_FSK_Buffer[2], 0,
+               (AIRCOPY_DATA_WORDS - 4u) * sizeof(g_FSK_Buffer[0]));
+        for (uint8_t i = 0; i < AircopyGroupCount; i++)
+        {
+            uint32_t crc;
+            if (!AIRCOPY_FlashSectorCRC((uint16_t)(sector + i), &crc))
+            {
+                AIRCOPY_Finish(AIRCOPY_FAILED);
+                return false;
+            }
+            g_FSK_Buffer[2u + 2u * i] = (uint16_t)crc;
+            g_FSK_Buffer[3u + 2u * i] = (uint16_t)(crc >> 16);
+        }
+    }
+    else
+    {
+        if (!AIRCOPY_FlashSectorAllowed(sector) || AircopyFlashOffset >= AIRCOPY_FLASH_SECTOR_SIZE)
+        {
+            AIRCOPY_Finish(AIRCOPY_FAILED);
+            return false;
+        }
+
+        const uint16_t remaining = AIRCOPY_FLASH_SECTOR_SIZE - AircopyFlashOffset;
+        const uint16_t size = remaining < AIRCOPY_FLASH_DATA_BYTES
+                            ? remaining : AIRCOPY_FLASH_DATA_BYTES;
+        const uint32_t address = (uint32_t)sector * AIRCOPY_FLASH_SECTOR_SIZE +
+                                 AircopyFlashOffset;
+
+        g_FSK_Buffer[0] = AIRCOPY_PACKET_FLASH_DATA;
+        g_FSK_Buffer[1] = sector;
+        g_FSK_Buffer[2] = AircopyFlashOffset;
+        g_FSK_Buffer[3] = size;
+        memset(&g_FSK_Buffer[AIRCOPY_FLASH_DATA_HEADER_WORDS], 0,
+               AIRCOPY_FLASH_DATA_BYTES);
+        PY25Q16_ReadBufferPhysical(address,
+            &g_FSK_Buffer[AIRCOPY_FLASH_DATA_HEADER_WORDS], size);
+        AircopyFlashInFlight = size;
+    }
+
+    AIRCOPY_FinalizeAndSend(AIRCOPY_DATA_WORDS);
+    AircopyCountdown = AIRCOPY_ACK_TIMEOUT_10MS;
+    return true;
+}
+
+static void AIRCOPY_ProcessFlashPacket(uint16_t type, bool valid)
+{
+    if (gAirCopyIsSendMode)
+    {
+        if (!valid)
+        {
+            AIRCOPY_ArmReceive();
+            return;
+        }
+
+        if (AircopyProbePending)
+        {
+            if (type != AIRCOPY_PACKET_FLASH_HASH_ACK ||
+                g_FSK_Buffer[1] != AircopyGroupStart || g_FSK_Buffer[4] != 0u)
+            {
+                AIRCOPY_ArmReceive();
+                return;
+            }
+
+            const uint32_t mask = (uint32_t)g_FSK_Buffer[2] |
+                                  ((uint32_t)g_FSK_Buffer[3] << 16);
+            if (AircopyGroupCount == 0u ||
+                (mask & ~((1u << AircopyGroupCount) - 1u)) != 0u)
+            {
+                AIRCOPY_ArmReceive();
+                return;
+            }
+
+            if (mask == 0u)
+                gAirCopyBlockNumber += AircopyGroupCount;
+            else
+            {
+                AircopyPendingMask = mask;
+                AircopyProbePending = false;
+                AircopyFlashOffset = 0;
+                gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+            }
+        }
+        else
+        {
+            const uint16_t expectedOffset = AircopyFlashOffset + AircopyFlashInFlight;
+            if (type != AIRCOPY_PACKET_FLASH_DATA_ACK ||
+                g_FSK_Buffer[1] != gAirCopyBlockNumber)
+            {
+                AIRCOPY_ArmReceive();
+                return;
+            }
+
+            if (g_FSK_Buffer[3] != 0u)
+            {
+                AircopyFlashOffset = 0;
+                if (!AIRCOPY_Retry())
+                    return;
+                AIRCOPY_ArmReceive();
+                return;
+            }
+
+            const uint16_t nextOffset = g_FSK_Buffer[2];
+            if (nextOffset != expectedOffset || nextOffset > AIRCOPY_FLASH_SECTOR_SIZE)
+            {
+                AIRCOPY_ArmReceive();
+                return;
+            }
+
+            if (nextOffset < AIRCOPY_FLASH_SECTOR_SIZE)
+                AircopyFlashOffset = nextOffset;
+            else
+            {
+                const uint8_t bit = (uint8_t)(gAirCopyBlockNumber - AircopyGroupStart);
+                AIRCOPY_MarkCopied(gAirCopyBlockNumber, 1u);
+                AircopyPendingMask &= ~(1u << bit);
+                gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+                AircopyFlashOffset = 0;
+                if (AircopyPendingMask == 0u)
+                    AircopyProbePending = true;
+            }
+        }
+
+        AircopyCountdown = 0;
+        AircopyRetries = 0;
+        gUpdateDisplay = true;
+        if (gAirCopyBlockNumber >= AIRCOPY_FLASH_SECTORS)
+            AIRCOPY_Finish(AIRCOPY_COMPLETE);
+        return;
+    }
+
+    if (!valid)
+    {
+        if (type == AIRCOPY_PACKET_FLASH_HASH || type == AIRCOPY_PACKET_FLASH_DATA)
+            AIRCOPY_RejectFrame();
+        else
+            AIRCOPY_ArmReceive();
+        return;
+    }
+
+    if (type == AIRCOPY_PACKET_FLASH_HASH)
+    {
+        const uint16_t start = g_FSK_Buffer[1];
+        if (start >= AIRCOPY_FLASH_SECTORS ||
+            start % AIRCOPY_HASH_GROUP_BLOCKS != 0u)
+        {
+            AIRCOPY_RejectFrame();
+            return;
+        }
+
+        if (AircopyGroupCount != 0u && start == AircopyGroupStart)
+        {
+            AIRCOPY_SendFlashHashAck(start, AircopyLastAckMask, 0);
+            return;
+        }
+        if (start != gAirCopyBlockNumber || AircopyPendingMask != 0u)
+        {
+            AIRCOPY_RejectFrame();
+            return;
+        }
+
+        AircopyGroupStart = start;
+        AircopyGroupCount = AIRCOPY_GroupBlockCount(start, AIRCOPY_FLASH_SECTORS);
+        uint32_t mask = 0;
+        for (uint8_t i = 0; i < AircopyGroupCount; i++)
+        {
+            const uint16_t current = (uint16_t)(start + i);
+            const uint32_t sentCRC = (uint32_t)g_FSK_Buffer[2u + 2u * i] |
+                                     ((uint32_t)g_FSK_Buffer[3u + 2u * i] << 16);
+            uint32_t localCRC;
+            AircopyFlashExpectedCRC[i] = sentCRC;
+            if (!AIRCOPY_FlashSectorCRC(current, &localCRC))
+            {
+                AIRCOPY_SendFlashHashAck(start, 0, 1);
+                AIRCOPY_Finish(AIRCOPY_FAILED);
+                return;
+            }
+            if (AIRCOPY_FlashSectorAllowed(current) && localCRC != sentCRC)
+                mask |= 1u << i;
+        }
+
+        AircopyPendingMask = mask;
+        gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+        AircopyFlashOffset = 0;
+        AircopyLastAckMask = mask;
+        gErrorsDuringAirCopy = 0;
+        gUpdateDisplay = true;
+        AIRCOPY_SendFlashHashAck(start, mask, 0);
+        return;
+    }
+
+    if (type != AIRCOPY_PACKET_FLASH_DATA)
+    {
+        AIRCOPY_ArmReceive();
+        return;
+    }
+
+    const uint16_t sector = g_FSK_Buffer[1];
+    const uint16_t offset = g_FSK_Buffer[2];
+    const uint16_t size = g_FSK_Buffer[3];
+    if (sector < gAirCopyBlockNumber)
+    {
+        AIRCOPY_SendFlashDataAck(sector, AIRCOPY_FLASH_SECTOR_SIZE, 0);
+        return;
+    }
+    if (sector != gAirCopyBlockNumber || !AIRCOPY_FlashSectorAllowed(sector) ||
+        size == 0u || size > AIRCOPY_FLASH_DATA_BYTES ||
+        offset > AIRCOPY_FLASH_SECTOR_SIZE || size > AIRCOPY_FLASH_SECTOR_SIZE - offset)
+    {
+        AIRCOPY_RejectFrame();
+        return;
+    }
+    if (offset < AircopyFlashOffset)
+    {
+        AIRCOPY_SendFlashDataAck(sector, AircopyFlashOffset, 0);
+        return;
+    }
+    if (offset != AircopyFlashOffset)
+    {
+        AIRCOPY_RejectFrame();
+        return;
+    }
+
+    const uint8_t bit = (uint8_t)(sector - AircopyGroupStart);
+    if (bit >= AircopyGroupCount || (AircopyPendingMask & (1u << bit)) == 0u)
+    {
+        AIRCOPY_RejectFrame();
+        return;
+    }
+
+    const uint32_t address = (uint32_t)sector * AIRCOPY_FLASH_SECTOR_SIZE + offset;
+    if (offset == 0u)
+        PY25Q16_SectorErasePhysical(address);
+    PY25Q16_WriteBufferPhysical(address,
+        &g_FSK_Buffer[AIRCOPY_FLASH_DATA_HEADER_WORDS], size);
+    AircopyFlashOffset = offset + size;
+
+    if (AircopyFlashOffset == AIRCOPY_FLASH_SECTOR_SIZE)
+    {
+        uint32_t crc;
+        if (!AIRCOPY_FlashSectorCRC(sector, &crc) ||
+            crc != AircopyFlashExpectedCRC[bit])
+        {
+            gErrorsDuringAirCopy++;
+            AircopyFlashOffset = 0;
+            AIRCOPY_SendFlashDataAck(sector, 0, 1);
+            return;
+        }
+
+        AIRCOPY_MarkCopied(sector, 1u);
+        AircopyPendingMask &= ~(1u << bit);
+        gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+        AircopyFlashOffset = 0;
+        if (AircopyPendingMask == 0u)
+            AircopyProbePending = true;
+    }
+
+    const uint16_t acknowledgedOffset = offset + size;
+    gErrorsDuringAirCopy = 0;
+    gUpdateDisplay = true;
+    AIRCOPY_SendFlashDataAck(sector, acknowledgedOffset, 0);
+}
+#endif
+
 // ============================================================================
 // Send/Receive Functions
 // ============================================================================
@@ -334,6 +726,11 @@ bool AIRCOPY_SendMessage(void)
         if (!AIRCOPY_Retry())
             return 0;
     }
+
+#ifdef ENABLE_AIRCOPY_FLASH
+    if (AIRCOPY_IsFlash())
+        return AIRCOPY_SendFlashMessage();
+#endif
 
     const uint16_t total = AIRCOPY_GetTotalBlocks();
     const uint16_t start = gAirCopyBlockNumber;
@@ -382,7 +779,7 @@ bool AIRCOPY_SendMessage(void)
     return 1;
 }
 
-void AIRCOPY_StorePacket(void)
+static void AIRCOPY_ProcessPacket(bool statusOk)
 {
     // The role decides the frame length: the receiver waits for a full DATA
     // frame, the sender for a tiny ACK. CRC and END sit at the tail.
@@ -392,14 +789,18 @@ void AIRCOPY_StorePacket(void)
     }
 
     gFSKWriteIndex = 0;
-    const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
     const uint16_t type = g_FSK_Buffer[0];
-    const bool statusOk = (status & 0x0010u) == 0;
     const bool endOk = g_FSK_Buffer[words - 1u] == AIRCOPY_PACKET_END;
-    bool valid = statusOk && endOk &&
-                 (type == AIRCOPY_PACKET_DATA ||
-                  type == AIRCOPY_PACKET_ACK ||
-                  type == AIRCOPY_PACKET_HASH);
+    bool knownType = type == AIRCOPY_PACKET_DATA ||
+                     type == AIRCOPY_PACKET_ACK ||
+                     type == AIRCOPY_PACKET_HASH;
+#ifdef ENABLE_AIRCOPY_FLASH
+    knownType = knownType || type == AIRCOPY_PACKET_FLASH_HASH ||
+                type == AIRCOPY_PACKET_FLASH_HASH_ACK ||
+                type == AIRCOPY_PACKET_FLASH_DATA ||
+                type == AIRCOPY_PACKET_FLASH_DATA_ACK;
+#endif
+    bool valid = statusOk && endOk && knownType;
 
     if (valid)
     {
@@ -407,6 +808,14 @@ void AIRCOPY_StorePacket(void)
         valid = g_FSK_Buffer[words - 2u] ==
                 CRC_Calculate(&g_FSK_Buffer[0], (uint16_t)(words - 2u) * 2u);
     }
+
+#ifdef ENABLE_AIRCOPY_FLASH
+    if (AIRCOPY_IsFlash())
+    {
+        AIRCOPY_ProcessFlashPacket(type, valid);
+        return;
+    }
+#endif
 
     const uint16_t total = AIRCOPY_GetTotalBlocks();
 
@@ -583,9 +992,44 @@ void AIRCOPY_StorePacket(void)
     AIRCOPY_SendAck(start, 0, total);
 }
 
+void AIRCOPY_StorePacket(void)
+{
+    if (AIRCOPY_UsesUart())
+        return;
+
+    const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
+    AIRCOPY_ProcessPacket((status & 0x0010u) == 0u);
+}
+
+#ifdef ENABLE_AIRCOPY_UART
+void AIRCOPY_StoreUartPacket(const void *data, uint8_t words)
+{
+    if (!AIRCOPY_UsesUart() || gAircopyState != AIRCOPY_TRANSFER ||
+        words != gFskRxExpectedWords)
+        return;
+
+    memcpy(g_FSK_Buffer, data, words * sizeof(g_FSK_Buffer[0]));
+    gFSKWriteIndex = words;
+    AIRCOPY_ProcessPacket(true);
+
+    // UART is full-duplex and stop-and-wait already prevents frame overlap.
+    // Chain the next sender frame directly from a valid ACK instead of waiting
+    // for the next 10 ms application timeslice. The periodic path remains the
+    // timeout and retry fallback.
+    if (gAirCopyIsSendMode && gAircopyState == AIRCOPY_TRANSFER &&
+        AircopyCountdown == 0u)
+        AIRCOPY_SendMessage();
+}
+#endif
+
 static void AIRCOPY_InitTransfer(bool isSendMode)
 {
-    if (gAircopyCurrentMapIndex > AIRCOPY_ALL_INDEX)
+    uint8_t lastIndex = AIRCOPY_ALL_INDEX;
+#ifdef ENABLE_AIRCOPY_FLASH
+    if (AIRCOPY_UsesUart())
+        lastIndex = AIRCOPY_FLASH_INDEX;
+#endif
+    if (gAircopyCurrentMapIndex > lastIndex)
         gAircopyCurrentMapIndex = 0;
     gAircopyAll = (gAircopyCurrentMapIndex == AIRCOPY_ALL_INDEX);
 
@@ -604,9 +1048,39 @@ static void AIRCOPY_InitTransfer(bool isSendMode)
     AircopyPendingMask = 0;
     AircopyProbePending = true;
     AircopyLastAckMask = 0;
+#ifdef ENABLE_AIRCOPY_FLASH
+    AircopyFlashOffset = 0;
+    AircopyFlashInFlight = 0;
+    memset(AircopyFlashExpectedCRC, 0, sizeof(AircopyFlashExpectedCRC));
+#endif
     // The sender listens for tiny ACKs, the receiver for full DATA frames.
     gFskRxExpectedWords = isSendMode ? AIRCOPY_CTRL_WORDS : AIRCOPY_DATA_WORDS;
 
+#if defined(ENABLE_AIRCOPY_UART) && defined(ENABLE_FEAT_F4HWN_K5VIEWER)
+    if (AIRCOPY_UsesUart())
+        gUART_LockK5Viewer = 20;
+#endif
+#ifdef ENABLE_AIRCOPY_UART
+    if (AIRCOPY_UsesUart())
+    {
+        if (!UART_SetBaudRate(AIRCOPY_UART_BAUD_RATE))
+        {
+            AIRCOPY_Finish(AIRCOPY_FAILED);
+            return;
+        }
+        AircopyUartHighSpeed = true;
+    }
+    else if (AircopyUartHighSpeed)
+    {
+        if (UART_SetBaudRate(AIRCOPY_UART_DEFAULT_BAUD))
+            AircopyUartHighSpeed = false;
+    }
+#endif
+    if (!AIRCOPY_UsesUart())
+    {
+        BK4819_SetupAircopy();
+        BK4819_ResetFSK();
+    }
     AIRCOPY_clear();
 
     gAircopyState = AIRCOPY_TRANSFER;
@@ -656,6 +1130,20 @@ static void AIRCOPY_Key_DIGITS(KEY_Code_t Key)
     }
 }
 
+#ifdef ENABLE_AIRCOPY_UART
+static void AIRCOPY_Key_STAR(void)
+{
+    gAircopyTransport = AIRCOPY_UsesUart()
+                      ? AIRCOPY_TRANSPORT_AIR : AIRCOPY_TRANSPORT_UART;
+#ifdef ENABLE_AIRCOPY_FLASH
+    if (!AIRCOPY_UsesUart() && gAircopyCurrentMapIndex == AIRCOPY_FLASH_INDEX)
+        gAircopyCurrentMapIndex = AIRCOPY_ALL_INDEX;
+#endif
+    gInputBoxIndex = 0;
+    gUpdateDisplay = true;
+}
+#endif
+
 static void AIRCOPY_Key_EXIT()
 {
     if (gInputBoxIndex == 0) {
@@ -674,6 +1162,13 @@ static void AIRCOPY_Key_MENU()
 
 static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
 {
+    uint8_t lastIndex = AIRCOPY_ALL_INDEX;
+#ifdef ENABLE_AIRCOPY_FLASH
+    if (AIRCOPY_UsesUart())
+        lastIndex = AIRCOPY_FLASH_INDEX;
+#endif
+    const uint8_t selectionCount = lastIndex + 1u;
+
     if (!gEeprom.SET_NAV) {
         Direction = -Direction;
     }
@@ -681,10 +1176,10 @@ static void AIRCOPY_Key_UP_DOWN(int8_t Direction)
     switch(Direction)
     {
         case 1:
-            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + 1) % (AIRCOPY_NUM_MAPS + 1u);
+            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + 1u) % selectionCount;
             break;
         case -1:
-            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + AIRCOPY_NUM_MAPS) % (AIRCOPY_NUM_MAPS + 1u);
+            gAircopyCurrentMapIndex = (gAircopyCurrentMapIndex + selectionCount - 1u) % selectionCount;
             break;
     }
 }
@@ -709,7 +1204,12 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     switch (Key) {
     case KEY_0...KEY_9:
-        AIRCOPY_Key_DIGITS(Key);
+#ifdef ENABLE_AIRCOPY_UART
+        if (AIRCOPY_UsesUart())
+            gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+        else
+#endif
+            AIRCOPY_Key_DIGITS(Key);
         break;
     case KEY_MENU:
         AIRCOPY_Key_MENU();
@@ -721,6 +1221,11 @@ void AIRCOPY_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     case KEY_DOWN:
         AIRCOPY_Key_UP_DOWN(Key == KEY_UP ? 1 : -1);
         break;
+#ifdef ENABLE_AIRCOPY_UART
+    case KEY_STAR:
+        AIRCOPY_Key_STAR();
+        break;
+#endif
     case KEY_PTT:
         break;
     default:

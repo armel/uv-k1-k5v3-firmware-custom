@@ -90,7 +90,7 @@ enum {
  * bitwise CRC loops in the MCU flash. */
 uint32_t MB_Crc32Bytes(const uint8_t *data, uint32_t len);
 
-#ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
+#if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_AIRCOPY_FLASH)
 /* CRC-32 (zlib) over a physical external-flash range. */
 uint8_t MB_ExternalFlashCrc32(uint32_t address, uint32_t length, uint32_t *out_crc);
 #endif

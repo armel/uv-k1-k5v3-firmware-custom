@@ -1088,7 +1088,7 @@ static void CheckRadioInterrupts(void)
 #ifdef ENABLE_AIRCOPY
             // Aircopy wins if stale state ever makes both receivers eligible.
             if (gScreenToDisplay == DISPLAY_AIRCOPY &&
-                gAircopyState == AIRCOPY_TRANSFER)
+                gAircopyState == AIRCOPY_TRANSFER && !AIRCOPY_UsesUart())
                 fskTarget = 1;
 #endif
 
