@@ -29,14 +29,20 @@
 
 void UI_DisplayAircopy(void)
 {
-    char String[16];
+    char String[20];
     char *pPrintStr;
 
     UI_DisplayClear();
 
+    const uint16_t totalBlocks = AIRCOPY_GetTotalBlocks();
+    // RX keeps listening briefly for a repeated final frame after all blocks arrive.
+    const bool receiveComplete = gAircopyState == AIRCOPY_TRANSFER &&
+                                 !gAirCopyIsSendMode &&
+                                 gAirCopyBlockNumber >= totalBlocks;
+
     if (gAircopyState == AIRCOPY_READY) {
         pPrintStr = "AIR COPY(RDY)";
-    } else if (gAircopyState == AIRCOPY_TRANSFER) {
+    } else if (gAircopyState == AIRCOPY_TRANSFER && !receiveComplete) {
         if (gAircopyAll) {
             // All mode: show the slice being replicated in place of the title.
             const uint8_t m = AIRCOPY_CurrentSliceMap();
@@ -48,7 +54,7 @@ void UI_DisplayAircopy(void)
         } else {
             pPrintStr = "AIR COPY";
         }
-    } else if (gAircopyState == AIRCOPY_COMPLETE) {
+    } else if (gAircopyState == AIRCOPY_COMPLETE || receiveComplete) {
         pPrintStr = "AIR COPY OK";
     } else {
         pPrintStr = "AIR COPY FAIL";
@@ -70,7 +76,6 @@ void UI_DisplayAircopy(void)
     // show the main large frequency digits
     UI_DisplayFrequency(String, 16, 2, false);
 
-    const uint16_t totalBlocks = AIRCOPY_GetTotalBlocks();
     uint16_t doneBlocks = gAirCopyBlockNumber;
 
     if (doneBlocks > totalBlocks)
@@ -95,9 +100,10 @@ void UI_DisplayAircopy(void)
                                        ? 99u
                                        : gErrorsDuringAirCopy;
 
-        if (gAircopyState == AIRCOPY_COMPLETE || gAircopyState == AIRCOPY_FAILED) {
+        if (gAircopyState == AIRCOPY_COMPLETE || receiveComplete ||
+            gAircopyState == AIRCOPY_FAILED) {
             sprintf(String, "%s %u/%u %s:%u",
-                    gAircopyState == AIRCOPY_COMPLETE ? "OK" : "KO",
+                    gAircopyState == AIRCOPY_COMPLETE || receiveComplete ? "OK" : "KO",
                     doneBlocks, totalBlocks,
                     gAirCopyIsSendMode ? "RT" : "ER",
                     displayedErrors);
@@ -117,8 +123,32 @@ void UI_DisplayAircopy(void)
         // Match the former DDA gauge exactly, including its partial first pixel.
         const uint8_t filled = (doneBlocks * AIRCOPY_BAR_WIDTH + totalBlocks - 1u)
                              / totalBlocks;
+        // Each interior row has one hatch pixel followed by two clear pixels.
+        static const uint8_t hatch[3] = { 0xA5, 0x89, 0x91 };
         for (uint8_t col = 0; col < AIRCOPY_BAR_WIDTH; col++)
-            gFrameBuffer[4][col + 4] = col < filled ? 0xBD : 0x81;
+            gFrameBuffer[4][col + 4] = col < filled ? hatch[col % 3u] : 0x81;
+        // A changed block makes its entire pixel span solid, including pixels
+        // shared with skipped blocks.
+        for (uint16_t block = 0; block < doneBlocks; block++)
+        {
+            if (AIRCOPY_BlockWasSkipped(block))
+                continue;
+            const uint8_t first = (uint32_t)block * AIRCOPY_BAR_WIDTH / totalBlocks;
+            const uint8_t last = ((uint32_t)(block + 1u) * AIRCOPY_BAR_WIDTH
+                                + totalBlocks - 1u) / totalBlocks;
+            for (uint8_t col = first; col < last && col < filled; col++)
+                gFrameBuffer[4][col + 4] = 0xBD;
+        }
+        // Leave one clear interior column on each side of a copied run.
+        for (uint8_t col = 0; col < filled; col++)
+        {
+            if (gFrameBuffer[4][col + 4] != 0xBD)
+                continue;
+            if (col > 0 && gFrameBuffer[4][col + 3] != 0xBD)
+                gFrameBuffer[4][col + 3] = 0x81;
+            if (col + 1u < filled && gFrameBuffer[4][col + 5] != 0xBD)
+                gFrameBuffer[4][col + 5] = 0x81;
+        }
         gFrameBuffer[4][124] = 0x81;
         gFrameBuffer[4][125] = 0x42;
         gFrameBuffer[4][126] = 0x3c;

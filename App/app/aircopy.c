@@ -21,6 +21,9 @@
 #include "driver/bk4819.h"
 #include "driver/crc.h"
 #include "driver/eeprom.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+#include "driver/mb_flash.h"
+#endif
 #include "driver/system.h"
 #include "frequencies.h"
 #include "misc.h"
@@ -47,17 +50,21 @@ bool     gAircopyAll;
 uint16_t g_FSK_Buffer[AIRCOPY_FRAME_WORDS_MAX];
 uint8_t  gFskRxExpectedWords = AIRCOPY_DATA_WORDS;
 
-// Stop-and-wait protocol. Every frame keeps the original 64-byte payload:
-// DATA is acknowledged only after storage, ACK confirms that offset, and
-// RESEND requests the same offset immediately instead of waiting for timeout.
+// Stop-and-wait protocol. HASH sends one CRC32 per block in a logical group.
+// DIFF returns a bitmap of blocks needing DATA; ACK confirms stored DATA.
 #define AIRCOPY_PACKET_DATA          0xABCDu
 #define AIRCOPY_PACKET_ACK           0xABCEu
 #define AIRCOPY_PACKET_RESEND        0xABCFu
+#define AIRCOPY_PACKET_SKIP          0xABD0u
+#define AIRCOPY_PACKET_HASH          0xABD1u
+#define AIRCOPY_PACKET_DIFF          0xABD2u
 #define AIRCOPY_PACKET_END           0xDCBAu
-// Sender's wait for an ACK after a DATA frame. The real round trip once the
-// DATA TX finishes is well under 1 s (receiver stores + sends a ~0.35 s ACK), so
-// 1.5 s leaves a ~3x margin while recovering a lost frame far faster than the
-// old 4 s did.
+#define AIRCOPY_HASH_GROUP_BLOCKS    24u
+#if AIRCOPY_HASH_GROUP_BLOCKS > 32u || (2u + 2u * AIRCOPY_HASH_GROUP_BLOCKS + 2u) > AIRCOPY_DATA_WORDS
+#error AirCopy hash group does not fit the bitmap or forward frame
+#endif
+// Sender's wait for an ACK after a DATA frame. The receiver stores the frame
+// and returns a short control packet before this timeout expires.
 #define AIRCOPY_ACK_TIMEOUT_10MS     150u
 #define AIRCOPY_RX_TIMEOUT_10MS      2000u
 #define AIRCOPY_RX_LINGER_10MS       500u
@@ -65,16 +72,21 @@ uint8_t  gFskRxExpectedWords = AIRCOPY_DATA_WORDS;
 
 static uint16_t AircopyCountdown;
 static uint8_t  AircopyRetries;
-static uint8_t  AircopyInFlight;   // blocks the sender packed into the DATA frame awaiting ACK
+static uint8_t  AircopyInFlight;
+static uint8_t  AircopyGroupCount;
+static uint16_t AircopyGroupStart;
+static uint32_t AircopyPendingMask;
+static bool     AircopyProbePending;
+static uint16_t AircopyLastAckStart;
+static uint16_t AircopyLastAckType;
+static uint32_t AircopyLastAckMask;
 
 // Header packing for a DATA frame: g_FSK_Buffer[1] = start block | (count << 12).
 #define AIRCOPY_HDR_BLOCK(hdr)  ((hdr) & 0x0FFFu)
 #define AIRCOPY_HDR_COUNT(hdr)  ((hdr) >> 12)
 #define AIRCOPY_MAKE_HDR(block, count)  ((uint16_t)(((count) << 12) | ((block) & 0x0FFFu)))
 
-#define AIRCOPY_BANK_BLOCKS     68u
-#define AIRCOPY_SETTINGS_BLOCKS 12u
-#define AIRCOPY_ALL_BLOCKS      (AIRCOPY_NUM_BANKS * AIRCOPY_BANK_BLOCKS + AIRCOPY_SETTINGS_BLOCKS)
+static uint8_t AircopySkippedBlocks[(AIRCOPY_ALL_BLOCKS + 7u) / 8u];
 
 // ============================================================================
 // Helper Functions
@@ -87,6 +99,19 @@ uint16_t AIRCOPY_GetTotalBlocks(void)
     return gAircopyCurrentMapIndex == AIRCOPY_NUM_BANKS
          ? AIRCOPY_SETTINGS_BLOCKS
          : AIRCOPY_BANK_BLOCKS;
+}
+
+bool AIRCOPY_BlockWasSkipped(uint16_t block)
+{
+    return block < AIRCOPY_ALL_BLOCKS &&
+           (AircopySkippedBlocks[block / 8u] & (1u << (block % 8u))) != 0u;
+}
+
+static void AIRCOPY_MarkSkipped(uint16_t start, uint8_t count, uint32_t changedMask)
+{
+    for (uint8_t i = 0; i < count; i++)
+        if ((changedMask & (1u << i)) == 0u)
+            AircopySkippedBlocks[(start + i) / 8u] |= 1u << ((start + i) % 8u);
 }
 
 // Resolve the map that a (possibly global, in All mode) block index lands in.
@@ -136,6 +161,43 @@ static uint16_t AIRCOPY_GetBlockOffset(uint16_t block)
          + (block - 64u) * AIRCOPY_BLOCK_SIZE;
 }
 
+static uint8_t AIRCOPY_GroupBlockCount(uint16_t start, uint16_t total)
+{
+    const uint16_t remaining = total - start;
+    const uint16_t groupRemaining = AIRCOPY_HASH_GROUP_BLOCKS
+                                  - (start % AIRCOPY_HASH_GROUP_BLOCKS);
+    return (uint8_t)(remaining < groupRemaining ? remaining : groupRemaining);
+}
+
+// Hash one logical block. Each call needs only a 64-byte scratch buffer.
+static uint32_t AIRCOPY_BlockCRC32(uint16_t blockNumber)
+{
+    uint8_t block[AIRCOPY_BLOCK_SIZE];
+
+    EEPROM_ReadBuffer(AIRCOPY_GetBlockOffset(blockNumber), block, sizeof(block));
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    return MB_Crc32Bytes(block, sizeof(block));
+#else
+    uint32_t crc = 0xFFFFFFFFu;
+    for (unsigned int j = 0; j < sizeof(block); j++)
+    {
+        crc ^= block[j];
+        for (uint8_t bit = 0; bit < 8u; bit++)
+            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
+    }
+
+    return crc ^ 0xFFFFFFFFu;
+#endif
+}
+
+static uint16_t AIRCOPY_NextPendingBlock(void)
+{
+    for (uint8_t i = 0; i < AircopyGroupCount; i++)
+        if (AircopyPendingMask & (1u << i))
+            return AircopyGroupStart + i;
+    return AircopyGroupStart + AircopyGroupCount;
+}
+
 static void AIRCOPY_clear()
 {
     #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -169,7 +231,7 @@ static uint16_t AIRCOPY_Reg5D(uint8_t words)
 }
 
 // Arm FSK RX for the frame this role expects: the receiver waits for DATA, the
-// sender waits for a tiny ACK/RESEND. Both REG_5D and the drain length must be
+// sender waits for a tiny ACK/DIFF/SKIP/RESEND. Both REG_5D and the drain length must be
 // set before the frame arrives so RX-finished fires at the right byte count.
 static void AIRCOPY_ArmReceive(void)
 {
@@ -201,11 +263,14 @@ static void AIRCOPY_FinalizeAndSend(uint8_t words)
     AIRCOPY_ArmReceive();
 }
 
-static void AIRCOPY_SendControl(uint16_t type, uint16_t block)
+static void AIRCOPY_SendControl(uint16_t type, uint16_t block, uint32_t mask)
 {
     g_FSK_Buffer[0] = type;
     g_FSK_Buffer[1] = block;
-    memset(&g_FSK_Buffer[2], 0, (AIRCOPY_CTRL_WORDS - 4u) * 2u);   // pad payload words [2 .. CTRL-3]
+    g_FSK_Buffer[2] = (uint16_t)mask;
+    g_FSK_Buffer[3] = (uint16_t)(mask >> 16);
+    g_FSK_Buffer[4] = 0;
+    g_FSK_Buffer[5] = 0;
     AIRCOPY_FinalizeAndSend(AIRCOPY_CTRL_WORDS);
 }
 
@@ -214,7 +279,7 @@ static void AIRCOPY_RequestResend(void)
     gErrorsDuringAirCopy++;
     gUpdateDisplay = true;
     AircopyCountdown = AIRCOPY_RX_TIMEOUT_10MS;
-    AIRCOPY_SendControl(AIRCOPY_PACKET_RESEND, gAirCopyBlockNumber);
+    AIRCOPY_SendControl(AIRCOPY_PACKET_RESEND, gAirCopyBlockNumber, 0);
 }
 
 static bool AIRCOPY_Retry(void)
@@ -264,19 +329,44 @@ bool AIRCOPY_SendMessage(void)
 
     const uint16_t total = AIRCOPY_GetTotalBlocks();
     const uint16_t start = gAirCopyBlockNumber;
-    uint8_t count = (uint8_t)((total - start) < AIRCOPY_BLOCKS_PER_FRAME
-                              ? (total - start)
-                              : AIRCOPY_BLOCKS_PER_FRAME);
-    AircopyInFlight = count;
+    if (AircopyProbePending)
+    {
+        AircopyGroupStart = start;
+        AircopyGroupCount = AIRCOPY_GroupBlockCount(start, total);
+        AircopyInFlight = 0;
+        g_FSK_Buffer[0] = AIRCOPY_PACKET_HASH;
+        g_FSK_Buffer[1] = start;
+        memset(&g_FSK_Buffer[2], 0, (AIRCOPY_DATA_WORDS - 4u) * sizeof(g_FSK_Buffer[0]));
+        for (uint8_t i = 0; i < AircopyGroupCount; i++)
+        {
+            const uint32_t crc = AIRCOPY_BlockCRC32(start + i);
+            g_FSK_Buffer[2u + 2u * i] = (uint16_t)crc;
+            g_FSK_Buffer[3u + 2u * i] = (uint16_t)(crc >> 16);
+        }
+    }
+    else
+    {
+        const uint8_t offset = (uint8_t)(start - AircopyGroupStart);
+        uint8_t count = 0;
+        while (count < AIRCOPY_BLOCKS_PER_FRAME && offset + count < AircopyGroupCount &&
+               (AircopyPendingMask & (1u << (offset + count))))
+            count++;
+        if (count == 0u)
+        {
+            AIRCOPY_Finish(AIRCOPY_FAILED);
+            return 0;
+        }
 
-    g_FSK_Buffer[0] = AIRCOPY_PACKET_DATA;
-    g_FSK_Buffer[1] = AIRCOPY_MAKE_HDR(start, count);
-    // Full N-block payload every time (unused blocks zero-padded) so DATA frames
-    // are a constant length the receiver can arm for.
-    memset(&g_FSK_Buffer[2], 0, AIRCOPY_BLOCKS_PER_FRAME * AIRCOPY_BLOCK_SIZE);
-    for (uint8_t i = 0; i < count; i++)
-        EEPROM_ReadBuffer(AIRCOPY_GetBlockOffset(start + i),
-                          &g_FSK_Buffer[2 + i * AIRCOPY_BLOCK_WORDS], AIRCOPY_BLOCK_SIZE);
+        AircopyInFlight = count;
+        g_FSK_Buffer[0] = AIRCOPY_PACKET_DATA;
+        g_FSK_Buffer[1] = AIRCOPY_MAKE_HDR(start, count);
+        memset(&g_FSK_Buffer[AIRCOPY_DATA_HEADER_WORDS], 0,
+               AIRCOPY_BLOCKS_PER_FRAME * AIRCOPY_BLOCK_SIZE);
+        for (uint8_t i = 0; i < count; i++)
+            EEPROM_ReadBuffer(AIRCOPY_GetBlockOffset(start + i),
+                              &g_FSK_Buffer[AIRCOPY_DATA_HEADER_WORDS + i * AIRCOPY_BLOCK_WORDS],
+                              AIRCOPY_BLOCK_SIZE);
+    }
 
     AIRCOPY_FinalizeAndSend(AIRCOPY_DATA_WORDS);
     AircopyCountdown = AIRCOPY_ACK_TIMEOUT_10MS;
@@ -287,7 +377,7 @@ bool AIRCOPY_SendMessage(void)
 void AIRCOPY_StorePacket(void)
 {
     // The role decides the frame length: the receiver waits for a full DATA
-    // frame, the sender for a tiny ACK/RESEND. CRC and END sit at the tail.
+    // frame, the sender for a tiny ACK/DIFF/SKIP/RESEND. CRC and END sit at the tail.
     const uint8_t words = gFskRxExpectedWords;
     if (gFSKWriteIndex < words) {
         return;
@@ -296,11 +386,15 @@ void AIRCOPY_StorePacket(void)
     gFSKWriteIndex = 0;
     const uint16_t status = BK4819_ReadRegister(BK4819_REG_0B);
     const uint16_t type = g_FSK_Buffer[0];
-    bool valid = (status & 0x0010u) == 0 &&
+    const bool statusOk = (status & 0x0010u) == 0;
+    const bool endOk = g_FSK_Buffer[words - 1u] == AIRCOPY_PACKET_END;
+    bool valid = statusOk && endOk &&
                  (type == AIRCOPY_PACKET_DATA ||
                   type == AIRCOPY_PACKET_ACK ||
-                  type == AIRCOPY_PACKET_RESEND) &&
-                 g_FSK_Buffer[words - 1u] == AIRCOPY_PACKET_END;
+                  type == AIRCOPY_PACKET_RESEND ||
+                  type == AIRCOPY_PACKET_SKIP ||
+                  type == AIRCOPY_PACKET_HASH ||
+                  type == AIRCOPY_PACKET_DIFF);
 
     if (valid)
     {
@@ -314,24 +408,59 @@ void AIRCOPY_StorePacket(void)
     if (gAirCopyIsSendMode)
     {
         const uint16_t ackBlock = AIRCOPY_HDR_BLOCK(g_FSK_Buffer[1]);
+        const uint32_t responseMask = (uint32_t)g_FSK_Buffer[2]
+                                    | ((uint32_t)g_FSK_Buffer[3] << 16);
 
-        if (valid && type == AIRCOPY_PACKET_ACK && ackBlock == gAirCopyBlockNumber)
+        if (valid && ackBlock == gAirCopyBlockNumber && AircopyProbePending &&
+            AircopyGroupCount != 0u &&
+            (type == AIRCOPY_PACKET_SKIP || type == AIRCOPY_PACKET_DIFF))
         {
-            // The whole in-flight run was stored: advance past it.
+            const uint32_t allowedMask = (1u << AircopyGroupCount) - 1u;
+            if ((responseMask & ~allowedMask) != 0u ||
+                (type == AIRCOPY_PACKET_SKIP && responseMask != 0u) ||
+                (type == AIRCOPY_PACKET_DIFF && responseMask == 0u))
+            {
+                AIRCOPY_ArmReceive();
+                return;
+            }
+
             AircopyCountdown = 0;
             AircopyRetries = 0;
-            gAirCopyBlockNumber += AircopyInFlight;
+            AIRCOPY_MarkSkipped(ackBlock, AircopyGroupCount, responseMask);
+            if (type == AIRCOPY_PACKET_SKIP)
+                gAirCopyBlockNumber += AircopyGroupCount;
+            else
+            {
+                AircopyPendingMask = responseMask;
+                AircopyProbePending = false;
+                gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+            }
             gUpdateDisplay = true;
             if (gAirCopyBlockNumber >= total)
                 AIRCOPY_Finish(AIRCOPY_COMPLETE);
             return;
         }
 
-        if (valid && type == AIRCOPY_PACKET_RESEND)
+        if (valid && ackBlock == gAirCopyBlockNumber && !AircopyProbePending &&
+            AircopyInFlight != 0u &&
+            type == AIRCOPY_PACKET_ACK)
         {
-            // The receiver asks to (re)start from ackBlock; rewind and resend.
-            if (ackBlock <= gAirCopyBlockNumber)
-                gAirCopyBlockNumber = ackBlock;
+            const uint8_t offset = (uint8_t)(ackBlock - AircopyGroupStart);
+            const uint32_t sentMask = ((1u << AircopyInFlight) - 1u) << offset;
+            AircopyPendingMask &= ~sentMask;
+            gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+            if (AircopyPendingMask == 0u)
+                AircopyProbePending = true;
+            AircopyCountdown = 0;
+            AircopyRetries = 0;
+            gUpdateDisplay = true;
+            if (gAirCopyBlockNumber >= total)
+                AIRCOPY_Finish(AIRCOPY_COMPLETE);
+            return;
+        }
+
+        if (valid && type == AIRCOPY_PACKET_RESEND && ackBlock == gAirCopyBlockNumber)
+        {
             (void)AIRCOPY_Retry();
             return;
         }
@@ -342,10 +471,61 @@ void AIRCOPY_StorePacket(void)
 
     if (!valid)
     {
-        if (type == AIRCOPY_PACKET_DATA)
+        if (type == AIRCOPY_PACKET_DATA || type == AIRCOPY_PACKET_HASH)
             AIRCOPY_RequestResend();
         else
             AIRCOPY_ArmReceive();
+        return;
+    }
+
+    if (type == AIRCOPY_PACKET_HASH)
+    {
+        const uint16_t start = AIRCOPY_HDR_BLOCK(g_FSK_Buffer[1]);
+        if (start >= total || start % AIRCOPY_HASH_GROUP_BLOCKS != 0u)
+        {
+            AIRCOPY_RequestResend();
+            return;
+        }
+
+        if (start == AircopyLastAckStart &&
+            (AircopyLastAckType == AIRCOPY_PACKET_SKIP ||
+             AircopyLastAckType == AIRCOPY_PACKET_DIFF))
+        {
+            AircopyCountdown = gAirCopyBlockNumber >= total
+                             ? AIRCOPY_RX_LINGER_10MS : AIRCOPY_RX_TIMEOUT_10MS;
+            AIRCOPY_SendControl(AircopyLastAckType, start, AircopyLastAckMask);
+            return;
+        }
+
+        if (start != gAirCopyBlockNumber || AircopyPendingMask != 0u)
+        {
+            AIRCOPY_RequestResend();
+            return;
+        }
+
+        AircopyGroupStart = start;
+        AircopyGroupCount = AIRCOPY_GroupBlockCount(start, total);
+        uint32_t mask = 0;
+        for (uint8_t i = 0; i < AircopyGroupCount; i++)
+        {
+            const uint32_t sentCRC = (uint32_t)g_FSK_Buffer[2u + 2u * i]
+                                   | ((uint32_t)g_FSK_Buffer[3u + 2u * i] << 16);
+            if (AIRCOPY_BlockCRC32(start + i) != sentCRC)
+                mask |= 1u << i;
+        }
+
+        AircopyPendingMask = mask;
+        AIRCOPY_MarkSkipped(start, AircopyGroupCount, mask);
+        const uint16_t reply = mask == 0u ? AIRCOPY_PACKET_SKIP : AIRCOPY_PACKET_DIFF;
+        gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+        AircopyLastAckStart = start;
+        AircopyLastAckType = reply;
+        AircopyLastAckMask = mask;
+        gErrorsDuringAirCopy = 0;
+        gUpdateDisplay = true;
+        AircopyCountdown = gAirCopyBlockNumber >= total
+                         ? AIRCOPY_RX_LINGER_10MS : AIRCOPY_RX_TIMEOUT_10MS;
+        AIRCOPY_SendControl(reply, start, mask);
         return;
     }
 
@@ -356,7 +536,7 @@ void AIRCOPY_StorePacket(void)
     }
 
     const uint16_t start = AIRCOPY_HDR_BLOCK(g_FSK_Buffer[1]);
-    uint8_t        count = (uint8_t)AIRCOPY_HDR_COUNT(g_FSK_Buffer[1]);
+    const uint8_t count = (uint8_t)AIRCOPY_HDR_COUNT(g_FSK_Buffer[1]);
 
     if (count == 0u || count > AIRCOPY_BLOCKS_PER_FRAME || start >= total)
     {
@@ -366,11 +546,16 @@ void AIRCOPY_StorePacket(void)
 
     if (start < gAirCopyBlockNumber)
     {
-        // Already stored (our ACK was lost): re-ACK so the sender advances.
+        // Repeat the exact decision when an ACK or SKIP was lost.
+        if (start != AircopyLastAckStart || AircopyLastAckType != AIRCOPY_PACKET_ACK)
+        {
+            AIRCOPY_RequestResend();
+            return;
+        }
         AircopyCountdown = gAirCopyBlockNumber >= total
                          ? AIRCOPY_RX_LINGER_10MS
                          : AIRCOPY_RX_TIMEOUT_10MS;
-        AIRCOPY_SendControl(AIRCOPY_PACKET_ACK, start);
+        AIRCOPY_SendControl(AIRCOPY_PACKET_ACK, start, 0);
         return;
     }
 
@@ -381,23 +566,40 @@ void AIRCOPY_StorePacket(void)
         return;
     }
 
-    if ((uint16_t)(start + count) > total)
-        count = (uint8_t)(total - start);   // clamp the final short frame
+    if (AircopyPendingMask == 0u || start < AircopyGroupStart ||
+        (uint16_t)(start + count) > AircopyGroupStart + AircopyGroupCount)
+    {
+        AIRCOPY_RequestResend();
+        return;
+    }
+
+    const uint8_t offset = (uint8_t)(start - AircopyGroupStart);
+    const uint32_t frameMask = ((1u << count) - 1u) << offset;
+    if ((AircopyPendingMask & frameMask) != frameMask)
+    {
+        AIRCOPY_RequestResend();
+        return;
+    }
 
     for (uint8_t i = 0; i < count; i++)
         EEPROM_WriteBuffer(AIRCOPY_GetBlockOffset(start + i),
-                           &g_FSK_Buffer[2 + i * AIRCOPY_BLOCK_WORDS], AIRCOPY_BLOCK_SIZE);
+                           &g_FSK_Buffer[AIRCOPY_DATA_HEADER_WORDS + i * AIRCOPY_BLOCK_WORDS],
+                           AIRCOPY_BLOCK_SIZE);
 
+    AircopyPendingMask &= ~frameMask;
     // All pending RX errors concerned this run.
     gErrorsDuringAirCopy = 0;
-    gAirCopyBlockNumber += count;
+    gAirCopyBlockNumber = AIRCOPY_NextPendingBlock();
+    AircopyLastAckStart = start;
+    AircopyLastAckType = AIRCOPY_PACKET_ACK;
+    AircopyLastAckMask = 0;
     gUpdateDisplay = true;
 
     AircopyCountdown = gAirCopyBlockNumber < total
                      ? AIRCOPY_RX_TIMEOUT_10MS
                      : AIRCOPY_RX_LINGER_10MS;
 
-    AIRCOPY_SendControl(AIRCOPY_PACKET_ACK, start);
+    AIRCOPY_SendControl(AIRCOPY_PACKET_ACK, start, 0);
 }
 
 static void AIRCOPY_InitTransfer(bool isSendMode)
@@ -409,12 +611,20 @@ static void AIRCOPY_InitTransfer(bool isSendMode)
     gFSKWriteIndex = 0;
     gAirCopyBlockNumber = 0;
     gErrorsDuringAirCopy = 0;
+    memset(AircopySkippedBlocks, 0, sizeof(AircopySkippedBlocks));
     gInputBoxIndex = 0;
     gAirCopyIsSendMode = isSendMode;
 
     AircopyCountdown = isSendMode ? 0 : AIRCOPY_RX_TIMEOUT_10MS;
     AircopyRetries = 0;
     AircopyInFlight = 0;
+    AircopyGroupCount = 0;
+    AircopyGroupStart = 0;
+    AircopyPendingMask = 0;
+    AircopyProbePending = true;
+    AircopyLastAckStart = 0xFFFFu;
+    AircopyLastAckType = AIRCOPY_PACKET_ACK;
+    AircopyLastAckMask = 0;
     // The sender listens for tiny ACKs, the receiver for full DATA frames.
     gFskRxExpectedWords = isSendMode ? AIRCOPY_CTRL_WORDS : AIRCOPY_DATA_WORDS;
 
