@@ -1,0 +1,377 @@
+/* Copyright 2026 Armel F4HWN
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+
+/*
+ * Rapid Roll-inspired game for the 128x64 monochrome LCD.
+ *
+ * Platforms rise towards a spiked ceiling: roll the ball left and right to
+ * drop from one platform to the next. Hollow pill floors are safe; the
+ * spiked ones, the ceiling and the bottom of the screen cost a life.
+ *
+ * The generator always leaves a way down: each safe platform plans the next
+ * one at most MAX_SHIFT pixels away, and spiked (or, from level 3, crumbling)
+ * platforms are kept out of the fall corridor between the two, with at most
+ * one such row in between. Crumbling floors are traps, never the way down.
+ *
+ * Controls: 4/6 or UP/DOWN roll, F pauses, MENU restarts after GAME OVER,
+ * EXIT quits.
+ */
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include "../app_api.h"
+
+#define W            128
+#define TICK_MS       40u
+#define CEIL_Y        12      /* the ball dies when its top rises above this */
+#define ROW           16      /* vertical distance between platform rows     */
+#define N_PLAT         5u      /* 16-px rows: at most 5 on screen at once      */
+#define SAFE_W        28      /* widest safe platform (levels 1-5)           */
+#define SPIKE_W       26      /* 4 teeth, one at each end                   */
+#define MAX_SHIFT     30      /* horizontal step between two safe platforms  */
+#define MARGIN        10      /* keeps spikes clear of the fall corridor     */
+#define X_MIN          3
+#define X_MAX        125
+#define BOOM          12u     /* explosion length in ticks                   */
+#define CRUMBLE_T     25u     /* ticks a crumbling floor holds the ball      */
+#define LEVEL_ROWS    16u     /* platform rows per level                     */
+#define RISE_JUMP      1u     /* pixels per scroll jump: 2 is sharper on the
+                                 slow LCD but choppier, 1 is smooth           */
+#define NONE        0xFFu
+
+enum { ST_PLAY, ST_OVER };
+enum { P_FREE, P_SAFE, P_SPIKE, P_CRUMBLE };
+
+/* Sprite offsets in ART[] (column-major, LSB = top row). */
+#define SPR_BALL     0u         /* 4 frames: a mark turning as the ball rolls */
+#define SPR_HEART   32u         /* 8x8, the size of the ball */
+#define SPR_LIFE    40u
+#define SPR_BOOM    45u
+#define SPR_TOOTH   53u
+#define SPR_SPIKE   60u         /* one tooth period (7 px, as the ceiling), drawn from y - 3 */
+#define SPR_SQUASH  67u
+
+typedef struct { int8_t y; uint8_t x, w, kind, heart; } plat_t;   /* heart: crumble timer on P_CRUMBLE */
+
+static const uint8_t ART[] = {
+    /* ball    @ 0 */ 0x3C,0x42,0x8D,0x85,0x81,0x81,0x42,0x3C,   /* ring: solid smears */
+                      0x3C,0x42,0x81,0x81,0x85,0x8D,0x42,0x3C,
+                      0x3C,0x42,0x81,0x81,0xA1,0xB1,0x42,0x3C,
+                      0x3C,0x42,0xB1,0xA1,0x81,0x81,0x42,0x3C,
+    /* heart   @32 */ 0x1E,0x21,0x45,0x82,0x82,0x41,0x21,0x1E,
+    /* life    @40 */ 0x06,0x0F,0x1E,0x0F,0x06,
+    /* boom    @45 */ 0x00,0x52,0x34,0x08,0x34,0x4A,0x08,0x00,
+    /* tooth   @53 */ 0x03,0x07,0x0F,0x07,0x03,0x01,0x01,
+    /* spike   @60 */ 0x0C,0x0E,0x0F,0x0E,0x0C,0x08,0x08,   /* 3-row tooth on a 1-row floor */
+    /* squash  @67 */ 0x0C,0x12,0x21,0x21,0x21,0x21,0x12,0x0C,   /* 8x6 ball, just landed */
+};
+
+static const app_api_t *A;
+static plat_t plats[N_PLAT];
+static uint32_t randomState, score;
+static int16_t bx, by, boomX, boomY;    /* ball and explosion, top-left */
+static int8_t lastRowY;                  /* y of the most recently spawned row */
+static uint8_t lastX, nextX;             /* current and planned safe platform x */
+static uint8_t on;                       /* platform under the ball, or NONE */
+static uint8_t mode, prevKey, lives, level, rows, riseAcc;
+static uint8_t banner, waitCd, boom, respawnCd, invul, vy, squash;
+static bool running, paused, saver, alive, spikeAllowed;
+static char text[6];
+
+void *memset(void *dst, int value, size_t size)
+{
+    uint8_t *p = dst;
+    while (size--) *p++ = (uint8_t)value;
+    return dst;
+}
+
+static uint32_t rnd(void)
+{
+    randomState = randomState * 1664525u + 1013904223u;
+    return randomState >> 8;
+}
+
+static void pixel(int16_t x, int16_t y)
+{
+    if ((uint16_t)x >= W || (uint16_t)y >= 64u) return;
+    uint8_t *p = y < 8 ? &A->status_line[x] : &A->fb[(y >> 3) - 1][x];
+    *p |= (uint8_t)(1u << (y & 7));
+}
+
+static void column(int16_t x, int16_t y, uint8_t v)
+{
+    for (; v; v >>= 1, y++)
+        if (v & 1u) pixel(x, y);
+}
+
+/* Draw a column-major sprite (up to 8 rows high, LSB = top). */
+static void blit(int16_t x, int16_t y, const uint8_t *col, uint8_t w)
+{
+    while (w--) column(x++, y, *col++);
+}
+
+static void number(uint32_t value, uint8_t width)
+{
+    static const uint16_t place[5] = {10000u, 1000u, 100u, 10u, 1u};
+    const uint8_t first = (uint8_t)(5u - width);
+    for (uint8_t i = 0; i < width; i++) {
+        uint8_t digit = 0;
+        while (value >= place[first + i]) {
+            value -= place[first + i];
+            digit++;
+        }
+        text[i] = (char)('0' + digit);
+    }
+    text[width] = 0;
+}
+
+/* Spawn one platform row at y. A spiked platform only goes outside the
+ * corridor between the current safe platform and the planned next one;
+ * otherwise the row gets that planned safe platform. */
+static void spawn_row(int8_t y)
+{
+    plat_t *p = &plats[0];
+    for (uint8_t i = 0; i < N_PLAT; i++) if (!plats[i].kind) { p = &plats[i]; break; }
+    lastRowY = y;
+    p->y = y; p->heart = 0;
+
+    if (++rows >= LEVEL_ROWS && level < 9u) {
+        rows = 0; level++; banner = 50u;   /* the HUD level blinks */
+    }
+
+    if (spikeAllowed && (uint8_t)rnd() < 64u + level * 12u) {
+        const int16_t left = (lastX < nextX ? lastX : nextX) - MARGIN - SPIKE_W;   /* last x on the left  */
+        const int16_t right = (lastX > nextX ? lastX : nextX) + SAFE_W + MARGIN;   /* first x on the right */
+        const uint8_t r = (uint8_t)rnd();
+        int16_t x = -1;
+        if (left >= X_MIN && ((r & 1u) || right > X_MAX - SPIKE_W))
+            x = X_MIN + (((r >> 1) * (left - X_MIN + 1)) >> 7);
+        else if (right <= X_MAX - SPIKE_W)
+            x = right + (((r >> 1) * (X_MAX - SPIKE_W - right + 1)) >> 7);
+        if (x >= 0) {
+            p->x = (uint8_t)x; p->w = SPIKE_W; spikeAllowed = false;
+            p->kind = level >= 3u && (rnd() & 1u) ? P_CRUMBLE : P_SPIKE;
+            return;
+        }
+    }
+
+    /* Safe platforms shrink late in the game; the corridor above is still
+     * computed with the widest SAFE_W, so it only gets more conservative. */
+    p->x = nextX; p->w = level < 6u ? SAFE_W : level < 8u ? 24u : 20u;
+    p->kind = P_SAFE; spikeAllowed = true;
+    p->heart = lives < 5u && (rnd() & 15u) == 0u;
+    lastX = nextX;
+    int16_t d = (int16_t)(rnd() & 63u) - 31;
+    if (d > MAX_SHIFT) d = MAX_SHIFT;
+    if (d < -MAX_SHIFT) d = -MAX_SHIFT;
+    int16_t n = lastX + d;
+    if (n < X_MIN) n = X_MIN;
+    if (n > X_MAX - SAFE_W) n = X_MAX - SAFE_W;
+    nextX = (uint8_t)n;
+}
+
+static void new_game(void)
+{
+    memset(plats, 0, sizeof(plats));
+    lives = 3u; level = 1u;
+    score = 0; riseAcc = 0; boom = 0; respawnCd = 0; paused = false;
+    lastX = nextX = 50u; spikeAllowed = false;
+    spawn_row(42);   /* plats[0]: safe; the ball sits just below the LEVEL 1 banner */
+    spawn_row(42 + ROW);
+    rows = 0; plats[0].heart = 0;
+    on = 0; bx = 50 + 10; by = 42 - 8; alive = true;
+    banner = 50u; waitCd = 40u; mode = ST_PLAY;
+}
+
+static bool supports(const plat_t *p)
+{
+    return bx + 6 > p->x && bx + 2 < p->x + p->w;
+}
+
+static void die(void)
+{
+    alive = false; on = NONE;
+    boom = BOOM; boomX = bx; boomY = by;
+    A->play_tone(200u, 60u);
+    if (--lives == 0u) { mode = ST_OVER; waitCd = 30u; }
+    else respawnCd = 20u;
+}
+
+/* Put the ball back on the lowest safe platform that leaves time to react. */
+static void respawn(void)
+{
+    int8_t bestY = 27;
+    for (uint8_t i = 0; i < N_PLAT; i++) {
+        const plat_t *p = &plats[i];
+        if (p->kind == P_SAFE && p->y > bestY && p->y <= 56) { on = i; bestY = p->y; }
+    }
+    if (bestY == 27) { respawnCd = 1u; return; }   /* none yet: retry next tick */
+    bx = plats[on].x + 10; by = bestY - 8; alive = true; invul = 25u;
+}
+
+static void rise_step(void)
+{
+    lastRowY--;
+    for (uint8_t i = 0; i < N_PLAT; i++) {
+        plat_t *p = &plats[i];
+        if (p->kind && --p->y < CEIL_Y) {
+            p->kind = P_FREE;
+            if (on == i) on = NONE;
+        }
+    }
+    if (alive) {
+        score++;
+        if (on != NONE) by--;
+    }
+    if (lastRowY <= 64 - ROW) spawn_row((int8_t)(lastRowY + ROW));
+}
+
+static void tick(void)
+{
+    if (boom) boom--;
+    if (banner) banner--;
+    if (waitCd) waitCd--;
+    if (invul) invul--;
+    if (squash) squash--;
+    if (mode != ST_PLAY) return;
+
+    if (!waitCd) {
+        riseAcc += level < 5u ? 3u + level : 8u;   /* eighths of a pixel per tick */
+        if (riseAcc >= 8u * RISE_JUMP) {
+            riseAcc -= 8u * RISE_JUMP;
+            for (uint8_t k = 0; k < RISE_JUMP; k++) rise_step();
+        }
+    }
+    if (!alive) {
+        if (respawnCd && --respawnCd == 0u) respawn();
+        return;
+    }
+
+    if (on != NONE) {
+        plat_t *p = &plats[on];
+        vy = 0;
+        if (p->kind == P_CRUMBLE && --p->heart == 0u) { p->kind = P_FREE; on = NONE; }   /* gives way */
+        else if (!supports(p)) on = NONE;
+        else if (p->kind == P_SAFE && p->heart && bx + 8 > p->x + 10 && bx < p->x + 18) {
+            p->heart = 0; score += 50u;
+            if (lives < 5u) lives++;
+            A->play_tone(900u, 30u);
+        }
+    }
+    if (on == NONE) {
+        const int16_t prev = by + 8;
+        if (vy < 3u) vy++;   /* gravity: 1, 2, then 3 px per tick */
+        by += vy;
+        for (uint8_t i = 0; i < N_PLAT; i++) {
+            plat_t *p = &plats[i];
+            if (!p->kind || prev > p->y + (int16_t)RISE_JUMP + 1 || by + 8 < p->y || !supports(p)) continue;
+            by = p->y - 8;
+            if (p->kind == P_SPIKE) { die(); return; }
+            if (p->kind == P_CRUMBLE && !p->heart) p->heart = CRUMBLE_T;
+            if (vy > 1u) squash = 3u;
+            on = i;
+            break;
+        }
+    }
+    if (by < CEIL_Y || by > 60) die();
+}
+
+static void draw(void)
+{
+    A->display_clear(); A->status_clear();
+
+    /* Dotted side rails. They stay still: a 2-row pattern scrolled by one
+     * pixel would just flip every dot and flicker on the slow LCD. */
+    for (int16_t y = 10; y < 64; y += 2) { pixel(0, y); pixel(W - 1, y); }   /* x = 0/127 are tooth-free */
+    /* Ceiling: 7-px tooth period started at x = -5, so the 18 visible teeth
+     * span x = 2..125 and leave the same 2-px margin on both sides. */
+    for (int16_t x = -5; x < W; x += 7) blit(x, 8, &ART[SPR_TOOTH], 7);
+
+    for (uint8_t i = 0; i < N_PLAT; i++) {
+        const plat_t *p = &plats[i];
+        if (p->kind == P_SAFE) {
+            for (uint8_t k = 0; k < p->w; k++)   /* hollow 3-row pill with rounded ends */
+                column(p->x + k, p->y, (k == 0u || k == p->w - 1u) ? 0x02u
+                                       : (k == 1u || k == p->w - 2u) ? 0x07u : 0x05u);
+            if (p->heart && p->y >= CEIL_Y + 8) blit(p->x + 10, p->y - 8, &ART[SPR_HEART], 8);
+        } else if (p->kind == P_CRUMBLE) {
+            if (!(p->heart & 2u))   /* cracked pill, blinking once it starts to give way */
+                for (uint8_t k = 0; k < p->w; k++)
+                    column(p->x + k, p->y, (k == 0u || k == p->w - 1u) ? 0x02u
+                                           : (k == 1u || k == p->w - 2u) ? 0x07u
+                                           : ((k & 3u) == 3u) ? 0x00u : 0x05u);
+        } else if (p->kind == P_SPIKE) {
+            for (uint8_t k = 0, j = 0; k < SPIKE_W; k++, j = j == 6u ? 0u : j + 1u)
+                column(p->x + k, p->y - 3, ART[SPR_SPIKE + j]);
+        }
+    }
+    if (alive && !(invul & 2u)) {   /* blinks after a respawn; the mark turns every 4 px */
+        if (squash) blit(bx, by + 2, &ART[SPR_SQUASH], 8);
+        else blit(bx, by, &ART[SPR_BALL + ((bx >> 2) & 3u) * 8u], 8);
+    }
+    if (boom) blit(boomX, boomY, &ART[SPR_BOOM], 8);
+
+    for (uint8_t i = 0; i < lives; i++) blit(1 + i * 6, 1, &ART[SPR_LIFE], 5);
+    if (!(banner & 4u)) {   /* blinks for a while after a level change */
+        A->print_tiny("LV", 52, 1, true, true);
+        number(level, 1); A->print_tiny(text, 62, 1, true, true);
+    }
+    number(score > 99999u ? 99999u : score, 5); A->print_tiny(text, 107, 1, true, true);
+
+    if (mode == ST_OVER) A->print_bold("GAME OVER", 0, 127, 3);
+    else if (paused) A->print_bold("PAUSE", 0, 127, 3);
+    else if (banner > 10u && level == 1u) A->print_bold("LEVEL 1", 0, 127, 2);   /* start only: it overwrites its line */
+}
+
+static void poll_key(void)
+{
+    uint8_t key = A->get_key();
+    if (key == APP_KEY_SAVER) { saver = true; return; }   /* freeze behind the saver */
+    if (key == APP_KEY_WAKE || key == APP_KEY_PTT) { saver = false; key = APP_KEY_INVALID; }
+    const bool press = key != prevKey;
+    prevKey = key;
+    if (key == APP_KEY_INVALID) return;
+    if (press && key == APP_KEY_EXIT) { running = false; return; }
+
+    if (mode != ST_PLAY) {
+        if (press && key == APP_KEY_MENU && !waitCd) new_game();
+        return;
+    }
+    if (press && key == APP_KEY_F) { paused = !paused; return; }
+    if (paused || !alive) return;
+
+    int16_t dx = 2 * A->nav_dir(key);   /* 0 for any key but UP/DOWN */
+    if (key == APP_KEY_4) dx = -2;
+    if (key == APP_KEY_6) dx = 2;
+    bx += dx;
+    if (bx < 1) bx = 1;
+    if (bx > W - 9) bx = W - 9;
+}
+
+__attribute__((section(".text.entry"), used))
+void app_main(const app_api_t *api)
+{
+    A = api;
+    randomState = ((uint32_t)A->bk_read(0x67u) << 16) ^ A->rx_freq();
+    running = true; saver = false;
+    prevKey = A->get_key();
+    A->led(false); A->backlight_on();
+    new_game();
+
+    while (running) {
+        poll_key();
+        if (!running) break;
+        if (saver) { A->backlight_update(); A->delay_ms(TICK_MS); continue; }
+        if (!paused) tick();
+        draw(); A->blit_status(); A->blit_full(); A->backlight_update();
+        A->delay_ms(TICK_MS);
+    }
+    A->led(false);
+}
