@@ -82,45 +82,6 @@ typedef struct {
     uint8_t  sel_ch;         /* selected memory channel 0..47     */
 } app_fm_state_t;
 
-/* Compact, pointer-free description of one receiver in the resident triple-VFO
- * service.  Overlay apps must never see VFO_Info_t directly: its layout varies
- * with firmware features and contains resident pointers. */
-typedef struct {
-    uint32_t frequency;            /* RX frequency, x10 Hz                    */
-    uint16_t channel;              /* memory channel, zero based              */
-    uint16_t step;                 /* step, 10 Hz units                        */
-    uint16_t code_value;           /* CTCSS x0.1 Hz or DCS octal source value  */
-    int16_t  rssi_dbm;             /* last/current corrected RSSI              */
-    uint8_t  modulation;
-    uint8_t  power;
-    uint8_t  bandwidth;
-    uint8_t  code_type;
-    uint8_t  code;
-    uint8_t  offset_direction;
-    uint8_t  reverse;
-    uint8_t  squelch;
-    uint8_t  flags;                /* APP_TRIVFO_* below                       */
-    char     name[11];             /* channel name, trimmed and NUL terminated */
-} app_trivfo_info_t;
-
-enum {
-    APP_TRIVFO_SELECTED  = 1u << 0,
-    APP_TRIVFO_TUNED     = 1u << 1,
-    APP_TRIVFO_RECEIVING = 1u << 2,
-    APP_TRIVFO_TX        = 1u << 3,
-    APP_TRIVFO_USER_POWER = 1u << 4,
-    APP_TRIVFO_AUDIO_BAR = 1u << 5,
-    APP_TRIVFO_GUI_CLASSIC = 1u << 6,
-    APP_TRIVFO_PTT_ONEPUSH = 1u << 7,
-};
-
-enum {
-    APP_TRIVFO_SCAN = 0,
-    APP_TRIVFO_RX   = 1,
-    APP_TRIVFO_HOLD = 2,
-    APP_TRIVFO_TX_STATE = 3,
-};
-
 /* Pointer-free BEAM channel description.  The resident bridge translates this
  * stable ABI type to/from feature-dependent VFO_Info_t. */
 typedef struct {
@@ -255,18 +216,6 @@ typedef struct app_api {
      *   UV-K1 LEFT/RIGHT -> -1/+1
      * Returns 0 for any other key. Keep get_key() raw for spatial controls. */
     int8_t (*nav_dir)(uint8_t key);
-
-    /* ---- triple VFO (optional resident capability APP_CAP_TRIVFO) ----
-     * A and B are the live Main Display VFOs. C is a resident temporary VFO
-     * loaded from c_channel (or the first valid memory after B when invalid).
-     * tick is called every 20 ms by the app and returns APP_TRIVFO_* state. */
-    uint16_t (*trivfo_enter)(uint16_t c_channel);
-    void     (*trivfo_leave)(void);
-    void     (*trivfo_get)(uint8_t vfo, app_trivfo_info_t *info);
-    void     (*trivfo_select)(uint8_t vfo);
-    uint16_t (*trivfo_step)(uint8_t vfo, int8_t direction);
-    uint8_t  (*trivfo_tick)(void);
-    uint8_t  (*trivfo_ptt)(bool pressed); /* physical PTT edge; resident applies SetPTT */
 
     /* ---- BEAM channel transfer (optional resident capability APP_CAP_BEAM) ---- */
     void     (*beam_prepare)(void); /* tune the fixed narrow-band FSK channel */

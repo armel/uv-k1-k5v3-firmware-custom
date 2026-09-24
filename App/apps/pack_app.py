@@ -44,7 +44,6 @@ SHORTCUTS = {
 }
 CAPABILITIES = {
     "fm": cdefine("app_overlay.h", "APP_CAP_FM"),
-    "trivfo": cdefine("app_overlay.h", "APP_CAP_TRIVFO"),
     "beam": cdefine("app_overlay.h", "APP_CAP_BEAM"),
 }
 

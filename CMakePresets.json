@@ -188,7 +188,6 @@
                 "ENABLE_FEAT_F4HWN_BEAM": false,
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO": false,
                 "ENABLE_FEAT_F4HWN_OVERLAY_BEAM": true,
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "EDITION_STRING": "Labs",
