@@ -35,6 +35,9 @@
 #include "settings.h"
 #include "ui/battery.h"
 #include "ui/helper.h"
+#ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+#include "ui/menu.h"
+#endif
 #include "ui/ui.h"
 #include "ui/status.h"
 
@@ -343,6 +346,25 @@ void UI_DisplayStatus()
     }
 
     UI_DrawStatusBattery(line, str);
+
+#ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+    if (gScreenToDisplay == DISPLAY_MENU) {
+        // "MENU" at category level, otherwise the uppercased category name.
+        const char *source = gMenuLevel == MENU_LEVEL_CAT
+                           ? "MENU"
+                           : CategoryNames[gMenuCategory];
+        char text[9];   // longest label ("Channels") + NUL
+        uint8_t n = 0;
+
+        // & 0xDF uppercases letters and keeps the NUL (labels are letters only).
+        while ((text[n] = (char)(source[n] & 0xDFu)) != '\0')
+            n++;
+
+        // Clear the width of the longest label so shorter ones leave no remnants.
+        memset(line, 0, 35u);
+        GUI_DisplaySmallestInverse(text, 2, 0, true, true, (uint8_t)(2u + n * 4u));
+    }
+#endif
 
     // **************
 

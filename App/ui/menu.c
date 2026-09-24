@@ -909,6 +909,9 @@ void UI_DisplayMenu(void)
     uint8_t            top_right_badge_line = 1;
 
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+    // The status bar shows the menu level / category capsule: refresh it.
+    gUpdateStatus = true;
+
     if (gMenuLevel == MENU_LEVEL_CAT)
     {
         UI_MENU_DrawCategories();
