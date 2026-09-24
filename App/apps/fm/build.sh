@@ -8,8 +8,8 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
 APP_NAME="Broadcast FM"                 # <-- the only per-app line
-APP_VER="1.0"
-APP_API_MIN=1
+APP_VER="1.1"
+APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"               # blob basename ("Broadcast FM" -> BroadcastFM)
 
@@ -24,14 +24,15 @@ LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} \
 
 rm -f ./*.app ./*.elf ./*.bin        # drop stale artifacts so discovery is unambiguous
 
-step() { printf '\r  🔨 %-13s [%d/3] %-8s' "$APP_NAME" "$1" "$2"; }
+step() { printf '\r  🔨 %-13s [%d/4] %-8s' "$APP_NAME" "$1" "$2"; }
 trap 'printf "\r  ❌ %-13s build failed            \n" "$APP_NAME"' ERR
 
-step 1 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
-step 2 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
-step 3 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
+step 1 assets  ; python3 ./gen_assets.py "${APP}_assets.bin" "${APP}_assets.h"
+step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf"
+step 3 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
+step 4 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
                    --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" \
-                   --shortcut fm --require fm --screensaver >/dev/null
+                   --shortcut fm --require fm --screensaver --assets "${APP}_assets.bin" >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")

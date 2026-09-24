@@ -66,7 +66,8 @@ printf '   VMA %s · budget %d B / %d.00 KiB · out %s/\n\n' \
 files=(); sizes=(); vmas=(); states=()
 fail=0
 
-read_u32le() { od -An -tx1 -j"$2" -N4 "$1" | awk '{printf "0x%s%s%s%s",$4,$3,$2,$1}'; }
+read_u32le() { od -An -tx1 -j"$2" -N4 "$1" | awk 'NF{printf "0x%s%s%s%s",$4,$3,$2,$1}'; }
+read_u16le() { od -An -tx1 -j"$2" -N2 "$1" | awk 'NF{printf "0x%s%s",$2,$1}'; }
 
 for app in "${TARGETS[@]}"; do
     if docker run --rm ${TTY_ARG:+"$TTY_ARG"} -u "$(id -u):$(id -g)" \
@@ -77,9 +78,11 @@ for app in "${TARGETS[@]}"; do
         if [ -n "$appfile" ] && [ -f "$appfile" ]; then
             cp -f "$appfile" "$OUT_DIR/"
             base=$(basename "$appfile")
-            code=$(( $(wc -c < "$appfile") - 64 ))
+            code=$(( $(read_u32le "$appfile" 8) ))       # app_header_t.code_size
+            assets=$(( $(read_u16le "$appfile" 60) ))    # app_header_t.asset_size
             vma=$(read_u32le "$appfile" 52)
             state="✅ OK"; [ "$code" -gt "$OVERLAY_MAX" ] && { state="🚨 OVERFLOW"; fail=1; }
+            [ "$assets" -gt 0 ] && state="$state (+$assets B assets)"
         else
             base="$app.app"; code=-1; vma="--"; state="❌ NO BLOB"; fail=1
         fi

@@ -50,12 +50,17 @@
 #include "functions.h"
 #include "frequencies.h"
 #include "radio.h"
+#include "scheduler.h"
 #include "helper/battery.h"
 #include "settings.h"
 #include "misc.h"   /* dBmCorrTable */
 
 _Static_assert(sizeof(app_header_t) == 64, "app_header_t must be 64 bytes");
 _Static_assert(sizeof(app_api_t) <= UINT16_MAX, "app_api_t size field overflow");
+_Static_assert(APP_ASSET_OFFSET + APP_ASSET_MAX == APP_CODE_OFFSET,
+               "assets must end where the code sector starts");
+_Static_assert(APP_ASSET_MAX <= APP_OVERLAY_MAX,
+               "assets are CRC-checked through the overlay buffer");
 
 enum {
     APP_AVAILABLE_CAPS = 0u
@@ -420,6 +425,49 @@ static void app_cfg_save(const uint8_t *buf, uint8_t len)
     app_cfg_len = len;   /* mark dirty; the loader commits after the app returns */
 }
 
+_Static_assert(APP_CFG_OFFSET + sizeof(app_cfg_buf) <= APP_ASSET_OFFSET,
+               "config area overlaps the assets");
+
+/* ---- API level 2: time, randomness, read-only assets ---- */
+static uint16_t app_asset_size;   /* verified asset size of the running app */
+static uint32_t app_rng_state = 0x2545F491u;
+
+static uint32_t app_ticks_ms(void)
+{
+    return SCHEDULER_GetTick10ms() * 10u;
+}
+
+static uint32_t app_rand32(void)
+{
+    uint32_t x = app_rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    app_rng_state = x;
+    return x;
+}
+
+/* Fold fresh entropy into the persistent state: RSSI noise LSBs, the SysTick
+ * phase of the key press that launched the app, and the 10 ms counter. */
+static void app_rng_mix(void)
+{
+    app_rng_state ^= ((uint32_t)BK4819_ReadRegister(BK4819_REG_67) << 16) ^
+                     SysTick->VAL ^ SCHEDULER_GetTick10ms();
+    if (app_rng_state == 0u)
+        app_rng_state = 0x2545F491u;
+    app_rand32();
+}
+
+static uint16_t app_asset_read(uint16_t offset, void *buf, uint16_t len)
+{
+    if (offset >= app_asset_size)
+        return 0;
+    if (len > app_asset_size - offset)
+        len = app_asset_size - offset;
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(app_run_slot) + APP_ASSET_OFFSET + offset, buf, len);
+    return len;
+}
+
 /* ---- v2 battery / backlight ---- */
 static void app_draw_battery(void)
 {
@@ -517,7 +565,8 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
     if (h.required_caps & ~APP_AVAILABLE_CAPS) return APP_ERR_CAP;
     if (h.code_size < 2u || h.code_size > APP_OVERLAY_MAX ||
         (uint32_t)h.entry_off > h.code_size - 2u ||   /* leave room for a 2-byte Thumb insn */
-        (h.entry_off & 1u) != 0u)                     /* entry must be Thumb-aligned (even) */
+        (h.entry_off & 1u) != 0u ||                   /* entry must be Thumb-aligned (even) */
+        h.asset_size > APP_ASSET_MAX)
         return APP_ERR_SIZE;
 
     if (out_header)
@@ -685,6 +734,9 @@ static const app_api_t app_api = {
     .beam_rx_poll     = app_beam_rx_poll,
     .beam_draw        = app_beam_draw,
 #endif
+    .ticks_ms         = app_ticks_ms,
+    .rand32           = app_rand32,
+    .asset_read       = app_asset_read,
 };
 
 uint8_t APP_LaunchOverlay(uint8_t slot)
@@ -711,12 +763,20 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 
     /* Repurpose the sector cache: drop any cached config sector, load the code
      * straight in (ReadBuffer bypasses the cache), and verify it in RAM before
-     * trusting it. Zeroing first leaves the app's .bss clean. */
+     * trusting it. Zeroing first leaves the app's .bss clean. The assets are
+     * verified first through the same buffer: a slot written by a host that
+     * does not know the asset area (older UV Studio) is refused here instead of
+     * handing the app unprogrammed flash. */
     PY25Q16_InvalidateCache();
+    bool assets_ok = true;
+    if (h.asset_size) {
+        PY25Q16_ReadBuffer(APP_SLOT_BASE(slot) + APP_ASSET_OFFSET, ws, h.asset_size);
+        assets_ok = (uint16_t)MB_Crc32Bytes(ws, h.asset_size) == h.asset_crc;
+    }
     memset(ws, 0, APP_OVERLAY_MAX);
     PY25Q16_ReadBuffer(APP_SLOT_BASE(slot) + APP_CODE_OFFSET, ws, h.code_size);
 
-    if (MB_Crc32Bytes(ws, h.code_size) != h.code_crc32) {
+    if (!assets_ok || MB_Crc32Bytes(ws, h.code_size) != h.code_crc32) {
         PY25Q16_InvalidateCache();
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
         RXTX_LOG_Resume();
@@ -728,8 +788,10 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     __DSB();
     __ISB();
 
-    app_run_slot = slot;   /* for cfg_load / cfg_save */
-    app_cfg_len  = 0;
+    app_run_slot   = slot;   /* for cfg_load / cfg_save / asset_read */
+    app_asset_size = h.asset_size;
+    app_cfg_len    = 0;
+    app_rng_mix();
 #ifdef ENABLE_FMRADIO
     app_fm_dirty = false;
 #endif

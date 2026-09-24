@@ -38,10 +38,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* First unpublished/public baseline: all services currently present below are
- * ABI major 1, API level 1. */
+/* API levels within ABI major 1:
+ *   1  baseline: every service up to and including beam_draw
+ *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc) */
 #define APP_ABI_MAJOR  1u
-#define APP_API_LEVEL  1u
+#define APP_API_LEVEL  2u
+
+/* Minimum API level of an app that ships read-only assets (pack_app.py). */
+#define APP_API_ASSETS 2u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -226,6 +230,21 @@ typedef struct app_api {
     void     (*beam_rx)(bool start);         /* arm or stop FSK reception */
     uint8_t  (*beam_rx_poll)(uint16_t *packet); /* APP_BEAM_RX_* */
     void     (*beam_draw)(const char *status); /* MAIN display with one BEAM center line */
+
+    /* ---- API level 2: time, randomness, read-only assets ---- */
+    /* Free-running millisecond clock with 10 ms resolution (SysTick).  Compare
+     * with unsigned subtraction: (api->ticks_ms() - start) >= period. */
+    uint32_t (*ticks_ms)(void);
+    /* xorshift32 PRNG, never 0.  The resident state persists across launches
+     * and is re-mixed with RSSI noise and SysTick jitter at each launch, so apps
+     * need no seed of their own. */
+    uint32_t (*rand32)(void);
+    /* Copy len bytes of this app's assets, starting at offset, into buf.  The
+     * read is clamped to the packed asset size; returns the byte count copied
+     * (0 past the end or when the app has no assets).  The loader verified the
+     * assets' CRC before launch.  buf may live in the overlay (.bss) or on the
+     * stack. */
+    uint16_t (*asset_read)(uint16_t offset, void *buf, uint16_t len);
 } app_api_t;
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */

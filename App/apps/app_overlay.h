@@ -39,6 +39,13 @@
  *     ...              ]
  *   0x120000  slot 15  ]
  *
+ * Header sector layout (slot-relative):
+ *
+ *   0x000  app_header_t (64 B)
+ *   0x040  per-app config staged by cfg_save (16 B, reserved up to 0x0FF)
+ *   0x100  read-only assets (API level 2, up to 3840 B, CRC-checked at launch)
+ *   0x1000 code (<= 4 KiB, copied into the overlay RAM)
+ *
  * Host tooling (APP_SlotErase/Write/Info) touches the external flash only and is
  * never brick-critical; a bad slot is simply refused at launch by the CRC check.
  */
@@ -62,6 +69,12 @@
  * The link VMA itself is pinned in Core/py32f071xb.ld (ORIGIN+0x280) and passed
  * via compile-app.sh; the loader checks each blob's link_vma against it. ---- */
 #define APP_OVERLAY_MAX   0x00001000u   /* 4 KiB                                 */
+
+/* ---- read-only assets, served by api->asset_read (API level 2) ----
+ * Literal values so pack_app.py can parse them; checked against the slot
+ * geometry by static asserts in app_overlay.c. */
+#define APP_ASSET_OFFSET  0x00000100u   /* assets start in the header sector     */
+#define APP_ASSET_MAX     0x00000F00u   /* up to the end of the header sector    */
 
 /* ---- blob header (64 bytes, little-endian; see App/apps/pack_app.py) ---- */
 #define APP_MAGIC         0x31504146u   /* "FAP1"                                */
@@ -96,7 +109,8 @@ typedef struct __attribute__((packed)) {
     char     version[APP_VERSION_LEN];/* app version string                     */
     uint32_t link_vma;                /* RAM VMA the code was linked at         */
     uint32_t required_caps;           /* APP_CAP_* required by this app         */
-    uint8_t  reserved[4];             /* pad to 64 bytes                        */
+    uint16_t asset_size;              /* bytes at APP_ASSET_OFFSET, 0 = none    */
+    uint16_t asset_crc;               /* low 16 bits of the assets' CRC-32      */
 } app_header_t;
 
 enum {
@@ -105,8 +119,8 @@ enum {
     APP_ERR_MAGIC,          /* no/invalid header                      */
     APP_ERR_ABI,            /* ABI family/API level mismatch          */
     APP_ERR_NOT_COMMITTED,  /* image not marked complete              */
-    APP_ERR_SIZE,           /* code_size out of range                 */
-    APP_ERR_CRC,            /* code CRC-32 mismatch                   */
+    APP_ERR_SIZE,           /* code_size or asset_size out of range   */
+    APP_ERR_CRC,            /* code or asset CRC mismatch             */
     APP_ERR_VMA,            /* overlay buffer not at the link VMA     */
     APP_ERR_AUTH,           /* host write refused: timestamp mismatch */
     APP_ERR_CAP,            /* required firmware capability missing   */
