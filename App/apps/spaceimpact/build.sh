@@ -3,7 +3,7 @@
 set -euo pipefail
 
 APP="$(basename "$PWD")"
-APP_NAME="Space Impact"
+APP_NAME="SpaceImpact"
 APP_VER="1.1"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}

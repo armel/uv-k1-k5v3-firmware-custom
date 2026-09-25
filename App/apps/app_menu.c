@@ -61,9 +61,9 @@ static void app_key_hints(void)
 
 /* Fixed selection capsule around the primary information (the app name).
  * Slot number stays in the normal font; size is plain 3x5 metadata. */
-#define APP_NAME_BOX_START 12u
+#define APP_NAME_BOX_START 19u
 #define APP_NAME_BOX_END   102u
-#define APP_NAME_TEXT_X    14u
+#define APP_NAME_TEXT_X    21u
 
 static void app_wait_release(void);
 
@@ -224,19 +224,22 @@ static void app_show_error(const app_header_t *header, uint8_t rc)
 
 /* Five visible slots; line 0 holds the separator and line 6 the key hints. */
 #define APP_MENU_ROWS 5u
-#define APP_MENU_SLOT_COUNT 8u
+#define APP_MENU_SLOT_COUNT APP_SLOT_COUNT
 
 _Static_assert(APP_MENU_SLOT_COUNT <= APP_SLOT_COUNT,
                "APP_MENU_SLOT_COUNT exceeds the physical app slot count");
 
-static void app_scan_slots(app_header_t hdr[APP_MENU_SLOT_COUNT],
-                           bool installed[APP_MENU_SLOT_COUNT])
+static uint16_t app_scan_slots(void)
 {
+    uint16_t installed = 0u;
     for (uint8_t slot = 0; slot < APP_MENU_SLOT_COUNT; slot++)
     {
-        installed[slot] = APP_SlotInfo(slot, &hdr[slot]) == APP_OK &&
-                          (hdr[slot].flags & APP_FLAG_COMMITTED);
+        app_header_t hdr;
+        if (APP_SlotInfo(slot, &hdr) == APP_OK &&
+            (hdr.flags & APP_FLAG_COMMITTED))
+            installed |= (uint16_t)((uint16_t)1u << slot);
     }
+    return installed;
 }
 
 void APP_MenuOpen(void)
@@ -256,10 +259,8 @@ void APP_MenuOpen(void)
     /* Apps are installed from UV Studio (0x073x) into physical slots 0..N-1,
      * shown here as 1..N.  Keep empty slots in the list so their location is
      * visible and selectable while scrolling. */
-    app_header_t hdr[APP_MENU_SLOT_COUNT];
-    bool installed[APP_MENU_SLOT_COUNT];
     uint8_t slot_revision = APP_SlotRevision();
-    app_scan_slots(hdr, installed);
+    uint16_t installed = app_scan_slots();
 
     /* Remember the physical slot and scrolling window across menu openings. */
     static uint8_t sel = 0;
@@ -273,7 +274,7 @@ void APP_MenuOpen(void)
         const uint8_t current_revision = APP_SlotRevision();
         if (current_revision != slot_revision)
         {
-            app_scan_slots(hdr, installed);
+            installed = app_scan_slots();
             slot_revision = current_revision;
         }
 
@@ -290,20 +291,23 @@ void APP_MenuOpen(void)
              slot < APP_MENU_SLOT_COUNT && (uint8_t)(slot - top) < APP_MENU_ROWS;
              slot++)
         {
-            char number[2];
+            char number[3];
             char name[14];
             char size[6];
             const uint8_t visible_number = (uint8_t)(slot + 1u);
             const uint8_t fbLine = (uint8_t)(slot - top + 1u);
 
-            number[0] = (char)('0' + visible_number);
-            number[1] = '\0';
+            number[0] = (char)('0' + visible_number / 10u);
+            number[1] = (char)('0' + visible_number % 10u);
+            number[2] = '\0';
 
             UI_PrintStringSmallNormal(number, 2u, 0, fbLine);
-            if (installed[slot])
+            if (installed & (uint16_t)((uint16_t)1u << slot))
             {
-                app_copy(name, sizeof(name), hdr[slot].name, APP_NAME_LEN);
-                app_format_size(size, hdr[slot].code_size);
+                app_header_t hdr;
+                APP_SlotInfo(slot, &hdr);
+                app_copy(name, sizeof(name), hdr.name, APP_NAME_LEN);
+                app_format_size(size, hdr.code_size);
                 UI_PrintStringSmallNormal(name, APP_NAME_TEXT_X, 0, fbLine);
                 GUI_DisplaySmallest(size,
                                     (uint8_t)(LCD_WIDTH - 2u - strlen(size) * 4u),
@@ -340,12 +344,14 @@ void APP_MenuOpen(void)
                 break;
             case KEY_MENU:
             {
-                if (!installed[sel])
+                if (!(installed & (uint16_t)((uint16_t)1u << sel)))
                     break;
 
+                app_header_t hdr;
+                APP_SlotInfo(sel, &hdr);
                 const uint8_t rc = APP_LaunchOverlay(sel);  /* runs until the app exits */
                 if (rc != APP_OK)
-                    app_show_error(&hdr[sel], rc);          /* no longer silent */
+                    app_show_error(&hdr, rc);               /* no longer silent */
                 app_wait_release();
                 break;
             }

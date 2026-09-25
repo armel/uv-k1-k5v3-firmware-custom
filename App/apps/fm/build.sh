@@ -7,7 +7,7 @@
 set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
-APP_NAME="Broadcast FM"                 # <-- the only per-app line
+APP_NAME="BroadcastFM"                  # <-- the only per-app line
 APP_VER="1.1"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
