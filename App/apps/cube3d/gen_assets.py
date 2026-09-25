@@ -11,7 +11,7 @@
 # SHAPE_REC_MAX size the app's buffers, so adding a solid needs no C change.
 #
 #   ./gen_assets.py cube3d_assets.bin cube3d_assets.h
-import os, struct, sys
+import math, os, struct, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from app_assets import Assets
@@ -61,6 +61,20 @@ SIN_Q = [
 # by four.
 ROT_RATE = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 30, 36, 44, 52, 64]
 
+# Perspective projection without a division: for n = x * FOCAL and
+# zc = z + DIST, the C expression n / zc (truncating toward zero) equals
+# sign(n) * ((|n| * RECIP[zc - RECIP_ZMIN]) >> RECIP_SHIFT) exactly, with
+# RECIP[d] = 2^RECIP_SHIFT // d + 1, as long as |n| < 2^RECIP_SHIFT / zc (the
+# error term then stays below 1 / zc). The zc range covers every solid's
+# largest radius, plus a margin for the Q14 rotation rounding.
+DIST, FOCAL = 150, 80
+RECIP_SHIFT = 20
+R = int(max(math.sqrt(x * x + y * y + z * z) for _, v, _ in SHAPES for x, y, z in v)) + 4
+RECIP_ZMIN, RECIP_ZMAX = DIST - R, DIST + R
+RECIP = [(1 << RECIP_SHIFT) // d + 1 for d in range(RECIP_ZMIN, RECIP_ZMAX + 1)]
+if FOCAL * R >= (1 << RECIP_SHIFT) // RECIP_ZMAX or FOCAL * R * RECIP[0] >= 1 << 31 or RECIP[0] > 0xFFFF:
+    sys.exit("RECIP: a solid is too large for an exact division-free projection")
+
 def record(name, verts, faces):
     out = bytes([len(verts), len(faces)]) + name.encode("ascii") + b"\x00"
     for v in verts:
@@ -85,6 +99,12 @@ a = Assets("CUBE3D")
 a.raw("SHAPES", shapes + body)
 a.i16("SIN_Q", SIN_Q)
 a.u8("ROT_RATE", ROT_RATE)
+a.u16("RECIP", RECIP)
+a.const("RECIP_ZMIN", RECIP_ZMIN)
+a.const("RECIP_ZMAX", RECIP_ZMAX)
+a.const("RECIP_SHIFT", RECIP_SHIFT)
+a.const("DIST", DIST)
+a.const("FOCAL", FOCAL)
 a.const("SHAPE_MAXV", max(len(v) for _, v, _ in SHAPES))
 a.const("SHAPE_REC_MAX", max(len(r) for r in records))
 a.main()

@@ -17,8 +17,9 @@
 /*
  * Cube3D — overlay app. A real-time rotating solid on the 1-bit 128x64 LCD.
  * Vertices are spun by three axis rotations in Q14 fixed point (Cortex-M0+ has
- * no FPU and no hardware divide), then perspective-projected with a single
- * divide per vertex. Two looks, toggled with F:
+ * no FPU and no hardware divide), then perspective-projected with a multiply by
+ * a reciprocal from the assets, exactly equal to the divide it replaces, so no
+ * libgcc division is linked. Two looks, toggled with F:
  *   - SOLID: hidden-line removal by back-face culling (a face is drawn only when
  *     the signed area of its projected polygon shows it facing us).
  *   - WIRE : every edge, with the far hemisphere dotted for a depth cue.
@@ -43,8 +44,8 @@
 #define H       64
 #define CX      64          /* projection centre x */
 #define CY      32          /* projection centre y */
-#define DIST    150         /* camera distance along +z (keeps zc > 0)   */
-#define FOCAL   80          /* focal length / field-of-view scale        */
+/* DIST (camera distance along +z, keeps zc > 0) and FOCAL (field-of-view
+ * scale) come from the assets: the reciprocal table is built for them. */
 #define MAXV    SHAPE_MAXV  /* largest vertex count across the solids     */
 
 static const app_api_t *A;
@@ -59,9 +60,6 @@ static int sin8(uint8_t angle)
     const int value = sinq[i];
     return quadrant >= 2u ? -value : value;
 }
-
-/* Per-frame projected screen coords + rotated depth of each vertex. */
-static int16_t px[MAXV], py[MAXV], pz[MAXV];
 
 /* Set one pixel across the full 64 rows: 0..7 -> status line, 8..63 -> fb. */
 static void set_pixel(int x, int y)
@@ -105,8 +103,16 @@ static void clear_screen(void)
     }
 }
 
+/* n / zc, truncated toward zero like C, from zc's reciprocal m: exact for
+ * the projection's range (see gen_assets.py). */
+static int proj(int n, uint32_t m)
+{
+    const int q = (int)(((uint32_t)(n < 0 ? -n : n) * m) >> RECIP_SHIFT);
+    return n < 0 ? -q : q;
+}
+
 /* Signed area of a packed face's projected polygon (<0 == facing us). */
-static int face_area(const uint8_t *f)
+static int face_area(const uint8_t *f, const int16_t *px, const int16_t *py)
 {
     const uint8_t n = f[0];
     const uint8_t *v = f + 1;
@@ -129,9 +135,12 @@ void app_main(const app_api_t *api)
     /* Assets copied to the stack: the sine once, the displayed solid every
      * frame (nv, nf, name + NUL, vertices, packed faces; see gen_assets.py). */
     int16_t sin_q[SIN_Q_LEN / 2u];
+    uint16_t recip[RECIP_LEN / 2u];   /* by zc - RECIP_ZMIN */
     uint8_t rec[SHAPE_REC_MAX];
     uint8_t nshape;
+    int16_t px[MAXV], py[MAXV], pz[MAXV];   /* projected x, y and rotated depth */
     A->asset_read(SIN_Q, sin_q, sizeof(sin_q));
+    A->asset_read(RECIP, recip, sizeof(recip));
     sinq = sin_q;
     if (A->asset_read(SHAPES, &nshape, 1) != 1u || nshape == 0u)
         return;
@@ -170,8 +179,9 @@ void app_main(const app_api_t *api)
                 case APP_KEY_MENU:
                     paused = !paused;
                     break;
-                case APP_KEY_STAR:
-                    shape = (uint8_t)((shape + 1u) % nshape);
+                case APP_KEY_STAR:   /* next shape, wrapping without a modulo */
+                    if (++shape >= nshape)
+                        shape = 0;
                     break;
                 case APP_KEY_F:
                     wire = !wire;
@@ -217,9 +227,12 @@ void app_main(const app_api_t *api)
             ny = (x * szr + y * cz) >> 14;
             x = nx; y = ny;
 
-            const int zc = z + DIST;                 /* always > 0 */
-            px[i] = (int16_t)(CX + (x * FOCAL) / zc);
-            py[i] = (int16_t)(CY + (y * FOCAL) / zc);
+            int zc = z + (int)DIST;                  /* always > 0 */
+            if (zc < (int)RECIP_ZMIN) zc = RECIP_ZMIN;   /* inside the table: */
+            if (zc > (int)RECIP_ZMAX) zc = RECIP_ZMAX;   /* never hit in practice */
+            const uint32_t m = recip[zc - (int)RECIP_ZMIN];
+            px[i] = (int16_t)(CX + proj(x * (int)FOCAL, m));
+            py[i] = (int16_t)(CY + proj(y * (int)FOCAL, m));
             pz[i] = (int16_t)z;
         }
 
@@ -227,7 +240,7 @@ void app_main(const app_api_t *api)
         const uint8_t *f = &rec[3u + namelen + 3u * rec[0]];   /* packed faces */
         for (uint8_t i = 0; i < nf; i++) {
             const uint8_t n = f[0];
-            if (wire || face_area(f) < 0) {          /* else hidden face culled */
+            if (wire || face_area(f, px, py) < 0) {  /* else hidden face culled */
                 for (uint8_t k = 0; k < n; k++) {
                     const uint8_t a = f[1u + k];
                     const uint8_t b = f[(k + 1u == n) ? 1u : 2u + k];
@@ -251,8 +264,8 @@ void app_main(const app_api_t *api)
             uint8_t rate;
             A->asset_read(ROT_RATE + speed - 1u, &rate, 1);
             ax += rate;
-            ay += (uint16_t)(rate + rate / 2u);
-            az += (uint16_t)((rate + 1u) / 2u);
+            ay += (uint16_t)(rate + (rate >> 1));
+            az += (uint16_t)((rate + 1u) >> 1);
         }
 
         A->backlight_update();

@@ -21,7 +21,9 @@
  * (x-cx)^2 + (y-cy)^2 is separable, the whole field is still built from per-column
  * and per-row tables, so each of the 8192 pixels costs only a handful of adds.
  * Rendered either with an ordered 4x4 Bayer dither (stipple) or as sweeping bands.
- * Pure compute + framebuffer, no radio — it just works.
+ * Pure compute + framebuffer, no radio — it just works. The per-frame tables
+ * live on app_main's stack (0.75 KiB kept out of the 4 KiB overlay) and no
+ * division is linked.
  *
  * Keys: UP/DOWN speed · 1-5 pattern · STAR stipple/bands · F auto-cycle ·
  *       MENU pause · EXIT quit.
@@ -40,15 +42,6 @@ static const app_api_t *A;
 /* The sine wave, the 4x4 ordered-dither matrix and the pattern presets are
  * read-only assets (gen_assets.py), copied onto app_main's stack at launch. */
 
-/* Per-frame separable tables. */
-static int8_t   colA[W];        /* horizontal sine, by column x */
-static int8_t   rowA[H];        /* vertical sine, by row y       */
-static int8_t   diagA[W + H];   /* diagonal sine, by (x + y)     */
-static uint16_t sqx[W];         /* (x - cx)^2 for the radial term */
-static uint16_t sqy[H];         /* (y - cy)^2                     */
-
-static uint8_t prevKey;
-
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
@@ -63,6 +56,13 @@ void app_main(const app_api_t *api)
     A->asset_read(BAYER, bayer, sizeof(bayer));
     A->asset_read(VAR, presets, sizeof(presets));
 
+    /* Per-frame separable tables. */
+    int8_t   colA[W];               /* horizontal sine, by column x */
+    int8_t   rowA[H];               /* vertical sine, by row y       */
+    int8_t   diagA[W + H];          /* diagonal sine, by (x + y)     */
+    uint16_t sqx[W];                /* (x - cx)^2 for the radial term */
+    uint16_t sqy[H];                /* (y - cy)^2                     */
+
     uint16_t t1 = 0, t2 = 0, t3 = 0, tr = 0, tc = 0, tc2 = 0;
     uint16_t autoCtr = 0;
     uint8_t  speed = 3;
@@ -71,7 +71,7 @@ void app_main(const app_api_t *api)
     bool     autoc = false;
     bool     paused = false;
     bool     running = true;
-    prevKey = APP_KEY_INVALID;
+    uint8_t  prevKey = APP_KEY_INVALID;
 
     while (running) {
         uint8_t key = A->get_key();
@@ -154,7 +154,10 @@ void app_main(const app_api_t *api)
         if (!paused) {
             t1 += speed; t2 += (uint16_t)(speed + 1u); t3 += 1u;
             tr += speed; tc += 1u; tc2 += 2u;
-            if (autoc && ++autoCtr >= 400u) { autoCtr = 0; var = (uint8_t)((var + 1u) % NVAR); }
+            if (autoc && ++autoCtr >= 400u) {   /* next preset, wrapping without a modulo */
+                autoCtr = 0;
+                if (++var >= NVAR) var = 0;
+            }
         }
 
         A->backlight_update();

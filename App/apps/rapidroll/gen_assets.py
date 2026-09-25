@@ -51,6 +51,12 @@ a.text("T_PAUSE", "PAUSE")
 a.text("T_LEVEL1", "LEVEL 1")
 a.text("T_PRESS", "PRESS MENU")
 a.u16("PLACE", [10000, 1000, 100, 10, 1])
+# New-game values of the app's struct globals from `mode` on, in their order
+# (the app checks the length with a static assert): mode (ST_PLAY = 0),
+# paused, lives, level, riseAcc, respawnCd, lastX, nextX, spikeAllowed,
+# alive, on (platform 0), then the tick countdowns boom, banner, wait, invul
+# and squash.
+a.u8("NEW_GAME", [0, 0, 3, 1, 0, 0, 50, 50, 0, 1, 0, 0, 50, 40, 0, 0])
 for name, cols in SPRITES:
     a.u8(name, cols)
 title = title_screen(dict(SPRITES))

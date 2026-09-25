@@ -20,6 +20,10 @@
  * a big number, an IARU S-meter staircase or a scrolling history, peak/min hold,
  * a 1 s trend, a front-end attenuator ladder, and Geiger/station audio.
  *
+ * No division is linked: numbers are printed by subtracting powers of ten and
+ * the few divisions by constants are exact multiply-and-shift equivalents,
+ * checked exhaustively over their input ranges.
+ *
  * Keys: 1 gauge (bar/history) · 2 audio (off/beep/station) · 3 + UP/DOWN attenuator
  *       MENU reset holds · long F keypad lock · EXIT quit.
  */
@@ -71,64 +75,84 @@
 
 #define CFG_MAGIC    0xF1   /* config validity marker */
 
-/* Texts, the attenuator ladder and the icons are read-only assets
- * (gen_assets.py): icons are copied straight into the LCD buffers. */
+/* The multiply-and-shift divisions below rely on these constants. */
+_Static_assert(DBM_CEIL - DBM_FLOOR == 88, "lerp() divides by 88");
+_Static_assert(SEG_COUNT == 13 && (GRAPH_BOT - GRAPH_FLOOR - GRAPH_TOP) * SEG_COUNT <= 208,
+               "drawHist() divides by 13 up to 208");
 
-static const app_api_t *A;
+/* Texts, the attenuator ladder, the powers of ten and the icons are read-only
+ * assets (gen_assets.py): icons are copied straight into the LCD buffers. */
 
-static bool     foxLocked, fArm, fLongDone;
-static uint16_t fHoldMs;
-static uint8_t  foxAudioMode, foxGraphMode, attStep, audioTick;
-static int16_t  curDbm, peakDbm, minDbm, trendRef, trendDelta;
-static uint8_t  trendTick;
-static uint8_t  histBuf[HIST_LEN];
-static uint8_t  histHead, histTick;
-static int16_t  histEma;
-static uint8_t  prevKey;
-static bool     running;
-static char     str[16];
+/* All the state in one struct: Thumb-1 code then reaches every field from a
+ * single base address (one literal per function instead of one per global),
+ * byte fields first so their offsets fit ldrb's 0..31 immediate. The overlay
+ * is zeroed by the loader at each launch. */
+struct globals {
+    bool     foxLocked, fArm, fLongDone, running;
+    uint8_t  foxAudioMode, foxGraphMode, attStep, audioTick;
+    uint8_t  trendTick, histHead, histTick, prevKey;
+    uint16_t fHoldMs;
+    /* words: loaded without a sign extension */
+    int32_t  curDbm, peakDbm, minDbm, trendRef, trendDelta, histEma;
+    const app_api_t *api;
+    uint8_t *histBuf;        /* HIST_LEN levels, on app_main's stack */
+};
+static struct globals g;
+#define A (g.api)
+
+_Static_assert(offsetof(struct globals, prevKey) < 32u, "byte fields out of ldrb range");
 
 /* ---- tiny formatting ---- */
 static uint8_t slen(const char *s){ uint8_t n=0; while(s[n])n++; return n; }
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
-static char *puti(char *o,int v){
-    uint32_t u;
-    if(v<0){*o++='-';u=(uint32_t)(-v);} else u=(uint32_t)v;
-    char t[6]; int8_t n=0;
-    do{t[n++]=(char)('0'+u%10u);u/=10u;}while(u&&n<6);
-    while(n--)*o++=t[n];
+/* Decimal digits of u, no leading zeros, by subtracting the powers of ten. */
+static char *putu(char *o,uint32_t u){
+    uint32_t place[PLACE_LEN/4u];
+    A->asset_read(PLACE,place,sizeof(place));
+    bool lead=true;
+    for(uint8_t i=0;i<PLACE_LEN/4u;i++){
+        uint8_t d=0;
+        while(u>=place[i]){ u-=place[i]; d++; }
+        if(d||i==PLACE_LEN/4u-1u) lead=false;
+        if(!lead) *o++=(char)('0'+d);
+    }
     return o;
+}
+static char *puti(char *o,int v){
+    if(v<0){ *o++='-'; v=-v; }
+    return putu(o,(uint32_t)v);
 }
 static void i2str(char *out,int v){ *puti(out,v)='\0'; }
 
-/* Text from the assets in a shared buffer, valid until the next T() call. */
-static char tbuf[TEXT_MAX];
-static char *T(uint16_t off){ A->asset_read(off,tbuf,TEXT_MAX); return tbuf; }
+/* Text from the assets in the caller's buffer (TEXT_MAX bytes). */
+static char *T(char *buf,uint16_t off){ A->asset_read(off,buf,TEXT_MAX); return buf; }
 
 /* ---- radio helpers ---- */
-static int16_t iabs16(int16_t v){ return v<0?-v:v; }
+static int32_t iabs32(int32_t v){ return v<0?-v:v; }
 
 static void applyAtt(void){
     uint16_t reg = A->bk_read(BK_REG_13), gain;
-    A->asset_read(ATT_REG13 + attStep * 2u, &gain, sizeof(gain));
+    A->asset_read(ATT_REG13 + g.attStep * 2u, &gain, sizeof(gain));
     reg = (uint16_t)((reg & ~0x03FFu) | gain);
     A->bk_write(BK_REG_13, reg);
 }
 
 static void setAudio(void){
-    if(foxAudioMode==AUDIO_OFF){ A->audio_path(false); return; }
+    if(g.foxAudioMode==AUDIO_OFF){ A->audio_path(false); return; }
     A->audio_path(true);
     A->delay_ms(AUDIO_SETTLE);
     A->set_af(APP_AF_MUTE);
 }
 
-static int32_t lerp(int16_t dbm,int32_t lo,int32_t hi){
+static int32_t lerp(int32_t dbm,int32_t lo,int32_t hi){
     if(dbm<=DBM_FLOOR) return lo;
     if(dbm>=DBM_CEIL)  return hi;
     const int32_t delta = hi - lo;
-    const uint32_t distance = ((uint32_t)(dbm-DBM_FLOOR) *
-                               (uint32_t)(delta < 0 ? -delta : delta)) /
-                              (uint32_t)(DBM_CEIL-DBM_FLOOR);
+    const uint32_t x = (uint32_t)(dbm-DBM_FLOOR) *
+                       (uint32_t)(delta < 0 ? -delta : delta);
+    /* x / 88 as ((x / 8) * 23832) >> 18: exact for x <= 174000, i.e. every
+       |delta| <= 2000 (the tone and rate ranges) */
+    const uint32_t distance = ((x >> 3) * 23832u) >> 18;
     return lo + (delta < 0 ? -(int32_t)distance : (int32_t)distance);
 }
 static void blip(uint16_t freq){
@@ -139,25 +163,26 @@ static void blip(uint16_t freq){
     applyAtt();
 }
 
-static uint8_t fillCount(int16_t dbm){
-    int16_t n;
+static uint8_t fillCount(int32_t dbm){
+    int32_t n;
     if(dbm<-141) return 0;
-    if(dbm<=-93) n=(int16_t)(1u+(uint16_t)(dbm+141)/6u);
-    else         n=(int16_t)(9u+(uint16_t)(dbm+93)/10u);
+    if(dbm<=-93) n=(int32_t)(1u+(((uint32_t)(dbm+141)*43u)>>8));   /* (dbm+141)/6: exact to 127 */
+    else         n=(int32_t)(9u+(((uint32_t)(dbm+93)*205u)>>11));  /* (dbm+93)/10: exact to 1028 */
     if(n>SEG_COUNT) n=SEG_COUNT;
     return (uint8_t)n;
 }
-static void buildS(char *out,int16_t dbm){
-    if(dbm>=-93){ int16_t o=dbm-(-93); if(o>40)o=40; char *p=put(out,T(T_S9P)); if(o<10)*p++='0'; i2str(p,o); }
-    else if(dbm<-141) put(out,T(T_S0))[0]='\0';
-    else { char *p=put(out,T(T_S)); i2str(p,(int)((uint16_t)(dbm+147)/6u)); }
+static void buildS(char *out,int32_t dbm){
+    char t[TEXT_MAX];
+    if(dbm>=-93){ int32_t o=dbm-(-93); if(o>40)o=40; char *p=put(out,T(t,T_S9P)); if(o<10)*p++='0'; i2str(p,(int)o); }
+    else if(dbm<-141) put(out,T(t,T_S0))[0]='\0';
+    else { char *p=put(out,T(t,T_S)); i2str(p,(int)(((uint32_t)(dbm+147)*43u)>>8)); }   /* (dbm+147)/6 */
 }
 
-static int16_t div_trunc_pow2(int32_t v, uint8_t shift)
+static int32_t div_trunc_pow2(int32_t v, uint8_t shift)
 {
     if (v < 0)
-        return (int16_t)-((uint32_t)(-v) >> shift);
-    return (int16_t)((uint32_t)v >> shift);
+        return -(int32_t)((uint32_t)(-v) >> shift);
+    return (int32_t)((uint32_t)v >> shift);
 }
 
 static uint8_t cycleIndex(uint8_t value, uint8_t count, int8_t dir)
@@ -168,22 +193,22 @@ static uint8_t cycleIndex(uint8_t value, uint8_t count, int8_t dir)
 }
 
 static void histSample(void){
-    histEma += div_trunc_pow2((int32_t)curDbm * 8 - histEma, 2u);
-    if(++histTick<HIST_DECIM) return;
-    histTick=0;
-    histBuf[histHead]=fillCount(div_trunc_pow2(histEma, 3u));
-    if(++histHead>=HIST_LEN) histHead=0;
+    g.histEma += div_trunc_pow2(g.curDbm * 8 - g.histEma, 2u);
+    if(++g.histTick<HIST_DECIM) return;
+    g.histTick=0;
+    g.histBuf[g.histHead]=fillCount(div_trunc_pow2(g.histEma, 3u));
+    if(++g.histHead>=HIST_LEN) g.histHead=0;
 }
 static void rebase(void){
-    curDbm=A->rssi_dbm();
-    peakDbm=minDbm=trendRef=curDbm;
-    trendDelta=0; trendTick=0;
-    uint8_t lvl=fillCount(curDbm);
-    for(uint8_t i=0;i<HIST_LEN;i++) histBuf[i]=lvl;
-    histHead=0; histTick=0; histEma=(int16_t)(curDbm*8);
+    g.curDbm=A->rssi_dbm();
+    g.peakDbm=g.minDbm=g.trendRef=g.curDbm;
+    g.trendDelta=0; g.trendTick=0;
+    uint8_t lvl=fillCount(g.curDbm);
+    for(uint8_t i=0;i<HIST_LEN;i++) g.histBuf[i]=lvl;
+    g.histHead=0; g.histTick=0; g.histEma=g.curDbm*8;
 }
 static void attCycle(int8_t dir){
-    attStep=cycleIndex(attStep,ATT_COUNT,dir);
+    g.attStep=cycleIndex(g.attStep,ATT_COUNT,dir);
     applyAtt();
     A->delay_ms(ATT_SETTLE);
     rebase();
@@ -194,7 +219,7 @@ static void fillRect(int16_t x0,int16_t y0,int16_t x1,int16_t y1){
     for(int16_t x=x0;x<=x1;x++) A->draw_line(A->fb,x,y0,x,y1,true);
 }
 static void drawBar(void){
-    uint8_t n=fillCount(curDbm);
+    uint8_t n=fillCount(g.curDbm);
     for(uint8_t i=0;i<n;i++){
         int16_t sx=BAR_X0+i*SEG_PITCH;
         fillRect(sx,SEG_BOTTOM-i,sx+SEG_W-1,SEG_BOTTOM);
@@ -205,12 +230,12 @@ static void drawHist(void){
     const uint8_t floorY=GRAPH_BOT-GRAPH_FLOOR;
     const uint8_t span=floorY-GRAPH_TOP;
     A->draw_line(A->fb,GRAPH_X0,GRAPH_BOT,GRAPH_X0+HIST_LEN-1,GRAPH_BOT,true);
-    uint8_t prevY=0, idx=histHead;
+    uint8_t prevY=0, idx=g.histHead;
     for(uint8_t c=0;c<HIST_LEN;c++){
-        uint8_t lvl=histBuf[idx]; if(++idx>=HIST_LEN)idx=0;
+        uint8_t lvl=g.histBuf[idx]; if(++idx>=HIST_LEN)idx=0;
         if(lvl>SEG_COUNT)lvl=SEG_COUNT;
         uint8_t x=GRAPH_X0+c;
-        uint8_t y=(uint8_t)(floorY-((uint32_t)lvl*span)/(uint32_t)SEG_COUNT);
+        uint8_t y=(uint8_t)(floorY-(((uint32_t)lvl*span*79u)>>10));   /* lvl*span/13: exact to 208 */
         for(uint8_t yy=y+1;yy<=floorY;yy++) if(((x+yy)&1)==0) A->draw_line(A->fb,x,yy,x,yy,true);
         if(c==0){ A->draw_line(A->fb,x,y,x,y,true); }
         else { uint8_t lo=(y<prevY)?y:prevY, hi=(y<prevY)?prevY:y; A->draw_line(A->fb,x,lo,x,hi,true); }
@@ -221,52 +246,56 @@ static void tag(const char *s,uint8_t x,uint8_t line){
     A->print_inverse(s,x,line,false,true,(uint8_t)(x+slen(s)*4));
 }
 static void draw(void){
-    char big[8], sMeter[8];
+    char big[8], sMeter[8], str[16], t[TEXT_MAX];
 
     A->display_clear();
     A->status_clear();
-    A->print_inverse(T(T_TITLE),2,0,true,true,34);
+    A->print_inverse(T(t,T_TITLE),2,0,true,true,34);
     A->draw_battery();
 
     /* status-bar icons: graph mode @38, audio mode @55, F/lock @69 */
-    if(foxGraphMode==GRAPH_HIST) A->asset_read(BMP_GRAPH,A->status_line+38,BMP_GRAPH_LEN);
-    else                         A->asset_read(BMP_BARS,A->status_line+38,BMP_BARS_LEN);
-    if(foxAudioMode!=AUDIO_OFF)
-        A->asset_read(foxAudioMode==AUDIO_BEEP?BMP_SIGNAL:BMP_SPEAKER,A->status_line+55,BMP_SIGNAL_LEN);
-    if(foxLocked||fArm) A->asset_read(foxLocked?BMP_LOCK:BMP_F,A->status_line+70,BMP_F_LEN);
+    if(g.foxGraphMode==GRAPH_HIST) A->asset_read(BMP_GRAPH,A->status_line+38,BMP_GRAPH_LEN);
+    else                           A->asset_read(BMP_BARS,A->status_line+38,BMP_BARS_LEN);
+    if(g.foxAudioMode!=AUDIO_OFF)
+        A->asset_read(g.foxAudioMode==AUDIO_BEEP?BMP_SIGNAL:BMP_SPEAKER,A->status_line+55,BMP_SIGNAL_LEN);
+    if(g.foxLocked||g.fArm) A->asset_read(g.foxLocked?BMP_LOCK:BMP_F,A->status_line+70,BMP_F_LEN);
 
-    i2str(big,curDbm);
+    i2str(big,(int)g.curDbm);
     A->display_freq(big,2,0,false);
-    A->print_normal(T(T_DBM),(uint8_t)(slen(big)*13+4),0,1);
+    A->print_normal(T(t,T_DBM),(uint8_t)(slen(big)*13+4),0,1);
 
     /* trend arrow (line 0, right) + signed delta (line 1) */
-    A->asset_read(trendDelta>0?BMP_UP:trendDelta<0?BMP_DOWN:BMP_FLAT, A->fb[0]+115, BMP_UP_LEN);
-    if(trendDelta!=0){
-        char *p=str; if(trendDelta>0)*p++='+'; else{*p++='-';}
-        int16_t a=iabs16(trendDelta); if(a<10){*p++='0';} i2str(p,a);
-        A->print_normal(T(T_DBM),127-3*7,0,1);
+    A->asset_read(g.trendDelta>0?BMP_UP:g.trendDelta<0?BMP_DOWN:BMP_FLAT, A->fb[0]+115, BMP_UP_LEN);
+    if(g.trendDelta!=0){
+        char *p=str; if(g.trendDelta>0)*p++='+'; else{*p++='-';}
+        int32_t a=iabs32(g.trendDelta); if(a<10){*p++='0';} i2str(p,(int)a);
+        A->print_normal(T(t,T_DBM),127-3*7,0,1);
         A->print_normal(str,(uint8_t)(127-3*7-2-slen(str)*7),1,1);
     }
 
-    i2str(put(str,T(T_PK)),peakDbm);
+    i2str(put(str,T(t,T_PK)),(int)g.peakDbm);
     tag(str,4,2);
-    i2str(put(str,T(T_MN)),minDbm);
-    tag(str,(uint8_t)(((uint32_t)LCD_WIDTH-(uint32_t)slen(str)*4u)/2u),2);
-    buildS(sMeter,curDbm);
+    i2str(put(str,T(t,T_MN)),(int)g.minDbm);
+    tag(str,(uint8_t)(((uint32_t)LCD_WIDTH-(uint32_t)slen(str)*4u)>>1),2);
+    buildS(sMeter,g.curDbm);
     A->print_inverse(sMeter,(uint8_t)(126-slen(sMeter)*4),2,false,true,125);
 
-    if(foxGraphMode==GRAPH_HIST) drawHist();
+    if(g.foxGraphMode==GRAPH_HIST) drawHist();
     else drawBar();
 
-    if(attStep<ATT_BYP0){
-        uint8_t db; A->asset_read(ATT_DB+attStep,&db,1);
-        char *o=put(str,T(T_ATT)); o=puti(o,db); put(o,T(T_DB))[0]='\0';
+    if(g.attStep<ATT_BYP0){
+        uint8_t db; A->asset_read(ATT_DB+g.attStep,&db,1);
+        char *o=put(str,T(t,T_ATT)); o=puti(o,db); put(o,T(t,T_DB))[0]='\0';
     }
-    else put(str,T(attStep==ATT_BYP0?T_BYP:T_BYP_PLUS))[0]='\0';
+    else put(str,T(t,g.attStep==ATT_BYP0?T_BYP:T_BYP_PLUS))[0]='\0';
     tag(str,4,6);
 
-    { uint32_t f=A->rx_freq(); char *o=puti(str,(int)(f/100000u)); *o++='.';
-      uint32_t fr=f%100000u; for(int8_t d=4;d>=0;d--){ uint32_t p=1; for(int8_t k=0;k<d;k++)p*=10; *o++=(char)('0'+(fr/p)%10);} *o='\0'; }
+    /* the RX frequency (10 Hz units) as MHz with 5 decimals: every digit, then
+       the point before the last five (f >= 18 MHz: at least 7 digits) */
+    { char *e=putu(str,A->rx_freq());
+      e[1]='\0';
+      for(uint8_t k=0;k<5u;k++,e--) e[0]=e[-1];
+      e[0]='.'; }
     A->print_normal(str,(uint8_t)(126-slen(str)*7),0,6);
 }
 
@@ -275,13 +304,13 @@ static void loadConfig(void){
     uint8_t c[4];
     A->cfg_load(c,4);
     if(c[0]==CFG_MAGIC){
-        if(c[1]<ATT_COUNT)      attStep=c[1];
-        if(c[2]<=GRAPH_HIST)    foxGraphMode=c[2];
-        if(c[3]<=AUDIO_STATION) foxAudioMode=c[3];
+        if(c[1]<ATT_COUNT)      g.attStep=c[1];
+        if(c[2]<=GRAPH_HIST)    g.foxGraphMode=c[2];
+        if(c[3]<=AUDIO_STATION) g.foxAudioMode=c[3];
     }
 }
 static void saveConfig(void){
-    uint8_t c[4]={CFG_MAGIC,attStep,foxGraphMode,foxAudioMode};
+    uint8_t c[4]={CFG_MAGIC,g.attStep,g.foxGraphMode,g.foxAudioMode};
     A->cfg_save(c,4);
 }
 
@@ -291,34 +320,34 @@ static void handleKeys(void){
 
     /* long-press F -> keypad lock */
     if(key==APP_KEY_F){
-        if(!fLongDone){ fHoldMs+=TICK_MS; if(fHoldMs>=LOCK_HOLD_MS){ fLongDone=true; foxLocked=!foxLocked; fArm=false; A->backlight_on(); } }
-    } else { fHoldMs=0; fLongDone=false; }
+        if(!g.fLongDone){ g.fHoldMs+=TICK_MS; if(g.fHoldMs>=LOCK_HOLD_MS){ g.fLongDone=true; g.foxLocked=!g.foxLocked; g.fArm=false; A->backlight_on(); } }
+    } else { g.fHoldMs=0; g.fLongDone=false; }
 
-    if(key==APP_KEY_INVALID||key==prevKey){ prevKey=key; return; }
-    prevKey=key;
+    if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
+    g.prevKey=key;
     A->backlight_on();
 
-    if(foxLocked){
+    if(g.foxLocked){
         if(key==APP_KEY_UP||key==APP_KEY_DOWN) attCycle(A->nav_dir(key));
         return;
     }
-    if(key==APP_KEY_F){ fArm=!fArm; return; }
-    int8_t dir=fArm?-1:1;
+    if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
+    int8_t dir=g.fArm?-1:1;
 
     switch(key){
-        case APP_KEY_EXIT: running=false; break;
-        case APP_KEY_1: foxGraphMode^=1; break;
+        case APP_KEY_EXIT: g.running=false; break;
+        case APP_KEY_1: g.foxGraphMode^=1; break;
         case APP_KEY_2:
-            foxAudioMode=cycleIndex(foxAudioMode,3u,dir); setAudio();
-            if(foxAudioMode==AUDIO_BEEP){ audioTick=RATE_SLOW; }
+            g.foxAudioMode=cycleIndex(g.foxAudioMode,3u,dir); setAudio();
+            if(g.foxAudioMode==AUDIO_BEEP){ g.audioTick=RATE_SLOW; }
             break;
         case APP_KEY_3: attCycle(dir); break;
         case APP_KEY_UP:
         case APP_KEY_DOWN: attCycle(A->nav_dir(key)); break;
-        case APP_KEY_MENU: peakDbm=minDbm=trendRef=curDbm; break;
+        case APP_KEY_MENU: g.peakDbm=g.minDbm=g.trendRef=g.curDbm; break;
         default: break;
     }
-    fArm=false;
+    g.fArm=false;
 }
 
 static void tickDelay(void){
@@ -327,10 +356,11 @@ static void tickDelay(void){
 
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
+    uint8_t hist[HIST_LEN];   /* the history, on the stack: not in the overlay */
     A=api;
-    foxLocked=fArm=fLongDone=false; fHoldMs=0;
-    attStep=0; foxGraphMode=GRAPH_BAR; foxAudioMode=AUDIO_OFF;
-    prevKey=APP_KEY_INVALID;
+    g.histBuf=hist;
+    /* locks, holds, attenuator, bar gauge and audio off start zeroed (.bss) */
+    g.prevKey=APP_KEY_INVALID;
 
     loadConfig();
     A->backlight_on();
@@ -340,25 +370,25 @@ void app_main(const app_api_t *api){
     A->delay_ms(ATT_SETTLE);
     rebase();
 
-    running=true;
-    while(running){
+    g.running=true;
+    while(g.running){
         handleKeys();
-        if(!running) break;
+        if(!g.running) break;
 
-        curDbm=A->rssi_dbm();
-        if(curDbm>peakDbm) peakDbm=curDbm;
-        if(curDbm<minDbm)  minDbm=curDbm;
-        if(++trendTick>=TREND_TICKS){ trendDelta=curDbm-trendRef; trendRef=curDbm; trendTick=0; }
+        g.curDbm=A->rssi_dbm();
+        if(g.curDbm>g.peakDbm) g.peakDbm=g.curDbm;
+        if(g.curDbm<g.minDbm)  g.minDbm=g.curDbm;
+        if(++g.trendTick>=TREND_TICKS){ g.trendDelta=g.curDbm-g.trendRef; g.trendRef=g.curDbm; g.trendTick=0; }
         histSample();
 
         draw();
         A->blit_status();
         A->blit_full();
 
-        if(foxAudioMode==AUDIO_BEEP && curDbm>=SILENCE_DBM){
-            if(++audioTick>=(uint8_t)lerp(curDbm,RATE_SLOW,RATE_FAST)){ audioTick=0; blip((uint16_t)lerp(curDbm,TONE_MIN,TONE_MAX)); }
-        } else if(foxAudioMode==AUDIO_STATION){
-            A->set_af(curDbm>=SILENCE_DBM?APP_AF_FM:APP_AF_MUTE);
+        if(g.foxAudioMode==AUDIO_BEEP && g.curDbm>=SILENCE_DBM){
+            if(++g.audioTick>=(uint8_t)lerp(g.curDbm,RATE_SLOW,RATE_FAST)){ g.audioTick=0; blip((uint16_t)lerp(g.curDbm,TONE_MIN,TONE_MAX)); }
+        } else if(g.foxAudioMode==AUDIO_STATION){
+            A->set_af(g.curDbm>=SILENCE_DBM?APP_AF_FM:APP_AF_MUTE);
         }
 
         A->battery_sample();

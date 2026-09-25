@@ -48,15 +48,28 @@ a.text("T_NEXT", "NEXT")
 a.text("T_NEW_BEST", "NEW BEST!")
 a.text("T_GAME_OVER", "GAME OVER")
 a.text("T_PAUSE", "PAUSE")
-a.text("T_SCORE", "SCORE")
-a.text("T_LINES", "LINES")
-a.text("T_LEVEL", "LEVEL")
-a.text("T_BEST", "BEST")
 a.text("T_PRESS", "PRESS MENU")
+# Side-panel rows: labels (fixed stride) and, per row, its y (framebuffer
+# row), the value's x and its digits (the value is capped to that many).
+a.table("T_STAT", ["SCORE", "LINES", "LEVEL", "BEST"])
+a.u8("STAT", [24, 101, 6,
+              32, 113, 3,
+              40, 117, 2,
+              48, 101, 6])
+# The well's frame: corner brackets and a solid floor, as filled rectangles
+# (x0, y0, x1, y1) in physical coordinates.
+a.u8("FRAME", [1, 63, 67, 63,      # floor
+               1, 0, 6, 0,          # top-left bracket
+               62, 0, 67, 0,        # top-right bracket
+               1, 0, 1, 5,
+               67, 0, 67, 5,
+               1, 58, 1, 63,        # bottom brackets
+               67, 58, 67, 63])
 # Four 4x4 masks (one per rotation) for I, O, T, S, Z, J and L.
 a.u16("MASK", MASKS)
 a.u16("LINE_POINTS", [0, 100, 300, 500, 800])                  # by lines cleared
-a.u32("DECIMAL_PLACE", [100000, 10000, 1000, 100, 10, 1])
+# 10^6 first: a value of w digits is capped below DECIMAL_PLACE[6 - w].
+a.u32("DECIMAL_PLACE", [1000000, 100000, 10000, 1000, 100, 10, 1])
 a.i8("KICK", [0, -1, 1, -2, 2])                                # rotation x offsets
 title = title_screen()
 a.raw("ART_TITLE", title.pages())

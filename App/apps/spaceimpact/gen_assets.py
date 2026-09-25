@@ -48,6 +48,11 @@ def main():
     a.text("T_PRESS", "PRESS MENU")
     a.text("T_LEVEL", "LEVEL 1")         # digit patched at run time
     a.u16("PLACE", [10000, 1000, 100, 10, 1])
+    # New-game values of the app's struct globals from `mode` on, in their
+    # order (the app checks the length with a static assert): mode (ST_PLAY
+    # = 0), paused, kills, py, lives, level, missiles, spawnCd, then the tick
+    # countdowns fire, hostile, invul, banner and wait.
+    a.u8("NEW_GAME", [0, 0, 0, 30, 3, 1, 3, 0, 0, 40, 0, 50, 0])
     a.u8("POINTS", [10, 15, 40, 25])     # score per enemy type
     a.u8("SPEED", [1, 2, 1, 1])          # pixels per tick per enemy type
     for name, cols in SPRITES:

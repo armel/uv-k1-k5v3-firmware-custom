@@ -40,39 +40,50 @@
 #define BOOM            10u     /* explosion length in ticks              */
 
 enum { ST_PLAY, ST_OVER, ST_TITLE };
+/* Countdowns, all decremented once per tick. */
+enum { CD_FIRE, CD_HOSTILE, CD_INVUL, CD_BANNER, CD_WAIT, CD_COUNT };
 
-typedef struct { int16_t x; int8_t y, vx, vy; uint8_t live; } shot_t;
+/* Rows never go negative (TOP..63), so they are unsigned bytes, which Thumb-1
+ * loads with an immediate offset (signed ones need an extra step). */
+typedef struct { int16_t x; uint8_t y; int8_t vx, vy; uint8_t live; } shot_t;
 /* state: 0 free, 1 alive, >1 exploding while the counter decreases. */
-typedef struct { int16_t x; int8_t y, base; uint8_t type, hp, state, phase; } enemy_t;
+typedef struct { int16_t x; uint8_t y, base, type, hp, state, phase; } enemy_t;
 
-static const app_api_t *A;
-static enemy_t enemies[N_ENEMY];
-static shot_t shots[N_SHOT], hostile[N_HOSTILE];
-static uint32_t score;
-static uint16_t distance;
-static uint16_t frame;   /* 16-bit so the slow star layers wrap without a jump */
-static uint8_t mode, prevKey, kills;
-static uint8_t py, lives, level, missiles;
-static uint8_t fireCd, hostileCd, spawnCd, invul, banner, waitCd;
-static int16_t bossX;
-static int8_t bossY, bossDir;
-static uint8_t bossHp, bossMax;
-static bool running, paused, boss, saver;
-static char text[6];
+/* All the state in one struct: Thumb-1 code then reaches every field from a
+ * single base address (one literal per function instead of one per global),
+ * byte fields first so their offsets fit ldrb's 0..31 immediate. */
+struct globals {
+    uint8_t prevKey;
+    /* NEW_GAME's values, read whole by new_game(): same order and sizes */
+    uint8_t mode;
+    bool paused;
+    uint8_t kills, py, lives, level, missiles, spawnCd;
+    uint8_t cd[CD_COUNT];
+    uint8_t bossY, bossHp, bossMax;
+    int8_t bossDir;
+    bool running, boss, saver;
+    uint16_t distance;
+    uint16_t frame;      /* 16-bit so the slow star layers wrap without a jump */
+    int32_t bossX;       /* a word: loaded without a sign extension */
+    uint32_t score;
+    const app_api_t *api;
+    /* contiguous: new_game() clears the three pools at once */
+    enemy_t enemies[N_ENEMY];
+    shot_t shots[N_SHOT], hostile[N_HOSTILE];
+};
+static struct globals g;
+#define A (g.api)
+
+_Static_assert(ST_PLAY == 0, "NEW_GAME starts a game in ST_PLAY");
+_Static_assert(offsetof(struct globals, cd) + CD_COUNT - offsetof(struct globals, mode)
+               == NEW_GAME_LEN, "new-game fields do not match NEW_GAME");
+_Static_assert(offsetof(struct globals, saver) < 32u, "byte fields out of ldrb range");
 
 void *memset(void *dst, int value, size_t size)
 {
     uint8_t *p = dst;
     while (size--) *p++ = (uint8_t)value;
     return dst;
-}
-
-/* Text from the assets in a shared buffer, valid until the next T() call. */
-static char tbuf[TEXT_MAX];
-static char *T(uint16_t off)
-{
-    A->asset_read(off, tbuf, TEXT_MAX);
-    return tbuf;
 }
 
 static uint8_t asset_u8(uint16_t off)
@@ -87,46 +98,57 @@ static uint32_t rnd(void)
     return A->rand32() >> 8;   /* resident PRNG, seeded by the loader */
 }
 
-static void pixel(int16_t x, int16_t y)
+static void pixel(int x, int y)
 {
-    if ((uint16_t)x >= W || (uint16_t)y >= 64u) return;
+    if ((unsigned)x >= W || (unsigned)y >= 64u) return;
     uint8_t *p = y < 8 ? &A->status_line[x] : &A->fb[(y >> 3) - 1][x];
     *p |= (uint8_t)(1u << (y & 7));
 }
 
 /* Draw a column-major sprite (up to 8 rows high, LSB = top, w <= 16) read
  * from the assets at offset art. */
-static void blit(int16_t x, int16_t y, uint16_t art, uint8_t w)
+static void blit(int x, int y, uint16_t art, uint8_t w)
 {
     uint8_t cols[16];
     const uint8_t *col = cols;
     A->asset_read(art, cols, w);
     for (; w; w--, x++) {
         uint8_t v = *col++;
-        for (int16_t yy = y; v; v >>= 1, yy++)
+        for (int yy = y; v; v >>= 1, yy++)
             if (v & 1u) pixel(x, yy);
     }
 }
 
-static bool overlap(int16_t ax, int16_t ay, uint8_t aw, uint8_t ah,
-                    int16_t bx, int16_t by, uint8_t bw, uint8_t bh)
+/* A centred bold text from the assets on LCD line `line`; a non-zero digit
+ * replaces its 7th character ("LEVEL n"). */
+static void say(uint16_t off, uint8_t line, char digit)
+{
+    char buf[TEXT_MAX];
+    A->asset_read(off, buf, TEXT_MAX);
+    if (digit) buf[6] = digit;
+    A->print_bold(buf, 0, 127, line);
+}
+
+static bool overlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh)
 {
     return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 }
 
-static bool hits_player(int16_t x, int16_t y, uint8_t w, uint8_t h)
+static bool hits_player(int x, int y, int w, int h)
 {
-    return mode == ST_PLAY && overlap(x, y, w, h, PX + 1, py + 1, 8, 5);
+    return g.mode == ST_PLAY && overlap(x, y, w, h, PX + 1, g.py + 1, 8, 5);
 }
 
-static int8_t aim(int16_t y)
+static int aim(int y)
 {
-    return y < py - 1 ? 1 : (y > py + 7 ? -1 : 0);
+    return y < g.py - 1 ? 1 : (y > g.py + 7 ? -1 : 0);
 }
 
-static void number(uint32_t value, uint8_t width)
+/* `width` digits of value (at most 5, no division) in tiny type on the HUD. */
+static void hud_number(uint32_t value, uint8_t width, uint8_t x)
 {
     uint16_t place[5];
+    char buf[6];
     A->asset_read(PLACE, place, sizeof(place));
     const uint8_t first = (uint8_t)(5u - width);
     for (uint8_t i = 0; i < width; i++) {
@@ -135,76 +157,89 @@ static void number(uint32_t value, uint8_t width)
             value -= place[first + i];
             digit++;
         }
-        text[i] = (char)('0' + digit);
+        buf[i] = (char)('0' + digit);
     }
-    text[width] = 0;
+    buf[width] = 0;
+    A->print_tiny(buf, x, 1, true, true);
 }
 
-static bool add_shot(shot_t *pool, uint8_t count, int16_t x, int8_t y,
-                     int8_t vx, int8_t vy, uint8_t kind)
+static shot_t *free_shot(shot_t *pool, uint8_t count)
 {
-    for (uint8_t i = 0; i < count; i++) if (!pool[i].live) {
-        pool[i].x = x; pool[i].y = y; pool[i].vx = vx; pool[i].vy = vy;
-        pool[i].live = kind;
-        return true;
-    }
-    return false;
+    for (; count; count--, pool++)
+        if (!pool->live) return pool;
+    return NULL;
+}
+
+/* A player shot (kind 1) or missile (kind 2) from the ship's nose row. */
+static bool fire(int x, uint8_t kind)
+{
+    shot_t *s = free_shot(g.shots, N_SHOT);
+    if (!s) return false;
+    s->x = (int16_t)x; s->y = (uint8_t)(g.py + 3); s->live = kind;
+    return true;
+}
+
+static void fire_hostile(int x, int y, int vx, int vy)
+{
+    shot_t *s = free_shot(g.hostile, N_HOSTILE);
+    if (!s) return;
+    s->x = (int16_t)x; s->y = (uint8_t)y;
+    s->vx = (int8_t)vx; s->vy = (int8_t)vy; s->live = 1u;
 }
 
 /* Spawn an explosion, `delay` ticks later; recycles the last slot if full. */
-static void boom(int16_t x, int8_t y, uint8_t delay)
+static void boom(int x, int y, uint8_t delay)
 {
-    enemy_t *e = &enemies[N_ENEMY - 1u];
-    for (uint8_t i = 0; i < N_ENEMY; i++) if (!enemies[i].state) { e = &enemies[i]; break; }
-    e->x = x; e->y = y; e->state = (uint8_t)(BOOM + delay);
+    enemy_t *e = g.enemies;
+    while (e->state && e < &g.enemies[N_ENEMY - 1u]) e++;
+    e->x = (int16_t)x; e->y = (uint8_t)y; e->state = (uint8_t)(BOOM + delay);
 }
 
 static void start_level(void)
 {
-    distance = 0; banner = 50u; spawnCd = 0; boss = false;
+    g.distance = 0; g.cd[CD_BANNER] = 50u; g.spawnCd = 0; g.boss = false;
 }
 
 static void new_game(void)
 {
-    memset(enemies, 0, sizeof(enemies));
-    memset(shots, 0, sizeof(shots));
-    memset(hostile, 0, sizeof(hostile));
-    py = 30u; lives = 3u; level = 1u; missiles = 3u;
-    score = 0; kills = 0; invul = 0; fireCd = 0; hostileCd = 40u;
-    paused = false; mode = ST_PLAY;
+    memset((uint8_t *)&g + offsetof(struct globals, enemies), 0,
+           offsetof(struct globals, hostile) + sizeof(g.hostile)
+           - offsetof(struct globals, enemies));   /* the three pools */
+    A->asset_read(NEW_GAME, &g.mode, NEW_GAME_LEN);
+    g.score = 0;
     start_level();
 }
 
 static void player_hit(void)
 {
-    if (invul || mode != ST_PLAY) return;
-    boom(PX + 1, (int8_t)py, 0);
+    if (g.cd[CD_INVUL] || g.mode != ST_PLAY) return;
+    boom(PX + 1, g.py, 0);
     A->play_tone(200u, 60u);
-    memset(hostile, 0, sizeof(hostile));
-    if (--lives == 0u) { mode = ST_OVER; waitCd = 30u; return; }
-    invul = 60u; py = 30u;
+    memset(g.hostile, 0, sizeof(g.hostile));
+    if (--g.lives == 0u) { g.mode = ST_OVER; g.cd[CD_WAIT] = 30u; return; }
+    g.cd[CD_INVUL] = 60u; g.py = 30u;
 }
 
 static void kill_enemy(enemy_t *e)
 {
     e->state = BOOM;
-    score += asset_u8(POINTS + e->type);
-    if ((++kills & 15u) == 0u && missiles < 9u) missiles++;
+    g.score += asset_u8(POINTS + e->type);
+    if ((++g.kills & 15u) == 0u && g.missiles < 9u) g.missiles++;
 }
 
 static void kill_boss(void)
 {
-    boss = false;
-    score += 500u * level;
+    g.boss = false;
+    g.score += 500u * g.level;
     for (uint8_t i = 0; i < N_ENEMY; i++) {   /* bursts all over the hull */
         const uint32_t r = rnd();
-        boom(bossX + (int16_t)(r & 7u), (int8_t)(bossY + ((r >> 4) & 7u)), (uint8_t)(i * 3u));
+        boom(g.bossX + (int)(r & 7u), g.bossY + (int)((r >> 4) & 7u), (uint8_t)(i * 3u));
     }
     A->play_tone(700u, 150u);
-    memset(hostile, 0, sizeof(hostile));
-    if (level < 9u) level++;
-    if (lives < 5u) lives++;
-    if (missiles < 9u) missiles++;
+    memset(g.hostile, 0, sizeof(g.hostile));
+    if (g.level < 9u) g.level++;
+    if (g.lives < 5u) g.lives++;
+    if (g.missiles < 9u) g.missiles++;
     start_level();
 }
 
@@ -212,10 +247,10 @@ static void spawn_wave(void)
 {
     const uint32_t r = rnd();
     const uint8_t type = (uint8_t)(r & 3u);
-    const int8_t y = (int8_t)(TOP + 2 + ((r >> 8) & 31u) + ((r >> 16) & 15u));
+    const uint8_t y = (uint8_t)(TOP + 2 + ((r >> 8) & 31u) + ((r >> 16) & 15u));
     uint8_t n = type == 2u ? 1u : 3u;
     for (uint8_t i = 0, k = 0; i < N_ENEMY && k < n; i++) {
-        enemy_t *e = &enemies[i];
+        enemy_t *e = &g.enemies[i];
         if (e->state) continue;
         e->x = (int16_t)(W + k * 12u); e->y = e->base = y;
         e->type = type; e->hp = type == 2u ? 3u : 1u;
@@ -226,73 +261,73 @@ static void spawn_wave(void)
 
 static bool enemies_alive(void)
 {
-    for (uint8_t i = 0; i < N_ENEMY; i++) if (enemies[i].state == 1u) return true;
+    for (uint8_t i = 0; i < N_ENEMY; i++) if (g.enemies[i].state == 1u) return true;
     return false;
 }
 
 static void update_enemies(void)
 {
     for (uint8_t i = 0; i < N_ENEMY; i++) {
-        enemy_t *e = &enemies[i];
+        enemy_t *e = &g.enemies[i];
         if (!e->state) continue;
         if (e->state > 1u) { if (--e->state == 1u) e->state = 0; continue; }
 
         const uint8_t t = e->type;
-        int16_t y = e->y;
+        int y = e->y;
         e->phase++;
-        if (t != 2u || (frame & 1u)) e->x -= asset_u8(SPEED + t);   /* saucer: half speed */
+        if (t != 2u || (g.frame & 1u)) e->x -= asset_u8(SPEED + t);   /* saucer: half speed */
         if (t == 0u) {
             const uint8_t p = (e->phase >> 1) & 31u;
-            y = e->base - 8 + (int16_t)(p < 16u ? p : 31u - p);   /* triangle wave */
-        } else if (t == 3u && (frame & 1u)) {
+            y = e->base - 8 + (int)(p < 16u ? p : 31u - p);   /* triangle wave */
+        } else if (t == 3u && (g.frame & 1u)) {
             y += aim(y);
         }
         if (y < TOP) y = TOP;
         if (y > Y_MAX) y = Y_MAX;
-        e->y = (int8_t)y;
+        e->y = (uint8_t)y;
 
         if (e->x < -8) { e->state = 0; continue; }
         if (hits_player(e->x, e->y, 8, 7)) { kill_enemy(e); player_hit(); continue; }
-        if (!hostileCd && e->x < 118 && e->x > PX + 24) {
-            add_shot(hostile, N_HOSTILE, e->x - 1, (int8_t)(y + 3), level > 4u ? -3 : -2, aim(y), 1u);
-            hostileCd = (uint8_t)(38u - level * 3u);
+        if (!g.cd[CD_HOSTILE] && e->x < 118 && e->x > PX + 24) {
+            fire_hostile(e->x - 1, y + 3, g.level > 4u ? -3 : -2, aim(y));
+            g.cd[CD_HOSTILE] = (uint8_t)(38u - g.level * 3u);
         }
     }
 }
 
 static void update_boss(void)
 {
-    if (!boss) return;
-    if (bossX > 108) {
-        bossX--;
-    } else if ((frame & 1u) || level > 3u) {
-        bossY += bossDir;
-        if (bossY <= TOP + 1 || bossY >= Y_MAX - 9) bossDir = (int8_t)-bossDir;
+    if (!g.boss) return;
+    if (g.bossX > 108) {
+        g.bossX--;
+    } else if ((g.frame & 1u) || g.level > 3u) {
+        g.bossY = (uint8_t)(g.bossY + g.bossDir);
+        if (g.bossY <= TOP + 1 || g.bossY >= Y_MAX - 9) g.bossDir = (int8_t)-g.bossDir;
     }
-    if (!hostileCd && bossX < 116) {
-        for (int8_t vy = -1; vy <= 1; vy++)
-            add_shot(hostile, N_HOSTILE, bossX, (int8_t)(bossY + 9), -2, vy, 1u);
-        hostileCd = (uint8_t)(28u - level * 2u);
+    if (!g.cd[CD_HOSTILE] && g.bossX < 116) {
+        for (int vy = -1; vy <= 1; vy++)
+            fire_hostile(g.bossX, g.bossY + 9, -2, vy);
+        g.cd[CD_HOSTILE] = (uint8_t)(28u - g.level * 2u);
     }
-    if (hits_player(bossX + 2, bossY, 14, 16)) player_hit();
+    if (hits_player(g.bossX + 2, g.bossY, 14, 16)) player_hit();
 }
 
 static void update_shots(void)
 {
     for (uint8_t i = 0; i < N_SHOT; i++) {
-        shot_t *s = &shots[i];
+        shot_t *s = &g.shots[i];
         if (!s->live) continue;
         const bool missile = s->live == 2u;
         s->x += missile ? 3 : 4;
         if (s->x >= W) { s->live = 0; continue; }
-        if (boss && overlap(s->x, s->y, 6, 1, bossX + 1, bossY, 15, 16)) {
+        if (g.boss && overlap(s->x, s->y, 6, 1, g.bossX + 1, g.bossY, 15, 16)) {
             const uint8_t dmg = missile ? 6u : 1u;
             s->live = 0;
-            if (bossHp > dmg) bossHp -= dmg; else kill_boss();
+            if (g.bossHp > dmg) g.bossHp -= dmg; else kill_boss();
             continue;
         }
         for (uint8_t j = 0; j < N_ENEMY; j++) {
-            enemy_t *e = &enemies[j];
+            enemy_t *e = &g.enemies[j];
             if (e->state != 1u || !overlap(s->x, s->y, 6, 1, e->x, e->y, 8, 7)) continue;
             if (missile || --e->hp == 0u) kill_enemy(e);   /* missiles pierce */
             if (!missile) { s->live = 0; break; }
@@ -300,9 +335,9 @@ static void update_shots(void)
     }
 
     for (uint8_t i = 0; i < N_HOSTILE; i++) {
-        shot_t *s = &hostile[i];
+        shot_t *s = &g.hostile[i];
         if (!s->live) continue;
-        s->x += s->vx; s->y += s->vy;
+        s->x += s->vx; s->y = (uint8_t)(s->y + s->vy);
         if (s->x < -2 || s->y < TOP || s->y > 62) { s->live = 0; continue; }
         if (hits_player(s->x - 1, s->y - 1, 3, 3)) { s->live = 0; player_hit(); }
     }
@@ -310,25 +345,22 @@ static void update_shots(void)
 
 static void tick(void)
 {
-    frame++;
-    if (fireCd) fireCd--;
-    if (hostileCd) hostileCd--;
-    if (invul) invul--;
-    if (banner) banner--;
-    if (waitCd) waitCd--;
+    g.frame++;
+    for (uint8_t i = 0; i < CD_COUNT; i++)
+        if (g.cd[i]) g.cd[i]--;
 
-    if (mode == ST_PLAY && !fireCd && add_shot(shots, N_SHOT, PX + 9, (int8_t)(py + 3), 0, 0, 1u))
-        fireCd = 5u;
+    if (g.mode == ST_PLAY && !g.cd[CD_FIRE] && fire(PX + 9, 1u))
+        g.cd[CD_FIRE] = 5u;
 
-    if (!boss && !banner) {
-        if (distance < LEVEL_LEN) {
-            distance++;
-            if (spawnCd) spawnCd--;
-            else { spawn_wave(); spawnCd = (uint8_t)(52u - level * 3u + (rnd() & 31u)); }
+    if (!g.boss && !g.cd[CD_BANNER]) {
+        if (g.distance < LEVEL_LEN) {
+            g.distance++;
+            if (g.spawnCd) g.spawnCd--;
+            else { spawn_wave(); g.spawnCd = (uint8_t)(52u - g.level * 3u + (rnd() & 31u)); }
         } else if (!enemies_alive()) {
-            boss = true; bossX = W + 4; bossY = 24; bossDir = 1;
-            bossHp = bossMax = (uint8_t)(20u + level * 6u);
-            hostileCd = 30u;
+            g.boss = true; g.bossX = W + 4; g.bossY = 24; g.bossDir = 1;
+            g.bossHp = g.bossMax = (uint8_t)(20u + g.level * 6u);
+            g.cd[CD_HOSTILE] = 30u;
         }
     }
     update_enemies();
@@ -338,15 +370,15 @@ static void tick(void)
 
 static void draw_hud(void)
 {
-    for (uint8_t i = 0; i < lives; i++) blit(1 + i * 6, 1, SPR_HEART, 5);
+    for (uint8_t i = 0; i < g.lives; i++) blit(1 + i * 6, 1, SPR_HEART, 5);
     blit(33, 1, SPR_MISS, 8);
-    number(missiles, 1); A->print_tiny(text, 43, 1, true, true);
-    number(score > 99999u ? 99999u : score, 5); A->print_tiny(text, 107, 1, true, true);
+    hud_number(g.missiles, 1, 43);
+    hud_number(g.score > 99999u ? 99999u : g.score, 5, 107);
     for (uint8_t x = 0; x < W; x += 2u) pixel(x, 8);
-    if (boss) {
+    if (g.boss) {
         A->draw_rect((app_fb_t)A->status_line, 49, 1, 90, 5, true);
         for (uint8_t x = 0; x < 38u; x++)
-            if ((uint16_t)x * bossMax < 38u * bossHp) pixel(51 + x, 3);
+            if ((uint16_t)x * g.bossMax < 38u * g.bossHp) pixel(51 + x, 3);
     }
 }
 
@@ -357,10 +389,10 @@ static void draw_stars(void)
 {
     for (uint8_t i = 0; i < 16u; i++) {
         const uint8_t sh = (uint8_t)((0x1Au >> ((i & 3u) * 2u)) & 3u);   /* 2,2,1,0 */
-        const uint16_t pos = (uint16_t)(i * 53u + (frame >> sh));
+        const uint16_t pos = (uint16_t)(i * 53u + (g.frame >> sh));
         const uint8_t h = (uint8_t)((pos >> 7) * 29u + i * 71u);
-        const int16_t x = (int16_t)(127u - (pos & 127u));
-        const int16_t y = (int16_t)(TOP + 2 + ((h * 40u) >> 8));
+        const int x = (int)(127u - (pos & 127u));
+        const int y = (int)(TOP + 2 + ((h * 40u) >> 8));
         pixel(x, y);
         if (!sh) pixel(x + 1, y);
     }
@@ -372,7 +404,7 @@ static void draw_stars(void)
 static void draw_ground(void)
 {
     for (uint8_t x = 0; x < W; x++) {
-        const uint8_t wx = (uint8_t)(x + frame);
+        const uint8_t wx = (uint8_t)(x + g.frame);
         const uint8_t a = wx & 127u, b = (wx + 2u) & 31u;   /* offset: steps never coincide */
         const uint8_t y = (uint8_t)(62u - ((a < 64u ? a : 127u - a) >> 4)
                                         - ((b < 16u ? b : 31u - b) >> 2));
@@ -390,89 +422,78 @@ static void draw(void)
     draw_ground();
 
     for (uint8_t i = 0; i < N_ENEMY; i++) {
-        const enemy_t *e = &enemies[i];
-        if (e->state == 1u && !(e->type == 2u && e->hp < 3u && (frame & 2u)))   /* hurt saucer blinks */
+        const enemy_t *e = &g.enemies[i];
+        if (e->state == 1u && !(e->type == 2u && e->hp < 3u && (g.frame & 2u)))   /* hurt saucer blinks */
             blit(e->x, e->y, SPR_ENEMY + e->type * 8u, 8);
         else if (e->state > 1u && e->state <= BOOM)
             blit(e->x, e->y, SPR_BOOM + (e->state > 5u ? 0u : 8u), 8);
     }
-    if (boss) {
-        const uint16_t spr = SPR_BOSS + ((level & 1u) ? 0u : 32u);   /* alternate bosses */
-        blit(bossX, bossY, spr, 16);
-        blit(bossX, bossY + 8, spr + 16u, 16);
+    if (g.boss) {
+        const uint16_t spr = SPR_BOSS + ((g.level & 1u) ? 0u : 32u);   /* alternate bosses */
+        blit(g.bossX, g.bossY, spr, 16);
+        blit(g.bossX, g.bossY + 8, spr + 16u, 16);
     }
-    if (mode == ST_PLAY && !(invul & 2u)) blit(PX, py, SPR_SHIP, 10);
+    if (g.mode == ST_PLAY && !(g.cd[CD_INVUL] & 2u)) blit(PX, g.py, SPR_SHIP, 10);
 
     for (uint8_t i = 0; i < N_SHOT; i++) {
-        const shot_t *s = &shots[i];
+        const shot_t *s = &g.shots[i];
         if (s->live == 2u) blit(s->x, s->y - 2, SPR_MISS, 8);
         else if (s->live) for (uint8_t k = 0; k < 4u; k++) pixel(s->x + k, s->y);
     }
     for (uint8_t i = 0; i < N_HOSTILE; i++) {
-        const shot_t *s = &hostile[i];
+        const shot_t *s = &g.hostile[i];
         if (!s->live) continue;
         pixel(s->x, s->y - 1); pixel(s->x, s->y + 1);
         pixel(s->x - 1, s->y); pixel(s->x, s->y); pixel(s->x + 1, s->y);
     }
 
     draw_hud();
-    if (mode == ST_OVER) {
-        A->print_bold(T(T_GAME_OVER), 0, 127, 3);
-    } else if (paused) {
-        A->print_bold(T(T_PAUSE), 0, 127, 3);
-    } else if (banner > 10u) {
-        char *t = T(T_LEVEL);
-        t[6] = (char)('0' + level);   /* "LEVEL n" */
-        A->print_bold(t, 0, 127, 3);
-    }
+    if (g.mode == ST_OVER)
+        say(T_GAME_OVER, 3u, 0);
+    else if (g.paused)
+        say(T_PAUSE, 3u, 0);
+    else if (g.cd[CD_BANNER] > 10u)
+        say(T_LEVEL, 3u, (char)('0' + g.level));   /* "LEVEL n" */
 }
 
 /* Title: the 1 KiB picture is streamed from the assets into the LCD buffers
  * every frame, the starfield scrolls over it and the prompt blinks. */
 static void draw_title(void)
 {
-    frame++;
+    g.frame++;
     A->asset_read(ART_TITLE, A->status_line, W);
     A->asset_read(ART_TITLE + W, A->fb[0], 7u * W);
     draw_stars();
-    if (frame & 16u)
-        A->print_bold(T(T_PRESS), 0, 127, 6);
-}
-
-static void move_player(int8_t dy)
-{
-    int16_t ny = py + dy;
-    if (ny < TOP) ny = TOP;
-    if (ny > Y_MAX) ny = Y_MAX;
-    py = (uint8_t)ny;
+    if (g.frame & 16u)
+        say(T_PRESS, 6u, 0);
 }
 
 static void poll_key(void)
 {
     uint8_t key = A->get_key();
-    if (key == APP_KEY_SAVER) { saver = true; return; }   /* freeze behind the saver */
-    if (key == APP_KEY_WAKE || key == APP_KEY_PTT) { saver = false; key = APP_KEY_INVALID; }
-    const bool press = key != prevKey;
+    if (key == APP_KEY_SAVER) { g.saver = true; return; }   /* freeze behind the saver */
+    if (key == APP_KEY_WAKE || key == APP_KEY_PTT) { g.saver = false; key = APP_KEY_INVALID; }
+    const bool press = key != g.prevKey;
     const bool action = key == APP_KEY_5 || key == APP_KEY_MENU;
-    prevKey = key;
+    g.prevKey = key;
     if (key == APP_KEY_INVALID) return;
-    if (press && key == APP_KEY_EXIT) { running = false; return; }
+    if (press && key == APP_KEY_EXIT) { g.running = false; return; }
 
-    if (mode != ST_PLAY) {
-        if (press && key == APP_KEY_MENU && !waitCd) new_game();
+    if (g.mode != ST_PLAY) {
+        if (press && key == APP_KEY_MENU && !g.cd[CD_WAIT]) new_game();
         return;
     }
-    if (press && key == APP_KEY_F) { paused = !paused; return; }
-    if (paused) return;
+    if (press && key == APP_KEY_F) { g.paused = !g.paused; return; }
+    if (g.paused) return;
     if (action) {
-        if (press && missiles && add_shot(shots, N_SHOT, PX + 4, (int8_t)(py + 3), 0, 0, 2u))
-            missiles--;
-    } else if (key == APP_KEY_2) {
-        move_player(-2);
-    } else if (key == APP_KEY_8) {
-        move_player(2);
-    } else {
-        move_player((int8_t)(-2 * A->nav_dir(key)));   /* 0 for any other key */
+        if (press && g.missiles && fire(PX + 4, 2u))
+            g.missiles--;
+    } else {   /* 2/8, UP/DOWN; 0 for any other key */
+        const int dy = key == APP_KEY_2 ? -2 : key == APP_KEY_8 ? 2 : -2 * A->nav_dir(key);
+        int ny = g.py + dy;
+        if (ny < TOP) ny = TOP;
+        if (ny > Y_MAX) ny = Y_MAX;
+        g.py = (uint8_t)ny;
     }
 }
 
@@ -480,18 +501,20 @@ __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
     A = api;
-    running = true; paused = false;
-    prevKey = A->get_key();
+    g.running = true;   /* the rest of g starts zeroed (.bss) */
+    g.prevKey = A->get_key();
     A->led(false); A->backlight_on();
-    mode = ST_TITLE;   /* MENU starts a game, like after GAME OVER */
+    g.mode = ST_TITLE;   /* MENU starts a game, like after GAME OVER */
 
-    while (running) {
+    while (g.running) {
         poll_key();
-        if (!running) break;
-        if (saver) { A->backlight_update(); A->delay_ms(TICK_MS); continue; }
-        if (mode == ST_TITLE) draw_title();
-        else { if (!paused) tick(); draw(); }
-        A->blit_status(); A->blit_full(); A->backlight_update();
+        if (!g.running) break;
+        if (!g.saver) {   /* the saver freezes the game */
+            if (g.mode == ST_TITLE) draw_title();
+            else { if (!g.paused) tick(); draw(); }
+            A->blit_status(); A->blit_full();
+        }
+        A->backlight_update();
         A->delay_ms(TICK_MS);
     }
 

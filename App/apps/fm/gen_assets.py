@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Broadcast FM read-only assets: texts, band names and the F icon.
+# Broadcast FM read-only assets: texts, band names, the F icon and the
+# decimal places.
 #
 #   ./gen_assets.py fm_assets.bin fm_assets.h
 import os, sys
@@ -19,4 +20,5 @@ a.text("T_VFO_CH", "VFO(CH")
 a.text("T_CH", "CH-")
 a.table("BAND_NAME", ["87.5-108M", "76-108M", "76-90M", "64-76M"])   # by band 0..3
 a.u8("BMP_F", [0x3e,0x7f,0x41,0x75,0x75,0x75,0x7d,0x7f,0x3e])
+a.u16("PLACE", [1000, 100, 10, 1])    # decimal places: numbers without division
 a.main()

@@ -42,9 +42,6 @@
 #define CELL            4
 #define WELL_X          3       /* physical x of board column 0              */
 #define WELL_Y          0       /* physical y of visible row 0 (full height) */
-#define WELL_L          1       /* container left rail  (corner brackets)    */
-#define WELL_R         67       /* container right rail (corner brackets)    */
-#define WELL_B         63       /* solid floor line, physical y              */
 #define LABEL_X        72       /* left column shared by every panel label   */
 #define PREVIEW_CX    108       /* centre of the NEXT-piece preview area      */
 #define PREVIEW_CY     15
@@ -57,7 +54,28 @@ typedef struct {
     uint32_t best;
 } config_t;
 
-static const app_api_t *A;
+/* All the state in one struct: Thumb-1 code then reaches every field from a
+ * single base address (one literal per function instead of one per global),
+ * byte fields first so their offsets fit ldrb's 0..31 immediate. */
+struct globals {
+    uint8_t previousKey, titleTick, level, bagPos, piece, nextPiece, rotation;
+    bool running, title, bestDirty;
+    /* cleared by new_game(), from paused to board */
+    bool paused, gameOver, saverPaused, saverActive, newBest;
+    uint16_t lines, gravityMs;
+    uint32_t score;
+    uint16_t board[ROWS];
+    /* end of the new_game() block */
+    uint16_t repeatMs;
+    int32_t pieceX, pieceY;   /* words: loaded without a sign extension */
+    uint32_t best;
+    const app_api_t *api;
+    uint8_t bag[7];
+};
+static struct globals g;
+#define A (g.api)
+
+_Static_assert(offsetof(struct globals, newBest) < 32u, "byte fields out of ldrb range");
 
 /* GCC may lower aggregate clears to memset even for this freestanding blob. */
 void *memset(void *dst, int value, size_t size)
@@ -68,21 +86,9 @@ void *memset(void *dst, int value, size_t size)
     return dst;
 }
 
-/* Texts, piece masks, scoring, decimal places and wall kicks are read-only
- * assets (gen_assets.py), fetched from external flash when needed. */
-
-static uint16_t board[ROWS];
-static uint8_t bag[7], bagPos;
-static uint8_t piece, nextPiece, rotation;
-static int8_t  pieceX, pieceY;
-static uint32_t score, best;
-static uint16_t lines, gravityMs;
-static uint8_t level;
-static bool paused, gameOver, running, saverPaused, saverActive, bestDirty, newBest, title;
-static uint8_t titleTick;
-static uint8_t previousKey;
-static uint16_t repeatMs;
-static char text[9];
+/* Texts, piece masks, scoring, decimal places, wall kicks, the side panel
+ * rows and the well frame are read-only assets (gen_assets.py), fetched from
+ * external flash when needed. */
 
 static void render(bool showPiece, uint32_t clearRows, uint8_t effect);
 static void new_game(void);
@@ -90,14 +96,6 @@ static void new_game(void);
 /* -------------------------------------------------------------------------- */
 /*  RNG and the shuffled 7-piece bag                                          */
 /* -------------------------------------------------------------------------- */
-
-/* Text from the assets in a shared buffer, valid until the next T() call. */
-static char tbuf[TEXT_MAX];
-static char *T(uint16_t off)
-{
-    A->asset_read(off, tbuf, TEXT_MAX);
-    return tbuf;
-}
 
 /* 4x4 occupancy mask of a piece in a rotation (bit i = cell (i & 3, i >> 2)). */
 static uint16_t mask_of(uint8_t type, uint8_t rot)
@@ -110,29 +108,29 @@ static uint16_t mask_of(uint8_t type, uint8_t rot)
 static void refill_bag(void)
 {
     for (uint8_t i = 0; i < 7u; i++)
-        bag[i] = i;
+        g.bag[i] = i;
     for (uint8_t i = 6u; i > 0u; i--) {
         uint8_t j;
         do {
             j = (uint8_t)(A->rand32() >> 29);   /* resident PRNG, seeded by the loader */
         } while (j > i);
-        const uint8_t t = bag[i]; bag[i] = bag[j]; bag[j] = t;
+        const uint8_t t = g.bag[i]; g.bag[i] = g.bag[j]; g.bag[j] = t;
     }
-    bagPos = 0;
+    g.bagPos = 0;
 }
 
 static uint8_t take_piece(void)
 {
-    if (bagPos >= 7u)
+    if (g.bagPos >= 7u)
         refill_bag();
-    return bag[bagPos++];
+    return g.bag[g.bagPos++];
 }
 
 /* -------------------------------------------------------------------------- */
 /*  Framebuffer drawing: cells, pieces, side panel and dialogs                */
 /* -------------------------------------------------------------------------- */
 
-static void set_pixel(int x, int y, bool on)
+static void set_pixel(int x, int y)
 {
     if ((unsigned)x >= W || (unsigned)y >= H)
         return;
@@ -141,32 +139,20 @@ static void set_pixel(int x, int y, bool on)
         p = &A->status_line[x];
     else
         p = &A->fb[(y >> 3) - 1][x];
-    const uint8_t bit = (uint8_t)(1u << (y & 7));
-    if (on) *p |= bit; else *p &= (uint8_t)~bit;
+    *p |= (uint8_t)(1u << (y & 7));
 }
 
-/* Short straight runs, in physical coordinates so they may cross the
- * status-line / framebuffer seam that A->draw_line cannot. */
-static void hline(int x0, int x1, int y)
-{
-    for (int x = x0; x <= x1; x++) set_pixel(x, y, true);
-}
-
-static void vline(int x, int y0, int y1)
-{
-    for (int y = y0; y <= y1; y++) set_pixel(x, y, true);
-}
-
-/* Corner brackets plus a solid floor — the well's frame, no vertical walls. */
+/* Corner brackets plus a solid floor — the well's frame, no vertical walls:
+ * filled rectangles from the FRAME asset, in physical coordinates so they may
+ * cross the status-line / framebuffer seam that A->draw_line cannot. */
 static void container(void)
 {
-    hline(WELL_L, WELL_R, WELL_B);
-    hline(WELL_L, WELL_L + 5, WELL_Y);
-    hline(WELL_R - 5, WELL_R, WELL_Y);
-    vline(WELL_L, WELL_Y, WELL_Y + 5);
-    vline(WELL_R, WELL_Y, WELL_Y + 5);
-    vline(WELL_L, WELL_B - 5, WELL_B);
-    vline(WELL_R, WELL_B - 5, WELL_B);
+    uint8_t r[FRAME_LEN];
+    A->asset_read(FRAME, r, sizeof(r));
+    for (uint8_t i = 0; i < FRAME_LEN; i += 4u)
+        for (int x = r[i]; x <= r[i + 2u]; x++)
+            for (int y = r[i + 1u]; y <= r[i + 3u]; y++)
+                set_pixel(x, y);
 }
 
 static void cell(int gx, int gy, uint8_t style)
@@ -177,19 +163,19 @@ static void cell(int gx, int gy, uint8_t style)
     const int x = WELL_X + gx * CELL;
     const int y = WELL_Y + visibleY * CELL;
     if (style == 2u) {
-        set_pixel(x, y + 1, true);
-        set_pixel(x + 1, y, true);
-        set_pixel(x + 2, y + 1, true);
-        set_pixel(x + 1, y + 2, true);
+        set_pixel(x, y + 1);
+        set_pixel(x + 1, y);
+        set_pixel(x + 2, y + 1);
+        set_pixel(x + 1, y + 2);
     } else {
         const uint8_t size = style == 3u ? CELL : CELL - 1u;
         for (uint8_t dy = 0; dy < size; dy++)
             for (uint8_t dx = 0; dx < size; dx++)
-                set_pixel(x + dx, y + dy, true);
+                set_pixel(x + dx, y + dy);
     }
 }
 
-static bool collision(uint8_t type, uint8_t rot, int8_t px, int8_t py)
+static bool collision(uint8_t type, uint8_t rot, int px, int py)
 {
     const uint16_t mask = mask_of(type, rot);
     for (uint8_t i = 0; i < 16u; i++) {
@@ -199,13 +185,13 @@ static bool collision(uint8_t type, uint8_t rot, int8_t px, int8_t py)
         const int y = py + (i >> 2);
         if (x < 0 || x >= COLS || y >= ROWS)
             return true;
-        if (y >= 0 && (board[y] & (uint16_t)(1u << x)))
+        if (y >= 0 && (g.board[y] & (uint16_t)(1u << x)))
             return true;
     }
     return false;
 }
 
-static void draw_piece(uint8_t type, uint8_t rot, int8_t px, int8_t py, uint8_t style)
+static void draw_piece(uint8_t type, uint8_t rot, int px, int py, uint8_t style)
 {
     const uint16_t mask = mask_of(type, rot);
     for (uint8_t i = 0; i < 16u; i++)
@@ -213,27 +199,31 @@ static void draw_piece(uint8_t type, uint8_t rot, int8_t px, int8_t py, uint8_t 
             cell(px + (i & 3u), py + (i >> 2), style);
 }
 
-static void number(uint32_t value, uint8_t width)
+/* `width` digits of value into buf, capped at the largest width-digit number
+ * (no division: DECIMAL_PLACE holds 10^6 down to 1). */
+static void number(char *buf, uint32_t value, uint8_t width)
 {
-    const uint8_t first = (uint8_t)(6u - width);
+    uint32_t place[DECIMAL_PLACE_LEN / 4u];
+    A->asset_read(DECIMAL_PLACE, place, sizeof(place));
+    const uint8_t first = (uint8_t)(7u - width);
+    if (value >= place[first - 1u])
+        value = place[first - 1u] - 1u;
     for (uint8_t i = 0; i < width; i++) {
-        uint32_t place;
-        A->asset_read(DECIMAL_PLACE + (first + i) * 4u, &place, sizeof(place));
         uint8_t digit = 0;
-        while (value >= place) {
-            value -= place;
+        while (value >= place[first + i]) {
+            value -= place[first + i];
             digit++;
         }
-        text[i] = (char)('0' + digit);
+        buf[i] = (char)('0' + digit);
     }
-    text[width] = 0;
+    buf[width] = 0;
 }
 
 static void preview(void)
 {
-    const uint16_t mask = mask_of(nextPiece, 0);
-    const int ox = nextPiece < 2u ? PREVIEW_CX - 7 : PREVIEW_CX - 5;
-    const int oy = nextPiece == 0u ? PREVIEW_CY - 5 : PREVIEW_CY - 3;
+    const uint16_t mask = mask_of(g.nextPiece, 0);
+    const int ox = g.nextPiece < 2u ? PREVIEW_CX - 7 : PREVIEW_CX - 5;
+    const int oy = g.nextPiece == 0u ? PREVIEW_CY - 5 : PREVIEW_CY - 3;
     for (uint8_t i = 0; i < 16u; i++) {
         if (!(mask & (uint16_t)(1u << i)))
             continue;
@@ -241,56 +231,61 @@ static void preview(void)
         const int y = oy + (i >> 2) * CELL;
         for (uint8_t dy = 0; dy < CELL - 1u; dy++)
             for (uint8_t dx = 0; dx < CELL - 1u; dx++)
-                set_pixel(x + dx, y + dy, true);
+                set_pixel(x + dx, y + dy);
     }
-}
-
-/* One "LABEL      value" row of the side panel; y is framebuffer-relative
- * (physical y - 8), value right-aligned near the screen edge. */
-static void stat(const char *label, uint8_t y, uint32_t value,
-                 uint8_t valueX, uint8_t width)
-{
-    A->print_tiny(label, LABEL_X, y, false, true);
-    number(value, width);
-    A->print_tiny(text, valueX, y, false, true);
 }
 
 static void panel(void)
 {
-    A->print_tiny(T(T_NEXT), LABEL_X, 2, false, true);
+    char buf[TEXT_MAX];
+    uint8_t row[STAT_LEN];   /* per row: y (framebuffer row), value x, digits */
+    const uint32_t value[4] = { g.score, g.lines, g.level, g.best };
+
+    A->asset_read(T_NEXT, buf, TEXT_MAX);
+    A->print_tiny(buf, LABEL_X, 2, false, true);
     preview();
-    if (gameOver)
-        A->print_inverse(T(newBest ? T_NEW_BEST : T_GAME_OVER), 82, 2, false, true, 118);
-    else if (paused)
-        A->print_inverse(T(T_PAUSE), 90, 2, false, true, 110);
-    stat(T(T_SCORE), 24, score > 999999u ? 999999u : score, 101, 6);
-    stat(T(T_LINES), 32, lines >    999u ? 999u    : lines, 113, 3);
-    stat(T(T_LEVEL), 40, level,                             117, 2);
-    stat(T(T_BEST),  48, best  > 999999u ? 999999u : best,  101, 6);
+    if (g.gameOver || g.paused) {
+        const bool over = g.gameOver;
+        A->asset_read(over ? (g.newBest ? T_NEW_BEST : T_GAME_OVER) : T_PAUSE, buf, TEXT_MAX);
+        A->print_inverse(buf, over ? 82 : 90, 2, false, true, over ? 118 : 110);
+    }
+
+    /* "LABEL      value" rows; y is framebuffer-relative (physical y - 8),
+     * the value right-aligned near the screen edge */
+    A->asset_read(STAT, row, sizeof(row));
+    for (uint8_t i = 0; i < 4u; i++) {
+        const uint8_t *r = &row[i * 3u];
+        A->asset_read(T_STAT + i * T_STAT_STRIDE, buf, TEXT_MAX);
+        A->print_tiny(buf, LABEL_X, r[0], false, true);
+        number(buf, value[i], r[2]);
+        A->print_tiny(buf, r[1], r[0], false, true);
+    }
 }
 
 /* effect 0 is normal, 1..8 is the line-clear sweep, 0xFF flashes a lock. */
 static void render(bool showPiece, uint32_t clearRows, uint8_t effect)
 {
+    char buf[TEXT_MAX];
     A->display_clear();
     A->status_clear();
-    A->print_inverse(T(T_TETRIS), 74, 0, true, true, 101);
+    A->asset_read(T_TETRIS, buf, TEXT_MAX);
+    A->print_inverse(buf, 74, 0, true, true, 101);
 
     container();
 
     for (uint8_t y = 0; y < ROWS; y++)
         for (uint8_t x = 0; x < COLS; x++)
-            if ((board[y] & (uint16_t)(1u << x)) && (!(clearRows & (1u << y)) ||
+            if ((g.board[y] & (uint16_t)(1u << x)) && (!(clearRows & (1u << y)) ||
                 (x >= effect && x < COLS - effect)))
                 cell(x, y, 1u);
 
-    if (showPiece && !gameOver) {
-        int8_t ghostY = pieceY;
-        while (!collision(piece, rotation, pieceX, ghostY + 1))
+    if (showPiece && !g.gameOver) {
+        int ghostY = g.pieceY;
+        while (!collision(g.piece, g.rotation, g.pieceX, ghostY + 1))
             ghostY++;
-        if (ghostY != pieceY)
-            draw_piece(piece, rotation, pieceX, ghostY, 2u);
-        draw_piece(piece, rotation, pieceX, pieceY, effect == 0xFFu ? 3u : 1u);
+        if (ghostY != g.pieceY)
+            draw_piece(g.piece, g.rotation, g.pieceX, ghostY, 2u);
+        draw_piece(g.piece, g.rotation, g.pieceX, g.pieceY, effect == 0xFFu ? 3u : 1u);
     }
 
     panel();
@@ -302,10 +297,10 @@ static void render(bool showPiece, uint32_t clearRows, uint8_t effect)
 
 static void update_best(void)
 {
-    if (score > best) {
-        best = score;
-        bestDirty = true;
-        newBest = true;
+    if (g.score > g.best) {
+        g.best = g.score;
+        g.bestDirty = true;
+        g.newBest = true;
     }
 }
 
@@ -314,7 +309,7 @@ static uint8_t clear_lines(void)
     uint32_t full = 0;
     uint8_t count = 0;
     for (uint8_t y = 0; y < ROWS; y++) {
-        if (board[y] == 0xFFFFu) { full |= 1u << y; count++; }
+        if (g.board[y] == 0xFFFFu) { full |= 1u << y; count++; }
     }
     if (!count)
         return 0;
@@ -326,16 +321,16 @@ static uint8_t clear_lines(void)
     }
     A->led(false);
 
-    int8_t dst = ROWS - 1;
-    for (int8_t src = ROWS - 1; src >= 0; src--) {
+    int dst = ROWS - 1;
+    for (int src = ROWS - 1; src >= 0; src--) {
         if (full & (1u << src))
             continue;
         if (dst != src)
-            board[dst] = board[src];
+            g.board[dst] = g.board[src];
         dst--;
     }
     while (dst >= 0) {
-        board[dst] = 0;
+        g.board[dst] = 0;
         dst--;
     }
     return count;
@@ -343,13 +338,13 @@ static uint8_t clear_lines(void)
 
 static void spawn_piece(void)
 {
-    piece = nextPiece;
-    nextPiece = take_piece();
-    rotation = 0;
-    pieceX = COLS / 2 - 2;
-    pieceY = HIDDEN_ROWS - 1;
-    if (collision(piece, rotation, pieceX, pieceY)) {
-        gameOver = true;
+    g.piece = g.nextPiece;
+    g.nextPiece = take_piece();
+    g.rotation = 0;
+    g.pieceX = COLS / 2 - 2;
+    g.pieceY = HIDDEN_ROWS - 1;
+    if (collision(g.piece, g.rotation, g.pieceX, g.pieceY)) {
+        g.gameOver = true;
         update_best();
     }
 }
@@ -359,38 +354,38 @@ static void lock_piece(void)
     render(true, 0, 0xFFu);
     A->blit_status(); A->blit_full(); A->delay_ms(45);
 
-    const uint16_t mask = mask_of(piece, rotation);
+    const uint16_t mask = mask_of(g.piece, g.rotation);
     bool above = false;
     for (uint8_t i = 0; i < 16u; i++) {
         if (!(mask & (uint16_t)(1u << i)))
             continue;
-        const int x = pieceX + (i & 3u);
-        const int y = pieceY + (i >> 2);
+        const int x = g.pieceX + (i & 3u);
+        const int y = g.pieceY + (i >> 2);
         if (y < HIDDEN_ROWS) above = true;
-        else board[y] |= (uint16_t)(1u << x);
+        else g.board[y] |= (uint16_t)(1u << x);
     }
     if (above) {
-        gameOver = true;
+        g.gameOver = true;
         update_best();
         return;
     }
 
     const uint8_t cleared = clear_lines();
-    lines = (uint16_t)(lines + cleared);
-    while (level < 15u && lines >= (uint16_t)level * 10u)
-        level++;
+    g.lines = (uint16_t)(g.lines + cleared);
+    while (g.level < 15u && g.lines >= (uint16_t)g.level * 10u)
+        g.level++;
     uint16_t points;
     A->asset_read(LINE_POINTS + cleared * 2u, &points, sizeof(points));
-    score += (uint32_t)points * level;
+    g.score += (uint32_t)points * g.level;
     update_best();
     spawn_piece();
 }
 
 static bool move_down(bool manual)
 {
-    if (!collision(piece, rotation, pieceX, pieceY + 1)) {
-        pieceY++;
-        if (manual) { score++; update_best(); }
+    if (!collision(g.piece, g.rotation, g.pieceX, g.pieceY + 1)) {
+        g.pieceY++;
+        if (manual) { g.score++; update_best(); }
         return true;
     }
     lock_piece();
@@ -399,25 +394,25 @@ static bool move_down(bool manual)
 
 static void rotate_piece(void)
 {
-    const uint8_t next = (uint8_t)((rotation + 1u) & 3u);
+    const uint8_t next = (uint8_t)((g.rotation + 1u) & 3u);
     int8_t kick[KICK_LEN];
     A->asset_read(KICK, kick, sizeof(kick));
     for (uint8_t i = 0; i < 5u; i++)
-        if (!collision(piece, next, pieceX + kick[i], pieceY)) {
-            pieceX += kick[i]; rotation = next; return;
+        if (!collision(g.piece, next, g.pieceX + kick[i], g.pieceY)) {
+            g.pieceX += kick[i]; g.rotation = next; return;
         }
-    if (!collision(piece, next, pieceX, pieceY - 1)) {
-        pieceY--; rotation = next;
+    if (!collision(g.piece, next, g.pieceX, g.pieceY - 1)) {
+        g.pieceY--; g.rotation = next;
     }
 }
 
 static void hard_drop(void)
 {
     uint8_t distance = 0;
-    while (!collision(piece, rotation, pieceX, pieceY + 1)) {
-        pieceY++; distance++;
+    while (!collision(g.piece, g.rotation, g.pieceX, g.pieceY + 1)) {
+        g.pieceY++; distance++;
     }
-    score += (uint32_t)distance * 2u;
+    g.score += (uint32_t)distance * 2u;
     update_best();
     lock_piece();
 }
@@ -430,39 +425,37 @@ static void hard_drop(void)
  * with a blinking prompt on the blank bottom page. */
 static void draw_title(void)
 {
-    titleTick++;
+    g.titleTick++;
     A->asset_read(ART_TITLE, A->status_line, W);
     A->asset_read(ART_TITLE + W, A->fb[0], 7u * W);
-    if (titleTick & 32u)
-        A->print_bold(T(T_PRESS), 0, W - 1, 6);
+    if (g.titleTick & 32u) {
+        char buf[TEXT_MAX];
+        A->asset_read(T_PRESS, buf, TEXT_MAX);
+        A->print_bold(buf, 0, W - 1, 6);
+    }
 }
 
 static void key_action(uint8_t key, bool repeat)
 {
-    if (key == APP_KEY_EXIT) { running = false; return; }
-    if (title) {   /* the game-over restart keys also leave the title */
+    if (key == APP_KEY_EXIT) { g.running = false; return; }
+    if (g.title || g.gameOver) {   /* the game-over restart keys also leave the title */
         if (!repeat && (key == APP_KEY_MENU || key == APP_KEY_STAR || key == APP_KEY_0)) {
-            title = false;
+            g.title = false;
             new_game();
         }
         return;
     }
-    if (gameOver) {
-        if (!repeat && (key == APP_KEY_MENU || key == APP_KEY_STAR || key == APP_KEY_0))
-            new_game();
-        return;
-    }
-    if (!repeat && key == APP_KEY_F) { paused = !paused; return; }
-    if (paused)
+    if (!repeat && key == APP_KEY_F) { g.paused = !g.paused; return; }
+    if (g.paused)
         return;
 
-    int8_t direction = 0;
+    int direction = 0;
     if (key == APP_KEY_4) direction = -1;
     else if (key == APP_KEY_6) direction = 1;
     else if (key == APP_KEY_UP || key == APP_KEY_DOWN) direction = A->nav_dir(key);
     if (direction) {
-        if (!collision(piece, rotation, pieceX + direction, pieceY))
-            pieceX += direction;
+        if (!collision(g.piece, g.rotation, g.pieceX + direction, g.pieceY))
+            g.pieceX += direction;
         return;
     }
     if (key == APP_KEY_8) { move_down(true); return; }
@@ -476,102 +469,92 @@ static void poll_key(void)
 {
     uint8_t key = A->get_key();
     if (key == APP_KEY_SAVER) {
-        if (!paused && !gameOver) { paused = true; saverPaused = true; }
-        saverActive = true;
-        previousKey = APP_KEY_INVALID;
-        repeatMs = 0;
+        if (!g.paused && !g.gameOver) { g.paused = true; g.saverPaused = true; }
+        g.saverActive = true;
+        g.previousKey = APP_KEY_INVALID;
+        g.repeatMs = 0;
         return;
     }
     if (key == APP_KEY_WAKE || key == APP_KEY_PTT) {
-        if (saverPaused) paused = false;
-        saverPaused = false;
-        saverActive = false;
+        if (g.saverPaused) g.paused = false;
+        g.saverPaused = false;
+        g.saverActive = false;
         key = APP_KEY_INVALID;
     }
     if (key == APP_KEY_INVALID) {
-        previousKey = key;
-        repeatMs = 0;
+        g.previousKey = key;
+        g.repeatMs = 0;
         return;
     }
-    if (key != previousKey) {
+    if (key != g.previousKey) {
         key_action(key, false);
-        repeatMs = 260u;
-    } else if (repeatMs > TICK_MS) {
-        repeatMs -= TICK_MS;
+        g.repeatMs = 260u;
+    } else if (g.repeatMs > TICK_MS) {
+        g.repeatMs -= TICK_MS;
     } else {
         key_action(key, true);
-        repeatMs = 80u;
+        g.repeatMs = 80u;
     }
-    previousKey = key;
+    g.previousKey = key;
 }
 
 static void new_game(void)
 {
-    for (uint8_t y = 0; y < ROWS; y++)
-        board[y] = 0;
-    score = 0;
-    lines = 0;
-    level = 1;
-    gravityMs = 0;
-    paused = false;
-    gameOver = false;
-    saverPaused = false;
-    saverActive = false;
-    newBest = false;
-    bagPos = 7;
-    nextPiece = take_piece();
+    /* paused, gameOver, saverPaused, saverActive, newBest, lines, gravityMs,
+       score and the board, all cleared at once */
+    memset((uint8_t *)&g + offsetof(struct globals, paused), 0,
+           offsetof(struct globals, board) + sizeof(g.board)
+           - offsetof(struct globals, paused));
+    g.level = 1;
+    g.bagPos = 7;
+    g.nextPiece = take_piece();
     spawn_piece();
 }
 
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
-    A = api;
     config_t cfg;
+    A = api;
     A->cfg_load((uint8_t *)&cfg, sizeof(cfg));
-    best = cfg.magic == CFG_MAGIC && cfg.version == 1u ? cfg.best : 0u;
-    bestDirty = false;
+    g.best = cfg.magic == CFG_MAGIC && cfg.version == 1u ? cfg.best : 0u;
 
-    previousKey = APP_KEY_INVALID;
-    repeatMs = 0;
-    running = true;
+    g.previousKey = APP_KEY_INVALID;
+    g.running = true;   /* the rest of g starts zeroed (.bss) */
     A->led(false);
     A->backlight_on();
     new_game();
-    title = true;
+    g.title = true;
 
-    while (running) {
+    while (g.running) {
         poll_key();
-        if (!running)
+        if (!g.running)
             break;
-        if (saverActive) {
-            A->backlight_update();
-            A->delay_ms(TICK_MS);
-            continue;
-        }
 
-        if (!title && !paused && !gameOver) {
-            const uint16_t interval = level >= 15u ? 100u : (uint16_t)(900u - (level - 1u) * 55u);
-            gravityMs = (uint16_t)(gravityMs + TICK_MS);
-            if (gravityMs >= interval) {
-                gravityMs = 0;
-                move_down(false);
+        if (!g.saverActive) {   /* the saver freezes the game */
+            if (!g.title && !g.paused && !g.gameOver) {
+                const uint16_t interval = g.level >= 15u ? 100u : (uint16_t)(900u - (g.level - 1u) * 55u);
+                g.gravityMs = (uint16_t)(g.gravityMs + TICK_MS);
+                if (g.gravityMs >= interval) {
+                    g.gravityMs = 0;
+                    move_down(false);
+                }
             }
-        }
 
-        if (title) draw_title();
-        else render(true, 0, 0);
-        A->blit_status();
-        A->blit_full();
+            if (g.title) draw_title();
+            else render(true, 0, 0);
+            A->blit_status();
+            A->blit_full();
+        }
         A->backlight_update();
         A->delay_ms(TICK_MS);
     }
 
     update_best();
-    if (bestDirty) {
+    if (g.bestDirty) {
         cfg.magic = CFG_MAGIC;
         cfg.version = 1u;
-        cfg.best = best;
+        cfg.best = g.best;
         A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
     }
     A->led(false);

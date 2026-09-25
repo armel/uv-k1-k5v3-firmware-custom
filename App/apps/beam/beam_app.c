@@ -17,6 +17,7 @@
 #define PACKET_START   0xABCDu
 #define PACKET_END     0xDCBAu
 #define PACKET_WORDS   36u
+#define STORE_WORDS    18u   /* 72 bytes, 4-byte aligned for the payload */
 
 enum {
     STATUS_READY = 0,
@@ -38,13 +39,21 @@ typedef struct {
 _Static_assert(sizeof(beam_payload_t) == 48u,
                "BEAM v2 wire payload layout changed");
 
-static const app_api_t *A;
-static uint32_t packet_store[18]; /* 72 bytes, 4-byte aligned for the payload */
-static uint16_t copiedChannel;
-static uint8_t mode, status;
-static bool receiving, running, dirty;
+/* All the state in one struct: Thumb-1 code then reaches every field from a
+ * single base address (one literal per function instead of one per global).
+ * The packet buffer lives on app_main's stack, outside the 4 KiB overlay; the
+ * overlay itself is zeroed by the loader at each launch. */
+struct globals {
+    uint8_t mode, status;
+    bool receiving, running, dirty;
+    uint16_t copiedChannel;
+    const app_api_t *api;
+    uint32_t *packet_store;   /* STORE_WORDS words, on app_main's stack */
+};
+static struct globals g;
+#define A (g.api)
 
-static uint16_t *packet(void) { return (uint16_t *)packet_store; }
+static uint16_t *packet(void) { return (uint16_t *)g.packet_store; }
 static beam_payload_t *payload(void) { return (beam_payload_t *)&packet()[2]; }
 
 static void clear_bytes(void *ptr, uint8_t count)
@@ -79,7 +88,7 @@ static void draw(void)
 {
     /* T_STATE: READY in TX / RX mode, then one entry per later status. */
     char state[T_STATE_STRIDE];
-    const uint8_t index = status ? (uint8_t)(status + 1u) : mode;
+    const uint8_t index = g.status ? (uint8_t)(g.status + 1u) : g.mode;
     A->asset_read(T_STATE + index * T_STATE_STRIDE, state, sizeof(state));
     A->beam_draw(state);
     A->blit_status();
@@ -88,16 +97,16 @@ static void draw(void)
 
 static void stop_rx(void)
 {
-    if (receiving) {
+    if (g.receiving) {
         A->beam_rx(false);
-        receiving = false;
+        g.receiving = false;
     }
 }
 
 static void send_packet(void)
 {
     uint16_t *p = packet();
-    clear_bytes(packet_store, sizeof(packet_store));
+    clear_bytes(g.packet_store, STORE_WORDS * 4u);
     p[0] = PACKET_START;
     payload()->magic = PACKET_MAGIC;
     payload()->version = PACKET_VERSION;
@@ -106,15 +115,15 @@ static void send_packet(void)
     p[35] = PACKET_END;
     obfuscate();
 
-    status = STATUS_TX_WAIT;
+    g.status = STATUS_TX_WAIT;
     draw();
     A->beam_send(p);
-    status = STATUS_TX_DONE;
+    g.status = STATUS_TX_DONE;
     for (uint8_t i = 0; i < 3u; i++) {
         A->play_tone(880, 60);
         if (i < 2u) A->delay_ms(20);
     }
-    dirty = true;
+    g.dirty = true;
 }
 
 static void start(void)
@@ -122,17 +131,17 @@ static void start(void)
     stop_rx();
     /* A channel save is committed only after app_main() returns.  Do not let a
        second RX overwrite that pending save; exit and relaunch to receive more. */
-    if (mode && copiedChannel != 0xFFFFu)
+    if (g.mode && g.copiedChannel != 0xFFFFu)
         return;
     A->beam_prepare();
-    if (!mode) {
+    if (!g.mode) {
         send_packet();
         return;
     }
     A->beam_rx(true);
-    receiving = true;
-    status = STATUS_RX_WAIT;
-    dirty = true;
+    g.receiving = true;
+    g.status = STATUS_RX_WAIT;
+    g.dirty = true;
 }
 
 static bool valid_packet(void)
@@ -148,24 +157,24 @@ static bool valid_packet(void)
 
 static void poll_rx(void)
 {
-    if (!receiving)
+    if (!g.receiving)
         return;
     const uint8_t result = A->beam_rx_poll(packet());
     if (result == APP_BEAM_RX_WAIT)
         return;
     if (result == APP_BEAM_RX_ERROR || !valid_packet()) {
-        status = STATUS_ERROR;
+        g.status = STATUS_ERROR;
         A->backlight_on();
-        dirty = true;
+        g.dirty = true;
         return;
     }
 
-    copiedChannel = A->beam_save(&payload()->channel);
+    g.copiedChannel = A->beam_save(&payload()->channel);
     A->beam_rx(false);
-    receiving = false;
-    status = copiedChannel == 0xFFFFu ? STATUS_RX_FULL : STATUS_RX_SAVED;
+    g.receiving = false;
+    g.status = g.copiedChannel == 0xFFFFu ? STATUS_RX_FULL : STATUS_RX_SAVED;
     A->backlight_on();
-    dirty = true;
+    g.dirty = true;
 }
 
 static void key_press(uint8_t key)
@@ -174,15 +183,15 @@ static void key_press(uint8_t key)
         case APP_KEY_UP:
         case APP_KEY_DOWN:
             stop_rx();
-            mode ^= 1u;
-            status = STATUS_READY;
-            dirty = true;
+            g.mode ^= 1u;
+            g.status = STATUS_READY;
+            g.dirty = true;
             break;
         case APP_KEY_MENU:
             start();
             break;
         case APP_KEY_EXIT:
-            running = false;
+            g.running = false;
             break;
         case APP_KEY_PTT:
             break;
@@ -195,24 +204,24 @@ static void key_press(uint8_t key)
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
+    uint32_t store[STORE_WORDS];   /* the packet: 4-byte aligned, not in the overlay */
     A = api;
-    mode = 0;
-    status = STATUS_READY;
-    copiedChannel = 0xFFFFu;
-    receiving = false;
-    running = true;
-    dirty = true;
+    g.packet_store = store;
+    /* TX mode, READY and not receiving: zeroed (.bss) */
+    g.copiedChannel = 0xFFFFu;
+    g.running = true;
+    g.dirty = true;
     A->backlight_on();
 
     uint8_t previous = APP_KEY_INVALID;
     uint8_t batteryTicks = 0;
-    while (running) {
+    while (g.running) {
         const uint8_t key = A->get_key();
         if (key == APP_KEY_SAVER) {
             previous = APP_KEY_INVALID;
         } else if (key == APP_KEY_WAKE) {
             previous = APP_KEY_INVALID;
-            dirty = true;
+            g.dirty = true;
         } else {
             if (key != previous && key != APP_KEY_INVALID) {
                 A->backlight_on();
@@ -222,13 +231,13 @@ void app_main(const app_api_t *api)
         }
 
         poll_rx();
-        if (dirty) { draw(); dirty = false; }
+        if (g.dirty) { draw(); g.dirty = false; }
         A->delay_ms(10);
         A->backlight_update();
         if (++batteryTicks >= 50u) {
             batteryTicks = 0;
             A->battery_sample();
-            dirty = true;
+            g.dirty = true;
         }
     }
 

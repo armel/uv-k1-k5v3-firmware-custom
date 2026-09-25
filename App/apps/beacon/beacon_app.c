@@ -22,6 +22,8 @@
  * up and keys only the tone (MCW / F2A); CARR keys the PA together with the tone, so
  * between elements the carrier itself is gone (carrier interruption, ARDF field pattern).
  *
+ * No division is linked: numbers are printed by subtracting powers of ten.
+ *
  * Keys: 1 TX window · 2 idle gap · 3 fox id · 4 keying mode TONE/CARR (F reverses)
  *       MENU restart idle · long F keypad lock · EXIT quit.
  */
@@ -57,32 +59,56 @@
 
 #define CFG_MAGIC 0xF4
 
-/* Texts, fox identifiers, the Morse table and icons are read-only assets
- * (gen_assets.py); only the displayed item is fetched from external flash. */
+_Static_assert(IDLE_STEP == 5 && TX_STEP == 5, "loadConfig() checks multiples of 5");
 
-static const app_api_t *A;
+/* Texts, fox identifiers, the Morse table, the powers of ten and icons are
+ * read-only assets (gen_assets.py); only the displayed item is fetched from
+ * external flash. */
 
-static bool     foxLocked, fArm, fLongDone, running, phaseTx, carrier;
-static uint16_t fHoldMs;
-static uint8_t  beaconIdle, idleLeft, idleTick, beaconTx, secShown, charsSent, foxFox;
-static uint16_t txMsLeft;
-static char     foxCall[CALL_MAX+1];
-static char     msg[17];
-static uint8_t  prevKey;
-static char     str[16];
+/* All the state in one struct: Thumb-1 code then reaches every field from a
+ * single base address (one literal per function instead of one per global),
+ * byte fields first so their offsets fit ldrb's 0..31 immediate. The overlay
+ * is zeroed by the loader at each launch. */
+struct globals {
+    bool     foxLocked, fArm, fLongDone, running, phaseTx, carrier;
+    uint8_t  beaconIdle, idleLeft, idleTick, beaconTx, secShown, charsSent, foxFox;
+    uint8_t  prevKey;
+    uint16_t fHoldMs, txMsLeft;
+    const app_api_t *api;
+    char     foxCall[CALL_MAX+1];
+    char     msg[17];
+};
+static struct globals g;
+#define A (g.api)
 
-/* Text from the assets in a shared buffer, valid until the next T() call. */
-static char tbuf[TEXT_MAX];
-static char *T(uint16_t off){ A->asset_read(off,tbuf,TEXT_MAX); return tbuf; }
+_Static_assert(offsetof(struct globals, prevKey) < 32u, "byte fields out of ldrb range");
+
+/* Text from the assets in the caller's buffer (TEXT_MAX bytes). */
+static char *T(char *buf,uint16_t off){ A->asset_read(off,buf,TEXT_MAX); return buf; }
 
 /* ---- tiny formatting ---- */
 static uint8_t slen(const char *s){ uint8_t n=0; while(s[n])n++; return n; }
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
-static char *putu(char *o,uint32_t v){ char t[6]; int8_t n=0; do{t[n++]=(char)('0'+v%10);v/=10;}while(v&&n<6); while(n--)*o++=t[n]; return o; }
+/* Decimal digits of v, no leading zeros, by subtracting the powers of ten. */
+static char *putu(char *o,uint32_t v){
+    uint32_t place[PLACE_LEN/4u];
+    A->asset_read(PLACE,place,sizeof(place));
+    bool lead=true;
+    for(uint8_t i=0;i<PLACE_LEN/4u;i++){
+        uint8_t d=0;
+        while(v>=place[i]){ v-=place[i]; d++; }
+        if(d||i==PLACE_LEN/4u-1u) lead=false;
+        if(!lead) *o++=(char)('0'+d);
+    }
+    return o;
+}
 static void put2(char **o,uint8_t v){ if(v<10)*(*o)++='0'; *o=putu(*o,v); }
 static void cpy(uint8_t *d,const uint8_t *s,uint8_t n){ while(n--)*d++=*s++; }
 static const char *findsp(const char *s){ while(*s){ if(*s==' ')return s; s++; } return NULL; }
 static uint8_t mmin(uint8_t a,uint8_t b){ return a<b?a:b; }
+/* Whole seconds left in the TX window, rounded up, by subtraction. */
+static uint8_t secsLeft(void){ uint8_t s=0; for(uint32_t n=g.txMsLeft+999u;n>=1000u;n-=1000u) s++; return s; }
+static bool multipleOf5(uint8_t v){ while(v>=5u) v-=5u; return v==0u; }
 
 /* ---- settings cycles ---- */
 static uint8_t rangeStep(uint8_t v,uint8_t lo,uint8_t hi,uint8_t step,int8_t dir){
@@ -91,31 +117,33 @@ static uint8_t rangeStep(uint8_t v,uint8_t lo,uint8_t hi,uint8_t step,int8_t dir
 }
 static bool settingKey(uint8_t key,int8_t dir){
     switch(key){
-        case APP_KEY_1: beaconTx  =rangeStep(beaconTx,  TX_MIN,  TX_MAX,  TX_STEP,  dir); return true;
-        case APP_KEY_2: beaconIdle=rangeStep(beaconIdle,IDLE_MIN,IDLE_MAX,IDLE_STEP,dir); return true;
+        case APP_KEY_1: g.beaconTx  =rangeStep(g.beaconTx,  TX_MIN,  TX_MAX,  TX_STEP,  dir); return true;
+        case APP_KEY_2: g.beaconIdle=rangeStep(g.beaconIdle,IDLE_MIN,IDLE_MAX,IDLE_STEP,dir); return true;
         case APP_KEY_3:
-            if(dir>0){ if(++foxFox>=FOX_COUNT) foxFox=0; }
-            else foxFox=foxFox?(uint8_t)(foxFox-1u):(uint8_t)(FOX_COUNT-1u);
+            if(dir>0){ if(++g.foxFox>=FOX_COUNT) g.foxFox=0; }
+            else g.foxFox=g.foxFox?(uint8_t)(g.foxFox-1u):(uint8_t)(FOX_COUNT-1u);
             return true;
-        case APP_KEY_4: carrier=!carrier; return true;   /* TONE <-> CARR (dir moot) */
+        case APP_KEY_4: g.carrier=!g.carrier; return true;   /* TONE <-> CARR (dir moot) */
         default: return false;
     }
 }
 
 /* ---- message ---- */
 static void buildMsg(void){
-    char *o=msg;
-    uint8_t id=foxFox;
-    if(foxFox==FOX_CALL){                          /* "<call> MOE", or "MOE" alone */
+    char t[TEXT_MAX];
+    char *o=g.msg;
+    uint8_t id=g.foxFox;
+    if(g.foxFox==FOX_CALL){                        /* "<call> MOE", or "MOE" alone */
         id=0;
-        if(foxCall[0]){ o=put(o,foxCall); *o++=' '; }
+        if(g.foxCall[0]){ o=put(o,g.foxCall); *o++=' '; }
     }
-    o=put(o,T(FOX_ID+id*FOX_ID_STRIDE));
+    o=put(o,T(t,FOX_ID+id*FOX_ID_STRIDE));
     *o='\0';
 }
 static void foxLabel(char *out){
-    char *o=put(out,T(T_FOX));
-    o=put(o,T(foxFox==FOX_CALL?T_CALL:FOX_ID+foxFox*FOX_ID_STRIDE));
+    char t[TEXT_MAX];
+    char *o=put(out,T(t,T_FOX));
+    o=put(o,T(t,g.foxFox==FOX_CALL?T_CALL:FOX_ID+g.foxFox*FOX_ID_STRIDE));
     *o='\0';
 }
 static uint8_t morseByte(char c){
@@ -133,64 +161,72 @@ static uint8_t morseByte(char c){
 static void tag(const char *s,uint8_t x,uint8_t line){ A->print_inverse(s,x,line,false,true,(uint8_t)(x+slen(s)*4)); }
 
 static void chrome(void){
+    char s[16], t[TEXT_MAX];
     A->display_clear();
     A->status_clear();
-    A->print_inverse(T(T_BEACON),2,0,true,true,26);
+    A->print_inverse(T(t,T_BEACON),2,0,true,true,26);
     A->draw_battery();
-    if(foxLocked||fArm) A->asset_read(foxLocked?BMP_LOCK:BMP_F,A->status_line+70,BMP_F_LEN);
-    { char *o=putu(str,A->tx_freq()/100000u); *o++='.'; uint32_t fr=A->tx_freq()%100000u;
-      for(int8_t d=4;d>=0;d--){ uint32_t p=1; for(int8_t k=0;k<d;k++)p*=10; *o++=(char)('0'+(fr/p)%10);} *o='\0'; }
-    A->print_normal(str,(uint8_t)(126-slen(str)*7),0,6);
+    if(g.foxLocked||g.fArm) A->asset_read(g.foxLocked?BMP_LOCK:BMP_F,A->status_line+70,BMP_F_LEN);
+    /* the TX frequency (10 Hz units) as MHz with 5 decimals: every digit, then
+       the point before the last five (f >= 18 MHz: at least 7 digits) */
+    { char *e=putu(s,A->tx_freq());
+      e[1]='\0';
+      for(uint8_t k=0;k<5u;k++,e--) e[0]=e[-1];
+      e[0]='.'; }
+    A->print_normal(s,(uint8_t)(126-slen(s)*7),0,6);
 }
 static void drawTxSeconds(void){
-    uint8_t sec=(uint8_t)((txMsLeft+999u)/1000u);
+    char s[16], t[TEXT_MAX];
+    uint8_t sec=secsLeft();
     for(uint8_t x=0;x<LCD_WIDTH;x++) A->fb[0][x]=0;
-    A->print_normal(T(T_TX),1,0,0);
-    char *o=str; put2(&o,sec); *o++='s'; *o='\0';
-    A->print_normal(str,(uint8_t)(127-slen(str)*7),0,0);
-    secShown=sec;
+    A->print_normal(T(t,T_TX),1,0,0);
+    char *o=s; put2(&o,sec); *o++='s'; *o='\0';
+    A->print_normal(s,(uint8_t)(127-slen(s)*7),0,0);
+    g.secShown=sec;
 }
 static void drawMessage(uint8_t vis){
+    const char *msg=g.msg;
     const char *sp=findsp(msg);
     if(!sp){
         uint8_t idLen=slen(msg), v=mmin(vis,idLen);
         char id[17]; cpy((uint8_t*)id,(const uint8_t*)msg,v); id[v]='\0';
-        A->print_string(id,(uint8_t)((LCD_WIDTH-idLen*8u)/2u),0,MSG_ONE,8);
+        A->print_string(id,(uint8_t)((LCD_WIDTH-idLen*8u)>>1),0,MSG_ONE,8);
         return;
     }
     uint8_t callLen=(uint8_t)(sp-msg), vc=mmin(vis,callLen);
     char call[CALL_MAX+1]; cpy((uint8_t*)call,(const uint8_t*)msg,vc); call[vc]='\0';
-    A->print_string(call,(uint8_t)((LCD_WIDTH-callLen*8u)/2u),0,MSG_CALL,8);
+    A->print_string(call,(uint8_t)((LCD_WIDTH-callLen*8u)>>1),0,MSG_CALL,8);
     if(vis>callLen+1){
         const char *id=sp+1; uint8_t idLen=slen(id), vi=mmin((uint8_t)(vis-callLen-1),idLen);
         char idb[8]; cpy((uint8_t*)idb,(const uint8_t*)id,vi); idb[vi]='\0';
-        A->print_string(idb,(uint8_t)((LCD_WIDTH-idLen*8u)/2u),0,MSG_ID,8);
+        A->print_string(idb,(uint8_t)((LCD_WIDTH-idLen*8u)>>1),0,MSG_ID,8);
     }
 }
 static void updateProgress(uint8_t vis){
-    const char *sp=findsp(msg); uint8_t top;
-    charsSent=vis;
+    const char *sp=findsp(g.msg); uint8_t top;
+    g.charsSent=vis;
     if(!sp) top=MSG_ONE;
-    else { uint8_t callLen=(uint8_t)(sp-msg); if(vis==callLen+1) return; top=(vis<=callLen)?MSG_CALL:MSG_ID; }
+    else { uint8_t callLen=(uint8_t)(sp-g.msg); if(vis==callLen+1) return; top=(vis<=callLen)?MSG_CALL:MSG_ID; }
     for(uint8_t x=0;x<LCD_WIDTH;x++){ A->fb[top][x]=0; A->fb[top+1][x]=0; }
-    drawMessage(charsSent);
+    drawMessage(g.charsSent);
     A->blit_line(top); A->blit_line(top+1);
 }
 static void beaconDraw(bool txNow,uint8_t il){
+    char s[16], t[TEXT_MAX];
     chrome();
     if(txNow){
         A->asset_read(BMP_TX,A->status_line+48,BMP_TX_LEN);
         drawTxSeconds();
-        drawMessage(charsSent);
+        drawMessage(g.charsSent);
     } else {
-        A->print_string(T(T_IDLE),0,127,1,10);
-        char *o=str; put2(&o,il); *o++='s'; *o='\0';
-        A->print_string(str,0,127,3,10);
+        A->print_string(T(t,T_IDLE),0,127,1,10);
+        char *o=s; put2(&o,il); *o++='s'; *o='\0';
+        A->print_string(s,0,127,3,10);
     }
-    char *o=put(str,T(T_TX)); *o++=' '; o=putu(o,beaconTx); *o++='s'; *o='\0'; tag(str,4,5);
-    o=put(str,T(T_IDLE)); *o++=' '; o=putu(o,beaconIdle); *o++='s'; *o='\0'; tag(str,4,6);
-    foxLabel(str); tag(str,66,5);
-    { const char *m=T(carrier?T_CARR:T_TONE); tag(m,(uint8_t)(125-slen(m)*4),5); }
+    char *o=put(s,T(t,T_TX)); *o++=' '; o=putu(o,g.beaconTx); *o++='s'; *o='\0'; tag(s,4,5);
+    o=put(s,T(t,T_IDLE)); *o++=' '; o=putu(o,g.beaconIdle); *o++='s'; *o='\0'; tag(s,4,6);
+    foxLabel(s); tag(s,66,5);
+    { const char *m=T(t,g.carrier?T_CARR:T_TONE); tag(m,(uint8_t)(125-slen(m)*4),5); }
 }
 static void blit(void){ A->blit_status(); A->blit_full(); }
 
@@ -198,10 +234,10 @@ static void blit(void){ A->blit_status(); A->blit_full(); }
 /* true exactly on the lock/unlock toggle, so a caller that does not redraw every tick
  * (the TX loop) can refresh the padlock at once. */
 static bool lockTrack(uint8_t key,uint16_t ms){
-    if(key!=APP_KEY_F){ fHoldMs=0; fLongDone=false; return false; }
-    if(fLongDone) return false;
-    fHoldMs+=ms;
-    if(fHoldMs>=LOCK_HOLD_MS){ fLongDone=true; foxLocked=!foxLocked; fArm=false; A->backlight_on(); return true; }
+    if(key!=APP_KEY_F){ g.fHoldMs=0; g.fLongDone=false; return false; }
+    if(g.fLongDone) return false;
+    g.fHoldMs+=ms;
+    if(g.fHoldMs>=LOCK_HOLD_MS){ g.fLongDone=true; g.foxLocked=!g.foxLocked; g.fArm=false; A->backlight_on(); return true; }
     return false;
 }
 
@@ -210,27 +246,27 @@ static bool txDelay(uint16_t ms){
     while(ms){
         uint16_t slice=(ms>10)?10:ms;
         A->delay_ms(slice); ms-=slice;
-        txMsLeft=(txMsLeft>slice)?(uint16_t)(txMsLeft-slice):0;
+        g.txMsLeft=(g.txMsLeft>slice)?(uint16_t)(g.txMsLeft-slice):0;
         A->backlight_update();
-        if((uint8_t)((txMsLeft+999u)/1000u)!=secShown){ drawTxSeconds(); A->blit_line(0); }
+        if(secsLeft()!=g.secShown){ drawTxSeconds(); A->blit_line(0); }
 
         uint8_t key=A->get_key();
         if(lockTrack(key,slice)){ beaconDraw(true,0); blit(); }   /* show the padlock at once, mid-TX */
-        if(key==APP_KEY_INVALID||key==prevKey){ prevKey=key; continue; }
-        prevKey=key;
+        if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; continue; }
+        g.prevKey=key;
         A->backlight_on();
-        if(foxLocked) continue;
-        if(key==APP_KEY_EXIT){ running=false; return true; }
+        if(g.foxLocked) continue;
+        if(key==APP_KEY_EXIT){ g.running=false; return true; }
         if(key==APP_KEY_MENU) return true;   /* cut short, restart idle */
-        if(key==APP_KEY_F){ fArm=!fArm; beaconDraw(true,0); blit(); continue; }
-        if(settingKey(key,fArm?-1:1)){ fArm=false; beaconDraw(true,0); blit(); }
+        if(key==APP_KEY_F){ g.fArm=!g.fArm; beaconDraw(true,0); blit(); continue; }
+        if(settingKey(key,g.fArm?-1:1)){ g.fArm=false; beaconDraw(true,0); blit(); }
     }
     return false;
 }
 /* Keying: both modes key the tone; CARR gates the PA in lockstep so the carrier is truly
  * gone between elements (tone muted too, else it bleeds through residual PA leakage). */
 static void keyOn(void){  A->tx_mute(false); A->tx_carrier(true);  }   /* carrier up both modes; re-arms after a mid-window switch */
-static void keyOff(void){ A->tx_mute(true);  if(carrier) A->tx_carrier(false); }
+static void keyOff(void){ A->tx_mute(true);  if(g.carrier) A->tx_carrier(false); }
 static bool morseChar(char c,uint8_t vis){
     uint8_t code=morseByte(c);
     if(code==0){ if(txDelay(MORSE_UNIT*4)) return true; updateProgress(vis); return false; }
@@ -249,15 +285,15 @@ static void transmit(void){
     A->tx_set_params();
     A->tx_tone(TONE_HZ);
     A->tx_mute(true);                        /* open muted (both modes)               */
-    if(carrier) A->tx_carrier(false);        /* CARR: carrier off until first element  */
-    txMsLeft=(uint16_t)beaconTx*1000u;
+    if(g.carrier) A->tx_carrier(false);      /* CARR: carrier off until first element  */
+    g.txMsLeft=(uint16_t)g.beaconTx*1000u;
     bool stop=false;
-    while(!stop && txMsLeft>0){
+    while(!stop && g.txMsLeft>0){
         buildMsg();
-        charsSent=0;
+        g.charsSent=0;
         beaconDraw(true,0); blit();
-        for(uint8_t i=0;!stop && msg[i];i++) stop=morseChar(msg[i],(uint8_t)(i+1));
-        if(!stop && txMsLeft>0) stop=txDelay(MORSE_UNIT*7);
+        for(uint8_t i=0;!stop && g.msg[i];i++) stop=morseChar(g.msg[i],(uint8_t)(i+1));
+        if(!stop && g.txMsLeft>0) stop=txDelay(MORSE_UNIT*7);
     }
     A->tx_mute(true);
     A->tx_end();   /* PA off + restore RX */
@@ -267,17 +303,17 @@ static void transmit(void){
 static void idleKeys(void){
     uint8_t key=A->get_key();
     lockTrack(key,TICK_MS);
-    if(key==APP_KEY_INVALID||key==prevKey){ prevKey=key; return; }
-    prevKey=key;
+    if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
+    g.prevKey=key;
     A->backlight_on();
-    if(foxLocked) return;
-    if(key==APP_KEY_F){ fArm=!fArm; return; }
+    if(g.foxLocked) return;
+    if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
     switch(key){
-        case APP_KEY_EXIT: running=false; break;
-        case APP_KEY_MENU: idleLeft=beaconIdle; idleTick=0; break;
-        default: settingKey(key,fArm?-1:1); break;
+        case APP_KEY_EXIT: g.running=false; break;
+        case APP_KEY_MENU: g.idleLeft=g.beaconIdle; g.idleTick=0; break;
+        default: settingKey(key,g.fArm?-1:1); break;
     }
-    fArm=false;
+    g.fArm=false;
 }
 
 static void tickDelay(void){ for(uint8_t i=0;i<TICK_MS/10;i++){ A->delay_ms(10); A->backlight_update(); } }
@@ -286,17 +322,18 @@ static void tickDelay(void){ for(uint8_t i=0;i<TICK_MS/10;i++){ A->delay_ms(10);
 static void loadConfig(void){
     uint8_t c[5]; A->cfg_load(c,5);
     if(c[0]==CFG_MAGIC){
-        if(c[1]>=IDLE_MIN&&c[1]<=IDLE_MAX&&(c[1]%IDLE_STEP)==0) beaconIdle=c[1];
-        if(c[2]<FOX_COUNT) foxFox=c[2];
-        if(c[3]>=TX_MIN&&c[3]<=TX_MAX&&(c[3]%TX_STEP)==0) beaconTx=c[3];
-        if(c[4]<=1) carrier=c[4];   /* erased (0xFF) legacy config -> keep default */
+        if(c[1]>=IDLE_MIN&&c[1]<=IDLE_MAX&&multipleOf5(c[1])) g.beaconIdle=c[1];
+        if(c[2]<FOX_COUNT) g.foxFox=c[2];
+        if(c[3]>=TX_MIN&&c[3]<=TX_MAX&&multipleOf5(c[3])) g.beaconTx=c[3];
+        if(c[4]<=1) g.carrier=c[4];   /* erased (0xFF) legacy config -> keep default */
     }
 }
-static void saveConfig(void){ uint8_t c[5]={CFG_MAGIC,beaconIdle,foxFox,beaconTx,(uint8_t)carrier}; A->cfg_save(c,5); }
+static void saveConfig(void){ uint8_t c[5]={CFG_MAGIC,g.beaconIdle,g.foxFox,g.beaconTx,(uint8_t)g.carrier}; A->cfg_save(c,5); }
 
 static void txDenied(void){
+    char t[TEXT_MAX];
     chrome();
-    A->print_string(T(T_TX_OFF),0,127,1,8);
+    A->print_string(T(t,T_TX_OFF),0,127,1,8);
     blit();
     for(uint8_t i=0;i<20;i++) tickDelay();
 }
@@ -304,26 +341,26 @@ static void txDenied(void){
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     A=api;
-    foxLocked=fArm=fLongDone=carrier=false; fHoldMs=0;
-    beaconIdle=IDLE_DEF; beaconTx=TX_DEF; foxFox=FOX_CALL;
-    prevKey=APP_KEY_INVALID;
-    A->boot_callsign(foxCall,sizeof(foxCall));
+    /* locks, holds and the TONE keying mode start zeroed (.bss) */
+    g.beaconIdle=IDLE_DEF; g.beaconTx=TX_DEF; g.foxFox=FOX_CALL;
+    g.prevKey=APP_KEY_INVALID;
+    A->boot_callsign(g.foxCall,sizeof(g.foxCall));
     loadConfig();
     A->backlight_on();
 
-    phaseTx=true; idleLeft=beaconIdle; idleTick=0;
-    running=true;
-    while(running){
-        if(phaseTx){
-            if(A->tx_state()!=0){ txDenied(); phaseTx=false; idleLeft=beaconIdle; idleTick=0; continue; }
+    g.phaseTx=true; g.idleLeft=g.beaconIdle; g.idleTick=0;
+    g.running=true;
+    while(g.running){
+        if(g.phaseTx){
+            if(A->tx_state()!=0){ txDenied(); g.phaseTx=false; g.idleLeft=g.beaconIdle; g.idleTick=0; continue; }
             transmit();
-            phaseTx=false; idleLeft=beaconIdle; idleTick=0;
+            g.phaseTx=false; g.idleLeft=g.beaconIdle; g.idleTick=0;
             continue;
         }
         idleKeys();
-        if(!running) break;
-        beaconDraw(false,idleLeft); blit();
-        if(++idleTick>=(1000/TICK_MS)){ idleTick=0; if(idleLeft>0)idleLeft--; if(idleLeft==0)phaseTx=true; }
+        if(!g.running) break;
+        beaconDraw(false,g.idleLeft); blit();
+        if(++g.idleTick>=(1000/TICK_MS)){ g.idleTick=0; if(g.idleLeft>0)g.idleLeft--; if(g.idleLeft==0)g.phaseTx=true; }
         A->battery_sample();
         tickDelay();
     }

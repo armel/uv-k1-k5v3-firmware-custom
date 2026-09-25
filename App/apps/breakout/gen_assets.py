@@ -11,6 +11,17 @@ from app_art import Canvas
 
 BRICK_ANIM = [0b00110001, 0b00101001, 0b00100101, 0b00100011]
 
+def bounce(w, num, t_max):
+    """Ball dx after a hit at offset t = x + w - ball.x (t = -1 .. t_max), as
+    the original C expression t * (-2 * num) / w + num (division truncating
+    toward zero): the app reads it from here and links no division."""
+    out = []
+    for t in range(-1, t_max + 1):
+        a = t * (-2 * num)
+        q = abs(a) // w
+        out.append((q if a >= 0 else -q) + num)
+    return out
+
 def brick(cv, x, y):
     """A 15 px brick as drawn by the game: end caps and the animated fill."""
     for k in range(15):
@@ -46,6 +57,10 @@ a.text("T_PAUSE", "PAUSE")
 a.text("T_HELLO", "OVL HELLO")   # APP_POC_HELLO bisection build only
 a.text("T_PRESS", "PRESS MENU")
 a.u8("BRICK_ANIM", BRICK_ANIM)
+a.u16("PLACE", [10000, 1000, 100, 10, 1])      # decimal places, no division
+# Hit offsets: ball.x within one pixel of the racket (24 px) or brick (14 px).
+a.i8("RACKET_DX", bounce(24, 3, 25))
+a.i8("BRICK_DX", bounce(14, 2, 15))
 title = title_screen()
 a.raw("ART_TITLE", title.pages())
 a.main()
