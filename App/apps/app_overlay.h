@@ -42,7 +42,9 @@
  * Header sector layout (slot-relative):
  *
  *   0x000  app_header_t (64 B)
- *   0x040  per-app config staged by cfg_save (16 B, reserved up to 0x0FF)
+ *   0x040  per-app config staged by cfg_save (16 B)
+ *   0x050  name of the app that config belongs to (16 B, reserved up to 0x0FF);
+ *          kept with the config when the slot is erased for an update
  *   0x100  read-only assets (API level 2, up to 3840 B, CRC-checked at launch)
  *   0x1000 code (<= 4 KiB, copied into the overlay RAM)
  *

@@ -1305,7 +1305,7 @@ void UART_HandleCommand(uint32_t Port)
             break;
         }
 
-        case 0x0732: // app slot erase: wipe the whole 8 KiB slot region
+        case 0x0732: // app slot erase: wipe the 8 KiB slot region, but the app's tagged settings (see APP_SlotErase)
         {
             if (pUART_Command->Header.Size < 6u) break;   // needs Data[0] slot + Data[2..5] timestamp
             gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)

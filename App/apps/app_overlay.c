@@ -407,8 +407,12 @@ static uint32_t app_rx_freq(void)      { return gRxVfo->pRX->Frequency; }
  * reads flash at launch (ReadBuffer bypasses the overlay cache). cfg_save only stages
  * into RAM - the app runs from the sector cache, so it cannot write flash itself; the
  * loader commits the staged bytes to flash after the app returns (RMW preserves the
- * slot header). Erasing/reinstalling a slot resets its config, which is intended. */
+ * slot header), tagged with the app's name. Updating an app erases its slot: the
+ * tagged config is kept across that erase and handed back to the app of that name
+ * only, so an update keeps the app's settings while another app installed in the
+ * slot starts from its own defaults. */
 #define APP_CFG_OFFSET  0x40u    /* config area within the header sector */
+#define APP_CFG_OWNER   0x50u    /* name of the app the config belongs to */
 static uint8_t app_cfg_buf[16];
 static uint8_t app_cfg_len;      /* staged length; 0 = nothing to commit */
 static uint8_t app_run_slot;     /* slot of the app currently running */
@@ -416,7 +420,16 @@ static uint8_t app_run_slot;     /* slot of the app currently running */
 static void app_cfg_load(uint8_t *buf, uint8_t len)
 {
     if (len > sizeof(app_cfg_buf)) len = sizeof(app_cfg_buf);
-    PY25Q16_ReadBuffer(APP_SLOT_BASE(app_run_slot) + APP_CFG_OFFSET, buf, len);
+    const uint32_t base = APP_SLOT_BASE(app_run_slot);
+    char name[APP_NAME_LEN], owner[APP_NAME_LEN];
+    PY25Q16_ReadBuffer(base + offsetof(app_header_t, name), name, sizeof(name));
+    PY25Q16_ReadBuffer(base + APP_CFG_OWNER, owner, sizeof(owner));
+    /* This app's config, or an untagged one saved before the tag existed.
+     * Another app's reads as erased flash, i.e. the app's defaults. */
+    if ((uint8_t)owner[0] == 0xFFu || !memcmp(owner, name, sizeof(name)))
+        PY25Q16_ReadBuffer(base + APP_CFG_OFFSET, buf, len);
+    else
+        memset(buf, 0xFF, len);
 }
 static void app_cfg_save(const uint8_t *buf, uint8_t len)
 {
@@ -425,8 +438,9 @@ static void app_cfg_save(const uint8_t *buf, uint8_t len)
     app_cfg_len = len;   /* mark dirty; the loader commits after the app returns */
 }
 
-_Static_assert(APP_CFG_OFFSET + sizeof(app_cfg_buf) <= APP_ASSET_OFFSET,
-               "config area overlaps the assets");
+_Static_assert(APP_CFG_OFFSET + sizeof(app_cfg_buf) <= APP_CFG_OWNER &&
+               APP_CFG_OWNER + APP_NAME_LEN <= APP_ASSET_OFFSET,
+               "config area overlaps its owner tag or the assets");
 
 /* ---- API level 2: time, randomness, read-only assets ---- */
 static uint16_t app_asset_size;   /* verified asset size of the running app */
@@ -467,6 +481,13 @@ static uint16_t app_asset_read(uint16_t offset, void *buf, uint16_t len)
     PY25Q16_ReadBuffer(APP_SLOT_BASE(app_run_slot) + APP_ASSET_OFFSET + offset, buf, len);
     return len;
 }
+
+/* ---- API level 2: integer division ----
+ * The run-time helpers the firmware links anyway (App/compact_div.S over
+ * libgcc's unsigned division), served as they are: their {quotient, remainder}
+ * register pair is declared as one 64-bit return value (low word = r0). */
+extern uint64_t __aeabi_idivmod(int32_t n, int32_t d);
+extern uint64_t __aeabi_uidivmod(uint32_t n, uint32_t d);
 
 /* ---- v2 battery / backlight ---- */
 static void app_draw_battery(void)
@@ -737,6 +758,8 @@ static const app_api_t app_api = {
     .ticks_ms         = app_ticks_ms,
     .rand32           = app_rand32,
     .asset_read       = app_asset_read,
+    .idivmod          = __aeabi_idivmod,
+    .uidivmod         = __aeabi_uidivmod,
 };
 
 uint8_t APP_LaunchOverlay(uint8_t slot)
@@ -848,9 +871,12 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     app_beam_commit();
 #endif
 
-    /* Commit any deferred config the app staged (RMW keeps the slot header). */
+    /* Commit any deferred config the app staged (RMW keeps the slot header),
+     * tagged with the app's name. */
     if (app_cfg_len) {
-        PY25Q16_WriteBuffer(APP_SLOT_BASE(slot) + APP_CFG_OFFSET, app_cfg_buf, app_cfg_len, false);
+        const uint32_t base = APP_SLOT_BASE(slot);
+        PY25Q16_WriteBuffer(base + APP_CFG_OFFSET, app_cfg_buf, app_cfg_len, false);
+        PY25Q16_WriteBuffer(base + APP_CFG_OWNER, h.name, APP_NAME_LEN, false);
         PY25Q16_InvalidateCache();
     }
 #ifdef ENABLE_FMRADIO
@@ -872,9 +898,22 @@ uint8_t APP_SlotErase(uint8_t slot)
     if (slot >= APP_SLOT_COUNT)
         return APP_ERR_SLOT;
     uint32_t base = APP_SLOT_BASE(slot);
+    /* An update erases the slot before the host rewrites it: keep the config
+     * and its owner tag across the erase (an untagged config is given the
+     * installed app's name), so that the same app finds its settings again. */
+    uint8_t keep[APP_CFG_OWNER + APP_NAME_LEN - APP_CFG_OFFSET];
+    uint8_t *const owner = keep + (APP_CFG_OWNER - APP_CFG_OFFSET);
+    app_header_t h;
+    PY25Q16_ReadBuffer(base + APP_CFG_OFFSET, keep, sizeof(keep));
+    if (*owner == 0xFFu && APP_ValidateSlot(slot, &h) == APP_OK)
+        memcpy(owner, h.name, APP_NAME_LEN);
     for (uint32_t off = 0; off < APP_SLOT_STRIDE; off += APP_SECTOR_SIZE)
         PY25Q16_SectorErase(base + off);
     PY25Q16_InvalidateCache();
+    if (*owner != 0xFFu) {
+        PY25Q16_WriteBuffer(base + APP_CFG_OFFSET, keep, sizeof(keep), false);
+        PY25Q16_InvalidateCache();
+    }
     APP_NotifySlotChanged();
     return APP_OK;
 }

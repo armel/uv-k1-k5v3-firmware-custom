@@ -17,7 +17,9 @@
 /*
  * Spectrum3D — overlay app: the band around the VFO as a ridge-line landscape
  * ("Unknown Pleasures" style). Each sweep of 64 points becomes one line of a
- * frequency x time grid; the newest line is nearest. The grid is rotated about
+ * frequency x time grid; the newest line is nearest. The grid scrolls
+ * smoothly: while the next line is measured, it rises at the front edge and
+ * every line slides back towards its next place. The grid is rotated about
  * its vertical axis (yaw) and tilted (pitch), projected in perspective, and
  * drawn far to near with hidden-line removal: a line clears everything below
  * it, so near "mountains" hide the lines behind them. Peaks are stations.
@@ -28,15 +30,18 @@
  * strong ones. Retuning goes through the radio registers. The window is kept
  * on the VFO's side of the 280 MHz VHF/UHF RF-path switch and inside the
  * chip's RX range (never in the 630-840 MHz hole), so the path chosen by the
- * loader stays valid; the RX filter bandwidth follows the point spacing, as in
- * the resident spectrum. The history lives on app_main's stack; texts, tables
- * and bitmaps are read-only assets.
+ * loader stays valid. The sweep uses the widest RX filter (25 kHz) and
+ * measures at least every 12.5 kHz, the channel raster, so that no channel
+ * falls between two measurements. The history lives on app_main's stack;
+ * texts, tables and bitmaps are read-only assets.
  *
- * Keys: 1 / F+1 centre up / down one point (the landscape slides) ·
- *       3 / F+3 wider / narrower span (UP/DOWN too) · 4/6 rotate · 2/8 tilt ·
+ * Keys: UP/DOWN centre up / down one point (the landscape slides; held, they
+ *       repeat) · 1 / F+1 centre up / down 6.25 kHz ·
+ *       3 / F+3 wider / narrower span · 4/6 rotate · 2/8 tilt ·
  *       5 reset view · 0 listen to the strongest peak (FM, speaker icon; the
  *       landscape goes on with that station alone) · STAR speed · MENU hold ·
- *       EXIT quit.
+ *       EXIT quit. Behind the screen saver the spectrum stops (no sweep, no
+ *       audio) until a key wakes it.
  */
 
 #include <stdint.h>
@@ -50,6 +55,7 @@
 #define BINS        64u                     /* points per sweep, 2 px apart  */
 #define LINES       12u
 #define ACC         LINES                   /* history row of the next line  */
+#define CENTRE_STEP 625u                    /* 6.25 kHz in the radio's x10 Hz units */
 /* Projection, tuned on a grid of X -63..63 (frequency) by Z -44..44 (time)
  * with the frame around it: camera distance, horizontal and vertical focal
  * lengths, screen centre row. */
@@ -57,9 +63,11 @@
 #define FOCAL_X     140
 #define FOCAL_Y     200
 #define CENTRE_Y    26
-/* The frame around the landscape, on the floor: half width, half depth. */
+/* The frame around the landscape, on the floor: half width, half depth. The
+ * lines rest from z = -44 to 44, 8 apart, and slide back by one spacing while
+ * the next line is measured; that one enters at the front edge. */
 #define BOARD_X     67
-#define BOARD_Z     48
+#define BOARD_Z     52
 #define HEIGHT_Q    64                      /* tallest peak, quarter units   */
 #define COMPRESS    12                      /* dB where a peak reaches half  */
 #define NOISE_GATE  4                       /* dB above the floor ignored    */
@@ -67,15 +75,10 @@
 #define PITCH_MIN   2u                      /* 10 degrees (default: assets)  */
 #define PITCH_MAX   12u                     /* 60 degrees                    */
 #define NO_Y        0x7FFF
-/* Wait after a retune before reading RSSI: the RSSI register lags the new
- * frequency, and 1 ms left each reading on the points already passed, which
- * shifted every signal several points up the sweep (e.g. a station 5 points
- * below the centre showed at the centre). The lag only matters next to a
- * signal, so a quiet point is read after SETTLE_FAST_MS; the full SETTLE_MS
- * is waited after a point above SIGNAL_DB (falling edge) and on a point
- * that already rises above it (rising edge). */
-#define SETTLE_MS       3u
-#define SETTLE_FAST_MS  1u
+/* Quiet points use the BK4829 fast-scan settle loop below. Only a point next
+ * to a signal gets a millisecond before its RSSI is confirmed, which prevents
+ * a strong station from being smeared across the following frequencies. */
+#define SIGNAL_SETTLE_MS 1u
 /* Level above the floor that counts as a signal for the settle choice. The
  * display's NOISE_GATE is too low for this: noise alone crosses it on many
  * points and each crossing cost two full waits. */
@@ -86,21 +89,29 @@
 #define AUDIO_SETTLE_MS 60u
 #define LISTEN_TICK_MS  100u
 #define LISTEN_HANG     8u
+/* Half width, in points, of the station's shape redrawn while listening. */
+#define SHAPE_R         4u
+/* A held UP/DOWN repeats after this delay, then at this period. */
+#define KEY_REPEAT_DELAY_MS 400u
+#define KEY_REPEAT_MS       100u
 /* Centring on the station before listening: settle per measurement (well
- * past the RSSI lag) and the finest offset of the search (2.5 kHz). */
+ * past the RSSI lag), the spacing of the local scan that finds the station
+ * again through the listening filter (6.25 kHz, as the ±200K sweep), the
+ * outward step of the edge search (the 12.5 kHz channel raster) and at most
+ * how many of them, its finest offset (2.5 kHz), and how far below the peak
+ * level an edge lies. */
 #define REFINE_SETTLE_MS 10u
+#define REFINE_SCAN      625u
+#define REFINE_STEP      1250u
+#define REFINE_REACH     8u
 #define REFINE_MIN       250u
-/* The chip's squelch, set up by the loader with the VFO's own thresholds, is
- * what opens the audio in VFO mode: listening waits up to SQL_WAIT x 10 ms
- * for it after tuning, and closes when it is lost. */
-#define SQL_WAIT         15u
+#define REFINE_DB        3u
 #define REG_FREQ_LO 0x38u
 #define REG_FREQ_HI 0x39u
 #define REG_CTRL    0x30u
 #define REG_GLITCH  0x63u
 #define REG_RSSI    0x67u
 #define REG_RX_BW   0x43u
-#define REG_STATUS  0x0Cu                   /* <1>: squelch result, 1 = link */
 #define CTRL_AF_DAC (1u << 9)               /* REG_30: AF DAC enable        */
 #define BUF_LEN     12u                     /* a text, or "1300.00000"       */
 
@@ -121,11 +132,13 @@ struct globals {
     uint8_t pitch;
     uint8_t head, sweeps, prev_key, gate, close_lvl, quiet, peak_bin;
     bool running, hold, saver, abort_sweep, farm, listen, listening;
+    uint8_t listen_ref;                     /* first listening level, 0 = none */
     /* the span's SPAN_REC record, read whole: same order and sizes */
     uint16_t step, scan_bw;
-    uint8_t substeps, close_db;
+    uint8_t sub_shift, close_db;            /* 1 << sub_shift measurements per point */
     char label[SPAN_LABEL_LEN + 1u];
     uint16_t saved_bw;                      /* the VFO's own RX filter       */
+    uint16_t scan_ctrl;                     /* cached REG_30, AF DAC muted   */
     /* words: Thumb-1 loads them with an immediate offset, while a signed
        halfword needs a register offset or an extra sign extension */
     int32_t ys, yc, ps, pc;                 /* view angles (Q8) for project() */
@@ -134,6 +147,10 @@ struct globals {
     state_t *st;
     uint32_t centre, first, last_ok;        /* requested centre, window start, region top */
     uint32_t peak_f;                        /* strongest point of the sweep (at peak_bin), 0 = none */
+    /* the listened station's levels around peak_bin in the sweep that found
+       it, 0 off the station: the listening lines redraw that shape */
+    uint8_t shape[2u * SHAPE_R + 1u];
+    uint32_t repeat_at;                     /* ticks_ms of the next UP/DOWN repeat */
 };
 static struct globals g;
 #define A (g.api)
@@ -144,7 +161,7 @@ _Static_assert(offsetof(struct globals, pitch) + 1u - offsetof(struct globals, m
 _Static_assert(offsetof(struct globals, label) + SPAN_LABEL_LEN + 1u
                - offsetof(struct globals, step) == SPAN_REC_SIZE,
                "span fields do not match SPAN_REC");
-_Static_assert(offsetof(struct globals, listening) < 32u, "byte fields out of ldrb range");
+_Static_assert(offsetof(struct globals, listen_ref) < 32u, "byte fields out of ldrb range");
 _Static_assert(TEXT_MAX <= BUF_LEN, "texts do not fit the text buffer");
 
 /* GCC may lower aggregate clears to memset even for this freestanding blob. */
@@ -156,6 +173,16 @@ void *memset(void *dst, int value, size_t size)
     return dst;
 }
 
+/* Division through the resident helper (API level 2) instead of libgcc's
+ * 468-byte signed division. GCC calls __aeabi_idiv for `/` and
+ * __aeabi_idivmod for `%`: both find the quotient in r0 (and the remainder in
+ * r1), which is how the resident helper returns them. */
+uint64_t __aeabi_idivmod(int32_t n, int32_t d)
+{
+    return A->idivmod(n, d);
+}
+uint64_t __aeabi_idiv(int32_t n, int32_t d) __attribute__((alias("__aeabi_idivmod")));
+
 static uint8_t slen(const char *s)
 {
     uint8_t n = 0;
@@ -165,8 +192,9 @@ static uint8_t slen(const char *s)
 }
 
 /* Frequency in 10 Hz units as MHz with 5 decimals. Signed arithmetic on
- * purpose: every division in the app then uses __aeabi_idiv, and the
- * unsigned one (~280 B of libgcc) stays out of the 4 KiB overlay. */
+ * purpose: every division in the app then goes through the __aeabi_idiv
+ * trampoline above, and libgcc's unsigned one (~280 B) stays out of the
+ * 4 KiB overlay. */
 static char *put_freq(char *o, int32_t v)
 {
     char t[10];
@@ -188,15 +216,26 @@ static void tune(uint32_t f)
 {
     A->bk_write(REG_FREQ_LO, (uint16_t)f);
     A->bk_write(REG_FREQ_HI, (uint16_t)(f >> 16));
-    const uint16_t ctrl = A->bk_read(REG_CTRL);
     A->bk_write(REG_CTRL, 0);
-    A->bk_write(REG_CTRL, ctrl);
+    A->bk_write(REG_CTRL, g.scan_ctrl);
 }
 
-/* dBm + 160 after `ms` of settling (as the spectrum's GetRssi()). */
+/* Park the receiver on the sweep's first point ahead of time. The jump back
+ * from the top of the window (up to 3.2 MHz) relocks the PLL; parked before
+ * a frame is drawn, it settles while the frame is drawn, and the first point
+ * is then read like any other, with no delay of its own. */
+static void park_start(void)
+{
+    tune(g.first);
+}
+
+/* dBm + 160 after `ms` of settling. With no fixed delay, poll the BK4829
+ * glitch indicator as the resident fast scanner does, then discard the first
+ * RSSI value because it may still belong to the previous frequency. */
 static uint8_t measure(uint8_t ms)
 {
-    A->delay_ms(ms);
+    if (ms)
+        A->delay_ms(ms);
     for (uint8_t guard = 50u; guard && (A->bk_read(REG_GLITCH) & 0xFFu) >= 200u; guard--)
         ;
     A->bk_read(REG_RSSI);                   /* first read may still move */
@@ -239,15 +278,25 @@ static void restart(void)
     g.abort_sweep = true;
 }
 
-/* Move the centre by one point: the history slides by one bin, and the bin
- * entering at the edge starts flat (at the line's floor). */
-static void move_centre(bool up)
+/* Move the centre by `delta`: one point (UP/DOWN) or 6.25 kHz (1 / F+1),
+ * whatever the span. By exactly one point the history slides with the window
+ * (6.25 kHz is one point at the narrowest span); by a fraction of a point it
+ * starts afresh rather than associate old samples with the wrong
+ * frequencies. */
+static void move_centre(bool up, uint32_t delta)
 {
     const uint32_t old_first = g.first;
-    g.centre = up ? g.centre + g.step : g.centre - g.step;
+    g.centre = up ? g.centre + delta : g.centre - delta;
     place_window();                         /* a region edge may refuse the move */
     if (g.first == old_first)
         return;
+    if (delta != g.step) {                  /* not one point: the lines start over */
+        memset(S, 0, sizeof(*S));
+        g.head = 0;
+        g.sweeps = 0;
+        g.abort_sweep = true;
+        return;
+    }
     const int8_t d = g.first > old_first ? 1 : -1;   /* 1: content moves to bin 0 */
     for (uint8_t r = 0; r <= LINES; r++) {  /* the lines and ACC */
         uint8_t *p = S->line[r] + (d > 0 ? 0u : BINS - 1u);
@@ -259,6 +308,7 @@ static void move_centre(bool up)
 }
 
 static void poll_keys(void);
+static void draw(uint8_t quarter);
 
 /* Every 1 << speed sweeps (or listening checks), ACC becomes the newest line
  * of the landscape and restarts at `fill`: 0 for the peak hold of a sweep, the
@@ -294,31 +344,38 @@ static void sweep(void)
 {
     uint8_t *acc = S->line[ACC];
     g.abort_sweep = false;
-    /* signal level from the newest line's floor; before the first line the
-     * floor is 0 and every point gets the full wait */
-    g.gate = (uint8_t)(S->floor[g.head ? g.head - 1u : LINES - 1u] + SIGNAL_DB);
-    uint8_t prev = 255u;                    /* the jump back to the start lags too */
+    /* Signal level from the newest line's floor. With no line yet (floor 0
+     * after a start, a span change or a history reset) nothing counts as a
+     * signal: every point is read fast and no peak can be listened to.
+     * The first point is read like every other quiet point: the receiver
+     * already waits on it (see park_start). A settling delay of its own made
+     * it read higher than its fast-read neighbours, a ramp at the left edge. */
+    const uint8_t newest_floor = S->floor[g.head ? g.head - 1u : LINES - 1u];
+    g.gate = (uint8_t)(newest_floor ? newest_floor + SIGNAL_DB : 255u);
+    uint8_t prev = 0;
     uint8_t peak_v = g.gate;                /* only a signal can be listened to */
     g.peak_f = 0;
-    /* substeps is 1 or 2: the spacing is a shift, not a division */
-    const uint32_t sub = (uint32_t)(g.step >> (g.substeps - 1u));
+    /* 1, 2 or 4 measurements per point, 12.5 kHz apart at most: the spacing
+       is a shift, not a division */
+    const uint32_t sub = (uint32_t)(g.step >> g.sub_shift);
     for (uint8_t b = 0; b < BINS; b++) {
         if (!(b & 15u)) {
             poll_keys();
-            if (g.abort_sweep || g.hold || !g.running) {
+            if (g.abort_sweep || g.hold || g.saver || !g.running) {
                 g.peak_f = 0;               /* an unfinished sweep is not listened to */
+                park_start();               /* the window may have moved too */
                 return;
             }
+            if (b && !g.saver)
+                draw(b >> 4);               /* in-between frame: 1/4, 2/4, 3/4 */
         }
         /* past the region's edge nothing is measured: the point stays flat */
         uint32_t f = g.first + (uint32_t)b * g.step;
-        for (uint8_t k = 0; k < g.substeps && f <= g.last_ok; k++, f += sub) {
+        for (uint8_t k = 0; k < (1u << g.sub_shift) && f <= g.last_ok; k++, f += sub) {
             tune(f);
-            uint8_t m;
-            if (prev > g.gate)              /* leaving a signal: full wait */
-                m = measure(SETTLE_MS);
-            else if ((m = measure(SETTLE_FAST_MS)) > g.gate)
-                m = measure(SETTLE_MS - SETTLE_FAST_MS);   /* rising: finish here */
+            uint8_t m = measure(prev > g.gate ? SIGNAL_SETTLE_MS : 0u);
+            if (m > g.gate && prev <= g.gate)
+                m = measure(SIGNAL_SETTLE_MS); /* confirm a rising signal */
             prev = m;
             if (m > peak_v) {
                 peak_v = m;
@@ -329,6 +386,7 @@ static void sweep(void)
                 acc[b] = m;
         }
     }
+    park_start();                           /* settles while the frame is drawn */
     commit(0);
 }
 
@@ -402,89 +460,117 @@ static void frame_sides(int32_t z)
     }
 }
 
-static void draw(void)
+/* View angles (Q8) for project(), from the sine asset: read when the view
+ * turns or tilts, not on every frame (the assets sit in the external flash). */
+static void view(void)
 {
-    char buf[BUF_LEN];
-
-    /* status line: title (or HOLD), the F-armed and listen icons, the battery */
-    A->status_clear();
-    A->asset_read(g.hold ? T_HOLD : T_TITLE, buf, TEXT_MAX);
-    A->print_inverse(buf, 2, 0, true, true, (uint8_t)(2u + slen(buf) * 4u));
-    if (g.farm)
-        A->asset_read(BMP_F, A->status_line + 70, BMP_F_LEN);
-    if (g.listen)
-        A->asset_read(BMP_SPEAKER, A->status_line + 55, BMP_SPEAKER_LEN);
-    A->draw_battery();
-
-    A->display_clear();
-
     int16_t sinq[SINQ_LEN / 2u];            /* sin() Q8, -45..135 deg by 5 deg */
     A->asset_read(SINQ, sinq, sizeof(sinq));
     g.ys = sinq[SINQ_ZERO + g.yaw];
     g.yc = sinq[SINQ_ZERO + 18u - g.yaw];   /* cos = sin(90 - angle) */
     g.ps = sinq[SINQ_ZERO + g.pitch];
     g.pc = sinq[SINQ_ZERO + 18u - g.pitch];
+}
+
+/* One frame, `quarter` of the way through the current sweep (0 to 3). */
+static void draw(uint8_t quarter)
+{
+    char buf[BUF_LEN];
+
+    /* Status line: title (or HOLD), the F-armed and listen icons, the
+     * battery. Only on a sweep's main frame: the in-between frames only move
+     * the landscape, and the LCD keeps the status line meanwhile. */
+    if (!quarter) {
+        A->status_clear();
+        A->asset_read(g.hold ? T_HOLD : T_TITLE, buf, TEXT_MAX);
+        A->print_inverse(buf, 2, 0, true, true, (uint8_t)(2u + slen(buf) * 4u));
+        if (g.farm)
+            A->asset_read(BMP_F, A->status_line + 70, BMP_F_LEN);
+        if (g.listen)
+            A->asset_read(BMP_SPEAKER, A->status_line + 55, BMP_SPEAKER_LEN);
+        A->draw_battery();
+        A->blit_status();
+    }
+
+    A->display_clear();
+
+    /* Smooth scroll: a line takes 1 << speed sweeps and each sweep draws four
+     * frames, so every line slides back by that fraction of the 8-unit
+     * spacing, ACC from the front edge to the newest line's place. */
+    const int32_t off = (int32_t)((2u * (4u * g.sweeps + quarter)) >> g.speed);
+    /* ACC is drawn over the newest line's floor, its own staying 0. With no
+     * line yet (floor 0 after a start, a span change or a history reset) it
+     * stays flat: over floor 0 its noise stood as a wall at the front. */
+    uint8_t acc_floor = S->floor[g.head ? g.head - 1u : LINES - 1u];
+    if (!acc_floor)
+        acc_floor = 255u;
 
     /* Far to near: the back corners and edge, a stretch of the sides before
      * each line, then the nearest stretch and the front edge. */
-    project(-BOARD_X, BOARD_Z, 0, g.side);
-    project(BOARD_X, BOARD_Z, 0, g.side + 2);
-    line(g.side, g.side + 2, true);         /* back: dotted */
-    for (uint8_t i = 0; i < LINES; i++) {   /* oldest (far) to newest (near) */
-        uint8_t row = (uint8_t)(g.head + i);
-        if (row >= LINES)
-            row -= LINES;
-        const int32_t z = ((int32_t)(LINES - 1u) - 2 * i) * 4;
-        frame_sides(z);
-        int32_t pt[BINS][2];
-        bool lit[BINS];                     /* point above the noise gate */
-        for (uint8_t b = 0; b < BINS; b++) {
-            const int32_t d = (int32_t)S->line[row][b] - S->floor[row] - NOISE_GATE;
-            lit[b] = d > 0;
-            project(2 * b - 63, z, d > 0 ? HEIGHT_Q * d / (d + COMPRESS) : 0, pt[b]);
+        project(-BOARD_X, BOARD_Z, 0, g.side);
+        project(BOARD_X, BOARD_Z, 0, g.side + 2);
+        line(g.side, g.side + 2, true);     /* back: dotted */
+        for (uint8_t i = 0; i <= LINES; i++) { /* oldest (far) to ACC (near) */
+            uint8_t row = ACC, fl = acc_floor;
+            if (i < LINES) {
+                row = (uint8_t)(g.head + i);
+                if (row >= LINES)
+                    row -= LINES;
+                fl = S->floor[row];
+            }
+            const int32_t z = ((int32_t)(LINES - 1u) - 2 * i) * 4 + off;
+            frame_sides(z);
+            int32_t pt[BINS][2];
+            bool lit[BINS];                 /* point above the noise gate */
+            for (uint8_t b = 0; b < BINS; b++) {
+                const int32_t d = (int32_t)S->line[row][b] - fl - NOISE_GATE;
+                lit[b] = d > 0;
+                project(2 * b - 63, z, d > 0 ? HEIGHT_Q * d / (d + COMPRESS) : 0, pt[b]);
+            }
+            /* The line's top edge in every screen column it crosses, kept as
+             * 2y + 1 on the noise and 2y on a signal: the minimum is the
+             * topmost point, and its low bit tells dotted from solid. */
+            int16_t top[W];
+            for (uint8_t x = 0; x < W; x++)
+                top[x] = NO_Y;
+            for (uint8_t b = 0; b + 1u < BINS; b++) {
+                const int32_t noise = !(lit[b] || lit[b + 1u]);
+                const int32_t *p0 = pt[b], *p1 = pt[b + 1u];
+                if (p1[0] < p0[0]) {
+                    const int32_t *t = p0;
+                    p0 = p1;
+                    p1 = t;
+                }
+                for (int32_t x = p0[0] < 0 ? 0 : p0[0]; x <= p1[0] && x < (int32_t)W; x++) {
+                    /* the segment's first column is p0 itself: no division there,
+                       and a vertical step (p1[0] == p0[0]) has no other column */
+                    const int32_t y = x == p0[0] ? p0[1]
+                                    : p0[1] + (p1[1] - p0[1]) * (x - p0[0]) / (p1[0] - p0[0]);
+                    const int32_t key = 2 * y + noise;
+                    if (key < top[x])
+                        top[x] = (int16_t)key;
+                }
+            }
+            /* Hide what lies below, then draw the edge and close steep slopes:
+             * solid on signals, every other column on the noise floor. */
+            int32_t prev = NO_Y;
+            for (uint8_t x = 0; x < W; x++) {
+                const int32_t key = top[x];
+                if (key == NO_Y) {
+                    prev = NO_Y;
+                    continue;
+                }
+                const int32_t y = key >> 1;
+                clear_below(x, y + 1);
+                if (!(key & 1) || !(x & 1u)) {
+                    plot(x, y);
+                    if (prev != NO_Y)
+                        for (int32_t yy = (y < prev ? y : prev) + 1; yy < (y < prev ? prev : y); yy++)
+                            plot(x, yy);
+                }
+                prev = y;
+            }
         }
-        /* The line's top edge in every screen column it crosses, kept as
-         * 2y + 1 on the noise and 2y on a signal: the minimum is the topmost
-         * point, and its low bit tells dotted (noise) from solid (signal). */
-        int16_t top[W];
-        for (uint8_t x = 0; x < W; x++)
-            top[x] = NO_Y;
-        for (uint8_t b = 0; b + 1u < BINS; b++) {
-            const int32_t noise = !(lit[b] || lit[b + 1u]);
-            const int32_t *p0 = pt[b], *p1 = pt[b + 1u];
-            if (p1[0] < p0[0]) {
-                const int32_t *t = p0;
-                p0 = p1;
-                p1 = t;
-            }
-            for (int32_t x = p0[0] < 0 ? 0 : p0[0]; x <= p1[0] && x < (int32_t)W; x++) {
-                const int32_t y = p1[0] == p0[0] ? p0[1]
-                                : p0[1] + (p1[1] - p0[1]) * (x - p0[0]) / (p1[0] - p0[0]);
-                const int32_t key = 2 * y + noise;
-                if (key < top[x])
-                    top[x] = (int16_t)key;
-            }
-        }
-        /* hide what lies below, then draw the edge and close steep slopes:
-         * solid on signals, every other column on the noise floor */
-        int32_t prev = NO_Y;
-        for (uint8_t x = 0; x < W; x++) {
-            const int32_t key = top[x];
-            if (key == NO_Y) {
-                prev = NO_Y;
-                continue;
-            }
-            const int32_t y = key >> 1;
-            clear_below(x, y + 1);
-            if (!(key & 1) || !(x & 1u)) {
-                plot(x, y);
-                if (prev != NO_Y)
-                    for (int32_t yy = (y < prev ? y : prev) + 1; yy < (y < prev ? prev : y); yy++)
-                        plot(x, yy);
-            }
-            prev = y;
-        }
-    }
     frame_sides(-BOARD_Z);
     line(g.side, g.side + 2, false);        /* front */
 
@@ -494,7 +580,6 @@ static void draw(void)
     capsule(buf, 2);
     capsule(g.label, (uint8_t)(W - 2u - SPAN_LABEL_LEN * 4u));
 
-    A->blit_status();
     A->blit_full();
 }
 
@@ -502,13 +587,16 @@ static void draw(void)
 
 static void key_press(uint8_t key)
 {
-    int8_t dir = A->nav_dir(key);           /* UP/DOWN: span */
+    const int8_t yaw = g.yaw;
+    const uint8_t pitch = g.pitch;
+    const int8_t nav = A->nav_dir(key);     /* UP/DOWN (UV-K1: LEFT/RIGHT) */
     const bool shifted = g.farm;
     g.farm = key == APP_KEY_F && !shifted;  /* F arms the next key */
-    if (key == APP_KEY_3)
-        dir = shifted ? -1 : 1;             /* 3 wider, F+3 narrower */
-    if (key == APP_KEY_1) {
-        move_centre(!shifted);
+    const int8_t dir = shifted ? -1 : 1;    /* 3 wider, F+3 narrower */
+    if (nav) {
+        move_centre(nav > 0, g.step);       /* one point: the landscape slides */
+    } else if (key == APP_KEY_1) {
+        move_centre(!shifted, CENTRE_STEP);
     } else if (key == APP_KEY_EXIT) {
         g.running = false;
     } else if (key == APP_KEY_4 && g.yaw > -YAW_MAX) {
@@ -528,10 +616,13 @@ static void key_press(uint8_t key)
         g.hold = !g.hold;
     } else if (key == APP_KEY_STAR) {
         g.speed = (uint8_t)(g.speed + 1u < SPEED_COUNT ? g.speed + 1u : 0u);
-    } else if (dir && (uint8_t)(g.span + dir) < SPAN_COUNT) {
+        g.sweeps = 0;                       /* keeps the scroll within one spacing */
+    } else if (key == APP_KEY_3 && (uint8_t)(g.span + dir) < SPAN_COUNT) {
         g.span = (uint8_t)(g.span + dir);
         restart();                          /* keeps the centre */
     }
+    if (g.yaw != yaw || g.pitch != pitch)
+        view();                             /* the view turned or tilted */
 }
 
 static void poll_keys(void)
@@ -540,66 +631,115 @@ static void poll_keys(void)
     g.saver = key == APP_KEY_SAVER;
     if (key == APP_KEY_WAKE || g.saver)
         key = APP_KEY_INVALID;
-    if (key != g.prev_key && key != APP_KEY_INVALID)
+    const uint32_t now = A->ticks_ms();
+    if (key != g.prev_key) {
+        g.repeat_at = now + KEY_REPEAT_DELAY_MS;
+        if (key != APP_KEY_INVALID)
+            key_press(key);
+    } else if (key != APP_KEY_INVALID && A->nav_dir(key) &&
+               (int32_t)(now - g.repeat_at) >= 0) {    /* a held UP/DOWN repeats */
+        g.repeat_at = now + KEY_REPEAT_MS;
         key_press(key);
+    }
     g.prev_key = key;
 }
 
 /* ---- listening ----------------------------------------------------------- */
 
-/* Centre on the station: the sweep's peak can sit a point or two late (the
- * RSSI lags the retune, and a weak station only crosses the fast-read gate
- * after its own point) or between two points (coarse spans, 12.5 kHz
- * rasters). Hill-climb around it through the listening filter with a full
- * settle, halving the offset from two points down to REFINE_MIN. */
+/* Last frequency from f, going up or down, whose level stays at or above
+ * `level`: whole REFINE_STEPs while it holds (at most REFINE_REACH), then
+ * halving steps down to REFINE_MIN to place the edge. */
+static uint32_t edge(uint32_t f, uint8_t level, bool up)
+{
+    uint32_t d = REFINE_STEP;
+    uint8_t reach = REFINE_REACH;
+    do {
+        const uint32_t t = up ? f + d : f - d;
+        tune(t);
+        if (measure(REFINE_SETTLE_MS) >= level) {
+            f = t;
+            if (d == REFINE_STEP && --reach)
+                continue;                   /* still on the station */
+        }
+        d >>= 1;
+    } while (d >= REFINE_MIN);
+    return f;
+}
+
+/* Centre on the station, in two passes through the listening filter.
+ *
+ * Find it again first. The sweep places it only within half a measurement
+ * spacing, plus a point or two of RSSI lag (a weak station also crosses the
+ * fast-read gate after its own point): a few kHz at ±200K, but tens of kHz
+ * at the wider spans, and the 25 kHz scan filter still shows a station
+ * that a narrower VFO filter no longer hears at that point. Scan
+ * two measurement spacings either side every REFINE_SCAN and keep the
+ * strongest point.
+ *
+ * Then centre on it. A strong station saturates the fixed-gain receiver into
+ * a flat top several kHz wide, and the first (lowest) point is kept: a
+ * hill-climb, which only moves to a strictly higher level, stays on that
+ * edge, off the carrier. Listen halfway between the two edges where the level
+ * falls REFINE_DB below the peak: they sit symmetrically around the carrier,
+ * whether the top is sharp, flat or saturated. */
 static void refine(void)
 {
-    uint32_t f = g.peak_f;
-    tune(f);
-    uint8_t best = measure(REFINE_SETTLE_MS);
-    for (uint32_t d = 2u * g.step; d >= REFINE_MIN; d >>= 1) {
-        const uint32_t c = f;
-        for (int8_t s = -1; s <= 1; s += 2) {
-            const uint32_t t = s < 0 ? c - d : c + d;
-            tune(t);
-            const uint8_t m = measure(REFINE_SETTLE_MS);
-            if (m > best) {
-                best = m;
-                f = t;
-            }
+    const uint32_t reach = 2u * (uint32_t)(g.step >> g.sub_shift);
+    uint32_t f = g.peak_f - reach;
+    uint8_t peak = 0;
+    for (uint32_t t = f; t <= g.peak_f + reach; t += REFINE_SCAN) {
+        tune(t);
+        const uint8_t m = measure(REFINE_SETTLE_MS);
+        if (m > peak) {
+            peak = m;
+            f = t;
         }
     }
-    g.peak_f = f;                           /* shown in the capsule too */
+    const uint8_t level = (uint8_t)(peak > REFINE_DB ? peak - REFINE_DB : 0u);
+    const uint32_t lo = edge(f, level, false);
+    const uint32_t hi = edge(f, level, true);
+    g.peak_f = lo + ((hi - lo) >> 1);       /* shown in the capsule too */
 }
 
-static bool squelch_open(void)
-{
-    return (A->bk_read(REG_STATUS) & 2u) != 0;
-}
-
-/* Centre on the sweep's strongest point with the VFO's own RX filter and, if
- * the chip's squelch opens there, play it as the resident spectrum does (AF
- * DAC, AF path, FM demodulation); the main loop then checks it until it goes
- * quiet or a key stops it. Listening and sweeping share the one receiver, so
- * meanwhile the landscape goes on with that point alone. */
+/* Centre on the sweep's strongest point with the VFO's own RX filter and play
+ * it directly, as the resident spectrum does (automatic gain, AF DAC, AF
+ * path, FM demodulation): the sweep's fixed gain would overload the receiver
+ * on a strong station. The RSSI is not gain-compensated, so a strong
+ * station's ridge is drawn lower while it is heard.
+ * The app's own level and hang time close the audio; the VFO's hardware
+ * squelch must not reject a peak that the spectrum detected. Listening and
+ * sweeping share the one receiver, so meanwhile the landscape goes on with
+ * that point alone. */
 static void start_listen(void)
 {
+    /* Keep the station's shape from the sweep that found it (ACC while the
+     * line still gathers sweeps, else the newest line): its points from the
+     * peak outwards while they stand above the noise gate. Only its own point
+     * is measured while listening, and a one-point ridge looked thin next to
+     * the sweep's. */
+    const uint8_t *ref = S->line[g.sweeps ? ACC : (g.head ? g.head - 1u : LINES - 1u)];
+    const uint8_t lit = (uint8_t)(g.gate - SIGNAL_DB + NOISE_GATE);
+    memset(g.shape, 0, sizeof(g.shape));
+    g.shape[SHAPE_R] = ref[g.peak_bin];
+    for (int8_t dir = -1; dir <= 1; dir += 2)
+        for (uint8_t k = 1; k <= SHAPE_R; k++) {
+            const uint8_t b = (uint8_t)(g.peak_bin + dir * (int8_t)k);
+            if (b >= BINS || ref[b] <= lit)
+                break;                      /* off the station (or the sweep) */
+            g.shape[SHAPE_R + dir * (int8_t)k] = ref[b];
+        }
+    g.listen_ref = 0;                       /* set by the first listening check */
+
     A->bk_write(REG_RX_BW, g.saved_bw);
     refine();
     tune(g.peak_f);
-    for (uint8_t t = SQL_WAIT; !squelch_open(); t--) {
-        if (!t) {                           /* no station there: back to the sweep */
-            A->bk_write(REG_RX_BW, g.scan_bw);
-            return;
-        }
-        A->delay_ms(10);
-    }
     /* listening lines start flat at the floor: only the station is measured */
     memset(S->line[ACC], g.gate - SIGNAL_DB, BINS);
     g.close_lvl = (uint8_t)(g.close_db + g.gate - SIGNAL_DB);
     g.quiet = 0;
     g.listening = true;
-    A->bk_write(REG_CTRL, A->bk_read(REG_CTRL) | CTRL_AF_DAC);
+    A->set_agc(true);
+    A->bk_write(REG_CTRL, g.scan_ctrl | CTRL_AF_DAC);
     A->audio_path(true);
     A->delay_ms(AUDIO_SETTLE_MS);
     A->set_af(APP_AF_FM);
@@ -610,7 +750,9 @@ static void stop_listen(void)
     A->set_af(APP_AF_MUTE);
     A->audio_path(false);
     g.listening = false;
+    A->set_agc(false);                      /* back to the sweep's fixed gain */
     A->bk_write(REG_RX_BW, g.scan_bw);
+    park_start();                           /* also restores REG_30 without the AF DAC */
 }
 
 __attribute__((section(".text.entry"), used))
@@ -626,31 +768,62 @@ void app_main(const app_api_t *api)
         (uint8_t)(g.pitch - PITCH_MIN) > PITCH_MAX - PITCH_MIN)
         A->asset_read(CFG_DEFAULT, &g.magic, CFG_DEFAULT_LEN);
     g.running = true;                       /* the rest of g starts zeroed (.bss) */
+    view();
     g.prev_key = A->get_key();
     A->backlight_on();
     A->audio_path(false);
     A->set_af(APP_AF_MUTE);
     A->set_agc(false);                      /* fixed gain: no pumping by a strong signal */
     g.saved_bw = A->bk_read(REG_RX_BW);
+    g.scan_ctrl = A->bk_read(REG_CTRL) & ~CTRL_AF_DAC;
     g.centre = A->rx_freq();
     restart();
 
     while (g.running) {
-        if (g.listening) {
-            A->delay_ms(LISTEN_TICK_MS);
+        if (g.saver) {
+            /* Behind the screen saver the spectrum stops, as the other apps
+               pause: no sweep and no audio (a sweep aborts and listening
+               closes when the saver starts). Only the saver's animation is
+               kept running, every 10 ms, until a key wakes it. */
             poll_keys();
-            /* quiet when the squelch is lost (as in VFO mode) or the level
-               falls to the close level (squelch 0, always open) */
+            A->delay_ms(10);
+            A->backlight_update();
+            if (!g.saver)
+                draw(0);                    /* woken: status line included */
+            continue;
+        }
+        if (g.listening) {
+            for (uint8_t q = 1u; q < 4u; q++) { /* in-between frames */
+                A->delay_ms(LISTEN_TICK_MS / 4u);
+                if (!g.saver)
+                    draw(q);
+            }
+            A->delay_ms(LISTEN_TICK_MS / 4u);
+            poll_keys();
+            /* Close only after the app's measured level stays below its
+               filter-adjusted threshold for the configured hang time. */
             const uint8_t m = measure(0);
-            g.quiet = squelch_open() && m > g.close_lvl ? 0u : (uint8_t)(g.quiet + 1u);
-            if (g.quiet >= LISTEN_HANG || !g.listen || g.hold || g.abort_sweep) {
+            g.quiet = m > g.close_lvl ? 0u : (uint8_t)(g.quiet + 1u);
+            if (g.quiet >= LISTEN_HANG || !g.listen || g.hold || g.saver || g.abort_sweep) {
                 stop_listen();
             } else {
-                /* the landscape goes on with the one point still measured,
-                   the station's own ridge; the rest stays flat at the floor */
-                uint8_t *peak = &S->line[ACC][g.peak_bin];
-                if (m > *peak)
-                    *peak = m;
+                /* the landscape goes on with the one point still measured:
+                   the station's shape from its sweep, moved by the level
+                   change since the first check (its flanks sink under the
+                   floor as it fades). Relative on purpose: the automatic gain
+                   lowers a strong station's uncompensated RSSI, so the
+                   listening level does not match the sweep's fixed-gain one.
+                   The rest stays flat at the floor. */
+                if (!g.listen_ref)
+                    g.listen_ref = m;
+                for (uint8_t k = 0; k <= 2u * SHAPE_R; k++) {
+                    const uint8_t b = (uint8_t)(g.peak_bin + k - SHAPE_R);
+                    int16_t v = (int16_t)(g.shape[k] + m - g.listen_ref);
+                    if (v > 255)
+                        v = 255;
+                    if (g.shape[k] && v > S->line[ACC][b])
+                        S->line[ACC][b] = (uint8_t)v;
+                }
                 commit((uint8_t)(g.gate - SIGNAL_DB));
             }
         } else if (g.hold) {
@@ -658,13 +831,13 @@ void app_main(const app_api_t *api)
             A->delay_ms(20);
         } else {
             sweep();                        /* polls the keys as it goes */
-            /* a finished sweep's peak; not before the first line (floor 0) */
-            if (g.listen && g.peak_f && g.gate > SIGNAL_DB)
+            /* a finished sweep's peak (none before the first line: gate 255) */
+            if (g.listen && g.peak_f)
                 start_listen();
         }
         A->battery_sample();                /* keeps the status-bar level live */
         if (!g.saver)
-            draw();
+            draw(0);
         A->backlight_update();
     }
 

@@ -11,25 +11,37 @@ from app_assets import Assets
 # its struct globals, from `step` on, so the fields must keep the order and
 # sizes of that struct (the app checks the total with a static assert):
 #   step      u16  point spacing (x10 Hz)
-#   rx_bw     u16  REG_43 RX filter: the resident spectrum's scanStepBWRegValues
-#                  for the same steps (App/app/spectrum.h)
-#   substeps  u8   measurements per point, 1 or 2 (the app shifts, never
-#                  divides): 25 kHz is the widest filter, so the 50 kHz step
-#                  also measures halfway and keeps the maximum
+#   rx_bw     u16  REG_43 RX filter during the sweep: the widest (25 kHz, the
+#                  resident spectrum's scanStepBWRegValues for its 25 kHz step,
+#                  App/app/spectrum.h) at every span, so that a signal between
+#                  two measurements still falls well inside the filter
+#   sub_shift u8   log2 of the measurements per point, 0 to 2 (the app shifts,
+#                  never divides), which keeps them 12.5 kHz apart at most, the
+#                  channel raster: every channel is then within 6.25 kHz of a
+#                  measurement, where a narrower filter or a 25 kHz spacing left
+#                  a channel between two points at the filter's edge. A point
+#                  keeps the maximum of its measurements.
 #   close_db  u8   listening closes below the sweep floor plus this many dB:
-#                  the audio uses the VFO's own filter (up to 25 kHz), whose
-#                  noise sits higher than the narrower sweep filters (+6 dB
-#                  over 6.25 kHz, +3 dB over 12.5 kHz, on top of 5 dB)
-#   label          the span capsule: LABEL_LEN characters + NUL
-SPANS = [("0.4M", 625,  0x4858, 1, 11),   # 6.25 kHz filter
-         ("0.8M", 1250, 0x7F08, 1, 8),    # 12.5 kHz filter
-         ("1.6M", 2500, 0x3628, 1, 5),    # 25 kHz filter
-         ("3.2M", 5000, 0x3628, 2, 5)]    # 25 kHz filter, two points per step
-LABEL_LEN = 4
-if any(len(s[0]) != LABEL_LEN or s[3] not in (1, 2) for s in SPANS):
-    sys.exit("SPANS: labels must have LABEL_LEN characters and substeps be 1 or 2")
-RECORDS = [struct.pack(f"<HHBB{LABEL_LEN + 1}s", step, bw, sub, close, label.encode("ascii"))
-           for label, step, bw, sub, close in SPANS]
+#                  the audio's VFO filter (up to 25 kHz) has no more noise than
+#                  the 25 kHz sweep filter, so 5 dB at every span
+#   label          the span capsule, LABEL_LEN characters + NUL: the window
+#                  either side of the centre (the 64 points run from 32 below
+#                  it to 31 above), as ±200K for the 400 kHz window. PM is the
+#                  3x5 font's ± (gFont3x5[0x7F - 0x20] in App/font.c).
+WIDE = 0x3628                            # REG_43: 25 kHz filter
+PM = "\x7f"
+SPANS = [(PM + "200K", 625,  WIDE, 0, 5),    # 6.25 kHz points
+         (PM + "400K", 1250, WIDE, 0, 5),    # 12.5 kHz points
+         (PM + "800K", 2500, WIDE, 1, 5),    # 25 kHz points, 2 measurements each
+         (PM + "1.6M", 5000, WIDE, 2, 5)]    # 50 kHz points, 4 measurements each
+LABEL_LEN = 5
+MEASURE_MAX = 1250                       # widest spacing of the measurements (x10 Hz)
+if any(len(s[0]) != LABEL_LEN or s[3] not in (0, 1, 2) or s[1] >> s[3] > MEASURE_MAX
+       for s in SPANS):
+    sys.exit("SPANS: labels must have LABEL_LEN characters, sub_shift be 0 to 2 "
+             "and the measurements be at most 12.5 kHz apart")
+RECORDS = [struct.pack(f"<HHBB{LABEL_LEN + 1}s", step, bw, shift, close, label.encode("ascii"))
+           for label, step, bw, shift, close in SPANS]
 
 # RX regions the sweep must stay inside (x10 Hz, inclusive): the RF path
 # switches VHF/UHF at 280 MHz (BK4819_PickRXFilterPathBasedOnFrequency) and the
@@ -37,9 +49,10 @@ RECORDS = [struct.pack(f"<HHBB{LABEL_LEN + 1}s", step, bw, sub, close, label.enc
 REGIONS = [(1800000, 27999999), (28000000, 62999999), (84000000, 130000000)]
 
 # Saved settings, in the order of the app's struct globals: magic, span,
-# speed, yaw (signed), pitch. The defaults: 1.6 MHz, a line per sweep, front
+# speed, yaw (signed), pitch. The defaults: ±200 kHz, a line per sweep, front
 # view tilted 25 degrees. 0x3E configs stored yaw + 9: the new magic resets them.
 CFG_MAGIC = 0x3F
+SPAN_DEF = [s[0] for s in SPANS].index(PM + "200K")
 PITCH_DEF = 5          # 25 degrees
 SPEED_COUNT = 3        # 1 << speed sweeps per landscape line: 1, 2, 4 (peak-held)
 
@@ -52,7 +65,7 @@ a.const("SPAN_LABEL_LEN", LABEL_LEN)
 a.const("SPAN_COUNT", len(SPANS))
 a.u32("REGION", [edge for region in REGIONS for edge in region])
 a.const("REGION_COUNT", len(REGIONS))
-a.u8("CFG_DEFAULT", [CFG_MAGIC, 2, 0, 0, PITCH_DEF])
+a.u8("CFG_DEFAULT", [CFG_MAGIC, SPAN_DEF, 0, 0, PITCH_DEF])
 a.const("CFG_MAGIC", CFG_MAGIC)
 a.const("PITCH_DEF", PITCH_DEF)
 a.const("SPEED_COUNT", SPEED_COUNT)

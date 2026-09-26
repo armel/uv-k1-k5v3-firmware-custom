@@ -38,9 +38,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* API levels within ABI major 1:
- *   1  baseline: every service up to and including beam_draw
- *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc) */
+/* API levels within ABI major 1, one per published release (what a release
+ * ships is frozen; services added before the next release join its level):
+ *   1  v6.0.0 baseline: every service up to and including beam_draw
+ *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc),
+ *      idivmod, uidivmod (the resident division helpers) */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  2u
 
@@ -245,6 +247,16 @@ typedef struct app_api {
      * assets' CRC before launch.  buf may live in the overlay (.bss) or on the
      * stack. */
     uint16_t (*asset_read)(uint16_t offset, void *buf, uint16_t len);
+
+    /* ---- API level 2: integer division ---- */
+    /* The resident run-time helpers (the Cortex-M0+ has no divide
+     * instruction), so an app needs no libgcc division of its own: its
+     * __aeabi_idivmod / __aeabi_uidivmod (and the __aeabi_idiv / __aeabi_uidiv
+     * aliases) just forward here.  C division (truncated toward zero), the
+     * quotient in the low word (r0) and the remainder in the high word (r1), as
+     * the AEABI helpers return them; x / 0 gives 0, remainder x. */
+    uint64_t (*idivmod)(int32_t n, int32_t d);
+    uint64_t (*uidivmod)(uint32_t n, uint32_t d);
 } app_api_t;
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */
