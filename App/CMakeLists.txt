@@ -5,6 +5,8 @@ target_link_libraries(App INTERFACE PY32F071_Driver)
 target_compile_definitions(App INTERFACE PRINTF_INCLUDE_CONFIG_H)
 
 target_sources(App INTERFACE
+    # libgcc override (signed division)
+    compact_div.S
     # Drivers
     driver/backlight.c
     driver/bk4829.c
