@@ -200,6 +200,14 @@ enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_APPS
     apps/app_overlay.c
     apps/app_menu.c
 )
+enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX
+    app/afsk_tx.c
+    app/afsk_core.c
+    app/afsk_hw.c
+)
+if(ENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX AND NOT ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+    message(FATAL_ERROR "Resident AFSK TX requires ENABLE_FEAT_F4HWN_OVERLAY_APPS.")
+endif()
 enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO)
 enable_feature(ENABLE_FEAT_F4HWN_OVERLAY_BEAM)
 if(ENABLE_FEAT_F4HWN_OVERLAY_APPS AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)

@@ -37,11 +37,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 /* First unpublished/public baseline: all services currently present below are
  * ABI major 1, API level 1. */
 #define APP_ABI_MAJOR  1u
-#define APP_API_LEVEL  1u
+#define APP_API_LEVEL  2u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -164,6 +165,65 @@ enum {
  * such as cfg_save, fm_commit and beam_save must only stage resident RAM state;
  * APP_LaunchOverlay commits it after app_main() returns. */
 
+/* API level 2: stable public values independent of VFO_Info_t. */
+enum {
+    APP_AFSK_OK = 0, APP_AFSK_BUSY = 1, APP_AFSK_BAD_ARGUMENT = 2,
+    APP_AFSK_TX_DENIED = 3, APP_AFSK_LOW_BATTERY = 4,
+    APP_AFSK_HIGH_VOLTAGE = 5, APP_AFSK_CHANNEL_CHANGED = 6,
+    APP_AFSK_PTT_RELEASED = 7, APP_AFSK_TIMING = 8,
+    APP_AFSK_TIMEOUT = 9, APP_AFSK_CANCELED = 10, APP_AFSK_INTERNAL = 11
+};
+enum { APP_AFSK_IDLE = 0, APP_AFSK_ACTIVE = 1, APP_AFSK_DONE = 2,
+       APP_AFSK_ABORTED = 3, APP_AFSK_ERROR = 4 };
+enum { APP_AFSK_REQUIRE_PHYSICAL_PTT = 0x0001 };
+enum { APP_TX_INFO_BUSY = 0x01, APP_TX_INFO_SIMPLEX = 0x02 };
+enum { APP_TX_MOD_FM = 0, APP_TX_MOD_AM = 1, APP_TX_MOD_USB = 2,
+       APP_TX_MOD_OTHER = 255 };
+enum { APP_TX_POWER_USER = 0, APP_TX_POWER_LOW1 = 1, APP_TX_POWER_LOW2 = 2,
+       APP_TX_POWER_LOW3 = 3, APP_TX_POWER_LOW4 = 4, APP_TX_POWER_LOW5 = 5,
+       APP_TX_POWER_MID = 6, APP_TX_POWER_HIGH = 7 };
+enum { APP_TX_BW_WIDE = 0, APP_TX_BW_NARROW = 1, APP_TX_BW_NARROWER = 2,
+       APP_TX_BW_OTHER = 255 };
+#define APP_AFSK_FRAME_MAX 128u
+#define APP_AFSK_MAX_ON_MS 2000u
+
+typedef struct {
+    uint16_t size; /* caller sets sizeof(app_tx_info_t) before querying */
+    uint8_t denial;
+    uint8_t flags;
+    uint32_t tx_freq_10hz;
+    uint32_t rx_freq_10hz;
+    uint32_t channel_token;
+    uint8_t modulation;
+    uint8_t power;
+    uint8_t bandwidth;
+    uint8_t reserved;
+} app_tx_info_t;
+
+typedef struct {
+    uint16_t size;
+    uint16_t flags; /* REQUIRE_PHYSICAL_PTT is mandatory in the first release */
+    uint32_t channel_token;
+    uint16_t preamble_flags; /* 1..120, typical 45 */
+    uint8_t tail_flags;      /* 1..10, typical 3 */
+    uint8_t tone_gain;       /* 1..127, initial laboratory value 66 */
+    uint16_t max_on_ms;      /* 100..2000; includes every keyed symbol */
+    uint16_t reserved;       /* must be zero */
+} app_afsk_opts_t;
+
+typedef struct {
+    uint16_t size; /* caller sets sizeof(app_afsk_status_t) before polling */
+    uint8_t state;
+    uint8_t error;
+    uint32_t bits_sent;
+    uint32_t pa_on_us;
+    uint32_t max_lateness_cycles; /* 48 MHz input-clock cycles */
+} app_afsk_status_t;
+
+_Static_assert(sizeof(app_tx_info_t) == 20, "TX info ABI");
+_Static_assert(sizeof(app_afsk_opts_t) == 16, "AFSK options ABI");
+_Static_assert(sizeof(app_afsk_status_t) == 16, "AFSK status ABI");
+
 typedef struct app_api {
     /* Fixed four-byte prefix; services remain naturally pointer-aligned. */
     uint8_t   abi_major;            /* == APP_ABI_MAJOR                         */
@@ -277,7 +337,23 @@ typedef struct app_api {
     void     (*beam_rx)(bool start);         /* arm or stop FSK reception */
     uint8_t  (*beam_rx_poll)(uint16_t *packet); /* APP_BEAM_RX_* */
     void     (*beam_draw)(const char *status); /* MAIN display with one BEAM center line */
+    /* Optional APP_CAP_AFSK_TX: check api_size and pointers before use.
+     * tx_info returns out->denial. submit copies a full 18..128-byte frame with
+     * FCS, retaining no caller pointers. poll restores RX after ISR PA-off;
+     * symbol timing and PA-off never depend on poll. cancel synchronously stops
+     * RF/timer and restores RX; safe to repeat. RF APIs are blocked while owned. */
+    uint8_t (*tx_info)(app_tx_info_t *out);
+    uint8_t (*afsk_submit)(const uint8_t *frame, uint16_t length,
+                           const app_afsk_opts_t *opts);
+    void (*afsk_poll)(app_afsk_status_t *out);
+    void (*afsk_cancel)(void);
 } app_api_t;
+
+#if UINTPTR_MAX == UINT32_MAX
+_Static_assert(offsetof(app_api_t, beam_draw) == 280, "API 1 prefix moved");
+_Static_assert(offsetof(app_api_t, tx_info) == 284, "API 2 must append");
+_Static_assert(sizeof(app_api_t) == 300, "API 2 table ABI");
+#endif
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */
 enum { APP_AF_MUTE = 0, APP_AF_FM = 1, APP_AF_AM = 7 };

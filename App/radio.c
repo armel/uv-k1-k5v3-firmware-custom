@@ -1162,6 +1162,45 @@ void RADIO_SetVfoState(VfoState_t State)
 }
 
 
+/* Pure permission check shared by voice and packet TX. It has no RF, UI,
+ * DTMF, logging or PTT-id side effects. */
+VfoState_t RADIO_CheckTXPermission(const VFO_Info_t *vfo)
+{
+    VfoState_t State = VFO_STATE_NORMAL;
+    if(TX_freq_check(vfo->pTX->Frequency) != 0
+#ifdef ENABLE_FEAT_F4HWN
+        && vfo->TX_LOCK == true
+#endif
+    ){
+        // TX frequency not allowed
+        State = VFO_STATE_TX_DISABLE;
+    } else if (SerialConfigInProgress()) {
+        // TX is disabled or config upload/download in progress
+        State = VFO_STATE_TX_DISABLE;
+    } else if (vfo->BUSY_CHANNEL_LOCK && gCurrentFunction == FUNCTION_RECEIVE) {
+        // busy RX'ing a station
+        State = VFO_STATE_BUSY;
+    } else if (gBatteryDisplayLevel == 0) {
+        // charge your battery !git co
+        State = VFO_STATE_BAT_LOW;
+    } else if (gBatteryDisplayLevel > 6) {
+        // over voltage .. this is being a pain
+        State = VFO_STATE_VOLTAGE_HIGH;
+    }
+#ifdef ENABLE_BYP_RAW_DEMODULATORS
+    else if (vfo->Modulation == MODULATION_BYP || vfo->Modulation == MODULATION_RAW) {
+        // BYP/RAW are receive-only modes.
+        State = VFO_STATE_TX_DISABLE;
+    }
+#endif
+    else if (vfo->Modulation != MODULATION_FM) {
+        // AM and other non-FM modes are receive-only.
+        State = VFO_STATE_TX_DISABLE;
+    }
+
+    return State;
+}
+
 void RADIO_PrepareTX(void)
 {
     VfoState_t State = VFO_STATE_NORMAL;  // default to OK to TX
@@ -1186,37 +1225,13 @@ void RADIO_PrepareTX(void)
 
     RADIO_SelectCurrentVfo();
 
-    if(TX_freq_check(gCurrentVfo->pTX->Frequency) != 0
+    State = RADIO_CheckTXPermission(gCurrentVfo);
+    if (TX_freq_check(gCurrentVfo->pTX->Frequency) != 0
 #ifdef ENABLE_FEAT_F4HWN
         && gCurrentVfo->TX_LOCK == true
 #endif
-    ){
-        // TX frequency not allowed
-        State = VFO_STATE_TX_DISABLE;
+    )
         gVfoConfigureMode = VFO_CONFIGURE;
-    } else if (SerialConfigInProgress()) {
-        // TX is disabled or config upload/download in progress
-        State = VFO_STATE_TX_DISABLE;
-    } else if (gCurrentVfo->BUSY_CHANNEL_LOCK && gCurrentFunction == FUNCTION_RECEIVE) {
-        // busy RX'ing a station
-        State = VFO_STATE_BUSY;
-    } else if (gBatteryDisplayLevel == 0) {
-        // charge your battery !git co
-        State = VFO_STATE_BAT_LOW;
-    } else if (gBatteryDisplayLevel > 6) {
-        // over voltage .. this is being a pain
-        State = VFO_STATE_VOLTAGE_HIGH;
-    }
-#ifdef ENABLE_BYP_RAW_DEMODULATORS
-    else if (gCurrentVfo->Modulation == MODULATION_BYP || gCurrentVfo->Modulation == MODULATION_RAW) {
-        // BYP/RAW are receive-only modes.
-        State = VFO_STATE_TX_DISABLE;
-    }
-#endif
-    else if (gCurrentVfo->Modulation != MODULATION_FM) {
-        // AM and other non-FM modes are receive-only.
-        State = VFO_STATE_TX_DISABLE;
-    }
 
     if (State != VFO_STATE_NORMAL) {
         // TX not allowed

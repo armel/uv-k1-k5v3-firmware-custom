@@ -38,6 +38,7 @@
 #include "k5viewer.h"
 #endif
 #include "app/app.h"
+#include "app/afsk_tx.h"
 #include "ui/helper.h"
 #include "ui/main.h"
 #include "ui/status.h"
@@ -56,6 +57,9 @@ _Static_assert(sizeof(app_api_t) <= UINT16_MAX, "app_api_t size field overflow")
 
 enum {
     APP_AVAILABLE_CAPS = 0u
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX
+                       | APP_CAP_AFSK_TX
+#endif
 #ifdef ENABLE_FMRADIO
                        | APP_CAP_FM
 #endif
@@ -70,6 +74,7 @@ enum {
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
 static bool app_allow_screen_saver;
 static bool app_screen_saver_wake;
+static uint8_t app_rf_mode; /* 0 ordinary RX, 1 FM, 2 Beam, 3 Triple VFO */
 
 static void app_backlight_on(void)
 {
@@ -139,10 +144,17 @@ static int8_t  app_nav_dir(uint8_t key)
 
     return gEeprom.SET_NAV ? direction : -direction;
 }
-static void    app_led(bool on)        { BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on); }
+static void    app_led(bool on)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, on);
+}
 
 static void app_play_tone(uint16_t tone, uint16_t ms)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     BK4819_PrepareToPlayTone(true);
     AUDIO_AudioPathOn();
     BK4819_PlayToneRaw(tone, ms);
@@ -285,6 +297,9 @@ static bool app_trivfo_qualified(void)
 
 static uint16_t app_trivfo_enter(uint16_t c_channel)
 {
+    if (AFSK_TX_OwnsRF())
+        return 0;
+    app_rf_mode = 3;
     app_trivfo_saved_rx      = gRxVfo;
     app_trivfo_saved_tx      = gTxVfo;
     app_trivfo_saved_current = gCurrentVfo;
@@ -317,6 +332,9 @@ static uint16_t app_trivfo_enter(uint16_t c_channel)
 
 static void app_trivfo_leave(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
+    app_rf_mode = 0;
     if (!app_trivfo_running)
         return;
     if (app_trivfo_transmitting)
@@ -332,6 +350,8 @@ static void app_trivfo_leave(void)
 
 static void app_trivfo_get(uint8_t index, app_trivfo_info_t *info)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     if (info == NULL || index >= APP_TRIVFO_COUNT)
         return;
     const VFO_Info_t *vfo = app_trivfo_vfo(index);
@@ -376,12 +396,16 @@ static void app_trivfo_get(uint8_t index, app_trivfo_info_t *info)
 
 static void app_trivfo_select(uint8_t vfo)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     if (vfo < APP_TRIVFO_COUNT)
         app_trivfo_selected = vfo;
 }
 
 static uint16_t app_trivfo_step(uint8_t index, int8_t direction)
 {
+    if (AFSK_TX_OwnsRF())
+        return 0;
     if (index >= APP_TRIVFO_COUNT || app_trivfo_transmitting)
         return 0xFFFFu;
     VFO_Info_t *vfo = app_trivfo_vfo(index);
@@ -435,6 +459,8 @@ static void app_trivfo_end_tx(void)
 
 static uint8_t app_trivfo_tick(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return 0;
     if (!app_trivfo_running)
         return APP_TRIVFO_SCAN;
     if (app_trivfo_transmitting) {
@@ -506,6 +532,8 @@ static uint8_t app_trivfo_tick(void)
 
 static uint8_t app_trivfo_ptt(bool pressed)
 {
+    if (AFSK_TX_OwnsRF())
+        return 0;
     if (!app_trivfo_running)
         return 1;
     if (!pressed) {
@@ -560,6 +588,9 @@ static bool app_beam_dirty;
 
 static void app_beam_prepare(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
+    app_rf_mode = 2;
     const uint16_t channel = FREQ_CHANNEL_FIRST + BAND6_400MHz;
     RADIO_InitInfo(&app_beam_vfo, channel, DEFAULT_FREQ);
     app_beam_vfo.CHANNEL_BANDWIDTH = BANDWIDTH_NARROW;
@@ -577,6 +608,9 @@ static void app_beam_prepare(void)
 
 static void app_beam_leave(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
+    app_rf_mode = 0;
     BK4819_ResetFSK();
 }
 
@@ -721,6 +755,8 @@ static void app_beam_commit(void)
 
 static void app_beam_send(uint16_t *packet)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     if (packet == NULL)
         return;
     RADIO_SetTxParameters();
@@ -733,6 +769,8 @@ static void app_beam_send(uint16_t *packet)
 
 static void app_beam_rx(bool start)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     app_beam_fsk_index = 0;
     if (start)
         BK4819_PrepareFSKReceive();
@@ -742,6 +780,8 @@ static void app_beam_rx(bool start)
 
 static uint8_t app_beam_rx_poll(uint16_t *packet)
 {
+    if (AFSK_TX_OwnsRF())
+        return APP_BEAM_RX_WAIT;
     if (packet == NULL)
         return APP_BEAM_RX_ERROR;
 
@@ -771,6 +811,8 @@ static uint8_t app_beam_rx_poll(uint16_t *packet)
 
 static void app_beam_draw(const char *status)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     UI_DisplayStatus();
     UI_DisplayMain();
 #ifdef ENABLE_FEAT_F4HWN
@@ -784,15 +826,82 @@ static void app_beam_draw(const char *status)
 }
 #endif
 
+static void app_set_agc(bool on)
+{
+    if (!AFSK_TX_OwnsRF()) BK4819_SetAGC(on);
+}
+static void app_audio_scope(uint8_t line, bool on)
+{
+    if (!AFSK_TX_OwnsRF()) UI_DisplayAudioScopeOverlay(line, on);
+}
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX
+static uint8_t app_afsk_info(app_tx_info_t *out)
+{
+    uint8_t result = AFSK_TX_Info(out);
+    if (result != APP_AFSK_BAD_ARGUMENT && app_rf_mode) {
+        out->flags |= APP_TX_INFO_BUSY;
+        out->denial = APP_AFSK_BUSY;
+        return APP_AFSK_BUSY;
+    }
+    return result;
+}
+static uint8_t app_afsk_submit(const uint8_t *frame, uint16_t len,
+                               const app_afsk_opts_t *opts)
+{
+    if (app_rf_mode) return APP_AFSK_BUSY;
+    return AFSK_TX_Submit(frame, len, opts);
+}
+#endif
+
 /* ---- radio wrappers ---- */
-static int16_t  app_rssi_dbm(void)     { return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]; }
-static uint16_t app_bk_read(uint8_t r) { return BK4819_ReadRegister((BK4819_REGISTER_t)r); }
-static void     app_bk_write(uint8_t r, uint16_t v) { BK4819_WriteRegister((BK4819_REGISTER_t)r, v); }
-static void     app_set_af(uint8_t m)  { BK4819_SetAF((BK4819_AF_Type_t)m); }
-static void     app_audio_path(bool on){ if (on) AUDIO_AudioPathOn(); else AUDIO_AudioPathOff(); }
-static void     app_prepare_tone(void) { BK4819_PrepareToPlayTone(true); }
-static void     app_play_tone_raw(uint16_t hz, uint16_t ms) { BK4819_PlayToneRaw(hz, ms); }
-static void     app_tones_off_rx(void) { BK4819_TurnsOffTones_TurnsOnRX(); }
+static int16_t  app_rssi_dbm(void)
+{
+    if (AFSK_TX_OwnsRF())
+        return INT16_MAX;
+    return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band];
+}
+static uint16_t app_bk_read(uint8_t r)
+{
+    if (AFSK_TX_OwnsRF())
+        return 0;
+    return BK4819_ReadRegister((BK4819_REGISTER_t)r);
+}
+static void     app_bk_write(uint8_t r, uint16_t v)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_WriteRegister((BK4819_REGISTER_t)r, v);
+}
+static void     app_set_af(uint8_t m)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_SetAF((BK4819_AF_Type_t)m);
+}
+static void     app_audio_path(bool on)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    if (on) AUDIO_AudioPathOn(); else AUDIO_AudioPathOff();
+}
+static void     app_prepare_tone(void)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_PrepareToPlayTone(true);
+}
+static void     app_play_tone_raw(uint16_t hz, uint16_t ms)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_PlayToneRaw(hz, ms);
+}
+static void     app_tones_off_rx(void)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_TurnsOffTones_TurnsOnRX();
+}
 static uint32_t app_rx_freq(void)      { return gRxVfo->pRX->Frequency; }
 
 /* ---- v2 config (deferred, flash-backed) ----
@@ -808,6 +917,8 @@ static uint8_t app_run_slot;     /* slot of the app currently running */
 
 static void app_cfg_load(uint8_t *buf, uint8_t len)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     if (len > sizeof(app_cfg_buf)) len = sizeof(app_cfg_buf);
     PY25Q16_ReadBuffer(APP_SLOT_BASE(app_run_slot) + APP_CFG_OFFSET, buf, len);
 }
@@ -826,6 +937,8 @@ static void app_draw_battery(void)
 }
 static void app_battery_sample(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     /* The resident scheduler deliberately skips ADC battery updates while the
      * PA is keyed.  Do the same for Triple VFO: sampling the loaded voltage as
      * capacity made an 80% pack appear to fall immediately to about 16%. */
@@ -840,20 +953,50 @@ static void app_battery_sample(void)
 /* ---- v2 TX (beacon) ---- */
 static uint8_t app_tx_state(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return 1;
     if (TX_freq_check(gTxVfo->pTX->Frequency) != 0 && gTxVfo->TX_LOCK) return 1; /* TX disable */
     if (gBatteryDisplayLevel == 0) return 2;  /* battery low */
     if (gBatteryDisplayLevel > 6)  return 3;  /* voltage high */
     if (gTxVfo->Modulation != MODULATION_FM) return 1;
     return 0;
 }
-static void     app_tx_set_params(void)  { RADIO_SetTxParameters(); }
-static void     app_tx_tone(uint16_t hz) { BK4819_TransmitTone(false, hz); }
-static void     app_tx_mute(bool on)     { if (on) BK4819_EnterTxMute(); else BK4819_ExitTxMute(); }
-static void     app_tx_end(void)         { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false); RADIO_SetupRegisters(true); }
-static void     app_tx_carrier(bool on)  { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, on); }
+static void     app_tx_set_params(void)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    RADIO_SetTxParameters();
+}
+static void     app_tx_tone(uint16_t hz)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_TransmitTone(false, hz);
+}
+static void     app_tx_mute(bool on)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    if (on) BK4819_EnterTxMute(); else BK4819_ExitTxMute();
+}
+static void     app_tx_end(void)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+    RADIO_SetupRegisters(true);
+}
+static void     app_tx_carrier(bool on)
+{
+    if (AFSK_TX_OwnsRF())
+        return;
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, on);
+}
 static uint32_t app_tx_freq(void)        { return gTxVfo->pTX->Frequency; }
 static void app_boot_callsign(char *buf, uint8_t len)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
     char raw[12]; uint8_t n = 0;
     PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, raw, sizeof(raw));
     for (uint8_t i = 0; i < sizeof(raw) && (uint8_t)(n + 1) < len; i++) {
@@ -869,6 +1012,9 @@ static void app_boot_callsign(char *buf, uint8_t len)
 /* ---- v2 broadcast FM (BK1080), sovereign (no BK4819 dual-watch) ---- */
 static void app_fm_enter(uint16_t f, uint8_t b)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
+    app_rf_mode = 1;
     BK1080_Init(f, b);
     BK4819_PickRXFilterPathBasedOnFrequency(10320000);   /* FM band antenna filter */
     AUDIO_AudioPathOn();
@@ -876,6 +1022,9 @@ static void app_fm_enter(uint16_t f, uint8_t b)
 }
 static void app_fm_exit(void)
 {
+    if (AFSK_TX_OwnsRF())
+        return;
+    app_rf_mode = 0;
     AUDIO_AudioPathOff();
     gEnableSpeaker = false;
     BK1080_Init0();
@@ -1032,7 +1181,7 @@ static const app_api_t app_api = {
     .rssi_dbm         = app_rssi_dbm,
     .bk_read          = app_bk_read,
     .bk_write         = app_bk_write,
-    .set_agc          = BK4819_SetAGC,
+    .set_agc          = app_set_agc,
     .set_af           = app_set_af,
     .audio_path       = app_audio_path,
     .prepare_tone     = app_prepare_tone,
@@ -1045,7 +1194,7 @@ static const app_api_t app_api = {
     .battery_sample   = app_battery_sample,
     .backlight_on     = app_backlight_on,
     .backlight_update = app_backlight_update,
-    .audio_scope      = UI_DisplayAudioScopeOverlay,
+    .audio_scope      = app_audio_scope,
     .status_line      = gStatusLine,
     .tx_state         = app_tx_state,
     .tx_set_params    = app_tx_set_params,
@@ -1069,6 +1218,12 @@ static const app_api_t app_api = {
     .fm_commit        = app_fm_commit,
 #endif
     .nav_dir          = app_nav_dir,
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX
+    .tx_info          = app_afsk_info,
+    .afsk_submit      = app_afsk_submit,
+    .afsk_poll        = AFSK_TX_Poll,
+    .afsk_cancel      = AFSK_TX_Cancel,
+#endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_TRIVFO
     .trivfo_enter     = app_trivfo_enter,
     .trivfo_leave     = app_trivfo_leave,
@@ -1105,6 +1260,9 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     if (h.link_vma != (uint32_t)ws)
         return APP_ERR_VMA;
 
+    /* No timer job may outlive the app whose overlay RAM is about to be reused. */
+    AFSK_TX_Cancel();
+
     /* Repurpose the sector cache: drop any cached config sector, load the code
      * straight in (ReadBuffer bypasses the cache), and verify it in RAM before
      * trusting it. Zeroing first leaves the app's .bss clean. */
@@ -1121,6 +1279,7 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     __DSB();
     __ISB();
 
+    app_rf_mode = 0;
     app_run_slot = slot;   /* for cfg_load / cfg_save */
     app_cfg_len  = 0;
 #ifdef ENABLE_FMRADIO
@@ -1156,10 +1315,14 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     VFO_Info_t *const saved_current = gCurrentVfo;
     gEeprom.RX_VFO = gEeprom.TX_VFO;
     gRxVfo         = gTxVfo;
+    gCurrentVfo    = gTxVfo;
     RADIO_SetupRegisters(true);
 
     app_entry_t entry = (app_entry_t)(((uint32_t)ws + h.entry_off) | 1u);
     entry(&app_api);
+
+    /* Mandatory PA-off/timer stop before VFO restore or external-flash commit. */
+    AFSK_TX_Cancel();
 
     APP_ModalScreenSaverExit();
     app_allow_screen_saver = false;

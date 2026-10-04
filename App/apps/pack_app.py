@@ -46,6 +46,7 @@ CAPABILITIES = {
     "fm": cdefine("app_overlay.h", "APP_CAP_FM"),
     "trivfo": cdefine("app_overlay.h", "APP_CAP_TRIVFO"),
     "beam": cdefine("app_overlay.h", "APP_CAP_BEAM"),
+    "afsk": cdefine("app_overlay.h", "APP_CAP_AFSK_TX"),
 }
 
 def field(s: str, n: int) -> bytes:

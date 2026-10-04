@@ -1,0 +1,43 @@
+name: Resident overlay AFSK TX
+on:
+  pull_request:
+    paths:
+      - 'App/app/afsk_*'
+      - 'App/apps/app_api.h'
+      - 'App/apps/app_overlay.*'
+      - 'App/apps/pack_app.py'
+      - 'App/apps/AFSK_TX.md'
+      - 'App/radio.*'
+      - 'App/driver/bk4829.*'
+      - 'App/driver/systick.*'
+      - 'App/CMakeLists.txt'
+      - 'Core/**'
+      - 'CMakePresets.json'
+      - 'tests/afsk_tx/**'
+      - 'Dockerfile'
+      - '.github/workflows/overlay-afsk.yml'
+  workflow_dispatch:
+jobs:
+  service-and-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host service and hardware adapter tests
+        run: bash tests/afsk_tx/run.sh
+      - name: Build toolchain
+        run: docker build -t uvk1-uvk5v3 .
+      - name: Build Labs with resident AFSK enabled
+        run: ./compile-firmware.sh Labs -DENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX=ON
+      - name: Build Fusion with resident AFSK disabled
+        run: ./compile-firmware.sh Fusion -DENABLE_FEAT_F4HWN_OVERLAY_AFSK_TX=OFF
+      - name: Rebuild legacy overlay apps
+        run: ./compile-app.sh All
+      - uses: actions/upload-artifact@v4
+        with:
+          name: resident-AFSK-and-legacy-overlays
+          path: |
+            build/Labs/*.bin
+            build/Labs/*.map
+            build/Fusion/*.bin
+            build/Fusion/*.map
+            build/Apps/*.app

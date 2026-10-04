@@ -83,6 +83,7 @@
 #define APP_CAP_FM            0x00000001u
 #define APP_CAP_TRIVFO        0x00000002u
 #define APP_CAP_BEAM          0x00000004u
+#define APP_CAP_AFSK_TX       0x00000008u
 
 typedef struct __attribute__((packed)) {
     uint32_t magic;                    /* APP_MAGIC                              */
