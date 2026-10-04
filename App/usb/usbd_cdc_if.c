@@ -128,6 +128,8 @@ void usbd_cdc_acm_bulk_out(uint8_t ep, uint32_t nbytes)
             pointer += size;
         }
 
+        if (pointer >= rx_buf->size)
+            pointer = 0;
         *rx_buf->write_pointer = pointer;
     }
 
@@ -195,7 +197,6 @@ void cdc_acm_data_send_with_dtr(const uint8_t *buf, uint32_t size)
             ;
         if (!timeout) {
             ep_tx_busy_flag = false;
-            dtr_enable = 0;  // Consider USB disconnected
         }
     }
 }
@@ -204,6 +205,24 @@ void cdc_acm_data_send_with_dtr_async(const uint8_t *buf, uint32_t size)
 {
     if (0 != size)
     {
-        usbd_ep_start_write(CDC_IN_EP, buf, size);
+        uint32_t wait_prev = 10000;
+        while (ep_tx_busy_flag && --wait_prev)
+            ;
+
+        ep_tx_busy_flag = true;
+        int ret = -3;
+        uint32_t retries = 10000;
+        while ((ret = usbd_ep_start_write(CDC_IN_EP, buf, size)) == -3 && --retries)
+            ;
+        if (ret < 0) {
+            ep_tx_busy_flag = false;
+            return;
+        }
+        uint32_t timeout = 10000;
+        while (ep_tx_busy_flag && --timeout)
+            ;
+        if (!timeout) {
+            ep_tx_busy_flag = false;
+        }
     }
 }

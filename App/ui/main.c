@@ -62,7 +62,11 @@ center_line_t center_line = CENTER_LINE_NONE;
 
     static bool isMainOnly()
     {
+#ifdef ENABLE_CAT
+        return true;
+#else
         return (gEeprom.DUAL_WATCH == DUAL_WATCH_OFF) && (gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF);
+#endif
     }
 #endif
 
@@ -1053,7 +1057,7 @@ void DisplayRSSIBar(const bool now)
     };
 #endif
 
-    if ((gEeprom.KEY_LOCK && gKeypadLocked > 0) || center_line != CENTER_LINE_RSSI)
+    if ((gEeprom.KEY_LOCK && gKeypadLocked > 0) || center_line == CENTER_LINE_IN_USE)
         return;     // display is in use
 
     if (gCurrentFunction == FUNCTION_TRANSMIT ||
@@ -1063,6 +1067,8 @@ void DisplayRSSIBar(const bool now)
 #endif
         )
         return;     // display is in use
+
+    center_line = CENTER_LINE_RSSI;
 
 #ifdef ENABLE_FEAT_F4HWN
     if (now) {
@@ -1157,7 +1163,7 @@ void DisplayRSSIBar(const bool now)
 #endif
     DrawLevelBar(bar_x, line, s_level + overS9Bars, 13);
 #ifdef ENABLE_FEAT_F4HWN
-    if (now && memcmp(oldLine, p_line, LCD_WIDTH) != 0)
+    if (now)
         ST7565_BlitLine(line);
 #else
     if (now)
@@ -1241,6 +1247,30 @@ void UI_MAIN_TimeSlice10ms(void)
         && gScanListNameCountdown_10ms > 0
         && --gScanListNameCountdown_10ms == 0)
         gUpdateDisplay = true;
+
+#ifdef ENABLE_RSSI_BAR
+    static uint8_t s_rssi_tick = 0;
+    static bool s_was_rx = false;
+
+    if (gScreenToDisplay == DISPLAY_MAIN) {
+        bool is_rx = FUNCTION_IsRx();
+        if (is_rx) {
+            s_was_rx = true;
+            if (++s_rssi_tick >= 8) { // update S-meter every 80 ms during reception
+                s_rssi_tick = 0;
+                DisplayRSSIBar(true);
+            }
+        } else if (s_was_rx) {
+            // Reception ended! Immediately clear the S-meter line and request display update
+            s_was_rx = false;
+            s_rssi_tick = 0;
+            const unsigned int s_line = isMainOnly() ? 5 : 3;
+            memset(gFrameBuffer[s_line], 0, LCD_WIDTH);
+            ST7565_BlitLine(s_line);
+            gUpdateDisplay = true;
+        }
+    }
+#endif
 }
 #endif
 
@@ -2355,13 +2385,12 @@ void UI_DisplayMain(void)
             center_line = CENTER_LINE_RSSI;
             DisplayRSSIBar(false);
         }
-        else
 #endif
         if (rx || gCurrentFunction == FUNCTION_FOREGROUND || gCurrentFunction == FUNCTION_POWER_SAVE)
         {
             #if 1
-                if (gSetting_live_DTMF_decoder && gDTMF_RX_live[0] != 0 && gKeypadLocked == 0)
-                {   // show live DTMF decode
+                if ((gSetting_live_DTMF_decoder || g_FskRxIsMsg) && gDTMF_RX_live[0] != 0 && gKeypadLocked == 0)
+                {   // show live DTMF / FSK message
                     const unsigned int len = strlen(gDTMF_RX_live);
                     const unsigned int idx = (len > (17 - 5)) ? len - (17 - 5) : 0;  // limit to last 'n' chars
 
@@ -2372,20 +2401,27 @@ void UI_DisplayMain(void)
                         )
                         return;
 
-                    center_line = CENTER_LINE_DTMF_DEC;
+                    if (!rx)
+                        center_line = CENTER_LINE_DTMF_DEC;
 
-                    sprintf(String, "DTMF %s", gDTMF_RX_live + idx);
+                    if (g_FskRxIsMsg) {
+                        // Show only message content, no prefix — use full screen width
+                        const unsigned int fsk_idx = (len > 17u) ? len - 17u : 0u;
+                        sprintf(String, "%.17s", gDTMF_RX_live + fsk_idx);
+                    } else {
+                        sprintf(String, "DTMF %s", gDTMF_RX_live + idx);
+                    }
 #ifdef ENABLE_FEAT_F4HWN
                     if (isMainOnly())
                     {
-                        UI_PrintStringSmallNormal(String, 2, 0, 5);
+                        UI_PrintStringSmallNormal(String, 2, 0, 4);
                     }
                     else
                     {
-                        UI_PrintStringSmallNormal(String, 2, 0, 3);
+                        UI_PrintStringSmallNormal(String, 2, 0, 2);
                     }
 #else
-                    UI_PrintStringSmallNormal(String, 2, 0, 3);
+                    UI_PrintStringSmallNormal(String, 2, 0, 2);
 
 #endif
                 }

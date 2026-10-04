@@ -115,8 +115,22 @@ void Main(void)
 #endif
 
     #ifdef ENABLE_FEAT_F4HWN
-        gDW = gEeprom.DUAL_WATCH;
-        gCB = gEeprom.CROSS_BAND_RX_TX;
+        #ifdef ENABLE_CAT
+            gDW = DUAL_WATCH_OFF;
+            gCB = CROSS_BAND_OFF;
+            gEeprom.DUAL_WATCH = DUAL_WATCH_OFF;
+            gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
+            gEeprom.VFO_OPEN = true;
+            if (!IS_FREQ_CHANNEL(gEeprom.ScreenChannel[0])) {
+                gEeprom.ScreenChannel[0] = IS_FREQ_CHANNEL(gEeprom.FreqChannel[0]) ? gEeprom.FreqChannel[0] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
+            }
+            if (!IS_FREQ_CHANNEL(gEeprom.ScreenChannel[1])) {
+                gEeprom.ScreenChannel[1] = IS_FREQ_CHANNEL(gEeprom.FreqChannel[1]) ? gEeprom.FreqChannel[1] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
+            }
+        #else
+            gDW = gEeprom.DUAL_WATCH;
+            gCB = gEeprom.CROSS_BAND_RX_TX;
+        #endif
     #endif
 
     SETTINGS_LoadCalibration();

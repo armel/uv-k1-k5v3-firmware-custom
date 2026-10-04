@@ -99,7 +99,16 @@ void FUNCTION_Foreground(const FUNCTION_Type_t PreviousFunction)
         ST7565_FixInterfGlitch();
         gVFO_RSSI_bar_level[0] = 0;
         gVFO_RSSI_bar_level[1] = 0;
-    } else if (PreviousFunction != FUNCTION_RECEIVE) {
+        BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
+        BK4819_SetupPowerAmplifier(0, 0);
+        BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+        RADIO_SetupRegisters(true);
+        gUpdateDisplay = true;
+    } else if (PreviousFunction == FUNCTION_RECEIVE) {
+        gVFO_RSSI_bar_level[0] = 0;
+        gVFO_RSSI_bar_level[1] = 0;
+        gUpdateDisplay = true;
+    } else {
         return;
     }
 

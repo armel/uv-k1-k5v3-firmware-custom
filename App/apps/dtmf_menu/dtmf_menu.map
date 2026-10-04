@@ -1,0 +1,236 @@
+Archive member included to satisfy reference by file (symbol)
+
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_thumb1_case_uqi.o)
+                              /tmp/cc6KwwnQ.o (__gnu_thumb1_case_uqi)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+                              /tmp/cc6KwwnQ.o (__aeabi_uidiv)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+                              /tmp/cc6KwwnQ.o (__aeabi_idiv)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+                              /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o) (__aeabi_idiv0)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+                              /tmp/cc6KwwnQ.o (__aeabi_ldivmod)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o)
+                              /tmp/cc6KwwnQ.o (__aeabi_uldivmod)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+                              /tmp/cc6KwwnQ.o (__aeabi_lmul)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+                              /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o) (__udivmoddi4)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+                              /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o) (__gnu_ldivmod_helper)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o)
+                              /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o) (__clzdi2)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+                              /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o) (__divdi3)
+/opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzsi2.o)
+                              /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o) (__clzsi2)
+
+Discarded input sections
+
+ .text          0x00000000        0x0 /tmp/cc6KwwnQ.o
+ .data          0x00000000        0x0 /tmp/cc6KwwnQ.o
+ .bss           0x00000000        0x0 /tmp/cc6KwwnQ.o
+ .comment       0x00000000       0x46 /tmp/cc6KwwnQ.o
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_thumb1_case_uqi.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_thumb1_case_uqi.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .text          0x00000000      0x1d4 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+ .debug_frame   0x00000000       0x20 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+ .debug_line_str
+                0x00000000       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+ .ARM.attributes
+                0x00000000       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divsi3.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .text          0x00000000       0x48 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+ .debug_line_str
+                0x00000000       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+ .ARM.attributes
+                0x00000000       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_ldivmod.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o)
+ .text          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+ .text          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+ .ARM.extab.text.__udivmoddi4
+                0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+ .ARM.exidx.text.__udivmoddi4
+                0x00000000        0x8 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+ .text          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+ .text.__gnu_ldivmod_helper
+                0x00000000       0x3c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+ .debug_frame   0x00000000       0x38 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+ .ARM.attributes
+                0x00000000       0x2c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(bpabi.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o)
+ .text          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .text.__divdi3
+                0x00000000      0x1e4 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .ARM.extab.text.__divdi3
+                0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .ARM.exidx.text.__divdi3
+                0x00000000        0x8 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .debug_frame   0x00000000       0x3c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .ARM.attributes
+                0x00000000       0x2c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_divdi3.o)
+ .data          0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzsi2.o)
+ .bss           0x00000000        0x0 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzsi2.o)
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+APP              0x20000280         0x00001000         xrw
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+                0x20000280                        APP_VMA = 0x20000280
+LOAD /tmp/cc6KwwnQ.o
+LOAD /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a
+                0x20000280                        APP_VMA = DEFINED (APP_VMA)?APP_VMA:0x20000280
+                0x00001000                        APP_LENGTH = 0x1000
+
+.app            0x20000280      0xc8c
+ *(.text.entry)
+ .text.entry    0x20000280       0xe4 /tmp/cc6KwwnQ.o
+                0x20000280                app_main
+ *(.text .text.*)
+ .text.put      0x20000364       0x12 /tmp/cc6KwwnQ.o
+ .text.putu     0x20000376       0x56 /tmp/cc6KwwnQ.o
+ .text.show_empty
+                0x200003cc       0x6c /tmp/cc6KwwnQ.o
+ .text.format_freq_mhz.part.0
+                0x20000438       0x74 /tmp/cc6KwwnQ.o
+ .text.transmit_preset
+                0x200004ac      0x3dc /tmp/cc6KwwnQ.o
+ .text.draw_menu
+                0x20000888      0x108 /tmp/cc6KwwnQ.o
+ .text          0x20000990       0x14 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_thumb1_case_uqi.o)
+                0x20000990                __gnu_thumb1_case_uqi
+ .text          0x200009a4      0x114 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+                0x200009a4                __udivsi3
+                0x200009a4                __aeabi_uidiv
+                0x20000ab0                __aeabi_uidivmod
+ .text          0x20000ab8        0x4 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+                0x20000ab8                __aeabi_ldiv0
+                0x20000ab8                __aeabi_idiv0
+ .text          0x20000abc       0x40 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o)
+                0x20000abc                __aeabi_uldivmod
+ .text.__muldi3
+                0x20000afc       0x5c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+                0x20000afc                __aeabi_lmul
+                0x20000afc                __muldi3
+ .text.__udivmoddi4
+                0x20000b58      0x198 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+                0x20000b58                __udivmoddi4
+ .text          0x20000cf0       0x18 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o)
+                0x20000cf0                __clzdi2
+ .text          0x20000d08       0x3c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzsi2.o)
+                0x20000d08                __clzsi2
+ *(.rodata .rodata.*)
+ .rodata.show_empty.str1.1
+                0x20000d44       0xd8 /tmp/cc6KwwnQ.o
+                                 0x2f (size before relaxing)
+ .rodata.transmit_preset.str1.1
+                0x20000e1c       0x63 /tmp/cc6KwwnQ.o
+ .rodata.DTMF_TONES
+                0x20000e1c       0x60 /tmp/cc6KwwnQ.o
+ .rodata.str1.1
+                0x20000e7c       0x47 /tmp/cc6KwwnQ.o
+ .rodata.PRESETS
+                0x20000e7c       0x8c /tmp/cc6KwwnQ.o
+                0x20000f08                        . = ALIGN (0x4)
+ *(.data .data.*)
+                0x20000f08                        . = ALIGN (0x4)
+                0x20000f08                        __app_bss_start = .
+ *(.bss .bss.* COMMON)
+ .bss.A         0x20000f08        0x4 /tmp/cc6KwwnQ.o
+                0x20000f0c                        . = ALIGN (0x4)
+                0x20000f0c                        __app_bss_end = .
+                0x20000f0c                        __app_end = .
+                0x00000001                        ASSERT ((__app_end <= (APP_VMA + APP_LENGTH)), DTMF Menu overlay app overflows the 4 KiB overlay)
+
+.glue_7         0x20000f0c        0x0
+ .glue_7        0x20000f0c        0x0 linker stubs
+
+.glue_7t        0x20000f0c        0x0
+ .glue_7t       0x20000f0c        0x0 linker stubs
+
+.vfp11_veneer   0x20000f0c        0x0
+ .vfp11_veneer  0x20000f0c        0x0 linker stubs
+
+.v4_bx          0x20000f0c        0x0
+ .v4_bx         0x20000f0c        0x0 linker stubs
+
+.iplt           0x20000f0c        0x0
+ .iplt          0x20000f0c        0x0 /tmp/cc6KwwnQ.o
+
+.igot.plt       0x20000f0c        0x0
+ .igot.plt      0x20000f0c        0x0 /tmp/cc6KwwnQ.o
+
+.rel.dyn        0x20000f0c        0x0
+ .rel.iplt      0x20000f0c        0x0 /tmp/cc6KwwnQ.o
+
+/DISCARD/
+ *(.ARM.exidx*)
+ *(.ARM.extab*)
+ *(.eh_frame*)
+ *(.comment)
+ *(.note.*)
+OUTPUT(dtmf_menu.elf elf32-littlearm)
+LOAD linker stubs
+
+.ARM.attributes
+                0x00000000       0x2c
+ .ARM.attributes
+                0x00000000       0x2c /tmp/cc6KwwnQ.o
+ .ARM.attributes
+                0x0000002c       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_thumb1_case_uqi.o)
+ .ARM.attributes
+                0x0000004a       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .ARM.attributes
+                0x00000068       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .ARM.attributes
+                0x00000086       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o)
+ .ARM.attributes
+                0x000000a4       0x2c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+ .ARM.attributes
+                0x000000d0       0x2c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)
+ .ARM.attributes
+                0x000000fc       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o)
+ .ARM.attributes
+                0x0000011a       0x1e /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzsi2.o)
+
+.debug_line_str
+                0x00000000       0xce
+ .debug_line_str
+                0x00000000       0xce /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_thumb1_case_uqi.o)
+                                 0xc2 (size before relaxing)
+ .debug_line_str
+                0x000000ce       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_line_str
+                0x000000ce       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_line_str
+                0x000000ce       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_aeabi_uldivmod.o)
+ .debug_line_str
+                0x000000ce       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzdi2.o)
+ .debug_line_str
+                0x000000ce       0xc2 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_clzsi2.o)
+
+.debug_frame    0x00000000       0x90
+ .debug_frame   0x00000000       0x20 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_frame   0x00000020       0x34 /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_muldi3.o)
+ .debug_frame   0x00000054       0x3c /opt/toolchain/bin/../lib/gcc/arm-none-eabi/13.3.1/thumb/v6-m/nofp/libgcc.a(_udivmoddi4.o)

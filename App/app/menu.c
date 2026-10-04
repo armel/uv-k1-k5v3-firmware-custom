@@ -681,6 +681,15 @@ void MENU_AcceptSetting(void)
             break;
 
         case MENU_TDR:
+#ifdef ENABLE_CAT
+            gEeprom.DUAL_WATCH       = DUAL_WATCH_OFF;
+            gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
+            #ifdef ENABLE_FEAT_F4HWN
+                gDW = DUAL_WATCH_OFF;
+                gCB = CROSS_BAND_OFF;
+                gSaveRxMode = false;
+            #endif
+#else
             gEeprom.DUAL_WATCH = (gEeprom.TX_VFO + 1) * (gSubMenuSelection & 1);
             gEeprom.CROSS_BAND_RX_TX = (gEeprom.TX_VFO + 1) * ((gSubMenuSelection & 2) > 0);
 
@@ -689,7 +698,7 @@ void MENU_AcceptSetting(void)
                 gCB = gEeprom.CROSS_BAND_RX_TX;
                 gSaveRxMode = true;
             #endif
-
+#endif
             gFlagReconfigureVfos = true;
             gUpdateStatus        = true;
             break;

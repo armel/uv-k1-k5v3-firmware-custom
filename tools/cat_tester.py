@@ -16,8 +16,8 @@ Użycie:
     python cat_tester.py --list-ports       # lista portów COM
 
 Komendy CAT testowane:
-    FA, FB, FR, TX, RX, MO, MD, PC, OF, CT, DT, SQ, OS, OV, IF,
-    SM, S1, SL, SCF, SC, RD
+    FA, FB, FR, TX, RX, MO, MD, PC, OF, CT, DT, SQ, BY, OS, OV, IF,
+    SM, S1, SL, SCF, SC, RD, FE, FC, FM, FTA, FTX
 """
 
 import sys
@@ -25,6 +25,11 @@ import time
 import argparse
 import threading
 from typing import Optional
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 try:
     import serial
@@ -111,7 +116,8 @@ class CATRadio:
             time.sleep(0.003)   # 3ms między bajtami — MCU nadąża przy 38400
 
     # ── Odczyt ─────────────────────────────
-    def _read_until_semicolon(self, timeout: float) -> Optional[str]:
+    def _read_until_semicolon(self, timeout: float,
+                              expect_prefix: Optional[str] = None) -> Optional[str]:
         """Czeka na odpowiedź zakończoną ';'. Poll na in_waiting."""
         buf = ""
         deadline = time.time() + timeout
@@ -120,10 +126,18 @@ class CATRadio:
             if n:
                 data = self._ser.read(n).decode("ascii", errors="ignore")
                 buf += data
-                if ";" in buf:
-                    # Bierz pierwszą kompletną ramkę
+                while ";" in buf:
                     idx  = buf.index(";")
                     resp = buf[:idx + 1].strip()
+                    buf  = buf[idx + 1:]
+                    if not resp:
+                        continue
+                    # Jeśli oczekujemy konkretnej odpowiedzi, a nadeszło asynchroniczne powiadomienie
+                    if expect_prefix and not resp.startswith(expect_prefix):
+                        if resp.startswith(("BY", "RR", "SR")):
+                            if self.verbose:
+                                print(f"  {C.GRAY}[ASYNC w tle podczas oczekiwania na {expect_prefix}] {resp}{C.RESET}")
+                            continue
                     if self.verbose:
                         print(f"  {C.GRAY}<<< {resp}{C.RESET}")
                     return resp
@@ -134,7 +148,8 @@ class CATRadio:
 
     # ── Główne API ──────────────────────────
     def send(self, cmd: str, wait_response: bool = True,
-             timeout: Optional[float] = None) -> Optional[str]:
+             timeout: Optional[float] = None,
+             expect_prefix: Optional[str] = None) -> Optional[str]:
         """Wyślij komendę i opcjonalnie poczekaj na odpowiedź."""
         if not cmd.endswith(";"):
             cmd += ";"
@@ -145,7 +160,7 @@ class CATRadio:
         if not wait_response:
             time.sleep(0.05)
             return None
-        return self._read_until_semicolon(timeout or self.timeout)
+        return self._read_until_semicolon(timeout or self.timeout, expect_prefix=expect_prefix)
 
     def drain(self, wait: float = 0.5) -> list[str]:
         """Zbiera wszystkie asynchroniczne odpowiedzi przez `wait` sekund."""
@@ -204,8 +219,13 @@ class CATTester:
            no_response: bool = False,
            timeout: Optional[float] = None,
            note: str = "") -> Result:
+        auto_prefix = expect_prefix
+        if not auto_prefix and not no_response and len(cmd) >= 2 and cmd[:2].isalpha() and not cmd.startswith("HELP"):
+            auto_prefix = cmd[:2]
+
         t0   = time.time()
-        resp = self.r.send(cmd, wait_response=not no_response, timeout=timeout)
+        resp = self.r.send(cmd, wait_response=not no_response, timeout=timeout,
+                           expect_prefix=auto_prefix)
         ms   = (time.time() - t0) * 1000
 
         if no_response:
@@ -227,12 +247,13 @@ class CATTester:
         r = Result(name, cmd, resp, passed, note)
         self.results.append(r)
         r.print()
+        time.sleep(0.05)
         return r
 
     def _section(self, title: str):
-        print(f"\n  {C.hdr('─' * 58)}")
+        print(f"\n  {C.hdr('-' * 58)}")
         print(f"  {C.hdr(title)}")
-        print(f"  {C.hdr('─' * 58)}")
+        print(f"  {C.hdr('-' * 58)}")
 
     def _get_freq_a(self) -> str:
         """Pobierz bieżącą częstotliwość VFO A jako 11-cyfrowy string."""
@@ -243,6 +264,13 @@ class CATTester:
 
     # ── Testy ────────────────────────────────
     def run_all(self):
+
+        # ────────────────────────────────────
+        self._section("0. Identyfikacja transceivera (Kenwood Handshake)")
+
+        self._t("ID odczyt (TS-2000)", "ID;", expect_prefix="ID020")
+        self._t("AI odczyt (Auto-Info)", "AI;", expect_prefix="AI0")
+        self._t("VR wersja firmware", "VR;", expect_prefix="VR")
 
         # ────────────────────────────────────
         self._section("1. VFO — Odczyt i zapis częstotliwości")
@@ -258,11 +286,13 @@ class CATTester:
         time.sleep(0.12)
         self._t("FB verify 433",   "FB;",              expect_contains="433000000")
 
-        self._t("FR VFO 0",        "FR0;",             no_response=True)
-        time.sleep(0.1)
+        self._t("FR odczyt",       "FR;",              expect_prefix="FR")
         self._t("FR VFO 1",        "FR1;",             no_response=True)
         time.sleep(0.1)
+        self._t("FR verify 1",     "FR;",              expect_contains="FR1")
         self._t("FR powrot VFO 0", "FR0;",             no_response=True)
+        time.sleep(0.1)
+        self._t("FR verify 0",     "FR;",              expect_contains="FR0")
 
         # ────────────────────────────────────
         self._section("2. Modulacja i moc nadajnika")
@@ -279,9 +309,16 @@ class CATTester:
         self._t("MD verify USB", "MD;",    expect_contains="MD2")
         self._t("MD reset FM",   "MD4;",   no_response=True)
 
+        self._t("PC odczyt",     "PC;",    expect_prefix="PC")
         self._t("PC LOW1 (0)",   "PC0;",   no_response=True)
+        time.sleep(0.1)
+        self._t("PC verify 0",   "PC;",    expect_contains="PC0")
         self._t("PC MID  (5)",   "PC5;",   no_response=True)
+        time.sleep(0.1)
+        self._t("PC verify 5",   "PC;",    expect_contains="PC5")
         self._t("PC HIGH (6)",   "PC6;",   no_response=True)
+        time.sleep(0.1)
+        self._t("PC verify 6",   "PC;",    expect_contains="PC6")
 
         # ────────────────────────────────────
         self._section("3. Subtony CTCSS / DCS")
@@ -299,26 +336,43 @@ class CATTester:
         # ────────────────────────────────────
         self._section("4. Squelch")
 
+        self._t("SQ odczyt",     "SQ;",    expect_prefix="SQ")
         for lvl in [0, 3, 5, 9]:
             self._t(f"SQ poziom {lvl}", f"SQ{lvl};", no_response=True)
         self._t("SQ reset do 5", "SQ5;",  no_response=True)
+        time.sleep(0.1)
+        self._t("SQ verify 5",   "SQ;",    expect_contains="SQ5")
+        self._t("BY odczyt (squelch status)", "BY;", expect_prefix="BY")
 
         # ────────────────────────────────────
         self._section("5. Offset nadajnika (duplex)")
 
+        self._t("OS odczyt",       "OS;",            expect_prefix="OS")
         self._t("OS wylacz",       "OS0;",           no_response=True)
         self._t("OS offset +",     "OS1;",           no_response=True)
+        time.sleep(0.1)
+        self._t("OS verify 1",     "OS;",            expect_contains="OS1")
         self._t("OS offset -",     "OS2;",           no_response=True)
         self._t("OS reset",        "OS0;",           no_response=True)
+        time.sleep(0.1)
+        self._t("OS verify 0",     "OS;",            expect_contains="OS0")
+        self._t("OV odczyt",       "OV;",            expect_prefix="OV")
         self._t("OV 600kHz",       "OV00000600000;", no_response=True,
                 note="600000 Hz = 600 kHz")
+        time.sleep(0.1)
+        self._t("OV verify 600k",  "OV;",            expect_contains="00000600000")
 
         # ────────────────────────────────────
         self._section("6. Monitor (squelch override)")
 
+        self._t("MO odczyt 0",   "MO;",  expect_contains="MO0")
         self._t("MO otworz",     "MO1;", no_response=True)
-        time.sleep(0.2)
+        time.sleep(0.1)
+        self._t("MO odczyt 1",   "MO;",  expect_contains="MO1")
+        time.sleep(0.1)
         self._t("MO zamknij",    "MO0;", no_response=True)
+        time.sleep(0.1)
+        self._t("MO verify 0",   "MO;",  expect_contains="MO0")
 
         # ────────────────────────────────────
         self._section("7. IF — Status transceivera")
@@ -337,6 +391,7 @@ class CATTester:
         # ────────────────────────────────────
         self._section("9. Auto-raportowanie RSSI (RD)")
 
+        self._t("RD odczyt",  "RD;",   expect_prefix="RD")
         self._t("RD wlacz",   "RD1;",  no_response=True,
                 note="radio wysyla RR...; co ~200ms")
 
@@ -398,6 +453,45 @@ class CATTester:
                        f"wynik: {sr[0]}" if sr else "brak SR...; w ciagu 2s")
         self.results.append(r)
         r.print()
+
+        # ────────────────────────────────────
+        self._section("12. FSK Modem — Konfiguracja i sterowanie (FE, FC, FM)")
+
+        self._t("FE odczyt",          "FE;",              expect_prefix="FE")
+        self._t("FE wlacz (audible)",  "FE1;",             expect_contains="FE_OK")
+        time.sleep(0.1)
+        self._t("FE verify 1",         "FE;",              expect_contains="FE1")
+        self._t("FE wlacz (auto-mute)","FE2;",             expect_contains="FE_OK")
+        time.sleep(0.1)
+        self._t("FE verify 2",         "FE;",              expect_contains="FE2")
+
+        self._t("FC odczyt",          "FC;",              expect_prefix="FC")
+        self._t("FC 1200 baud",       "FC1200,ABCD,64;",  expect_contains="FC_OK")
+        time.sleep(0.1)
+        self._t("FC verify 1200",     "FC;",              expect_contains="FC1200,ABCD,64")
+        self._t("FC 2400 baud",       "FC2400,1234,32;",  expect_contains="FC_OK")
+        time.sleep(0.1)
+        self._t("FC verify 2400",     "FC;",              expect_contains="FC2400,1234,32")
+
+        self._t("FM odczyt",          "FM;",              expect_prefix="FM")
+        self._t("FM busy lockout on",  "FM1;",             expect_contains="FM_OK")
+        time.sleep(0.1)
+        self._t("FM verify 1",         "FM;",              expect_contains="FM1")
+        self._t("FM busy lockout off", "FM0;",             expect_contains="FM_OK")
+        time.sleep(0.1)
+        self._t("FM verify 0",         "FM;",              expect_contains="FM0")
+
+        self._t("FE wylacz",          "FE0;",             expect_contains="FE_OK")
+        time.sleep(0.1)
+        self._t("FE verify 0",         "FE;",              expect_contains="FE0")
+
+        # ────────────────────────────────────
+        self._section("13. Status, Watchdog & Pomoc (RA, QS, HELP, HELPJ)")
+
+        self._t("RA status dump",     "RA;",              expect_prefix="RA")
+        self._t("QS status dump",     "QS;",              expect_prefix="QS")
+        self._t("HELP command list",  "HELP;",            expect_contains="CAT COMMANDS")
+        self._t("HELPJ JSON schema",  "HELPJ;",           expect_contains='"commands"')
 
     # ── Podsumowanie ────────────────────────
     def summary(self) -> bool:
@@ -461,6 +555,11 @@ def main():
                         help="Timeout odpowiedzi w sekundach (domyslnie 2.0)")
     parser.add_argument("--list-ports", "-l", action="store_true",
                         help="Wypisz porty COM i wyjdz")
+    parser.add_argument("--send-fsk", help="Wyslij wiadomosc tekstowa FSK (komenda FTA)")
+    parser.add_argument("--send-fsk-hex", help="Wyslij dane binarne FSK w formacie HEX (komenda FTX)")
+    parser.add_argument("--listen-fsk", action="store_true", help="Nasluchuj i wypisuj odebrane pakiety FSK (FPA / FPX)")
+    parser.add_argument("--auto-mute", action="store_true", help="Uzyj trybu auto-mute przy --listen-fsk (FE2)")
+    parser.add_argument("--listen-squelch", action="store_true", help="Nasluchuj asynchronicznych zmian squelcha (BY1/BY0)")
     args = parser.parse_args()
 
     # Aktywuj kolory ANSI w Windows cmd / PowerShell
@@ -505,6 +604,90 @@ def main():
     except serial.SerialException as e:
         print(C.fail(f"Nie mozna otworzyc {port}: {e}"))
         sys.exit(1)
+
+    if args.send_fsk:
+        try:
+            print(f"  {C.info(f'Nadawanie tekstu FSK: {args.send_fsk!r}')}")
+            resp = radio.send(f"FTA{args.send_fsk};", wait_response=True, timeout=1.5)
+            if resp and "?" in resp:
+                print(f"  {C.fail('Kanal zajety (Busy Lockout) lub odrzucono!')}")
+            else:
+                print(f"  {C.ok('Wyslano pakiet FSK.')}")
+        finally:
+            radio.disconnect()
+        return
+
+    if args.send_fsk_hex:
+        try:
+            print(f"  {C.info(f'Nadawanie danych binarnych HEX: {args.send_fsk_hex}')}")
+            resp = radio.send(f"FTX{args.send_fsk_hex};", wait_response=True, timeout=1.5)
+            if resp and "?" in resp:
+                print(f"  {C.fail('Kanal zajety (Busy Lockout) lub odrzucono!')}")
+            else:
+                print(f"  {C.ok('Wyslano pakiet binarny FSK.')}")
+        finally:
+            radio.disconnect()
+        return
+
+    if args.listen_squelch:
+        print(f"  {C.hdr('Nasluchiwanie zmian squelcha (BY1/BY0). Nacisnij Ctrl+C, aby zakonczyc.')}")
+        print()
+        try:
+            while True:
+                msgs = radio.drain(0.05)
+                for m in msgs:
+                    if m.startswith("BY"):
+                        is_open = "1" in m
+                        st = "OTWARTY  (Sygnal wykryty / Carrier Detect)" if is_open else "ZAMKNIETY (Cisza / Squelch zamkniety)"
+                        col = C.GREEN if is_open else C.GRAY
+                        print(f"  {col}[SQUELCH]{C.RESET} {C.BOLD}{st}{C.RESET}  [{m}]")
+                    elif m.startswith("RD") or m.startswith("RR"):
+                        print(f"  {C.GRAY}[CAT ASYNC] {m}{C.RESET}")
+        except KeyboardInterrupt:
+            print(f"\n  {C.warn('Zakonczono nasluchiwanie squelcha.')}")
+        finally:
+            radio.disconnect()
+        return
+
+    if args.listen_fsk:
+        mode = "2" if args.auto_mute else "1"
+        mode_desc = "Auto-Mute" if args.auto_mute else "Audible"
+        print(f"  {C.info(f'Wlaczam odbiornik FSK ({mode_desc})...')}")
+        radio.send(f"FE{mode};", wait_response=False)
+        print(f"  {C.hdr('Nasluchiwanie FSK aktywne. Nacisnij Ctrl+C, aby zakonczyc.')}")
+        print()
+        try:
+            while True:
+                msgs = radio.drain(0.1)
+                for m in msgs:
+                    if m.startswith("FPA"):
+                        body = m[3:-1] if m.endswith(";") else m[3:]
+                        if "," in body:
+                            text, rssi = body.rsplit(",", 1)
+                            print(f"  {C.GREEN}[FSK ASCII]{C.RESET} {C.BOLD}{text}{C.RESET} (RSSI: {rssi} dBm)")
+                        else:
+                            print(f"  {C.GREEN}[FSK ASCII]{C.RESET} {body}")
+                    elif m.startswith("FPX"):
+                        body = m[3:-1] if m.endswith(";") else m[3:]
+                        if "," in body:
+                            hex_data, rssi = body.rsplit(",", 1)
+                            print(f"  {C.CYAN}[FSK HEX]{C.RESET} {C.BOLD}{hex_data}{C.RESET} (RSSI: {rssi} dBm)")
+                        else:
+                            print(f"  {C.CYAN}[FSK HEX]{C.RESET} {body}")
+                    elif m.startswith("BY"):
+                        is_open = "1" in m
+                        st = "OTWARTY" if is_open else "ZAMKNIETY"
+                        col = C.GREEN if is_open else C.GRAY
+                        print(f"  {col}[SQUELCH] {st} ({m}){C.RESET}")
+                    elif m.startswith("RD") or m.startswith("RR"):
+                        print(f"  {C.GRAY}[CAT ASYNC] {m}{C.RESET}")
+        except KeyboardInterrupt:
+            print(f"\n  {C.warn('Zatrzymywanie nasluchu FSK...')}")
+        finally:
+            radio.send("FE0;", wait_response=False)
+            print(f"  {C.ok('Odbiornik FSK wylaczony.')}")
+            radio.disconnect()
+        return
 
     tester = CATTester(radio)
     try:

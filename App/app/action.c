@@ -671,6 +671,12 @@ void ACTION_Update(void)
 
 void ACTION_RxMode(void)
 {
+#ifdef ENABLE_CAT
+    gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
+    gEeprom.DUAL_WATCH       = DUAL_WATCH_OFF;
+    ACTION_Update();
+    return;
+#else
     static bool cycle = 0;
 
     if (cycle) {
@@ -681,10 +687,17 @@ void ACTION_RxMode(void)
 
     cycle = !cycle;
     ACTION_Update();
+#endif
 }
 
 void ACTION_MainOnly(void)
 {
+#ifdef ENABLE_CAT
+    gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
+    gEeprom.DUAL_WATCH       = DUAL_WATCH_OFF;
+    ACTION_Update();
+    return;
+#else
     static bool cycle = 0;
     static uint8_t dw = 0;
     static uint8_t cb = 0;
@@ -702,6 +715,7 @@ void ACTION_MainOnly(void)
 
     cycle = !cycle;
     ACTION_Update();
+#endif
 }
 
 #ifdef ENABLE_FEAT_F4HWN_AUDIO

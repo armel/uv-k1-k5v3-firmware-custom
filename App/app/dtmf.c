@@ -42,6 +42,7 @@ uint8_t           gDTMF_PreviousIndex  = 0;
 
 char              gDTMF_RX_live[20];
 uint8_t           gDTMF_RX_live_timeout = 0;
+bool              g_FskRxIsMsg = false;
 
 #ifdef ENABLE_DTMF_CALLING
 char              gDTMF_RX[17];

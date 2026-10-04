@@ -77,6 +77,7 @@ extern uint8_t           gDTMF_PreviousIndex;
 
 extern char              gDTMF_RX_live[20];
 extern uint8_t           gDTMF_RX_live_timeout;
+extern bool              g_FskRxIsMsg;
 
 extern DTMF_ReplyState_t gDTMF_ReplyState;
 

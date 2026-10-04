@@ -29,6 +29,7 @@
 #include "ui/menu.h"
 
 EEPROM_Config_t gEeprom = { 0 };
+uint8_t gBatterySaveOriginal = 4;
 
 // Load a DTMF code from EEPROM, falling back to default_val if invalid.
 static void SETTINGS_LoadEepromDtmf(uint32_t addr, char *dest, size_t size, const char *default_val)
@@ -166,8 +167,8 @@ void SETTINGS_InitEEPROM(void)
     gEeprom.BACKLIGHT_MAX         = (Data[0] & 0xF) <= 10 ? (Data[0] & 0xF) : 10;
     gEeprom.BACKLIGHT_MIN         = (Data[0] >> 4) < gEeprom.BACKLIGHT_MAX ? (Data[0] >> 4) : 0;
     gEeprom.CHANNEL_DISPLAY_MODE  = (Data[1] < 4) ? Data[1] : MDF_FREQUENCY;    // 4 instead of 3 - extra display mode
-    gEeprom.CROSS_BAND_RX_TX      = (Data[2] < 3) ? Data[2] : CROSS_BAND_OFF;
-    gEeprom.BATTERY_SAVE          = (Data[3] < 6) ? Data[3] : 4;
+    gBatterySaveOriginal          = (Data[3] < 6) ? Data[3] : 4;
+    gEeprom.BATTERY_SAVE          = gBatterySaveOriginal;
     gEeprom.DUAL_WATCH            = (Data[4] < 3) ? Data[4] : DUAL_WATCH_CHAN_A;
     gEeprom.BACKLIGHT_TIME        = (Data[5] < 62) ? Data[5] : 12;
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
@@ -503,10 +504,17 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     #endif
 
 #ifdef ENABLE_CAT
-    // Wariant CAT: zawsze wymuszaj brak oszczędzania energii i pojedyncze VFO.
-    // Nadpisuje wartości załadowane z EEPROM — radio zawsze startuje gotowe do pracy z PC.
-    gEeprom.BATTERY_SAVE = 0;                    // Power save wyłączony
-    gEeprom.DUAL_WATCH   = DUAL_WATCH_OFF;        // Jedno VFO (brak dual-watch)
+    // CAT variant: disable battery save, force Single VFO (Main Only), and default to Frequency (VFO) mode instead of Channel mode.
+    gEeprom.BATTERY_SAVE     = 0;                 // Power save disabled
+    gEeprom.DUAL_WATCH       = DUAL_WATCH_OFF;    // Single VFO (no dual-watch)
+    gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;    // No cross-band
+    gEeprom.VFO_OPEN         = true;              // Frequency (VFO) mode enabled
+    if (!IS_FREQ_CHANNEL(gEeprom.ScreenChannel[0])) {
+        gEeprom.ScreenChannel[0] = IS_FREQ_CHANNEL(gEeprom.FreqChannel[0]) ? gEeprom.FreqChannel[0] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
+    }
+    if (!IS_FREQ_CHANNEL(gEeprom.ScreenChannel[1])) {
+        gEeprom.ScreenChannel[1] = IS_FREQ_CHANNEL(gEeprom.FreqChannel[1]) ? gEeprom.FreqChannel[1] : (FREQ_CHANNEL_FIRST + BAND6_400MHz);
+    }
 #endif
 }
 
@@ -930,12 +938,20 @@ void SETTINGS_SaveSettings(void)
     State[3] = gEeprom.BATTERY_SAVE;
     State[4] = gEeprom.DUAL_WATCH;
 
+#ifdef ENABLE_CAT
+    State[2] = gCB;
+    State[3] = gBatterySaveOriginal;
+    State[4] = gDW;
+#else
     #ifdef ENABLE_FEAT_F4HWN
         if(!gSaveRxMode)
         {
             State[2] = gCB;
             State[4] = gDW;
         }
+    #endif
+#endif
+    #ifdef ENABLE_FEAT_F4HWN
         if(gBackLight)
         {
             State[5] = gBacklightTimeOriginal;

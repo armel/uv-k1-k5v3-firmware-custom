@@ -37,6 +37,9 @@
 #include "radio.h"
 #include "settings.h"
 #include "ui/menu.h"
+#ifdef ENABLE_CAT
+    #include "app/uart.h"
+#endif
 
 VFO_Info_t    *gTxVfo;
 VFO_Info_t    *gRxVfo;
@@ -909,8 +912,20 @@ void RADIO_SetupRegisters(bool switchToForeground)
     RADIO_SetupAGC(gRxVfo->Modulation == MODULATION_AM, false);
     //RADIO_SetupAGC(false, false);
 
+#ifdef ENABLE_CAT
+    if (UART_FSK_IsRxEnabled()) {
+        InterruptMask |= BK4819_REG_3F_FSK_RX_FINISHED | BK4819_REG_3F_FSK_FIFO_ALMOST_FULL | BK4819_REG_3F_FSK_RX_SYNC;
+    }
+#endif
+
     // enable/disable BK4819 selected interrupts
     BK4819_WriteRegister(BK4819_REG_3F, InterruptMask);
+
+#ifdef ENABLE_CAT
+    if (UART_FSK_IsRxEnabled()) {
+        UART_FSK_ApplyRxRegisters();
+    }
+#endif
 
     FUNCTION_Init();
 

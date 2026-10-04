@@ -989,6 +989,10 @@ static void CheckRadioInterrupts(void)
 #endif
                 if (gCurrentFunction != FUNCTION_TRANSMIT) {
                     if (gSetting_live_DTMF_decoder) {
+                        if (g_FskRxIsMsg) {
+                            gDTMF_RX_live[0] = 0;
+                            g_FskRxIsMsg = false;
+                        }
                         size_t len = strlen(gDTMF_RX_live);
                         if (len >= sizeof(gDTMF_RX_live) - 1) { // make room
                             memmove(&gDTMF_RX_live[0], &gDTMF_RX_live[1], sizeof(gDTMF_RX_live) - 1);
@@ -1065,6 +1069,11 @@ static void CheckRadioInterrupts(void)
 #endif
 
         if (interrupts.sqlLost) {
+            if (!g_SquelchLost) {
+#ifdef ENABLE_CAT
+                UART_ReportSquelch(true);
+#endif
+            }
             g_SquelchLost = true;
             BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
             #ifdef ENABLE_FEAT_F4HWN_RX_TX_TIMER
@@ -1073,9 +1082,25 @@ static void CheckRadioInterrupts(void)
         }
 
         if (interrupts.sqlFound) {
+            if (g_SquelchLost) {
+#ifdef ENABLE_CAT
+                UART_ReportSquelch(false);
+#endif
+            }
             g_SquelchLost = false;
             BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
         }
+
+#ifdef ENABLE_CAT
+        if (UART_FSK_IsRxEnabled()) {
+            if (interrupts.fskRxSync) {
+                UART_FSK_OnSync();
+            }
+            if (interrupts.fskFifoAlmostFull || interrupts.fskRxFinied) {
+                UART_FSK_HandleRxInterrupt(interrupts.fskRxFinied);
+            }
+        }
+#endif
 
 #if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_BEAM)
         if (interrupts.fskFifoAlmostFull || interrupts.fskRxFinied)
@@ -1224,12 +1249,8 @@ void APP_Update(void)
     }
 #endif
 
-#ifdef ENABLE_USB
-    if (UART_IsCommandAvailable(UART_PORT_VCP)) {
-        // SCHEDULER_Disable();
-        UART_HandleCommand(UART_PORT_VCP);
-        // SCHEDULER_Enable();
-    }
+#if defined(ENABLE_UART) || defined(ENABLE_USB)
+    UART_ServiceCommands();
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -1682,16 +1703,9 @@ void APP_TimeSlice10ms(void)
 
     gFlashLightBlinkCounter++;
 
-#ifdef ENABLE_UART
-    if (UART_IsCommandAvailable(UART_PORT_UART)) {
-        // SCHEDULER_Disable();
-        UART_HandleCommand(UART_PORT_UART);
-        // SCHEDULER_Enable();
-    }
 #ifdef ENABLE_CAT
     // Wywołanie co 10ms — wewnątrz sprawdza czy wysyłać (S-metr + skanery)
     UART_ReportRSSI_Periodic();
-#endif
 #endif
 
     if (gReducedService)
@@ -1917,12 +1931,17 @@ void APP_TimeSlice500ms(void)
                 center_line == CENTER_LINE_NONE)  // wait till the center line is free for us to use before timing out
         #endif
         {
-            if (--gDTMF_RX_live_timeout == 0)
+            // FSK messages stay on screen permanently — only DTMF messages auto-expire
+            if (!g_FskRxIsMsg)
             {
-                if (gDTMF_RX_live[0] != 0)
+                if (--gDTMF_RX_live_timeout == 0)
                 {
-                    DTMF_clear_input_box_memory();
-                    gUpdateDisplay   = true;
+                    if (gDTMF_RX_live[0] != 0)
+                    {
+                        DTMF_clear_input_box_memory();
+                        g_FskRxIsMsg     = false;
+                        gUpdateDisplay   = true;
+                    }
                 }
             }
         }

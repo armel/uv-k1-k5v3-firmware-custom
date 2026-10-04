@@ -18,10 +18,31 @@ This project is based on the official **[F4HWN custom firmware](https://github.c
 It is extended with a dedicated **CAT** variant (`f4hwn.cat` / preset `CAT`), which introduces:
 - **Extended Kenwood CAT Protocol** for full remote transceiver control from a computer (UART / USB VCP).
 - **Asynchronous hardware scanner** and background RSSI measurements (BK4819) without blocking the radio user interface.
-- **Default settings optimized for PC/CAT operation**:
-  - **Battery Saver disabled** (`BATTERY_SAVE = 0`) — the receiver does not enter cyclic sleep mode, ensuring instantaneous response to RF signals and CAT commands.
+- **Default settings optimized for PC/CAT operation (with non-destructive EEPROM preservation)**:
+  - **Always boots in Frequency (VFO) Mode** instead of memory channel (MR) mode.
   - **Single VFO mode** (`DUAL_WATCH = DUAL_WATCH_OFF`) — prevents the radio from switching bands in the background during remote control.
+  - **Battery Saver disabled** (`BATTERY_SAVE = 0`) — the receiver does not enter cyclic sleep mode, ensuring instantaneous response to RF signals and CAT commands.
+  - **Non-Destructive EEPROM**: These settings are applied dynamically in RAM for CAT operation and **never overwrite** the user's permanent EEPROM configuration. When switching back to stock or another firmware (e.g. via multiboot), your original user settings (Battery Saver, Dual Watch, MR channel mode) remain completely intact.
   - Standard UART baud rate: **38400 baud** (8N1).
+- **Instantaneous Squelch & Carrier Reporting (`BY1;` / `BY0;`)**:
+  - Edge-triggered, real-time CAT notifications transmitted over UART and USB VCP immediately upon squelch opening (`BY1;` on carrier detect) and closing (`BY0;` on squelch tail).
+  - Standard Kenwood `BY;` query command to poll current squelch / busy status at any time (`BY1;` = busy/open, `BY0;` = quiet/closed).
+  - Essential for digital modes, soundmodems, APRS, SDR controllers, and remote gateways.
+- **Built-in BK4819 FSK Modem & Digital Messaging (`FE`, `FC`, `FM`, `FTA`, `FTX`, `FPA`, `FPX`)**:
+  - Full bidirectional packet data communications using the radio's native BK4819 FSK engine at 1200 or 2400 baud with configurable sync words, packet lengths from 8 to 100 bytes, and CCITT CRC16 validation.
+  - Send text messages (`FTA`) or raw hexadecimal binary frames (`FTX`).
+  - Asynchronous broadcast of incoming packets (`FPA` text / `FPX` binary) with signal RSSI (dBm) over both UART and USB VCP.
+  - Auto-mute mode (`FE2`) to silence packet sound on the speaker during reception.
+  - Busy channel lockout policy (`FM1`) to prevent packet transmission over active voice channels.
+  - Real-time message display on LCD Line 4 without interfering with the S-meter bar.
+- **Enhanced LCD UI for Data & Telemetry**:
+  - **Smooth S-meter**: Real-time signal strength bar refreshed at ~80 ms during reception and instantly cleared upon squelch close.
+  - **Simultaneous FTA & S-meter display**: Received FSK text packets (`FTA`) and DTMF tones are displayed on Line 4 directly above the S-meter bar on Line 5, allowing full visibility of both without visual collision.
+- **Safe Transmit Watchdog (`TXS;` / `TS;`)**: Automatic failsafe timeout (default 1000 ms, configurable 50–30000 ms) preventing stuck transmissions if PC software crashes or USB disconnects.
+- **Fast Telemetry Dump (`RA;` / `QS;`)**: Single-query dump of all radio parameters, frequency, modulation, power, CTCSS/DCS, battery status, and RSSI with minimal CPU overhead.
+- **Interactive Self-Documentation (`HELP;` and `HELPJ;`)**: Built-in human-readable and JSON machine-readable commands schema listing all supported commands, syntax, and parameter ranges.
+- **Bidirectional Parameter Queries**: All configuration commands (`FA`, `FB`, `FR`, `MD`, `PC`, `SQ`, `OS`, `OV`, `RD`, `FE`, `FC`, `FM`) support querying the current state by omitting arguments.
+- **Hardware Safety & PA Protection**: TX frequency validation against band limits (`TX_freq_check` / `TX_LOCK`), clean PA and red TX LED shutdown on transmit release, and resilient serial command buffers.
 - **Multiboot support**: 100% native support for the **multiboot** mechanism is preserved (UART commands `0x0720`–`0x0728` and flash partitioning). This enables safe and convenient firmware changes, rolling back to previous releases, or flashing multiple firmware versions.
 
 ---
@@ -34,31 +55,86 @@ All commands are transmitted as ASCII text strings over the serial port and must
 |---|---|---|---|
 | **FA** | `FA;`<br>`FA00145000000;` | `FA[11 digits Hz];`<br>*(none)* | **VFO A Frequency**: read (without argument) or set frequency (11 digits in Hz, e.g. `00145000000;` = 145.000 MHz). |
 | **FB** | `FB;`<br>`FB00433000000;` | `FB[11 digits Hz];`<br>*(none)* | **VFO B Frequency**: read or set VFO B frequency (11 digits in Hz). |
-| **FR** | `FR0;`<br>`FR1;` | *(none)* | **Active VFO Selection**: `FR0;` switches to VFO A, `FR1;` switches to VFO B. |
-| **TX** | `TX;` | *(none)* | **Force Transmit (PTT ON)**: switches the transceiver to transmit mode. |
-| **RX** | `RX;` | *(none)* | **Return to Receive (PTT OFF)**: stops transmitting and returns to receive mode. |
-| **MO** | `MO1;`<br>`MO0;` | *(none)* | **Monitor (Open Squelch)**: `MO1;` opens squelch, `MO0;` restores normal squelch operation. |
+| **FR** | `FR;`<br>`FR0;`<br>`FR1;` | `FR[0-1];`<br>*(none)* | **Active VFO Selection & Query**: `FR;` returns active VFO (`FR0;` for VFO A, `FR1;` for VFO B). `FR0;` switches to VFO A, `FR1;` switches to VFO B. |
+| **TX** | `TX;` | *(none)* | **Force Transmit (PTT ON)**: switches the transceiver to transmit mode (latching, permanent until `RX;`). |
+| **TXS** / **TS** | `TXS;`<br>`TS;`<br>`TXS[ms];` / `TS[ms];` | *(none)* | **Safe Transmit (Heartbeat Watchdog)**: turns on TX with an automatic 1-second timeout (default 1000 ms, or custom `50`–`30000` ms). Host must continuously send `TXS;` / `TS;` (e.g. every 300–500 ms) to keep transmitting. If host crashes or USB disconnects, radio automatically drops back to RX within timeout and shuts down PA and red LED. Can be stopped at any time with `RX;`. |
+| **RX** | `RX;` | *(none)* | **Return to Receive (PTT OFF)**: stops transmitting and returns to receive mode (cancels both `TX;` and `TXS;`, shuts off PA and red LED). |
+| **MO** | `MO;`<br>`MO1;`<br>`MO0;` | `MO[0-1];`<br>*(none)* | **Monitor (Open Squelch) & Query**: `MO;` returns current monitor status (`MO0;` or `MO1;`). `MO1;` opens squelch, `MO0;` restores normal squelch operation. |
 | **MD** | `MD;`<br>`MD4;` / `MD5;` / `MD2;` | `MD[mode];`<br>*(none)* | **Modulation Mode**: `4` = FM, `5` = AM, `2` = USB. Without parameter, returns active VFO's current modulation. |
-| **PC** | `PC[0-7];` e.g. `PC6;` | *(none)* | **Transmitter Output Power**: `0`=Low1, `1`=Low2, `2`=Low3, `3`=Low4, `4`=Low5, `5`=Mid, `6`=High, `7`=User. |
+| **PC** | `PC;`<br>`PC[0-7];` e.g. `PC6;` | `PC[0-7];`<br>*(none)* | **Transmitter Output Power & Query**: `PC;` returns current power level (`PC0;`..`PC7;`). `PC[0-7];` sets power: `0`=20mW (Low1), `1`=100mW (Low2), `2`=500mW (Low3), `3`=1W (Low4), `4`=2W (Low5), `5`=3W (Mid), `6`=5W (High), `7`=User. |
 | **OF** | `OF;` | *(none)* | **Disable Subtones**: turns off CTCSS/DCS on active VFO. |
 | **CT** | `CT0885;`<br>`CT0670;` | *(none)* | **Set CTCSS Tone**: 4 digits in tenths of Hz (e.g. `0885` = 88.5 Hz, `0670` = 67.0 Hz). |
 | **DT** | `DT023;`<br>`DT047;` | *(none)* | **Set DCS Code**: 3 digits in octal notation (e.g. `023`, `047`). |
-| **SQ** | `SQ[0-9];` e.g. `SQ5;` | *(none)* | **Squelch Level**: from `SQ0;` (open) to `SQ9;`. |
-| **OS** | `OS0;` / `OS1;` / `OS2;` | *(none)* | **Shift Direction (Offset)**: `0` = none (simplex), `1` = positive offset (+), `2` = negative offset (-). |
-| **OV** | `OV00000600000;` | *(none)* | **Frequency Offset Value**: 11 digits in Hz (e.g. `00000600000;` = 600 kHz). |
-| **IF** | `IF;` | `IF[freq11]00000[mod][tx];` | **Transceiver Status**: returns current frequency, modulation, and TX/RX status. |
+| **SQ** | `SQ;`<br>`SQ[0-9];` e.g. `SQ5;` | `SQ[0-9];`<br>*(none)* | **Squelch Level & Query**: `SQ;` returns current squelch level (`SQ0;`..`SQ9;`). `SQ[0-9];` sets squelch from `0` (open) to `9`. |
+| **BY** | `BY;` | `BY[0-1];`<br>Asynchronously:<br>`BY1;` (on carrier detect)<br>`BY0;` (on squelch tail) | **Receiver Busy / Squelch Status**: `BY;` returns current squelch state (`BY1;` if squelch open, `BY0;` if closed). Radio automatically transmits `BY1;` immediately when squelch opens, and `BY0;` immediately when squelch closes over both UART and USB VCP. |
+| **OS** | `OS;`<br>`OS0;` / `OS1;` / `OS2;` | `OS[0-2];`<br>*(none)* | **Shift Direction (Offset) & Query**: `OS;` returns current shift direction (`OS0;`..`OS2;`). `0` = none (simplex), `1` = positive offset (+), `2` = negative offset (-). |
+| **OV** | `OV;`<br>`OV00000600000;` | `OV[11 digits Hz];`<br>*(none)* | **Frequency Offset Value & Query**: `OV;` returns current offset frequency in Hz. `OV[f11];` sets offset (11 digits in Hz, e.g. `00000600000;` = 600 kHz). |
+| **IF** | `IF;` | `IF[freq11]00000[mod][tx];` | **Transceiver Status**: Kenwood TS-2000 standard format returning active frequency, modulation, and TX/RX status. |
+| **RA** / **QS** | `RA;`<br>`QS;` | `RA,[rx11],[tx11],[shift],[off11],[mod],[pwr],[bw],[sq],[busy],[tx_t],[tx_v],[rx_t],[rx_v],[tx],[sq_o],[bat_mv],[bat_%],[rssi],[fsk_m],[fsk_b],[fsk_l];` | **Dump All Radio Settings (Ultra-low CPU overhead)**: returns all parameters in a single CSV line: RX freq (11d Hz), TX freq (11d Hz), shift dir (0/1/2), offset (11d Hz), mod (4=FM, 5=AM, 2=USB), power (0..7), bandwidth (0=Wide, 1=Narrow), squelch (0..9), busy lock (0/1), TX tone type (0=None, 1=CTCSS, 2=DCS-N, 3=DCS-I) and value, RX tone type and value, TX state (0/1), squelch open (0/1), battery mV (e.g. 7800), battery % (0..100), RSSI dBm (e.g. -105), FSK mode (0..2), FSK baud (1200/2400), and FSK length. `QS;` is a lightweight alias. |
 | **S1** | `S1;` | `S1,[vfo],[dbm],[sq];` | **Instant RSSI Measurement**: immediate signal strength (dBm) and squelch status (0/1) for active VFO. |
-| **SM** | `SM[freq11];` | `SM[freq11],[dbm],[sq];` | **Fast Spot Frequency Measurement**: measures signal level on specified frequency without permanently altering VFO settings. |
-| **RD** | `RD1;`<br>`RD0;` | Asynchronously:<br>`RR[vfo],[dbm];` | **Auto RSSI Reporting**: `RD1;` enables periodic `RR` packets every ~200 ms (or upon signal level change), `RD0;` disables. |
-| **SL** | `SL[idx2][freq11];` | `SL_OK;` | **Scanner List Definition**: writes frequency into scanner list cell (indices `00` to `24`, up to 25 channels). |
-| **SC** | `SC[count2];` e.g. `SC03;` | Asynchronously:<br>`SR,[dbm],[sq],...;` | **Start Hardware Scanner**: asynchronously measures defined channels and returns complete results vector. |
+| **SM** | `SM;` / `SM0;`<br>`SM[freq11];` | `SM[freq11],[dbm],[sq];` | **Fast Spot Frequency Measurement**: measures signal level on specified frequency with proper RF bandpass filtering, without permanently altering VFO settings. Without argument, measures active VFO. |
+| **RD** | `RD;`<br>`RD1;`<br>`RD0;` | `RD[0-1];`<br>Asynchronously:<br>`RR[vfo],[dbm];` | **Auto RSSI Reporting & Query**: `RD;` returns current reporting state (`RD0;` or `RD1;`). `RD1;` enables periodic `RR` packets every ~200 ms (or upon signal level change), `RD0;` disables. Broadcasts over both UART and USB VCP. |
+| **SL** | `SL[idx2][freq11];`<br>e.g. `SL0000145000000;` | `SL_OK;` | **Scanner List Definition**: writes frequency into scanner list cell (indices `00` to `24`, up to 25 channels). |
+| **SC** | `SC[count2];` e.g. `SC03;` | Asynchronously:<br>`SR,[dbm],[sq],...;` | **Start Hardware Scanner**: asynchronously measures defined channels and returns complete results vector over both UART and USB VCP. |
 | **SCF** | `SCF[freq11][,ticks];` | Asynchronously:<br>`SQ[freq],[sq],[dbm],[noise],[glitch];` | **Single Hardware Measurement (SCF)**: detailed measurement of signal strength, noise, and glitches directly from BK4819. |
 | **DTMF** | *(automatic)* | Asynchronously:<br>`RD[char],[dbm];` | **DTMF Tone Reporting**: when a DTMF character is received, the radio automatically sends an `RD` packet with the decoded character and RSSI level. |
+| **FE** | `FE;`<br>`FE0;` / `FE1;` / `FE2;` | `FE[0-2];`<br>`FE_OK;` / `FE_ERR;` | **FSK Modem Enable / Mode**: `FE;` queries active mode. `FE0;` = disabled, `FE1;` = enabled (audible RX), `FE2;` = enabled with auto-mute (mutes audio while packet is received). Confirms with `FE_OK;`. |
+| **FC** | `FC;`<br>`FC[baud],[sync4],[len];`<br>e.g. `FC2400,ABCD,32;` | `FC[baud],[sync4],[len];`<br>`FC_OK;` / `FC_ERR;` | **FSK Modem Configuration**: `FC;` queries configuration. Set baudrate (`1200` or `2400`), 4-hex sync word (e.g. `ABCD`), and packet length (`8` to `100`, default `32`, must be even). Confirms with `FC_OK;`. |
+| **FM** | `FM;`<br>`FM0;` / `FM1;` | `FM[0-1];`<br>`FM_OK;` / `FM_ERR;` | **FSK Channel Busy Lockout**: `FM;` queries policy. `FM0;` = always transmit, `FM1;` = busy channel lockout (prevents transmission if squelch is open). Confirms with `FM_OK;`. |
+| **FTA** | `FTA[text];`<br>e.g. `FTAHello World;` | `FT_OK;`<br>`FT_ERR;`<br>`FT_BUSY;` | **FSK Transmit ASCII Text**: transmits text message as an FSK data packet with preamble, sync word, length, and CCITT CRC16. Returns `FT_OK;` on success, `FT_BUSY;` if channel or transmitter is busy, or `FT_ERR;` on invalid length. |
+| **FTX** | `FTX[hex_pairs];`<br>e.g. `FTX01020304;` | `FT_OK;`<br>`FT_ERR;`<br>`FT_BUSY;` | **FSK Transmit Binary / Hex**: transmits raw binary payload encoded as hexadecimal string. Returns `FT_OK;` on success, `FT_BUSY;` if busy, or `FT_ERR;` on invalid hex. |
+| **FPA** / **FPX** | *(automatic)* | Asynchronously:<br>`FPA[text],[dbm];`<br>`FPX[hex],[dbm];` | **FSK Packet Received**: when an incoming FSK packet is decoded, the radio broadcasts `FPA` (ASCII text) or `FPX` (raw binary hex) with measured signal RSSI (dBm) over both UART and USB VCP. Text packets are also displayed directly on Line 4 of the LCD screen. |
+| **ID** | `ID;` | `ID020;` | **Transceiver Identification**: Kenwood TS-2000 standard identification query. Required by Hamlib (`rigctl -m 2014`), WSJT-X, flrig, Chirp, etc. |
+| **AI** | `AI;`<br>`AI0;` | `AI0;` | **Auto Information**: Kenwood standard auto-info query/set. |
+| **VR** | `VR;` | `VR6.0.0;` | **Firmware Version**: returns current firmware version. |
+| **HELP** | `HELP;` | Multi-line text ended with `;\r\n` | **Human-readable Help**: outputs a formatted, human-readable list of all CAT commands, aliases, syntax, and parameter ranges. |
+| **HELPJ** | `HELPJ;` | `{"commands":[...]};\r\n` | **JSON Commands Schema**: dumps JSON list of all supported CAT commands and aliases (`commands` key). |
 
 ### Testing and Diagnostics
-A Python script is provided to test and demonstrate all CAT commands:
+A comprehensive Python script is provided to test and demonstrate all CAT commands:
 ```powershell
+# Automatically detect connected radio COM port and run all test suites:
+python tools\cat_tester.py
+
+# Specify COM port and baud rate (default 38400):
 python tools\cat_tester.py COM16 38400
+
+# Run with verbose frame-by-frame debug log:
+python tools\cat_tester.py COM16 --verbose
+
+# Listen for real-time squelch open/close notifications (BY1/BY0):
+python tools\cat_tester.py COM16 --listen-squelch
+
+# Send FSK ASCII text message (FTA):
+python tools\cat_tester.py COM16 --send-fsk "Hello UV-K5!"
+
+# Send raw FSK binary payload in hexadecimal (FTX):
+python tools\cat_tester.py COM16 --send-fsk-hex 01020304
+
+# Listen for incoming FSK packets (FPA/FPX):
+python tools\cat_tester.py COM16 --listen-fsk
+
+# Listen for incoming FSK packets with Auto-Mute enabled (FE2):
+python tools\cat_tester.py COM16 --listen-fsk --auto-mute
+```
+
+#### Dual-Radio FSK Latency & Round-Trip (RTT) Tester
+To test bidirectional communication between two UV-K1 / UV-K5 radios, measure one-way latency, round-trip time (ping-pong), and check RSSI at the lowest TX power (~20 mW) on 433.960 MHz:
+```powershell
+# Automatically detect two connected USB radios (tests both 1200 and 2400 baud, 32-byte frames):
+python tools\fsk_rtt_tester.py
+
+# Specify COM ports explicitly:
+python tools\fsk_rtt_tester.py COM16 COM5
+
+# Test ultra-fast short 8-byte frames:
+python tools\fsk_rtt_tester.py COM16 COM5 --packet-len 8
+
+# Test specifically 2400 baud with 16-byte frames:
+python tools\fsk_rtt_tester.py COM16 COM5 --fsk-baud 2400 --packet-len 16
+
+# Run 10 iterations with Auto-Mute enabled:
+python tools\fsk_rtt_tester.py COM16 COM5 --count 10 --auto-mute
 ```
 
 ---
@@ -90,20 +166,13 @@ It is also very much in line with the **ham spirit**: sharing knowledge, experim
 Maintaining an open-source fork is the best way to help build a healthy and sustainable ecosystem for everyone.
 
 > [!WARNING]
-> EN - THIS FIRMWARE HAS NO REAL BRAIN. PLEASE USE YOUR OWN. Use this firmware at your own risk (entirely). There is absolutely no guarantee that it will work in any way shape or form on your radio(s), it may even brick your radio(s), in which case, you'd need to buy another radio.
-Anyway, have fun.
->
-> _FR - CE FIRMWARE N'A PAS DE VÉRITABLE CERVEAU. VEUILLEZ UTILISER LE VÔTRE. Utilisez ce firmware à vos risques et périls. Il n'y a absolument aucune garantie qu'il fonctionnera d'une manière ou d'une autre sur votre (vos) radio(s), il peut même bousiller votre (vos) radio(s), dans ce cas, vous devrez acheter une autre radio. Quoi qu'il en soit, amusez-vous bien._
+> THIS FIRMWARE HAS NO REAL BRAIN. PLEASE USE YOUR OWN. Use this firmware entirely at your own risk. There is absolutely no guarantee that it will work in any way, shape, or form on your radio(s); it may even brick your radio(s), in which case you would need to buy another radio. Anyway, have fun.
 
 > [!NOTE]
-> EN - About CHIRP, as with many other firmwares, you need to use a dedicated driver. The matching CHIRP driver is now bundled with each release of this repository, so you can download the firmware and its driver together from the [Releases page](https://github.com/armel/uv-k1-k5v3-firmware-custom/releases).
->
-> _FR - A propos de CHIRP, comme pour beaucoup d'autres firmwares, vous devez utiliser un pilote dédié. Le driver CHIRP correspondant est désormais fourni avec chaque release de ce dépôt, ce qui permet de récupérer ensemble le firmware et son pilote depuis la page des [Releases](https://github.com/armel/uv-k1-k5v3-firmware-custom/releases)._
+> Regarding CHIRP: as with many custom firmwares, you need to use a dedicated driver. The matching CHIRP driver is bundled with each release of this repository, so you can download the firmware and its driver together from the [Releases page](https://github.com/armel/uv-k1-k5v3-firmware-custom/releases).
 
 > [!CAUTION]
-> EN - I recommend backing up your calibration data with [UV Studio](https://armel.github.io/uvstudio/#dump-calib) immediately after flashing this firmware. It is a good habit to adopt.
->
-> _FR - Je recommande de sauvegarder vos données de calibration avec [UV Studio](https://armel.github.io/uvstudio/#dump-calib) juste après avoir flashé ce firmware. C'est un bon réflexe à adopter._
+> Backing up your calibration data with [UV Studio](https://armel.github.io/uvstudio/#dump-calib) immediately after flashing this firmware is strongly recommended. It is a critical best practice before experimenting with any custom build.
 
 # Donations
 
