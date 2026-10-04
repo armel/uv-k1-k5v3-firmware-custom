@@ -1,0 +1,32 @@
+name: APRSTX resident overlay
+on:
+  pull_request:
+    paths:
+      - 'App/apps/aprstx-resident/**'
+      - 'App/apps/aprstx/protocol.*'
+      - 'App/apps/aprstx/ui.*'
+      - 'App/apps/app_api.h'
+      - 'App/apps/pack_app.py'
+      - 'tests/aprstx-resident/**'
+      - 'Dockerfile'
+      - '.github/workflows/aprstx-resident.yml'
+  workflow_dispatch:
+jobs:
+  protocol-and-overlay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host API, backend, lifecycle and metadata tests
+        run: bash tests/aprstx-resident/run.sh
+      - name: Build toolchain
+        run: docker build -t uvk1-uvk5v3 .
+      - name: Build and bound the ARM overlay
+        run: ./compile-app.sh aprstx-resident
+      - uses: actions/upload-artifact@v4
+        with:
+          name: APRSTX-resident
+          path: |
+            build/Apps/APRSTX-R.app
+            App/apps/aprstx-resident/aprstx-resident.elf
+            App/apps/aprstx-resident/aprstx-resident.map
+            App/apps/aprstx-resident/*.su
