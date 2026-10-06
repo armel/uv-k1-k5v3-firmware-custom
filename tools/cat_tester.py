@@ -486,10 +486,15 @@ class CATTester:
         self._t("FE verify 0",         "FE;",              expect_contains="FE0")
 
         # ────────────────────────────────────
-        self._section("13. Status, Watchdog & Pomoc (RA, QS, HELP, HELPJ)")
+        self._section("13. Status, Safe TX Watchdog & Pomoc (RA, QS, TS, HELP, HELPJ)")
 
         self._t("RA status dump",     "RA;",              expect_prefix="RA")
         self._t("QS status dump",     "QS;",              expect_prefix="QS")
+        self._t("TS watchdog 100ms",  "TS100;",           no_response=True,
+                note="Safe TX heartbeat 100ms timeout")
+        time.sleep(0.25)
+        self._t("Verify RX po TS",    "IF;",              expect_contains="0;",
+                note="Transceiver powrocil do RX automatycznie")
         self._t("HELP command list",  "HELP;",            expect_contains="CAT COMMANDS")
         self._t("HELPJ JSON schema",  "HELPJ;",           expect_contains='"commands"')
 

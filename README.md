@@ -38,7 +38,12 @@ It is extended with a dedicated **CAT** variant (`f4hwn.cat` / preset `CAT`), wh
 - **Enhanced LCD UI for Data & Telemetry**:
   - **Smooth S-meter**: Real-time signal strength bar refreshed at ~80 ms during reception and instantly cleared upon squelch close.
   - **Simultaneous FTA & S-meter display**: Received FSK text packets (`FTA`) and DTMF tones are displayed on Line 4 directly above the S-meter bar on Line 5, allowing full visibility of both without visual collision.
-- **Safe Transmit Watchdog (`TXS;` / `TS;`)**: Automatic failsafe timeout (default 1000 ms, configurable 50–30000 ms) preventing stuck transmissions if PC software crashes or USB disconnects.
+- **Safe Transmit Heartbeat Watchdog (`TXS;` / `TS;`) — Essential Hardware & PA Protection**:
+  - **Thermal & Hardware Protection**: Handheld radios lack active cooling fans or heavy heatsinks. Traditional latching `TX;` leaves the transmitter permanently keyed if the controlling software freezes, crashes, or the USB connection drops — risking severe thermal overload, PA burnout, battery depletion, and frequency jamming.
+  - **Automatic Fail-Safe Timer**: `TXS;` (and shorthand alias `TS;`) turns on transmission **with an active hardware watchdog** (default 1000 ms, customizable from 50 ms to 30,000 ms).
+  - **Periodic Keep-Alive**: Host software transmits periodic heartbeats (e.g. every 200–500 ms) to keep the transmitter keyed. If heartbeats stop for any reason, the radio automatically and cleanly shuts down the RF Power Amplifier within the timeout window.
+  - **Multi-stage Hardware Cutoff**: Immediately pulls PA enable LOW, cuts PA bias/gain to zero, extinguishes the red TX LED, reconfigures the BK4819 front-end, and returns to RX.
+  - Can still be cancelled prematurely at any instant using standard `RX;`.
 - **Fast Telemetry Dump (`RA;` / `QS;`)**: Single-query dump of all radio parameters, frequency, modulation, power, CTCSS/DCS, battery status, and RSSI with minimal CPU overhead.
 - **Interactive Self-Documentation (`HELP;` and `HELPJ;`)**: Built-in human-readable and JSON machine-readable commands schema listing all supported commands, syntax, and parameter ranges.
 - **Bidirectional Parameter Queries**: All configuration commands (`FA`, `FB`, `FR`, `MD`, `PC`, `SQ`, `OS`, `OV`, `RD`, `FE`, `FC`, `FM`) support querying the current state by omitting arguments.
@@ -89,6 +94,109 @@ All commands are transmitted as ASCII text strings over the serial port and must
 | **VR** | `VR;` | `VR6.0.0;` | **Firmware Version**: returns current firmware version. |
 | **HELP** | `HELP;` | Multi-line text ended with `;\r\n` | **Human-readable Help**: outputs a formatted, human-readable list of all CAT commands, aliases, syntax, and parameter ranges. |
 | **HELPJ** | `HELPJ;` | `{"commands":[...]};\r\n` | **JSON Commands Schema**: dumps JSON list of all supported CAT commands and aliases (`commands` key). |
+
+---
+
+## Safe Transmit (TXS / TS) & Power Amplifier (PA) Protection
+
+> [!CAUTION]
+> **Why Safe Transmit (`TXS;` / `TS;`) is Vital for Handheld Transceivers:**  
+> Unlike 100 W desktop base station rigs equipped with extruded aluminum heatsinks and cooling fans, the **Quansheng UV-K1 / UV-K5 V3** is an ultra-compact handheld radio. Its RF Power Amplifier (PA) transistor and internal PCB thermal dissipation are engineered for typical portable duty cycles (e.g. 5% TX, 5% RX, 90% standby).
+>
+> Using traditional unmonitored `TX;` (PTT ON) over serial relies completely on the host software remembering to send `RX;`. If the host application encounters an unhandled exception, crashes, freezes during an OS thread lock, hits a breakpoint, or if the USB cable is accidentally unplugged, **the radio remains keyed continuously**.
+>
+> Continuous unmitigated transmission leads to:
+> 1. **Rapid thermal runaway** and permanent degradation or destruction of the RF PA MOSFET.
+> 2. **Complete battery drain** within minutes.
+> 3. **Unintended transmission / continuous jamming (QRM)** on local repeaters or simplex frequencies.
+>
+> **The `TXS;` / `TS;` command family solves this problem entirely at the firmware level.**
+
+### Heartbeat Watchdog Architecture
+
+Safe Transmit operates on a strict **heartbeat-watchdog principle**:
+- **Default 1-Second Failsafe**: Sending `TXS;` or shorthand `TS;` activates transmission with an automatic **1000 ms (1.0 s)** countdown watchdog.
+- **Customizable Timeout**: The timeout can be configured anywhere between **50 ms** and **30,000 ms (30 s)** by appending the duration in milliseconds:
+  - `TXS500;` / `TS500;` — 500 ms watchdog (ideal for high-speed packet radio and soundmodems).
+  - `TXS1500;` / `TS1500;` — 1.5 s watchdog.
+  - `TXS5000;` / `TS5000;` — 5 s watchdog (suitable for long digital frames or voice streaming).
+- **Periodic Heartbeats**: To keep the transmitter active, the host software simply resends `TXS;` or `TS;` at periodic intervals (e.g., every 250–500 ms for a 1000 ms timeout).
+- **Instant Watchdog Reload**: Each received `TXS;` / `TS;` frame immediately resets the countdown timer back to full duration.
+
+### Multi-Stage Hardware Failsafe Sequence
+
+The internal watchdog countdown is driven directly by the radio's high-precision 10 ms firmware tick loop (`g_TxSafeTimeout_10ms`). If no heartbeat arrives before the timer reaches zero, the firmware executes a complete, non-blocking hardware protection shutdown:
+
+```
+[ Host Heartbeats Stop ] ──> [ Watchdog Ticks to 0 ]
+                                      │
+                                      ▼
+                        ┌───────────────────────────┐
+                        │ 1. Cut PA Bias & Drive = 0│
+                        │ 2. Pull PA_ENABLE LOW     │
+                        │ 3. Extinguish Red TX LED  │
+                        │ 4. Reconfigure RX FrontEnd│
+                        │ 5. Turn On BK4819 RX      │
+                        │ 6. Update LCD Screen      │
+                        └───────────────────────────┘
+```
+
+1. **PA Drive Shutdown**: Immediately writes `0, 0` to BK4819 power amplifier control registers (`BK4819_SetupPowerAmplifier(0, 0)`), dropping RF drive to zero.
+2. **Physical Hardware Pin Disable**: Pulls the physical PA power enable line low (`BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false)`).
+3. **Indicator LED Extinguish**: Turns off the bright red front-panel TX LED (`BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false)`).
+4. **RF Front-End Reconfiguration**: Re-applies active VFO receive registers and AGC settings (`RADIO_SetupRegisters(true)`).
+5. **Receiver Reactivation**: Turns the BK4819 receiver back on (`BK4819_RX_TurnOn()`).
+6. **Display State Refresh**: Transitions the radio back into Foreground state and refreshes the LCD.
+
+### Immediate Manual Release (`RX;`)
+
+The host does **not** have to wait for the watchdog timer to expire when a transmission completes normally. Sending standard `RX;` at any time instantly cancels transmission, resets the watchdog timer (`g_TxSafeTimeout_10ms = 0`), and executes the clean hardware shutdown without delay.
+
+### Frequency Lockout & Out-of-Band Safeguards
+
+Before keying the transmitter via `TXS;`, `TS;`, or `TX;`, the firmware checks the target VFO frequency against the hardware band limits and TX lockout configuration (`TX_freq_check()` and `TX_LOCK`). If transmission is prohibited on that frequency, the command is safely rejected and transmission is blocked.
+
+### Comparison: Raw `TX;` vs Safe `TXS;` / `TS;`
+
+| Feature | Standard CAT `TX;` | Safe Watchdog `TXS;` / `TS;` |
+|---|---|---|
+| **Transmission Mode** | Latching (Permanent ON until `RX;`) | Heartbeat-driven Watchdog (Auto-Off) |
+| **Default Failsafe Timeout** | **None** (Transmits forever) | **1000 ms (1.0 second)** |
+| **Timeout Range** | N/A | **50 ms to 30,000 ms** (configurable) |
+| **PC Software Crash / Freeze** | ❌ **Stuck in TX** until battery dies or radio burns out | ✅ **Auto-reverts to RX within $\le 1$ s** |
+| **USB Cable Disconnected** | ❌ **Stuck in TX** permanently | ✅ **Auto-reverts to RX within $\le 1$ s** |
+| **Serial Driver / Thread Lock** | ❌ **Stuck in TX** permanently | ✅ **Auto-reverts to RX within $\le 1$ s** |
+| **RF Power Amplifier Safety** | ❌ Severe danger of thermal destruction | ✅ **100% PA thermal protection** |
+| **Early / Normal Release** | Send `RX;` | Send `RX;` (instantly disarms timer) |
+| **Host Application Obligation**| Must remember to send `RX;` | Sends periodic heartbeats (e.g. every 300 ms) |
+
+### Developer Integration Guide
+
+Integrating Safe Transmit into your Python, C++, or C# software is simple. Below is a production-grade Python implementation:
+
+```python
+import serial
+import time
+
+def transmit_with_watchdog(ser: serial.Serial, duration_seconds: float, watchdog_ms: int = 1000):
+    """
+    Safely transmits for `duration_seconds` using periodic heartbeats.
+    Guarantees clean shutdown via try...finally block.
+    """
+    heartbeat_interval = (watchdog_ms / 1000.0) * 0.4  # Re-arm at 40% of watchdog window (e.g. every 400ms)
+    start_time = time.time()
+    
+    try:
+        while (time.time() - start_time) < duration_seconds:
+            # Send heartbeat (TXS or shorthand TS):
+            ser.write(f"TS{watchdog_ms};".encode("ascii"))
+            time.sleep(heartbeat_interval)
+    finally:
+        # Immediate clean release upon completion, error, or KeyboardInterrupt:
+        ser.write(b"RX;")
+```
+
+---
 
 ### Testing and Diagnostics
 A comprehensive Python script is provided to test and demonstrate all CAT commands:
@@ -182,6 +290,8 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
 * [Project Overview](#project-overview)
 * [CAT Commands Quick Reference](#cat-commands-quick-reference)
+* [Safe Transmit (TXS / TS) & PA Protection](#safe-transmit-txs--ts--power-amplifier-pa-protection)
+* [Testing and Diagnostics](#testing-and-diagnostics)
 * [Main features and improvements from F4HWN](#main-features-and-improvements-from-f4hwn)
 * [Main Features from Egzumer](#main-features-from-egzumer)
 * [Manual](#manual)
