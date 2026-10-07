@@ -134,6 +134,14 @@ identification, 65-85 coarse position (N/S, degrees, 15' steps), 107-110 `1101`,
 111 position source, 112 121.5 MHz homing, 113-132 offsets (±minutes, 4 s steps).
 The 15-hex ID is bits 26-85 with the position replaced by the default pattern.
 
+ELT(DT) and RLS location protocols (codes 1001, 1101): bits 41-66
+identification, 67-85 coarse position (N/S, 30' steps, E/W, 30' steps), 107-114
+protocol data (ELT(DT): activation, altitude, location freshness; not displayed),
+115-132 offsets (±, 4-bit minutes, 4 s steps). Same sign / latitude / sign /
+longitude structure as the standard location, two bits later and one bit
+shorter, so one parser covers both (v2.0). Layout taken from the reference
+decoder (moricef/Decode_sarsat_406_v1g_v2g), to confirm against T.001.
+
 ## Decoder (`dec406.c`)
 
 Streaming, one call per ADC sample, integer only, no division per sample,
@@ -199,8 +207,10 @@ noise, +/-4 kHz offset, 2000 ppm clock error), then on the radio.
 test/flipper406.py test/flipper
 ```
 
-writes `epirb406_long.sub` (reference frame), `_selftest`, `_short` and
-`_bch_err` (bit 50 flipped, BCH-1 fails), on 433.650 MHz (433 MHz SRD band). Copy
+writes `epirb406_long.sub` (reference frame), `_selftest`, `_short`,
+`_bch_err` (bit 50 flipped, BCH-1 fails), `_eltdt` and `_eltdt_selftest`
+(ELT(DT) location protocol, same position, 15-hex ID `1C72091A2B3FDFF`), on
+433.650 MHz (433 MHz SRD band). Copy
 them to `subghz/` on the Flipper, set the K1 to 433.650 MHz FM wide, launch the
 app, then Send one file per burst, at least 2 s apart. If the Flipper's crystal
 puts the carrier off the channel, tune with UP/DOWN. Never transmit these files
@@ -314,8 +324,11 @@ a real bias reproduced on the host at the measured level.
 - **BCH generators** are the T.001 ones. They are only checked against frames
   built with the same code; the bench generator's real frame
   (`FFFE2F8E3E12345631401FB07DF58521EDA3` expected) will confirm them.
-- **Protocol name table** to check against T.001; national location, RLS and
-  ELT-DT positions are not decoded, and their ID is shown as raw bits 26-85.
+- **Protocol name table** to check against T.001; national location positions
+  are not decoded, and their ID is shown as raw bits 26-85.
+- **ELT(DT) and RLS positions** (v2.0, issue #616): position and 15-hex ID
+  decoded on the radio with `epirb406_eltdt.sub` (2026-10-07); to confirm
+  against a real ELT(DT) frame, and RLS is untested.
 - The synthetic chain is a model: the first real captures from PA4 may need the
   integrator or DC constants retuned (`dec406_init(..., integrate)` also allows a
   phase-like input if the hardware turns out to integrate already).
@@ -325,4 +338,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current: **v1.9**.
+Current: **v2.0**.

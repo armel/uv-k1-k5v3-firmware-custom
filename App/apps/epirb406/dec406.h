@@ -56,12 +56,12 @@ typedef struct {
     uint8_t  bch1, bch2;      /* 1 = BCH ok (bch2 is 1 on short messages)       */
     uint8_t  userProto;       /* bit 26: 1 = user / user-location protocols     */
     uint8_t  proto;           /* protocol code: bits 37-40, or 37-39 if user    */
-    uint8_t  stdLoc;          /* standard location protocol (position decoded)  */
+    uint8_t  stdLoc;          /* standard location protocol (source, homing)    */
     uint8_t  hasPos;          /* position present (not the default pattern)     */
     uint8_t  hasFine;         /* PDF-2 offsets applied                          */
     uint8_t  internalPos;     /* bit 111: 1 = internal navigation device        */
     uint8_t  homing;          /* bit 112: 121.5 MHz homing                      */
-    uint8_t  idRaw;           /* 1 = ID is bits 26-85 as sent (not std location) */
+    uint8_t  idRaw;           /* 1 = ID is bits 26-85 as sent (position not decoded) */
     uint16_t country;         /* bits 27-36                                     */
     uint32_t idData;          /* std location: bits 41-64                       */
     int32_t  latS, lonS;      /* position in arc seconds, N and E positive      */

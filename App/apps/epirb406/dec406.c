@@ -35,11 +35,6 @@
 #define BCH1_GEN  0x26D9E3u    /* x^21+x^18+x^17+x^15+x^14+x^12+x^11+x^8+x^7+x^6+x^5+x+1 */
 #define BCH2_GEN  0x1539u      /* x^12+x^10+x^8+x^5+x^4+x^3+1 */
 
-/* Standard location default position, bits 65-85, as used for the 15-hex ID.
- * Matches the reference decoder output for ID 1C7C2468ACFFBFF; to be confirmed
- * against T.001. */
-#define STD_DEFAULT_POS  0x0FFBFFu   /* 0 1111111 11 0 11111111 11 */
-
 /* Bit count, one pass per set bit: at most 4 x 32 passes per half-bit (every
  * 12 samples, and only while searching), far inside the 5000 cycles of a
  * sample period; 36 bytes smaller than the branch-free version. */
@@ -170,11 +165,16 @@ static uint32_t syndrome(const dec406_t *d, uint8_t first, uint8_t last, uint32_
     return reg;
 }
 
-static bool isStdLoc(uint8_t code)
+/* First bit of the position field in PDF-1, 0 when the position is not decoded:
+ * 65 = standard location (15' steps), 67 = ELT(DT) and RLS (30' steps). */
+static uint8_t posBase(uint8_t code)
 {
     /* 0010 EPIRB MMSI, 0011 ELT 24-bit, 0100 ELT serial, 0101 ELT op. designator,
      * 0110 EPIRB serial, 0111 PLB serial, 1100 ship security, 1110 test */
-    return (code >= 2u && code <= 7u) || code == 12u || code == 14u;
+    if ((code >= 2u && code <= 7u) || code == 12u || code == 14u) return 65u;
+    /* 1001 ELT(DT), 1101 RLS */
+    if (code == 9u || code == 13u) return 67u;
+    return 0u;
 }
 
 void dec406_parse(const dec406_t *d, dec406_info_t *o)
@@ -187,43 +187,57 @@ void dec406_parse(const dec406_t *d, dec406_info_t *o)
     o->userProto = bit(d, 26);
     o->country   = (uint16_t)field(d, 27, 10);
     o->proto     = (uint8_t)(o->userProto ? field(d, 37, 3) : field(d, 37, 4));
-    o->stdLoc    = !o->userProto && isStdLoc(o->proto);
-    o->idRaw     = !o->stdLoc;
+    /* Both layouts are: sign, latitude, sign, longitude (one bit longer), up to
+     * bit 85. Latitude is 9 bits from bit 66 or 8 bits from bit 68. */
+    uint8_t base    = o->userProto ? 0u : posBase(o->proto);
+    uint8_t latLen  = (uint8_t)(base == 65u ? 9u : 8u);
+    uint8_t lonSign = (uint8_t)(base + 1u + latLen);
+    o->stdLoc    = base == 65u;
+    o->idRaw     = !base;
     o->idData    = field(d, 41, 24);
     o->hasPos = o->hasFine = o->internalPos = o->homing = 0;
     o->latS = o->lonS = 0;
 
+    /* 15-hex ID: bits 26-85, with the position replaced by its default value
+     * (signs 0, latitude and longitude all ones) when it is a decoded one */
     for (uint8_t k = 0; k < 15; k++) {
         uint8_t nib = 0;
         for (uint8_t j = 0; j < 4; j++) {
             uint8_t n = (uint8_t)(26u + 4u * k + j);
-            uint8_t b = (o->stdLoc && n >= 65u) ? (uint8_t)((STD_DEFAULT_POS >> (85u - n)) & 1u) : bit(d, n);
+            uint8_t b = (base && n >= base) ? (uint8_t)(n != base && n != lonSign) : bit(d, n);
             nib = (uint8_t)((nib << 1) | b);
         }
         o->id[k] = (char)(nib < 10u ? '0' + nib : 'A' - 10 + nib);   /* no hex table */
     }
     o->id[15] = '\0';
 
-    if (!o->stdLoc) return;
+    if (!base) return;
 
-    if (field(d, 65, 21) != STD_DEFAULT_POS) {
-        int32_t lat = (int32_t)field(d, 66, 7) * 3600 + (int32_t)field(d, 73, 2) * 900;
-        int32_t lon = (int32_t)field(d, 76, 8) * 3600 + (int32_t)field(d, 84, 2) * 900;
-        if (o->longMsg && o->bch2 && field(d, 107, 4) == 0xDu) {
-            uint32_t am = field(d, 114, 5), as = field(d, 119, 4);
-            uint32_t om = field(d, 124, 5), os = field(d, 129, 4);
-            if (am <= 30u && om <= 30u) {
+    uint32_t la = field(d, (uint8_t)(base + 1u), latLen);
+    if (la != (1u << latLen) - 1u) {             /* not the default position */
+        int32_t unit = o->stdLoc ? 900 : 1800;   /* arc seconds per step */
+        int32_t lat = (int32_t)la * unit;
+        int32_t lon = (int32_t)field(d, (uint8_t)(lonSign + 1u), (uint8_t)(latLen + 1u)) * unit;
+        /* PDF-2 offsets: sign (1 = +), minutes, seconds in 4 s steps, twice.
+         * Standard location: from bit 113, 5-bit minutes, behind the fixed
+         * bits 107-110 = 1101. ELT(DT) and RLS: from bit 115, 4-bit minutes.
+         * Seconds 1111 is the default (no offset) value. */
+        if (o->longMsg && o->bch2 && (!o->stdLoc || field(d, 107, 4) == 0xDu)) {
+            uint8_t p = (uint8_t)(base + 48u), m = (uint8_t)(latLen - 4u);
+            uint32_t am = field(d, (uint8_t)(p + 1u), m),     as = field(d, (uint8_t)(p + 1u + m), 4);
+            uint32_t om = field(d, (uint8_t)(p + 6u + m), m), os = field(d, (uint8_t)(p + 6u + 2u * m), 4);
+            if (am <= 30u && om <= 30u && as < 15u && os < 15u) {
                 int32_t dlat = (int32_t)(am * 60u + as * 4u), dlon = (int32_t)(om * 60u + os * 4u);
-                lat += bit(d, 113) ? dlat : -dlat;
-                lon += bit(d, 123) ? dlon : -dlon;
+                lat += bit(d, p) ? dlat : -dlat;
+                lon += bit(d, (uint8_t)(p + 5u + m)) ? dlon : -dlon;
                 o->hasFine = 1;
             }
         }
-        o->latS = bit(d, 65) ? -lat : lat;
-        o->lonS = bit(d, 75) ? -lon : lon;
+        o->latS = bit(d, base) ? -lat : lat;
+        o->lonS = bit(d, lonSign) ? -lon : lon;
         o->hasPos = 1;
     }
-    if (o->longMsg && o->bch2) { o->internalPos = bit(d, 111); o->homing = bit(d, 112); }
+    if (o->stdLoc && o->longMsg && o->bch2) { o->internalPos = bit(d, 111); o->homing = bit(d, 112); }
 }
 
 const char *dec406_proto_name(const dec406_info_t *in)
