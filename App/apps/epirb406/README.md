@@ -41,7 +41,7 @@ Keys (UV-K5 and UV-K1):
 
 | Key | Action |
 |---|---|
-| UP / DOWN (held) | Scroll the selected message one pixel per 50 ms slot (direction follows the firmware navigation setting, so K1 LEFT/RIGHT work as on the main screen) |
+| UP / DOWN (held) | Scroll the selected message one pixel per 50 ms slot, according to `SET_NAV` (UV-K1: LEFT/RIGHT) |
 | UP / DOWN (pressed again at an end) | Select the newer / older message, from its first detail row |
 | * | Normal / compact view, saved on exit; returns to the first detail row. Normal view is the default |
 | 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz |
@@ -325,4 +325,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current: **v1.8**.
+Current: **v1.9**.

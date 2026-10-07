@@ -789,7 +789,7 @@ void app_main(const app_api_t *api)
             previous = key;
             repeat_ms = 0u;
         } else if (key != previous) {
-            const int8_t direction = A->nav_dir(key);
+            const int8_t direction = (key == APP_KEY_DOWN) - (key == APP_KEY_UP);
             A->backlight_on();
             if (key == APP_KEY_EXIT)
                 g.running = false;
@@ -800,7 +800,7 @@ void app_main(const app_api_t *api)
             previous = key;
             repeat_ms = direction != 0 ? NAV_REPEAT_DELAY_MS : 0u;
         } else {
-            const int8_t direction = A->nav_dir(key);
+            const int8_t direction = (key == APP_KEY_DOWN) - (key == APP_KEY_UP);
             if (direction != 0) {
                 if (repeat_ms > INPUT_TICK_MS) {
                     repeat_ms -= INPUT_TICK_MS;

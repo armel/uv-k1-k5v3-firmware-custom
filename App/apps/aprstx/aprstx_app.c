@@ -501,9 +501,9 @@ static void handleKeys(void){
     uint8_t key=A->get_key();
     /* UP/DOWN, held, out of the editor: scroll 1 px per loop (25 px/s), from
      * the source row to the last row fully shown (its blank bit 7 on the
-     * separator) */
+     * separator). Raw KEY_UP is UP on K5 and LEFT on K1; KEY_DOWN is DOWN / RIGHT. */
     if(!g.edit){
-        int8_t d=A->nav_dir(key);        /* g.lim: draw(), 0 when compact */
+        int8_t d=(key==APP_KEY_DOWN)-(key==APP_KEY_UP);
         if((d<0 && g.top) || (d>0 && g.top<g.lim)){ g.top=(uint8_t)(g.top+d); g.redraw=true; }
     }
     if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }

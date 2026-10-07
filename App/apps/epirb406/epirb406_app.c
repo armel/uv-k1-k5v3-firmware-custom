@@ -364,7 +364,7 @@ static void draw(void){
 
 /* ---- input ---- */
 static void handleKey(uint8_t key){
-    int d=g.A->nav_dir(key);
+    int d=(key==APP_KEY_DOWN)-(key==APP_KEY_UP);
     unsigned top=(unsigned)(g.top+d);
     if(top<=g.lim) g.top=(uint16_t)top;
     else if(key!=g.prevKey && (unsigned)(g.cur+d)<g.count){ g.cur=(uint8_t)(g.cur+d); g.top=0; }

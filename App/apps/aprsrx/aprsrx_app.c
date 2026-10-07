@@ -694,8 +694,9 @@ static void handleKeys(void){
     uint8_t key=A->get_key();
     /* UP/DOWN, held: scroll the body 1 px per slot (20 px/s) while rows overflow.
      * Pressed again once at an end: the newer (UP) or older (DOWN) frame, from its
-     * first row; holding the key never leaves the frame. */
-    int d=A->nav_dir(key);
+     * first row; holding the key never leaves the frame. Raw KEY_UP is UP on
+     * K5 and LEFT on K1; KEY_DOWN is DOWN / RIGHT. */
+    int d=(key==APP_KEY_DOWN)-(key==APP_KEY_UP);
     unsigned top=(unsigned)(g.top+d);     /* wraps past the first row */
     if(top<=g.lim){
         if(top!=g.top){ g.top=(uint16_t)top; g.redraw|=REDRAW_ON; }
