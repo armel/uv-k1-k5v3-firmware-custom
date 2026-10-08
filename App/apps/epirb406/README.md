@@ -207,6 +207,7 @@ checked against both worked examples of Annex B. Test positions: 49.07624 N,
 test/t001check.py --fast     # parse the bits directly (seconds)
 test/t001check.py            # through gen406.py audio + the demodulator (minutes)
 test/t001flipper.py          # test/flipper/t001/*.sub + README index
+test/limesdr/t001lime.py     # the same frames as LimeSDR IQ files (see below)
 ```
 
 v2.2: 61/61 match, both ways.
@@ -248,6 +249,36 @@ them to `subghz/` on the Flipper, set the K1 to 433.650 MHz FM wide, launch the
 app, then Send one file per burst, at least 2 s apart. If the Flipper's crystal
 puts the carrier off the channel, tune with UP/DOWN. Never transmit these files
 on 406.0-406.1 MHz.
+
+## LimeSDR test transmitter (`test/limesdr/`)
+
+The Flipper sends 2-FSK; a LimeSDR (Mini) sends the real beacon modulation,
+±1.1 rad biphase-L with 150 µs transitions, so the receiver's discriminator
+outputs pulses as with a real EPIRB and the app's integrator is exercised as in
+the field. Needs numpy and SoapySDR with the LimeSuite driver.
+
+```
+cd test/limesdr
+./t001lime.py                          # t001/psk and t001/fsk: 61 bursts each, cs16, 1 MS/s
+./txall.py --dry-run                   # the sequence and what the app should show
+./txall.py                             # every psk frame on 433.650 MHz, 3 s apart
+./txall.py --only 'eltdt_*' --delay 5  # one family
+./limetx.py t001/psk/nl_epirb.cs16 --format cs16 --rate 1e6 --freq 433.65e6 --repeat 5 --gap 2.5
+```
+
+- `t001lime.py` writes the 61 `t001frames.py` frames as IQ files (`psk/`: real
+  modulation, `fsk/`: the Flipper signal), carrier at 0 Hz, plus `t001/README.md`,
+  the index of expected IDs and positions that `txall.py` prints before each
+  burst. The `.cs16` files (181 MB per mode) are not in git: regenerate them.
+- `limetx.py` transmits one IQ file (LO 250 kHz below the signal, shifted back
+  digitally so the LO leakage stays off the channel); `txall.py` opens the radio
+  once and sends a folder, one burst per file. Default TX gain 30 dB.
+- Checked on the host: the 61 psk files, through an FM discriminator and
+  dec406, give the expected ID and position. Set the radio to 433.650 MHz FM
+  wide and launch EPIRB 406 before transmitting.
+
+`limetx.py` refuses 405.9-406.2 MHz: **never transmit on 406.0-406.1 MHz**, the
+Cospas-Sarsat satellites relay anything there as a real distress alert.
 
 ## Bench results
 

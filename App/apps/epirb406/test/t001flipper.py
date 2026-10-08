@@ -35,7 +35,9 @@ file per burst, at least 2 s apart.
 
 Positions: a test point (49.07624 N, 0.73018 E) and a south-west point
 (33 52'08" S, 70 39'28" W). "coarse" = PDF-2 offsets absent or not applicable.
-`../../t001check.py` runs the same frames through the host decoder.
+`../../t001check.py` runs the same frames through the host decoder, and
+`../../limesdr/t001lime.py` writes them as LimeSDR IQ files with the real
+406 modulation.
 
 | File | Coding option | 15-hex ID | Position |
 |---|---|---|---|
