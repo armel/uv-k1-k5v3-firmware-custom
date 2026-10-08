@@ -36,7 +36,8 @@
  * Keys (UV-K5 and UV-K1): UP/DOWN (held) scroll the frame 1 px per slot when
  *   needed; pressed again at either end: the newer / older frame · * normal
  *   view / compact view (saved) · 1 speaker on/off (saved, off by default: the
- *   decoder does not need it) · 2 clear · EXIT quit.
+ *   decoder does not need it; while on, the squelch gates it) · 2 clear · EXIT
+ *   quit.
  * The loader re-runs RADIO_SetupRegisters on exit; the app restores the ADC,
  * PA4, the DAC and its clock itself.
  */
@@ -709,7 +710,7 @@ static void handleKeys(void){
     g.redraw|=REDRAW_ON;
     if(key==APP_KEY_EXIT) g.running=false;
     else if(key==APP_KEY_2){ g.count=g.cur=0; g.nOk=0; g.top=0; }   /* g.lim: 0 at the redraw that follows */
-    else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
+    else if(key==APP_KEY_1) g.spk^=1u;   /* speaker: listen() gates it at the next slot */
     else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view (saved on exit) */
 }
 
@@ -760,6 +761,11 @@ static void listen(void){
         for(uint8_t k=0;k<NSL;k++) slice(&sl[k],a,b);
         if(++cnt<HOUSE_EVERY) continue;
         cnt=0;
+        /* Speaker amplifier: on only while key 1 allows it and the squelch is
+         * open (REG_0C bit 1), so the frames are heard without the noise
+         * between them. Here, ahead of the busy test: house() is skipped
+         * during a frame. The decoder is not gated, it reads the AF output. */
+        A->audio_path(g.spk & (A->bk_read(0x0Cu)>>1));
         bool bz=false;                  /* only the slot's own sample decides */
         for(uint8_t k=0;k<NSL;k++) bz|=busy(&sl[k]);
         if(bz && ++busyFor<BUSY_MAX) continue;
@@ -794,8 +800,7 @@ void app_main(const app_api_t *api){
     /* Speaker amplifier (PA8) as saved, off by default: the decoder does not
      * need it (tested on the radio, 2026-09-30): PA4, the voice-prompt DAC pin,
      * joins the audio before the amplifier; only the BK4829 AF output must be
-     * on. Key 1 toggles the speaker to listen to the channel. */
-    api->audio_path(g.spk);
+     * on. Key 1 allows the speaker; listen() switches it with the squelch. */
     api->set_af(APP_AF_FM);
     api->delay_ms(50);
 

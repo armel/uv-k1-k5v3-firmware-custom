@@ -11,7 +11,7 @@ Status:
 | Audio path an app can sample | **Done** by EPIRB 406: RX audio on PA4, ADC channel 4 at 9.6 kHz |
 | Integer demodulator, modelled on synthetic audio (`test/model_rx.py`) | **Done** (see below) |
 | Flipper Zero test transmitter (`test/flipper_aprs.py`) | **Done**, files in `test/flipper/` |
-| Radio app (`aprsrx_app.c`) | **v0.1 receives the Flipper frames on the radio**; v0.3 decodes Mic-E (on air: F5RAV via F1PRY-14); v0.4 decodes continuously with 3 slicers (on air: F1PRY-14 via F5KTR-3); v0.5 shows standard positions; v0.6 adds the speaker key; v0.7 adds the corrected 20x20 APRS symbol bitmaps; v0.8 saves the speaker setting; v0.9 scrolls long compact frames; v0.10 fixes the UP/DOWN direction |
+| Radio app (`aprsrx_app.c`) | **v0.1 receives the Flipper frames on the radio**; v0.3 decodes Mic-E (on air: F5RAV via F1PRY-14); v0.4 decodes continuously with 3 slicers (on air: F1PRY-14 via F5KTR-3); v0.5 shows standard positions; v0.6 adds the speaker key; v0.7 adds the corrected 20x20 APRS symbol bitmaps; v0.8 saves the speaker setting; v0.9 scrolls long compact frames; v0.10 fixes the UP/DOWN direction; v0.11 gates the speaker with the squelch |
 | Bench test with the Flipper on 433.650 MHz | **Done** (2026-09-30, v0.1: `_long` 10/10 in STD; `_badfcs` not shown) |
 | Real station: FT3D beacon on 144.800 MHz | **Done** (2026-09-30, v0.1: Mic-E frame `>TXUPX9` received, FCS good, = 48°50.89' N 2°16.25' E) |
 | Mic-E decoding (`test/mice.py`: spec encoder vs the app's decoder) | **Done** in the model: 6 cases + the FT3D frame |
@@ -24,7 +24,9 @@ Status:
 3. The speaker is off by default (v0.6): the decoder does not need it, only the
    BK4829 AF output (tested on the radio: PA4 joins the audio before the
    amplifier). Key 1 turns it on to listen to the channel, as FoxHunt's audio
-   key; since v0.8 the app keeps it as you left it.
+   key; since v0.8 the app keeps it as you left it. Since v0.11 the squelch
+   (menu SQL) gates the speaker: the frames are heard, not the noise between
+   them; with SQL 0 the speaker stays open. The decoder is never gated.
 
 Since v0.4 the app decodes **continuously**, as a TNC does: no RSSI trigger,
 the FCS and a UI-frame check (control 0x03, PID 0xF0) sort frames from noise.
@@ -65,7 +67,7 @@ Keys (UV-K5 and UV-K1):
 | UP/DOWN (held) | Scroll the body of the frame shown 1 px per 50 ms slot, according to `SET_NAV` (UV-K1: LEFT/RIGHT), down to its last row |
 | UP/DOWN (pressed again at the first / last row) | Show the newer / older frame, from its first row |
 | * | Normal / compact view, saved on exit, returns to the first row of the frame shown. The callsign stays large and bold on line 0. Body rows use the normal font (18 characters) or 3x5 font (32 characters), continuous 1 px scrolling |
-| 1 | Speaker on/off, saved on exit (v0.8; off by default); FoxHunt's speaker icon in the status bar while on |
+| 1 | Speaker on/off, saved on exit (v0.8; off by default), gated by the squelch (v0.11); FoxHunt's speaker icon in the status bar while on |
 | 2 | Clear all five frames and the counters |
 | EXIT | Quit |
 
