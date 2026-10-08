@@ -194,7 +194,9 @@ void dec406_parse(const dec406_t *d, dec406_info_t *o)
     uint8_t lonSign = (uint8_t)(base + 1u + latLen);
     o->stdLoc    = base == 65u;
     o->idRaw     = !base;
+#ifndef DEC406_NO_IDDATA                 /* the radio app does not show it */
     o->idData    = field(d, 41, 24);
+#endif
     o->hasPos = o->hasFine = o->internalPos = o->homing = 0;
     o->latS = o->lonS = 0;
 
@@ -221,8 +223,10 @@ void dec406_parse(const dec406_t *d, dec406_info_t *o)
         /* PDF-2 offsets: sign (1 = +), minutes, seconds in 4 s steps, twice.
          * Standard location: from bit 113, 5-bit minutes, behind the fixed
          * bits 107-110 = 1101. ELT(DT) and RLS: from bit 115, 4-bit minutes.
-         * Seconds 1111 is the default (no offset) value. */
-        if (o->longMsg && o->bch2 && (!o->stdLoc || field(d, 107, 4) == 0xDu)) {
+         * Seconds 1111 is the default (no offset) value. ELT(DT) bits 113-114
+         * = 00 flag a rotating field (e.g. operator 3LD) in bits 115-132. */
+        if (o->longMsg && o->bch2 &&
+            (o->stdLoc ? field(d, 107, 4) == 0xDu : o->proto != 9u || field(d, 113, 2))) {
             uint8_t p = (uint8_t)(base + 48u), m = (uint8_t)(latLen - 4u);
             uint32_t am = field(d, (uint8_t)(p + 1u), m),     as = field(d, (uint8_t)(p + 1u + m), 4);
             uint32_t om = field(d, (uint8_t)(p + 6u + m), m), os = field(d, (uint8_t)(p + 6u + 2u * m), 4);
@@ -237,7 +241,8 @@ void dec406_parse(const dec406_t *d, dec406_info_t *o)
         o->lonS = bit(d, lonSign) ? -lon : lon;
         o->hasPos = 1;
     }
-    if (o->stdLoc && o->longMsg && o->bch2) { o->internalPos = bit(d, 111); o->homing = bit(d, 112); }
+    /* bit 1 set: the source flag is present; bit 0: 1 = internal device */
+    if (o->stdLoc && o->longMsg && o->bch2) { o->internalPos = 2u | bit(d, 111); o->homing = bit(d, 112); }
 }
 
 const char *dec406_proto_name(const dec406_info_t *in)

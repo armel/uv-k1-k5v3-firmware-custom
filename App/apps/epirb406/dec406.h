@@ -59,7 +59,7 @@ typedef struct {
     uint8_t  stdLoc;          /* standard location protocol (source, homing)    */
     uint8_t  hasPos;          /* position present (not the default pattern)     */
     uint8_t  hasFine;         /* PDF-2 offsets applied                          */
-    uint8_t  internalPos;     /* bit 111: 1 = internal navigation device        */
+    uint8_t  internalPos;     /* bit 1: flag present, bit 0: internal device   */
     uint8_t  homing;          /* bit 112: 121.5 MHz homing                      */
     uint8_t  idRaw;           /* 1 = ID is bits 26-85 as sent (position not decoded) */
     uint16_t country;         /* bits 27-36                                     */

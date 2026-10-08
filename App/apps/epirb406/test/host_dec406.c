@@ -41,7 +41,7 @@ int main(int argc, char **argv)
             printf("position  : "); pos("lat", in.latS); printf(", "); pos("lon", in.lonS);
             printf("%s\n", in.hasFine ? "" : " (coarse)");
         } else printf("position  : none\n");
-        if (in.longMsg) printf("source    : %s, homing %s\n", in.internalPos ? "internal" : "external", in.homing ? "yes" : "no");
+        if (in.longMsg) printf("source    : %s, homing %s\n", (in.internalPos & 1u) ? "internal" : "external", in.homing ? "yes" : "no");
         printf("BCH       : %s / %s\n", in.bch1 ? "ok" : "FAIL", in.bch2 ? "ok" : "FAIL");
         printf("15-hex ID : %s%s\n\n", in.id, in.idRaw ? " (raw bits 26-85)" : "");
         dec406_rearm(&d);
