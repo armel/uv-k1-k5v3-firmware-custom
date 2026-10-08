@@ -280,6 +280,22 @@ cd test/limesdr
 `limetx.py` refuses 405.9-406.2 MHz: **never transmit on 406.0-406.1 MHz**, the
 Cospas-Sarsat satellites relay anything there as a real distress alert.
 
+### Validation of v2.3 (2026-10-08)
+
+All the tests that validate v2.3 were made over the air with the **psk** IQ
+files (real 406 modulation), transmitted by a LimeSDR with `txall.py` on
+433.650 MHz, the radio in FM wide running EPIRB 406 v2.3: the 61 frames of
+`t001/`, one burst each, covering every coding option of C/S T.001 Rev. 11
+Annex A. Result: `FRAME 61 ERR 0`, every burst detected, synchronized and
+received in full, with no failed capture.
+
+![EPIRB 406 v2.3 after the 61 LimeSDR bursts](test/limesdr/validation_v2.3.png)
+
+Last burst of the series (`ul_test`, user-location test protocol), as expected
+in `t001/README.md`: ID `9C7C123456789AB`, `227 User test`, `49.06666N
+0.73333E`, `INT COARSE` (internal source, 4-minute PDF-2 position), `LONG`,
+`BCH OK/OK`; bottom row `FRAME 61 ERR 0`.
+
 ## Bench results
 
 **2026-09-27, UV-K1, generator on 433.650 MHz, DIR mode, first on-air decode.**
@@ -385,9 +401,10 @@ a real bias reproduced on the host at the measured level.
 
 - **Layouts** checked against T.001 Issue 4 Rev. 11 (v2.2): default position
   pattern (A3.2), every location format (A3.3.4-A3.3.8), BCH codes (both Annex B
-  examples). Real-beacon confirmation: standard location (bench generator) and
-  ELT(DT) (issue #616, PlutoSDR frame); national, RLS and user-location only
-  with generated frames so far.
+  examples). Over the air with the real 406 modulation (LimeSDR, v2.3): all 61
+  coding options, 61/61 received. Real-beacon confirmation so far: standard
+  location (bench generator) and ELT(DT) (issue #616, PlutoSDR frame); national,
+  RLS and user-location only with generated frames.
 - The synthetic chain is a model: the first real captures from PA4 may need the
   integrator or DC constants retuned (`dec406_init(..., integrate)` also allows a
   phase-like input if the hardware turns out to integrate already).
