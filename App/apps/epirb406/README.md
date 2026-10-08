@@ -32,10 +32,10 @@ shown immediately from its first detail row. The history is lost on exit.
 | Status bar | `EPIRB 406`, speaker icon while enabled, and arrows when details or another history entry exist above/below |
 | Before the first frame | Blinking `WAITING...` in the body |
 | Fixed line 0 | 15-hex ID in bold and, with several messages, the selected/newest count (`2/5`) at its right |
-| Scrolled body | Country and protocol; latitude and longitude together on one row when they fit, otherwise on two rows in normal view; SELF-TEST and LONG/SHORT; BCH-1/BCH-2 (`BCH OK / OK`, with `--` on a short message); internal/external source and flags on their own row when present (`EXT 121`, `INT`, `COARSE`, `RAW ID`), then the frame sequence and burst RSSI on the row below (`FRAME 3 -95dBm`). `121` abbreviates the 121.5 MHz homing transmitter. Both views always keep 5 coordinate decimals. Normal view puts BCH on its own line without indentation; compact view appends it to the SELF-TEST / LONG/SHORT row |
+| Scrolled body | Country and protocol; latitude and longitude together on one row when they fit, otherwise on two rows in normal view; right below, the position source and flags when present (`EXT 121`, `INT`, `COARSE`, `RAW ID` for a spare location code 0000/0001, `CANCEL` for an ELT(DT) cancellation message), so they show without scrolling; SELF-TEST and LONG/SHORT; then the frame sequence and burst RSSI (`FRAME 3 -95dBm`). `121` abbreviates the 121.5 MHz homing transmitter. Both views always keep 5 coordinate decimals |
 | Dotted separator | APRS-style line at y=40, above the two fixed information rows |
 | Fixed tuning row | Current RX frequency prefixed by `RX` and its offset from the VFO, updated immediately by keys 4/5/6; current RSSI and noise floor in dBm are shown as `-40 / -100dBm` at the right |
-| Bottom row | Complete frames (`FRAME`), failed captures (`ERROR`), last error: `NOSYNC` (no frame sync found) or `CUT` (sync found, message incomplete) |
+| Bottom row | Complete frames (`FRAME`), failed captures (`ERR`), last error: `NOSYNC` (no frame sync found) or `CUT` (sync found, message incomplete); at the right, BCH-1/BCH-2 of the selected message (`BCH OK/OK`, `--` on a short message) |
 
 Keys (UV-K5 and UV-K1):
 
@@ -129,18 +129,28 @@ then 112 (short) or 144 (long) bits, one burst about every 50 s.
 | 107-132 | Fine position offsets and flags (PDF-2, long messages) |
 | 133-144 | BCH-2, BCH(26,14) over bits 107-144 |
 
-Standard location protocols (codes 0010-0111, 1100, 1110): bits 41-64
-identification, 65-85 coarse position (N/S, degrees, 15' steps), 107-110 `1101`,
-111 position source, 112 121.5 MHz homing, 113-132 offsets (±minutes, 4 s steps).
-The 15-hex ID is bits 26-85 with the position replaced by the default pattern.
+Every position format of C/S T.001 Issue 4 Rev. 11 (October 2023, Annex A3.3) has
+the same shape: N/S flag, 7 bits of latitude degrees, sub-degree bits, E/W flag,
+8 bits of longitude degrees, sub-degree bits; then, in PDF-2, an optional offset
+per axis (sign, 1 = plus; minutes; seconds in 4 s steps, `1111` = no offset).
+Since v2.2 the parser is one routine driven by this table (`FMT` in `dec406.c`):
 
-ELT(DT) and RLS location protocols (codes 1001, 1101): bits 41-66
-identification, 67-85 coarse position (N/S, 30' steps, E/W, 30' steps), 107-114
-protocol data (ELT(DT): activation, altitude, location freshness; not displayed),
-115-132 offsets (±, 4-bit minutes, 4 s steps). Same sign / latitude / sign /
-longitude structure as the standard location, two bits later and one bit
-shorter, so one parser covers both (v2.0). Layout taken from the reference
-decoder (moricef/Decode_sarsat_406_v1g_v2g), to confirm against T.001.
+| Format (T.001) | Codes | Position | Steps | Offsets | Source / 121.5 |
+|---|---|---|---|---|---|
+| Standard location (A3.3.5) | 0010-0111, 1100, 1110 | 65-85 | 15' | 113-132, 5-bit minutes, if 107-110 = `1101` | 111 / 112 |
+| National location (A3.3.6) | 1000, 1010, 1011, 1111 | 59-85 | 2' | 113-126, 2-bit minutes, if 107-110 = `1101` (bit 110: position data flag) | 111 / 112 |
+| RLS location (A3.3.7) | 1101 | 67-85 | 30' | 115-132, 4-bit minutes | 107 / 108 |
+| ELT(DT) location (A3.3.8) | 1001 | 67-85 | 30' | 115-132, 4-bit minutes, unless 113-114 = `00` (rotating field, e.g. operator 3LD) | - |
+| User-location (A3.3.4) | user 010, 110, 001, 011, 111, long | PDF-2 108-132 | 4' | - | 107 / - |
+
+The 15-hex ID is bits 26-85 (section 3.2), with a PDF-1 position replaced by its
+default value (A3.2: flags 0, degrees all ones, sub-degree bits all ones except in
+national location). A latitude above 90 degrees means no position: the default
+value, or the fixed pattern of the ELT(DT) cancellation message (A3.3.8.5, shown
+as `CANCEL`). User protocols carry no position except user-location, whose
+position is only used with a valid BCH-2. Not displayed: ELT(DT) activation,
+altitude and location freshness, the RLS return-link bits, the 3LD letters and the
+user-protocol identities (MMSI, call sign, registration).
 
 ## Decoder (`dec406.c`)
 
@@ -158,7 +168,8 @@ freestanding (no libc). About 150 bytes of state.
    receive chain may invert). Up to 2 mismatches allowed.
 5. **Bits**: soft decision per bit, first half minus second half.
 6. **Parsing**: BCH-1 and BCH-2 syndromes, country, protocol, 15-hex ID, position
-   for standard location protocols (coarse + fine offsets).
+   (coarse + fine offsets) for every location format (table above). The parse
+   leaves the PDF-1 position bits at their default value: parse a message once.
 
 Size for Cortex-M0+ (firmware toolchain, `-Os`): 1,468 bytes of code, after the
 size work described above.
@@ -176,7 +187,30 @@ test/run_tests.sh
   raised-cosine transitions, carrier offset, noise in a 25 kHz channel, FM
   discriminator, audio low-pass, AC coupling, 9.6 kHz ADC with clock error,
   12-bit around the measured 518 bias, full-scale noise when no carrier.
-- `host_dec406.c` runs the decoder over the samples and prints each message.
+- `host_dec406.c` runs the decoder over the samples and prints each message;
+  `host_dec406 -x HEX` parses a frame directly, without the audio chain.
+
+### Every T.001 coding option (`test/t001frames.py`)
+
+`t001frames.py` builds one frame per coding option of T.001 Rev. 11 Annex A (61
+frames): user protocols (maritime MMSI and call sign, radio call sign, aviation,
+the six serial types, test, national, orbitography, emergency codes, self-test),
+user-location, standard location (all identities, S/W, default offsets, default
+position, self-test), national location (with and without offsets), RLS (TAC,
+MMSI, test, return-link bits) and ELT(DT) (24-bit address, operator, TAC, test,
+3LD rotating field, default position, GNSS self-test, cancellation). Each frame
+carries the 15-hex ID and position the specification gives; the BCH code is
+checked against both worked examples of Annex B. Test positions: 49.07624 N,
+0.73018 E and 33 52'08" S, 70 39'28" W.
+
+```
+test/t001check.py --fast     # parse the bits directly (seconds)
+test/t001check.py            # through gen406.py audio + the demodulator (minutes)
+test/t001flipper.py          # test/flipper/t001/*.sub + README index
+test/limesdr/t001lime.py     # the same frames as LimeSDR IQ files (see below)
+```
+
+v2.2: 61/61 match, both ways.
 
 Results (2026-09-27): 29/29 pass. The first 17 cases, covering CNR 12-15 dB, ±5 kHz offset,
 inverted chain, ±3000 ppm clock error, 50-250 µs rise time, 3 kHz audio
@@ -215,6 +249,52 @@ them to `subghz/` on the Flipper, set the K1 to 433.650 MHz FM wide, launch the
 app, then Send one file per burst, at least 2 s apart. If the Flipper's crystal
 puts the carrier off the channel, tune with UP/DOWN. Never transmit these files
 on 406.0-406.1 MHz.
+
+## LimeSDR test transmitter (`test/limesdr/`)
+
+The Flipper sends 2-FSK; a LimeSDR (Mini) sends the real beacon modulation,
+±1.1 rad biphase-L with 150 µs transitions, so the receiver's discriminator
+outputs pulses as with a real EPIRB and the app's integrator is exercised as in
+the field. Needs numpy and SoapySDR with the LimeSuite driver.
+
+```
+cd test/limesdr
+./t001lime.py                          # t001/psk and t001/fsk: 61 bursts each, cs16, 1 MS/s
+./txall.py --dry-run                   # the sequence and what the app should show
+./txall.py                             # every psk frame on 433.650 MHz, 3 s apart
+./txall.py --only 'eltdt_*' --delay 5  # one family
+./limetx.py t001/psk/nl_epirb.cs16 --format cs16 --rate 1e6 --freq 433.65e6 --repeat 5 --gap 2.5
+```
+
+- `t001lime.py` writes the 61 `t001frames.py` frames as IQ files (`psk/`: real
+  modulation, `fsk/`: the Flipper signal), carrier at 0 Hz, plus `t001/README.md`,
+  the index of expected IDs and positions that `txall.py` prints before each
+  burst. The `.cs16` files (181 MB per mode) are not in git: regenerate them.
+- `limetx.py` transmits one IQ file (LO 250 kHz below the signal, shifted back
+  digitally so the LO leakage stays off the channel); `txall.py` opens the radio
+  once and sends a folder, one burst per file. Default TX gain 30 dB.
+- Checked on the host: the 61 psk files, through an FM discriminator and
+  dec406, give the expected ID and position. Set the radio to 433.650 MHz FM
+  wide and launch EPIRB 406 before transmitting.
+
+`limetx.py` refuses 405.9-406.2 MHz: **never transmit on 406.0-406.1 MHz**, the
+Cospas-Sarsat satellites relay anything there as a real distress alert.
+
+### Validation of v2.3 (2026-10-08)
+
+All the tests that validate v2.3 were made over the air with the **psk** IQ
+files (real 406 modulation), transmitted by a LimeSDR with `txall.py` on
+433.650 MHz, the radio in FM wide running EPIRB 406 v2.3: the 61 frames of
+`t001/`, one burst each, covering every coding option of C/S T.001 Rev. 11
+Annex A. Result: `FRAME 61 ERR 0`, every burst detected, synchronized and
+received in full, with no failed capture.
+
+![EPIRB 406 v2.3 after the 61 LimeSDR bursts](test/limesdr/validation_v2.3.png)
+
+Last burst of the series (`ul_test`, user-location test protocol), as expected
+in `t001/README.md`: ID `9C7C123456789AB`, `227 User test`, `49.06666N
+0.73333E`, `INT COARSE` (internal source, 4-minute PDF-2 position), `LONG`,
+`BCH OK/OK`; bottom row `FRAME 61 ERR 0`.
 
 ## Bench results
 
@@ -319,16 +399,12 @@ a real bias reproduced on the host at the measured level.
 
 ## Open points
 
-- **Default position pattern** in the 15-hex ID (`0 1111111 11 0 11111111 11`)
-  follows the reference decoder; to confirm against T.001.
-- **BCH generators** are the T.001 ones. They are only checked against frames
-  built with the same code; the bench generator's real frame
-  (`FFFE2F8E3E12345631401FB07DF58521EDA3` expected) will confirm them.
-- **Protocol name table** to check against T.001; national location positions
-  are not decoded, and their ID is shown as raw bits 26-85.
-- **ELT(DT) and RLS positions** (v2.0, issue #616): position and 15-hex ID
-  decoded on the radio with `epirb406_eltdt.sub` (2026-10-07); to confirm
-  against a real ELT(DT) frame, and RLS is untested.
+- **Layouts** checked against T.001 Issue 4 Rev. 11 (v2.2): default position
+  pattern (A3.2), every location format (A3.3.4-A3.3.8), BCH codes (both Annex B
+  examples). Over the air with the real 406 modulation (LimeSDR, v2.3): all 61
+  coding options, 61/61 received. Real-beacon confirmation so far: standard
+  location (bench generator) and ELT(DT) (issue #616, PlutoSDR frame); national,
+  RLS and user-location only with generated frames.
 - The synthetic chain is a model: the first real captures from PA4 may need the
   integrator or DC constants retuned (`dec406_init(..., integrate)` also allows a
   phase-like input if the hardware turns out to integrate already).
@@ -338,4 +414,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current: **v2.0**.
+Current: **v2.3** (4,084 of 4,096 bytes).

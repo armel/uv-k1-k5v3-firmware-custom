@@ -46,8 +46,10 @@ UI = [
     ("T_HOMING",   " 121"),
     ("T_COARSE",   " COARSE"),
     ("T_RAWID",    " RAW ID"),
+    ("T_CANCEL",   " CANCEL"),
     ("T_KHZ",      " kHz"),
-    ("T_ERROR",    " ERROR "),
+    ("T_RX",       "RX "),
+    ("T_ERROR",    " ERR "),
     ("T_NOSYNC",   " NOSYNC"),
     ("T_CUT",      " CUT"),
 ]

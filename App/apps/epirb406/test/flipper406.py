@@ -12,7 +12,7 @@ sign (checked with a pure-Python model of the receive chain and dec406, down to
 NEVER transmit these files on 406.0-406.1 MHz (distress band).
 
   flipper406.py <out_dir>    -> epirb406_long.sub, _selftest, _short, _bch_err,
-                                epirb406_eltdt.sub, _eltdt_selftest
+                                epirb406_eltdt.sub, _eltdt_selftest, _eltdt_3ld
 One burst per file: press Send once, wait at least 2 s before the next one
 (the app waits for the carrier to drop before re-arming).
 """
@@ -34,6 +34,7 @@ FRAMES = {
     "bch_err":  build(flip=50),       # BCH-1 must show ERR
     "eltdt":    build(eltdt=True),    # ELT(DT) location protocol
     "eltdt_selftest": build(eltdt=True, selftest=True),
+    "eltdt_3ld": build(eltdt=True, tld=True),   # rotating field: coarse only
 }
 
 def raw_durations(frame_hex):

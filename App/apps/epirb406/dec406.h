@@ -55,15 +55,16 @@ typedef struct {
     uint8_t  selftest;        /* self-test frame sync                           */
     uint8_t  bch1, bch2;      /* 1 = BCH ok (bch2 is 1 on short messages)       */
     uint8_t  userProto;       /* bit 26: 1 = user / user-location protocols     */
-    uint8_t  proto;           /* protocol code: bits 37-40, or 37-39 if user    */
-    uint8_t  stdLoc;          /* standard location protocol (source, homing)    */
+    uint8_t  proto;           /* bits 37-40 (location), 16 + bits 37-39 (user) */
+    uint8_t  stdLoc;          /* standard location protocol (host only)         */
     uint8_t  hasPos;          /* position present (not the default pattern)     */
     uint8_t  hasFine;         /* PDF-2 offsets applied                          */
-    uint8_t  internalPos;     /* bit 111: 1 = internal navigation device        */
+    uint8_t  internalPos;     /* bit 1: flag present, bit 0: internal device   */
     uint8_t  homing;          /* bit 112: 121.5 MHz homing                      */
-    uint8_t  idRaw;           /* 1 = ID is bits 26-85 as sent (position not decoded) */
+    uint8_t  idRaw;           /* 1 = ID is bits 26-85 as sent (spare location code),
+                                 2 = ELT(DT) cancellation message (A3.3.8.5)     */
     uint16_t country;         /* bits 27-36                                     */
-    uint32_t idData;          /* std location: bits 41-64                       */
+    uint32_t idData;          /* std location: bits 41-64 (host only)           */
     int32_t  latS, lonS;      /* position in arc seconds, N and E positive      */
     char     id[16];          /* 15-hex beacon ID, NUL terminated               */
 } dec406_info_t;
@@ -79,8 +80,9 @@ void dec406_rearm(dec406_t *d);
  * has been received (state DEC406_DONE); call dec406_parse, then dec406_rearm. */
 bool dec406_push(dec406_t *d, uint16_t sample);
 
-/* BCH checks and field extraction. */
-void dec406_parse(const dec406_t *d, dec406_info_t *out);
+/* BCH checks and field extraction. The PDF-1 position bits of d are left at
+ * their default value (they make the 15-hex ID): parse a message only once. */
+void dec406_parse(dec406_t *d, dec406_info_t *out);
 
 /* Short protocol name for display. */
 const char *dec406_proto_name(const dec406_info_t *in);
