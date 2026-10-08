@@ -333,7 +333,7 @@ def catalogue():
     add("u_serial_opdes", "Serial user, operator AFR serial 42 (A2.5.3)",
         user(0b011, ident_serial_opdes("AFR", 42, cert=318)))
     add("u_test_short", "Test user, short (A2.6)", user(0b111, 0x123456789AB))
-    add("u_test_long", "Test user, long (A2.6)", user(0b111, 0x123456789AB, long_msg=True, pdf2=0x2AAAAAA))
+    # a long test user message is the test user-location protocol (A3.3.4): ul_test
     add("u_national_short", "National user, short (A2.8)", user(0b100, 0x2468ACE0246))
     add("u_national_long", "National user, long (A2.8)", user(0b100, 0x2468ACE0246, long_msg=True, pdf2=0x1555555))
     add("u_orbitography", "Orbitography (A2.7)", user(0b000, 0x0F0F0F0F0F0F))

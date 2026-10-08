@@ -3,7 +3,8 @@
 host_dec406) and compare with the values the specification gives: BCH, 15-hex
 ID, position and fine/coarse. Prints one line per frame, then the totals.
 
-  t001check.py [host_dec406 binary]     (built from ../dec406.c if omitted)
+  t001check.py [--fast] [host_dec406 binary]   (built from ../dec406.c if omitted)
+  --fast: parse the frame bits directly (host_dec406 -x), no audio chain
 Exit status 1 when a frame does not match.
 """
 import os, subprocess, sys, tempfile
@@ -14,17 +15,23 @@ from t001frames import catalogue, fmt_pos
 
 
 def main():
+    args = sys.argv[1:]
+    fast = "--fast" in args
+    args = [a for a in args if a != "--fast"]
     tmp = tempfile.mkdtemp()
-    host = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tmp, "host_dec406")
-    if len(sys.argv) < 2:
+    host = args[0] if args else os.path.join(tmp, "host_dec406")
+    if not args:
         subprocess.check_call([os.environ.get("CC", "clang"), "-O2", "-o", host,
                                os.path.join(HERE, "host_dec406.c"), os.path.join(HERE, "..", "dec406.c")])
     bad = 0
     cat = catalogue()
     for name, desc, frame, hid, pos, fine in cat:
-        u16 = os.path.join(tmp, "s.u16")
-        subprocess.check_call([sys.executable, os.path.join(HERE, "gen406.py"), "--frame", frame, "--out", u16])
-        out = subprocess.run([host, u16], capture_output=True, text=True).stdout
+        if fast:
+            out = subprocess.run([host, "-x", frame], capture_output=True, text=True).stdout
+        else:
+            u16 = os.path.join(tmp, "s.u16")
+            subprocess.check_call([sys.executable, os.path.join(HERE, "gen406.py"), "--frame", frame, "--out", u16])
+            out = subprocess.run([host, u16], capture_output=True, text=True).stdout
         got = {}
         for line in out.splitlines():
             if ":" in line:

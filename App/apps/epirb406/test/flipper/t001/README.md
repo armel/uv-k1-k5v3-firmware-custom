@@ -26,7 +26,6 @@ Positions: a test point (49.07624 N, 0.73018 E) and a south-west point
 | `u_serial_24bit.sub` | Serial user, aircraft 24-bit address 3A1B2C (A2.5.2) | `9C6DCE86CB014F9` | none |
 | `u_serial_opdes.sub` | Serial user, operator AFR serial 42 (A2.5.3) | `9C6CF8DAA02A4F9` | none |
 | `u_test_short.sub` | Test user, short (A2.6) | `9C7C123456789AB` | none |
-| `u_test_long.sub` | Test user, long (A2.6) | `9C7C123456789AB` | none |
 | `u_national_short.sub` | National user, short (A2.8) | `9C702468ACE0246` | none |
 | `u_national_long.sub` | National user, long (A2.8) | `9C702468ACE0246` | none |
 | `u_orbitography.sub` | Orbitography (A2.7) | `9C60F0F0F0F0F0F` | none |
