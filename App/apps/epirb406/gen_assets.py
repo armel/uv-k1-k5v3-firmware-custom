@@ -36,10 +36,10 @@ UI = [
     ("T_SHORT",    "SHORT"),
     ("T_BCH",      "BCH "),
     ("T_OK",       "OK"),
-    ("T_ERR",      "ERR"),
+    ("T_ERR",      "ER"),
     ("T_NA",       "--"),
     ("T_SEP",      " / "),
-    ("T_FRAME",    "FRAME "),
+    ("T_FRAME",    "FR "),
     ("T_DBM",      "dBm"),
     ("T_INT",      " INT"),
     ("T_EXT",      " EXT"),
@@ -49,8 +49,8 @@ UI = [
     ("T_CANCEL",   " CANCEL"),
     ("T_KHZ",      " kHz"),
     ("T_RX",       "RX "),
-    ("T_ERROR",    " ERR "),
-    ("T_NOSYNC",   " NOSYNC"),
+    ("T_ERROR",    " ER "),
+    ("T_NOSYNC",   " NS"),
     ("T_CUT",      " CUT"),
 ]
 

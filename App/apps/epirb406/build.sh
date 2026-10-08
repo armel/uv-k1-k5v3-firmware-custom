@@ -8,7 +8,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
 APP_NAME="EPIRB 406"                # <-- the only per-app line
-APP_VER="2.3"
+APP_VER="2.4"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"               # blob basename ("Broadcast FM" -> BroadcastFM)
