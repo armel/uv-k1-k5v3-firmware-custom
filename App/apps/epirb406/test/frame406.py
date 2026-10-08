@@ -13,6 +13,9 @@ position 49 deg 16'16" N, 0 deg 46'56" E, external source, 121.5 homing),
   frame406.py --eltdt         ELT(DT) location protocol (code 1001), same
                               position: 24-bit address 0x123456, G-switch
                               activation, altitude <= 400 m, fresh location
+  frame406.py --eltdt --3ld   same ELT(DT) message carrying the PDF-2 rotating
+                              field (bits 113-114 = 00) with the default
+                              operator 3LD "ZGA": coarse position only
 """
 import argparse
 
@@ -35,7 +38,7 @@ def bch(data, gen, r):
     return bits(reg, r)
 
 
-def build_eltdt():
+def build_eltdt(tld=False):
     """PDF-1 and PDF-2 (before BCH) of a long ELT(DT) location message."""
     # bits 41-42 ID type (00 = aircraft 24-bit address), 43-66 ID data,
     # 67-75 latitude and 76-85 longitude in 0.5 deg steps (sign: 1 = S / W)
@@ -45,12 +48,17 @@ def build_eltdt():
     # (sign: 1 = +, minutes 0-15, seconds in 4 s steps): -13'44" and -13'04"
     pdf2 = bits(1, 2) + bits(0, 4) + bits(3, 2) \
         + [0] + bits(13, 4) + bits(44 // 4, 4) + [0] + bits(13, 4) + bits(4 // 4, 4)
+    if tld:
+        # 113-114 = 00: rotating field; 115-117 type 000 (3LD), 118-132 "ZGA"
+        # in 5-bit modified Baudot (T.001 A3.3.8.3 f/g)
+        pdf2 = bits(1, 2) + bits(0, 4) + bits(0, 2) + bits(0, 3) \
+            + bits(0b10001, 5) + bits(0b01011, 5) + bits(0b11000, 5)
     return pdf1, pdf2
 
 
-def build(short=False, selftest=False, flip=None, eltdt=False):
+def build(short=False, selftest=False, flip=None, eltdt=False, tld=False):
     if eltdt:
-        pdf1, pdf2 = build_eltdt()
+        pdf1, pdf2 = build_eltdt(tld)
         msg = pdf1 + bch(pdf1, G1, 21) + pdf2 + bch(pdf2, G2, 12)
         if flip is not None:
             msg[flip - 25] ^= 1
@@ -79,5 +87,6 @@ if __name__ == "__main__":
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--flip", type=int)
     ap.add_argument("--eltdt", action="store_true")
+    ap.add_argument("--3ld", dest="tld", action="store_true")
     a = ap.parse_args()
-    print(build(a.short, a.selftest, a.flip, a.eltdt))
+    print(build(a.short, a.selftest, a.flip, a.eltdt, a.tld))

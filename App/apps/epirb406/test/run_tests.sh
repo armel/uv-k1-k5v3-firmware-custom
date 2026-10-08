@@ -16,6 +16,7 @@ SELF=$(python3 "$HERE/frame406.py" --selftest)
 SHORT=$(python3 "$HERE/frame406.py" --short)
 FLIP=$(python3 "$HERE/frame406.py" --flip 50)
 ELTDT=$(python3 "$HERE/frame406.py" --eltdt)
+ELT3LD=$(python3 "$HERE/frame406.py" --eltdt --3ld)
 
 REF_LONG=("long (144 bits), normal frame" "country   : 227" "Std test" "0x123456"
           "position  : 49.27111, 0.78222" "external, homing yes" "BCH       : ok / ok"
@@ -54,6 +55,7 @@ run "combined worst case"    "$LONG"  "--cnr 15 --foff 3000 --invert --clock-ppm
 run "self-test frame"        "$SELF"  ""                          "self-test frame" "15-hex ID : 1C7C2468ACFFBFF" "BCH       : ok / ok"
 run "short message"          "$SHORT" ""                          "short (112 bits)" "BCH       : ok / ok" "15-hex ID : 1C7C2468ACFFBFF" "(coarse)"
 run "ELT(DT) location"       "$ELTDT" ""                          "long (144 bits), normal frame" "ELT-DT" "position  : 49.27111, 0.78222" "BCH       : ok / ok" "15-hex ID : 1C72091A2B3FDFF" "frames    : 1"
+run "ELT(DT) with 3LD"    "$ELT3LD" ""                         "ELT-DT" "position  : 49.50000, 1.00000 (coarse)" "BCH       : ok / ok" "15-hex ID : 1C72091A2B3FDFF"
 run "corrupted bit 50"       "$FLIP"  ""                          "BCH       : FAIL / ok"
 run "3 bursts in a row"      "$LONG"  "--bursts 3"                "frames    : 3"
 # Measured PA4 level (~150 LSB peak) at low CNR and with bit-rate error, several
