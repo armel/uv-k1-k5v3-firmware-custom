@@ -49,7 +49,7 @@ UI = [
     ("T_CANCEL",   " CANCEL"),
     ("T_KHZ",      " kHz"),
     ("T_RX",       "RX "),
-    ("T_ERROR",    " ERROR "),
+    ("T_ERROR",    " ERR "),
     ("T_NOSYNC",   " NOSYNC"),
     ("T_CUT",      " CUT"),
 ]

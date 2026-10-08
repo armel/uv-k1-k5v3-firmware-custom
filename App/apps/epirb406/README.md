@@ -32,10 +32,10 @@ shown immediately from its first detail row. The history is lost on exit.
 | Status bar | `EPIRB 406`, speaker icon while enabled, and arrows when details or another history entry exist above/below |
 | Before the first frame | Blinking `WAITING...` in the body |
 | Fixed line 0 | 15-hex ID in bold and, with several messages, the selected/newest count (`2/5`) at its right |
-| Scrolled body | Country and protocol; latitude and longitude together on one row when they fit, otherwise on two rows in normal view; SELF-TEST and LONG/SHORT; BCH-1/BCH-2 (`BCH OK / OK`, with `--` on a short message); internal/external source and flags on their own row when present (`EXT 121`, `INT`, `COARSE`, `RAW ID` for a spare location code 0000/0001, `CANCEL` for an ELT(DT) cancellation message), then the frame sequence and burst RSSI on the row below (`FRAME 3 -95dBm`). `121` abbreviates the 121.5 MHz homing transmitter. Both views always keep 5 coordinate decimals. Normal view puts BCH on its own line without indentation; compact view appends it to the SELF-TEST / LONG/SHORT row |
+| Scrolled body | Country and protocol; latitude and longitude together on one row when they fit, otherwise on two rows in normal view; right below, the position source and flags when present (`EXT 121`, `INT`, `COARSE`, `RAW ID` for a spare location code 0000/0001, `CANCEL` for an ELT(DT) cancellation message), so they show without scrolling; SELF-TEST and LONG/SHORT; then the frame sequence and burst RSSI (`FRAME 3 -95dBm`). `121` abbreviates the 121.5 MHz homing transmitter. Both views always keep 5 coordinate decimals |
 | Dotted separator | APRS-style line at y=40, above the two fixed information rows |
 | Fixed tuning row | Current RX frequency prefixed by `RX` and its offset from the VFO, updated immediately by keys 4/5/6; current RSSI and noise floor in dBm are shown as `-40 / -100dBm` at the right |
-| Bottom row | Complete frames (`FRAME`), failed captures (`ERROR`), last error: `NOSYNC` (no frame sync found) or `CUT` (sync found, message incomplete) |
+| Bottom row | Complete frames (`FRAME`), failed captures (`ERR`), last error: `NOSYNC` (no frame sync found) or `CUT` (sync found, message incomplete); at the right, BCH-1/BCH-2 of the selected message (`BCH OK/OK`, `--` on a short message) |
 
 Keys (UV-K5 and UV-K1):
 
@@ -366,4 +366,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current: **v2.2** (4,092 of 4,096 bytes).
+Current: **v2.3** (4,084 of 4,096 bytes).

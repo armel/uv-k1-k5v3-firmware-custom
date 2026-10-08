@@ -307,23 +307,25 @@ static void draw(void){
         } else o=put(str,s+T_NOPOS);
         emit(str,o);
 
+        /* Flags right below the position, so they show without scrolling. */
+        o=putFlags(str,in,s);
+        if(o!=str) emit(str+1,o);
+
         o=str;
         if(in->selftest) o=put(o,s+T_SELFTEST);
         o=put(o,in->longMsg?s+T_LONG:s+T_SHORT);
-        if(!g.cfg.view){ emit(str,o); o=str; }
-        else *o++=' ';
-        o=put(o,s+T_BCH); o=put(o,in->bch1?s+T_OK:s+T_ERR); o=put(o,s+T_SEP);
-        o=put(o,in->longMsg?(in->bch2?s+T_OK:s+T_ERR):s+T_NA);
         emit(str,o);
-
-        o=putFlags(str,in,s);
-        if(o!=str) emit(str+1,o);
 
         o=put(str,s+T_FRAME); o=puti(o,frame->seq); *o++=' '; o=puti(o,frame->rssi); o=put(o,s+T_DBM);
         emit(str,o);
 
         /* Keep the last row whole above the two fixed information rows. */
         g.lim=g.vrow>40u?g.vrow-40u:0u;
+
+        /* BCH of the selected message, right-aligned on the bottom row. */
+        o=put(str,s+T_BCH); o=put(o,in->bch1?s+T_OK:s+T_ERR); *o++='/';
+        o=put(o,in->longMsg?(in->bch2?s+T_OK:s+T_ERR):s+T_NA);
+        tiny(str,(uint8_t)(128u-(unsigned)(o-str)*4u),49,o);
 
         /* Fixed ID over the scrolled rows; the tiny history capsule fits in
          * the remaining columns at its right. */
