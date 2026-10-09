@@ -17,7 +17,7 @@ a.table("T_KEY", ["EDITION", "VERSION", "BUILD", "TIME", "COMMIT",
                        "HW FLASH", "MEM MAP", "IWDG", "FLASH WS", "WWDG",
                        "NRST", "IWDG STOP", "SPI FLASH", "FREE NOW",
                        "FREE MIN", "STACK MAX"])
-a.table("T_BATTERY", ["1600 mAh", "2200 mAh", "3500 mAh", "1500 mAh",
+a.table("T_BATTERY", ["1600 mAh", "2200 mAh", "3500 mAh", "1400 mAh",
                              "2500 mAh", "UNKNOWN"])
 a.text("T_CPU", "PY32F071")
 a.table("T_RESET", ["POWER", "PIN", "SOFTWARE", "IWDG", "WWDG", "OPTION",

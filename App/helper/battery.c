@@ -82,8 +82,8 @@ const uint16_t Voltage2PercentageTable[][7][2] = {
         {0,   0  },
     },
 
-    // Estimated discharge curve for 1500 mAh K1 battery (improve this)
-    [BATTERY_TYPE_1500_MAH] = {
+    // Estimated discharge curve for 1400 mAh K1 battery (improve this)
+    [BATTERY_TYPE_1400_MAH] = {
         {828, 100},  // Fully charged (measured ~8.28V)
         {813, 97 },  // Top end
         {758, 25 },  // Mid level
