@@ -35,11 +35,6 @@
 #define BCH1_GEN  0x26D9E3u    /* x^21+x^18+x^17+x^15+x^14+x^12+x^11+x^8+x^7+x^6+x^5+x+1 */
 #define BCH2_GEN  0x1539u      /* x^12+x^10+x^8+x^5+x^4+x^3+1 */
 
-/* Standard location default position, bits 65-85, as used for the 15-hex ID.
- * Matches the reference decoder output for ID 1C7C2468ACFFBFF; to be confirmed
- * against T.001. */
-#define STD_DEFAULT_POS  0x0FFBFFu   /* 0 1111111 11 0 11111111 11 */
-
 /* Bit count, one pass per set bit: at most 4 x 32 passes per half-bit (every
  * 12 samples, and only while searching), far inside the 5000 cycles of a
  * sample period; 36 bytes smaller than the branch-free version. */
@@ -146,84 +141,147 @@ bool dec406_push(dec406_t *d, uint16_t sample)
 
 /* ---- parsing ---- */
 
-static uint8_t bit(const dec406_t *d, uint8_t n)   /* n = 25..144 */
+/* Message bits are numbered as in C/S T.001: 25..144, bit 25 = MSB of b[0]. */
+static unsigned bit(const uint8_t *b, unsigned n)
 {
-    uint8_t i = (uint8_t)(n - 25u);
-    return (uint8_t)((d->bits[i >> 3] >> (7u - (i & 7u))) & 1u);
+    unsigned i = n - 25u;
+    return (b[i >> 3] >> (7u - (i & 7u))) & 1u;
 }
 
-static uint32_t field(const dec406_t *d, uint8_t first, uint8_t len)
+static uint32_t field(const uint8_t *b, unsigned first, unsigned len)
 {
     uint32_t v = 0;
-    for (uint8_t i = 0; i < len; i++) v = (v << 1) | bit(d, (uint8_t)(first + i));
+    while (len--) v = (v << 1) | bit(b, first++);
     return v;
 }
 
+/* Write v (len bits) at first..first+len-1. */
+static void setf(uint8_t *b, unsigned first, unsigned len, uint32_t v)
+{
+    while (len--) {
+        unsigned i = first + len - 25u, m = 0x80u >> (i & 7u);
+        if (v & 1u) b[i >> 3] |= m; else b[i >> 3] &= (uint8_t)~m;
+        v >>= 1;
+    }
+}
+
 /* Remainder of the codeword spanning bits first..last: 0 when valid. */
-static uint32_t syndrome(const dec406_t *d, uint8_t first, uint8_t last, uint32_t gen, uint8_t r)
+static uint32_t syndrome(const uint8_t *b, unsigned first, unsigned last, uint32_t gen, unsigned r)
 {
     uint32_t reg = 0;
-    for (uint8_t n = first; n <= last; n++) {
-        reg = (reg << 1) | bit(d, n);
+    for (unsigned n = first; n <= last; n++) {
+        reg = (reg << 1) | bit(b, n);
         if (reg >> r) reg ^= gen;
     }
     return reg;
 }
 
-static bool isStdLoc(uint8_t code)
-{
-    /* 0010 EPIRB MMSI, 0011 ELT 24-bit, 0100 ELT serial, 0101 ELT op. designator,
-     * 0110 EPIRB serial, 0111 PLB serial, 1100 ship security, 1110 test */
-    return (code >= 2u && code <= 7u) || code == 12u || code == 14u;
-}
+/* Position formats (T.001 Annex A3.3). Every one is: N/S flag, 7 bits of
+ * latitude degrees, sub-degree bits, E/W flag, 8 bits of longitude degrees,
+ * sub-degree bits; then, in PDF-2, an optional offset per axis: sign (1 = +),
+ * minutes, seconds in 4 s steps (1111 = no offset). */
+typedef struct {
+    uint8_t base;       /* first bit of the position                       */
+    uint8_t sub;        /* sub-degree bits                                 */
+    uint8_t unit;       /* minutes per sub-degree step                     */
+    uint8_t off;        /* first bit of the offsets, 0 = none              */
+    uint8_t offMin;     /* offset minute bits                              */
+    uint8_t src;        /* position source bit (homing = next), 0 = none   */
+} pos_fmt_t;
 
-void dec406_parse(const dec406_t *d, dec406_info_t *o)
-{
+enum { F_STD, F_NAT, F_RLS, F_ELTDT, F_USER, F_NONE };
 
-    o->longMsg   = bit(d, 25);
+static const pos_fmt_t FMT[] = {
+    [F_STD]   = {  65, 2, 15, 113, 5, 111 },   /* A3.3.5 standard location  */
+    [F_NAT]   = {  59, 5,  2, 113, 2, 111 },   /* A3.3.6 national location  */
+    [F_RLS]   = {  67, 1, 30, 115, 4, 107 },   /* A3.3.7 RLS location       */
+    [F_ELTDT] = {  67, 1, 30, 115, 4,   0 },   /* A3.3.8 ELT(DT) location   */
+    [F_USER]  = { 108, 4,  4,   0, 0, 107 },   /* A3.3.4 user-location      */
+};
+
+/* Location protocol code (bits 37-40) -> format (Table A2-B). */
+static const uint8_t LOC_FMT[16] = {
+    F_NONE, F_NONE, F_STD, F_STD, F_STD, F_STD, F_STD, F_STD,
+    F_NAT, F_ELTDT, F_NAT, F_NAT, F_STD, F_RLS, F_STD, F_NAT,
+};
+
+void dec406_parse(dec406_t *d, dec406_info_t *o)
+{
+    uint8_t *b = d->bits;
+
+    o->longMsg   = bit(b, 25);
     o->selftest  = d->selftest;
-    o->bch1      = syndrome(d, 25, 106, BCH1_GEN, 21) == 0;
-    o->bch2      = o->longMsg ? syndrome(d, 107, 144, BCH2_GEN, 12) == 0 : 1u;
-    o->userProto = bit(d, 26);
-    o->country   = (uint16_t)field(d, 27, 10);
-    o->proto     = (uint8_t)(o->userProto ? field(d, 37, 3) : field(d, 37, 4));
-    o->stdLoc    = !o->userProto && isStdLoc(o->proto);
-    o->idRaw     = !o->stdLoc;
-    o->idData    = field(d, 41, 24);
-    o->hasPos = o->hasFine = o->internalPos = o->homing = 0;
-    o->latS = o->lonS = 0;
+    o->bch1      = syndrome(b, 25, 106, BCH1_GEN, 21) == 0;
+    o->bch2      = o->longMsg ? syndrome(b, 107, 144, BCH2_GEN, 12) == 0 : 1u;
+    o->userProto = bit(b, 26);
+    o->country   = (uint16_t)field(b, 27, 10);
+    unsigned code = field(b, 37, 4);
+    o->proto     = (uint8_t)(o->userProto ? 16u + (code >> 1) : code);   /* name index */
+#ifndef DEC406_LEAN                      /* host test only (not on the radio) */
+    o->idData    = field(b, 41, 24);
+#endif
+    o->hasPos = o->hasFine = o->internalPos = o->homing = 0;   /* latS, lonS: only with hasPos */
 
-    for (uint8_t k = 0; k < 15; k++) {
-        uint8_t nib = 0;
-        for (uint8_t j = 0; j < 4; j++) {
-            uint8_t n = (uint8_t)(26u + 4u * k + j);
-            uint8_t b = (o->stdLoc && n >= 65u) ? (uint8_t)((STD_DEFAULT_POS >> (85u - n)) & 1u) : bit(d, n);
-            nib = (uint8_t)((nib << 1) | b);
+    /* User-location: long user protocols other than orbitography (000),
+     * national (100) and spare (101), position in PDF-2 (A3.3.4). */
+    unsigned f = o->userProto ? (o->longMsg && ((0xCEu >> (code >> 1)) & 1u) ? F_USER : F_NONE)
+                             : LOC_FMT[code];
+#ifndef DEC406_LEAN
+    o->stdLoc = f == F_STD;
+#endif
+    o->idRaw  = !o->userProto && f == F_NONE;   /* spare location code: layout unknown */
+
+    int32_t *v = &o->latS;              /* latS, then lonS */
+    unsigned neg = 0;
+    const pos_fmt_t *p = &FMT[f];
+    if (f != F_NONE) {
+        /* Read the position and leave its default value in the message (A3.2:
+         * flags 0, degrees all ones, sub-degree all ones in standard, RLS and
+         * ELT(DT) location, zeros in national and user-location). */
+        unsigned n = p->base, w = 8u + p->sub;
+        for (unsigned k = 0; k < 2u; k++, n += w++) {
+            neg |= bit(b, n) << k;
+            v[k] = (int32_t)(field(b, n + 1u, 7u + k) * 3600u + field(b, n + 8u + k, p->sub) * p->unit * 60u);
+            unsigned len = 7u + k + p->sub;                           /* after the flag */
+            setf(b, n, len + 1u, p->unit > 4u ? (1u << len) - 1u : ((1u << (7u + k)) - 1u) << p->sub);
         }
+    }
+
+    for (unsigned k = 0; k < 15; k++) {
+        unsigned nib = field(b, 26u + 4u * k, 4);
         o->id[k] = (char)(nib < 10u ? '0' + nib : 'A' - 10 + nib);   /* no hex table */
     }
     o->id[15] = '\0';
 
-    if (!o->stdLoc) return;
+    /* PDF-2 is only trusted with a valid BCH-2 */
+    unsigned pdf2 = o->longMsg && o->bch2;
+    /* No position: latitude beyond 90 deg, i.e. the default (flag N, 127 deg) or
+     * the ELT(DT) cancellation message (fixed bits 67-85: flag S, 125 deg). */
+    if (f == F_NONE || (f == F_USER && !pdf2)) return;
+    if (v[0] > 90 * 3600) { if (f == F_ELTDT && neg & 1u) o->idRaw = 2; return; }
 
-    if (field(d, 65, 21) != STD_DEFAULT_POS) {
-        int32_t lat = (int32_t)field(d, 66, 7) * 3600 + (int32_t)field(d, 73, 2) * 900;
-        int32_t lon = (int32_t)field(d, 76, 8) * 3600 + (int32_t)field(d, 84, 2) * 900;
-        if (o->longMsg && o->bch2 && field(d, 107, 4) == 0xDu) {
-            uint32_t am = field(d, 114, 5), as = field(d, 119, 4);
-            uint32_t om = field(d, 124, 5), os = field(d, 129, 4);
-            if (am <= 30u && om <= 30u) {
-                int32_t dlat = (int32_t)(am * 60u + as * 4u), dlon = (int32_t)(om * 60u + os * 4u);
-                lat += bit(d, 113) ? dlat : -dlat;
-                lon += bit(d, 123) ? dlon : -dlon;
-                o->hasFine = 1;
-            }
+    /* Offsets: standard and national need bits 107-110 = 1101 (fixed bits and,
+     * in national, the position data flag); ELT(DT) bits 113-114 = 00 flag a
+     * rotating field (e.g. operator 3LD) instead of offsets. */
+    if (p->off && pdf2 &&
+        (p->off == 113u ? field(b, 107, 4) == 0xDu : f != F_ELTDT || field(b, 113, 2))) {
+        unsigned n = p->off, m = p->offMin;
+        o->hasFine = 1;
+        for (unsigned k = 0; k < 2u; k++, n += 5u + m) {
+            uint32_t se = field(b, n + 1u + m, 4);
+            int32_t dd = (int32_t)(field(b, n + 1u, m) * 60u + se * 4u);
+            if (se == 15u) { o->hasFine = 0; continue; }     /* default: no offset */
+            v[k] += bit(b, n) ? dd : -dd;
         }
-        o->latS = bit(d, 65) ? -lat : lat;
-        o->lonS = bit(d, 75) ? -lon : lon;
-        o->hasPos = 1;
     }
-    if (o->longMsg && o->bch2) { o->internalPos = bit(d, 111); o->homing = bit(d, 112); }
+    for (unsigned k = 0; k < 2u; k++) if (neg >> k & 1u) v[k] = -v[k];
+    o->hasPos = 1;
+
+    /* bit 1 set: the source flag is present; bit 0: 1 = internal device */
+    if (p->src && pdf2) {
+        o->internalPos = (uint8_t)(2u | bit(b, p->src));
+        if (f != F_USER) o->homing = bit(b, p->src + 1u);
+    }
 }
 
 const char *dec406_proto_name(const dec406_info_t *in)
@@ -235,7 +293,7 @@ const char *dec406_proto_name(const dec406_info_t *in)
         "EPIRB ser\0PLB serial\0Nat ELT\0ELT-DT\0Nat EPIRB\0Nat PLB\0"
         "Ship sec\0RLS\0Std test\0Nat test\0"
         "Orbito\0ELT avia\0Maritime\0Serial\0National\0Spare\0Callsign\0User test";
-    uint8_t n = in->userProto ? (uint8_t)(16u + (in->proto & 7u)) : (uint8_t)(in->proto & 15u);
+    uint8_t n = in->proto;
     const char *p = NAMES;
     while (n--) { while (*p) p++; p++; }
     return p;

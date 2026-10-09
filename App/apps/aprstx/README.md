@@ -7,7 +7,7 @@ which is also the test receiver.
 | Step | State |
 |---|---|
 | Frame and bit stream model (`test/tx_model.py`) | **Done**: identical to the RX app's AX.25 reference, decoded by the RX model |
-| Radio app (`aprstx_app.c`) | **v0.1 works on the radio** (2026-09-30); v0.2 edits the position; v0.3 adds the SSID and path; v0.4 adds the corrected 20x20 bitmap and the 48-symbol selector; v0.5 keeps the source fixed while the frame body scrolls (not built here) |
+| Radio app (`aprstx_app.c`) | **v0.1 works on the radio** (2026-09-30); v0.2 edits the position; v0.3 adds the SSID and path; v0.4 adds the corrected 20x20 bitmap and the 48-symbol selector; v0.5 keeps the source fixed while the frame body scrolls; v0.6 fixes the frame scrolling direction; v0.7 fixes the editor navigation direction |
 | On-air test: APRS RX on a second radio, FT3D | **Done** (2026-09-30, v0.1: frames received by a UV-K1 running APRS RX and by the FT3D, first try, default level 66 and twist 0) |
 
 ## Station settings (`gen_assets.py`, then rebuild)
@@ -36,7 +36,7 @@ Yaesu bitmap set is stored in the app assets; the editor keeps the full width.
 | Key | Action |
 |---|---|
 | PTT or MENU | Send one frame |
-| UP / DOWN (held) | Scroll the frame body above the separator 1 px per 40 ms loop (UV-K1: LEFT/RIGHT, as `nav_dir`), while the source callsign stays fixed in bold on line 0 as in APRS RX. In the status bar (x = 72-76), ▲ while rows are hidden above and ▼ while rows are hidden below; while F is armed its icon (x = 70-78, centred on them) takes their place, and they are not drawn while transmitting (the `TRANSMIT` capsule ends at x = 72). The body uses the small font, 18 characters a row, 3 visible rows at a time: `>DEST,WIDE…` (a row breaks after a comma), latitude, longitude, then symbol and comment |
+| UP / DOWN (held) | Scroll the frame body above the separator 1 px per 40 ms loop, according to `SET_NAV` (UV-K1: LEFT/RIGHT), while the source callsign stays fixed in bold on line 0 as in APRS RX. In the status bar (x = 72-76), ▲ while rows are hidden above and ▼ while rows are hidden below; while F is armed its icon (x = 70-78, centred on them) takes their place, and they are not drawn while transmitting (the `TRANSMIT` capsule ends at x = 72). The body uses the small font, 18 characters a row, 3 visible rows at a time: `>DEST,WIDE…` (a row breaks after a comma), latitude, longitude, then symbol and comment |
 | 1 / F then 1 | Tone level (deviation) up / down: REG_70 gain 10-127, step 4, default 66 (the firmware's tone gain) |
 | 2 / F then 2 | Twist `tw` up / down, -4..+8: 2200 Hz gain = level × (8 + tw) / 8 (-6..+6 dB) |
 | F | Arm the next key's down direction (1, 2), as FoxHunt's F; icon in the status bar while armed |
@@ -71,7 +71,7 @@ When SYMB is selected, both shortened help rows remain visible and the edited
 | 0-9 | Digit at the cursor, then the next one (on a position digit) |
 | * | N/S (latitude line), E/W (longitude line), next SSID 0-15 (SSID), next path (PATH), or next symbol (SYMB) |
 | F then * | Previous SSID, path or symbol (the `F` icon in the status bar while F is armed, as in FoxHunt; F again disarms it) |
-| UP / DOWN | Move the cursor: 6 digits, N/S, 7 digits, E/W, SSID, PATH, SYMB |
+| UP / DOWN | Move the cursor: DOWN (RIGHT on UV-K1) advances through 6 digits, N/S, 7 digits, E/W, SSID, PATH and SYMB; UP (LEFT on UV-K1) moves back |
 | MENU | Check (degrees ≤ 90 / 180, minutes < 60) and keep: the frame is rebuilt; `Invalid position` otherwise |
 | EXIT | Cancel |
 
@@ -120,7 +120,7 @@ edited position (south/west) vs `ax25.build`, every path with SSID 0, 15 and 9
 and a selected symbol vs `ax25.build`, the config round trip (and a v0.2 config
 falling back to the default SSID, path and symbol), the editor rows and bold column, the editor keys (13
 digits typed in a row, cursor stops, `*` and F then `*` on each field; the
-UP/DOWN keys through `nav_dir()`, with SET_NAV on and off), the position limits,
+UP/DOWN editor keys with DOWN/RIGHT moving forward), the position limits,
 then
 AFSK (continuous phase or reset, tw 0/+4, TX path twist 0/+5 dB) decoded by the
 RX model through its RAW and STD audio paths, with and without noise.

@@ -81,7 +81,12 @@ def check_scroll():
 
 def check_keys():
     # Transcription of handleKeys(): held UP/DOWN scrolls inside the frame; a
-    # new press at an end changes frame.
+    # new press at an end changes frame. Raw UP/LEFT moves towards the start and
+    # raw DOWN/RIGHT towards the end, in either SET_NAV mode.
+    for set_nav in (False, True):
+        for key, raw in (('UP', -1), ('DOWN', 1)):
+            nav = (1 if key == 'UP' else -1) * (1 if set_nav else -1)
+            assert raw == (-nav if set_nav else nav)
     rng = random.Random(59)
     for _ in range(300):
         count = rng.randrange(1, HISTORY + 1)
