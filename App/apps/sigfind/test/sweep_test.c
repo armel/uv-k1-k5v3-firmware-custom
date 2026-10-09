@@ -1,6 +1,7 @@
 /* Host test of the swept-tone detector (../sweep.c).
  *
  *   cc -O2 -Wall -Wextra -o /tmp/sweep_test sweep_test.c -lm && /tmp/sweep_test
+ *   /tmp/sweep_test flipper/homer_default.sub ...   (check Flipper files, see flipper_homer.py)
  *
  * Synthesizes what PA4 sees at 9.6 kHz: the AM-demodulated homing tone (a
  * sawtooth sweep), white noise, the PA4 coupling (first-order high-pass, 1 kHz
@@ -14,6 +15,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "../sweep.c"
 
 #define FS     9600.0
@@ -86,8 +89,77 @@ static res_t run(const case_t *c, uint32_t seed)
     return r;
 }
 
-int main(void)
+/* A Flipper RAW file (flipper_homer.py): the on/off carrier through an AM
+ * demodulator (envelope, 3 kHz audio low-pass), the PA4 high-pass, noise and
+ * the ADC, sampled as the app does. Prints when "ELT" shows. */
+static int run_sub(const char *path)
 {
+    FILE *fp = fopen(path, "r");
+    if (!fp) { perror(path); return 2; }
+    static int32_t dur[400000];
+    size_t nd = 0;
+    char line[8192];
+    while (fgets(line, sizeof line, fp)) {
+        if (strncmp(line, "RAW_Data:", 9)) continue;
+        char *q = line + 9, *e;
+        for (long v; (v = strtol(q, &e, 10)), e != q; q = e)
+            if (nd < sizeof dur / sizeof dur[0]) dur[nd++] = (int32_t)v;
+    }
+    fclose(fp);
+    if (!nd) { fprintf(stderr, "%s: no RAW_Data\n", path); return 2; }
+
+    sw_t s = {0};
+    double lp = 0, hpX = 0, hpY = 0, mean = 0.5;
+    double a = 1.0 / (1.0 + 2.0 * M_PI * 1000.0 / FS);           /* PA4 high-pass */
+    double b = 1.0 - exp(-2.0 * M_PI * 3000.0 / FS);              /* audio low-pass */
+    uint32_t perTick = 2u * SW_WIN + (uint32_t)(GAP_MS * FS / 1000.0);
+    double usPerSample = 1e6 / FS, segLeft = fabs((double)dur[0]);
+    size_t seg = 0;
+    uint64_t k = 0;
+    double firstMs = -1;
+    uint32_t det = 0, after = 0;
+    for (;; k++) {
+        double on = 0, need = usPerSample;                         /* on-time in this sample */
+        while (need > 0 && seg < nd) {
+            double take = segLeft < need ? segLeft : need;
+            if (dur[seg] > 0) on += take;
+            segLeft -= take; need -= take;
+            if (segLeft <= 0 && ++seg < nd) segLeft = fabs((double)dur[seg]);
+        }
+        if (seg >= nd) break;
+        double env = on / usPerSample;
+        lp += b * (env - lp);
+        mean += (lp - mean) * 0.0005;
+        double x = (lp - mean) * 300.0 + 5.0 * gauss();             /* ~150 LSB peak */
+        double y = a * (hpY + x - hpX);
+        hpX = x; hpY = y;
+        uint32_t pos = (uint32_t)(k % perTick);
+        if (pos >= 2u * SW_WIN) continue;
+        double v = 2048.0 + y;
+        sw_push(&s, (uint16_t)(v < 0 ? 0 : v > 4095 ? 4095 : v));
+        if (pos == SW_WIN - 1u || pos == 2u * SW_WIN - 1u) {
+            double t = (double)k / FS;
+            uint32_t ms = 1000u + (uint32_t)(t * 1000.0);
+            sw_window(&s, ms - ms % 10u);
+            bool d = sw_detected(&s);
+            if (d && firstMs < 0) firstMs = t * 1000.0;
+            if (t >= 3.0) { after++; det += d; }
+        }
+    }
+    printf("%s: %.1f s, ", path, (double)k / FS);
+    if (firstMs < 0) printf("ELT never shown\n");
+    else printf("ELT first shown at %.0f ms, shown %.0f%% of the time after 3 s, last sweep %u>%u Hz %u ms\n",
+                firstMs, after ? 100.0 * det / after : 0.0, s.shHi, s.shLo, s.per);
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc > 1) {
+        int rc = 0;
+        for (int i = 1; i < argc; i++) rc |= run_sub(argv[i]);
+        return rc;
+    }
     static const case_t cases[] = {
         /* name                         kind       top   bot  rate  amp noise  hp   s     expect */
         { "ELT 2 Hz 1600>300",          SIG_SWEEP, 1600, 300, 2.0, 150,  5, 1000, 10,  true  },

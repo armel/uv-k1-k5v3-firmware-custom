@@ -436,8 +436,16 @@ static void draw(void){
     uint8_t *sl=a->status_line;
     if(g.audioMode!=AUDIO_OFF){
         asset(g.audioMode==AUDIO_BEEP?BMP_SIGNAL:BMP_SPEAKER,sl+40,BMP_SIGNAL_LEN);
-        if(g.audioMode>=AUDIO_LSN)
-            a->print_inverse(T(t,T_AF+(g.audioMode==AUDIO_USB?2u:g.vfoAm?0u:1u)*T_AF_STRIDE),54,0,true,true,66);
+        /* the label box is 52..66 (sized for "USB"): the text is centred in it,
+           "AM" / "FM" 2 px further right, then the box inverted the way
+           print_inverse (GUI_DisplaySmallestInverse) does it */
+        if(g.audioMode>=AUDIO_LSN){
+            bool usb=g.audioMode==AUDIO_USB;
+            a->print_tiny(T(t,T_AF+(usb?2u:g.vfoAm?0u:1u)*T_AF_STRIDE),usb?54:56,1,true,true);
+            sl[52]^=0x3E;
+            for(uint8_t x=53;x<66;x++) sl[x]^=0x7F;
+            sl[66]^=0x3E;
+        }
     }
     if(g.locked||g.fArm) asset(g.locked?BMP_LOCK:BMP_F,sl+29,BMP_F_LEN);
     if(sw_detected(&g.sw)) a->print_inverse(T(t,T_ELT),70,0,true,true,82);
