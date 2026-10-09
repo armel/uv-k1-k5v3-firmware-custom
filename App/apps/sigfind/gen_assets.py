@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-# EPIRB Finder read-only assets: texts, attenuator ladder and icons (bytes
-# copied verbatim from App/bitmaps.c).
+# Sig Finder (Signal Finder) read-only assets: texts, attenuator ladder and
+# icons (bytes copied verbatim from App/bitmaps.c).
 #
-#   ./gen_assets.py epirb_assets.bin epirb_assets.h
+#   ./gen_assets.py sigfind_assets.bin sigfind_assets.h
 import os, sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from app_assets import Assets
 
-a = Assets("EPIRB")
-a.text("T_TITLE", "EPIRB DF")
+a = Assets("SIGFIND")
+a.text("T_TITLE", "SIG DF")
 a.text("T_DB", "dB")
 a.text("T_DBM", "dBm")
 a.text("T_PK", "PK ")
+# swept-tone detector: status tag and the line above the graph
+a.text("T_ELT", "ELT")
+a.text("T_ELT_SP", "ELT ")
+a.text("T_AF_SP", "AF ")
+a.text("T_HZ", "Hz")
+a.text("T_AMP", " A")
+a.text("T_SCORE", " S")
 # bottom-left tag: FOLLOW at each decay rate (decayIdx), then SWEEP
 a.table("T_MODE", ["FOL .5dB/s", "FOL 1dB/s", "FOL 2dB/s", "FOL 4dB/s", "SWEEP"])
 # attenuator tag by attStep: dB below the bypass steps, then the bypasses;
