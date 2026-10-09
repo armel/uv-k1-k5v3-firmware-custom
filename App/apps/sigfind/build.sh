@@ -8,7 +8,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"            # breakout, foxhunt, beacon, fm, ...
 APP_NAME="Sig Finder"                  # <-- the only per-app line
-APP_VER="1.7"
+APP_VER="1.8"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"               # blob basename ("Broadcast FM" -> BroadcastFM)
@@ -19,7 +19,8 @@ command -v arm-none-eabi-gcc >/dev/null 2>&1 && { CC=arm-none-eabi-gcc; OBJCOPY=
 
 CFLAGS="-mcpu=cortex-m0plus -mthumb -Os -std=gnu11 -ffreestanding -fno-builtin -fno-common \
   -fomit-frame-pointer -ffunction-sections -fdata-sections -Wall -Wextra \
-  -fno-jump-tables -fno-move-loop-invariants"   # -32 B on this app, same code paths
+  -fno-jump-tables -fno-move-loop-invariants \
+  -fno-reorder-blocks -fno-code-hoisting"        # -32 B, then -24 B (v1.8), same code paths
 LDFLAGS="-nostdlib -nostartfiles -T app.ld -Wl,--defsym,APP_VMA=${APP_VMA} \
   -Wl,--gc-sections -Wl,-Map=${APP}.map -Wl,--build-id=none -Wl,--no-warn-rwx-segments"
 

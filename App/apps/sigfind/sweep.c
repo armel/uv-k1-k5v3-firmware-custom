@@ -92,43 +92,54 @@ static inline void sw_push(sw_t *s, uint16_t x)
 }
 
 /* End of a window, t = its time in ms. */
+__attribute__((noinline))
 static void sw_window(sw_t *s, uint32_t t)
 {
-    uint16_t f = (uint16_t)(s->flips * SW_HZ_FLIP);
+    /* fields read once into locals and written back once: on Thumb-1 each
+       access through s costs an instruction or two */
+    uint32_t f = s->flips * SW_HZ_FLIP;
     s->flips = 0;
-    s->amp = (uint16_t)(s->envQ >> 8);
-    if (s->tJump && t - s->tJump > SW_TIMEOUT) s->score = 0;
-    if (s->amp < SW_AMIN || f < SW_FMIN || f > SW_FMAX) { s->f = 0; return; }
-    s->f = f;
+    uint32_t amp = s->envQ >> 8;
+    s->amp = (uint16_t)amp;
+    uint32_t tj = s->tJump;
+    if (tj && t - tj > SW_TIMEOUT) s->score = 0;
+    if (amp < SW_AMIN || f < SW_FMIN || f > SW_FMAX) { s->f = 0; return; }
+    s->f = (uint16_t)f;
 
-    bool up = f > s->prevF + SW_EPS;
-    if (s->n >= 2u && f >= s->lo + SW_JUMP && up) {
+    uint32_t prev = s->prevF, n = s->n, hi = s->hi, lo = s->lo;
+    bool up = f > prev + SW_EPS;
+    if (n >= 2u && f >= lo + SW_JUMP && up) {
         /* the up step just before, if any, was the first half of this jump */
-        uint32_t p = t - s->tJump;
-        if (s->tJump && p >= SW_PMIN && p <= SW_PMAX &&
-            (uint16_t)(s->hi - s->lo) >= SW_SPAN && s->lo <= SW_LOMAX &&
-            (uint8_t)(s->ups - s->lastUp) <= 1u && s->n >= 3u &&
-            s->downs * 2u >= s->n) {
+        uint32_t p = t - tj;
+        if (tj && p >= SW_PMIN && p <= SW_PMAX &&
+            hi - lo >= SW_SPAN && lo <= SW_LOMAX &&
+            (uint8_t)(s->ups - s->lastUp) <= 1u && n >= 3u &&
+            s->downs * 2u >= n) {
             /* same period and same top as the last valid cycle: a homer */
-            uint32_t dp = p > s->per ? p - s->per : s->per - p;
-            uint16_t dh = s->hi > s->shHi ? s->hi - s->shHi : s->shHi - s->hi;
-            if (dp > SW_PTOL || dh > SW_HTOL) s->score = 1;
-            else if (s->score < SW_SCOREMAX) s->score++;
-            s->per = (uint16_t)p; s->shHi = s->hi; s->shLo = s->lo;
+            uint32_t per = s->per, shHi = s->shHi, sc = s->score;
+            uint32_t dp = p > per ? p - per : per - p;
+            uint32_t dh = hi > shHi ? hi - shHi : shHi - hi;
+            if (dp > SW_PTOL || dh > SW_HTOL) sc = 1;
+            else if (sc < SW_SCOREMAX) sc++;
+            s->score = (uint8_t)sc;
+            s->per = (uint16_t)p; s->shHi = (uint16_t)hi; s->shLo = (uint16_t)lo;
         } else s->score = 0;
-        s->tJump = t; s->ups = 0; s->downs = 0; s->n = 0;
+        s->tJump = t; s->ups = 0; s->downs = 0; n = 0;
     }
     /* an up step right after a jump is its second half: not counted */
-    s->lastUp = up && s->n > 1u;
-    if (!s->n) { s->hi = s->lo = f; }
+    uint32_t lastUp = up && n > 1u;
+    s->lastUp = (uint8_t)lastUp;
+    if (!n) hi = lo = f;
     else {
-        s->ups += s->lastUp;
-        s->downs += f < s->prevF;
-        if (f > s->hi) s->hi = f;
-        if (f < s->lo) s->lo = f;
+        s->ups += lastUp;
+        s->downs += f < prev;
+        if (f > hi) hi = f;
+        if (f < lo) lo = f;
     }
-    if (s->n < 255u) s->n++;
-    s->prevF = f;
+    s->hi = (uint16_t)hi; s->lo = (uint16_t)lo;
+    if (n < 255u) n++;
+    s->n = (uint8_t)n;
+    s->prevF = (uint16_t)f;
 }
 
 static inline bool sw_detected(const sw_t *s) { return s->score >= SW_DETECT; }

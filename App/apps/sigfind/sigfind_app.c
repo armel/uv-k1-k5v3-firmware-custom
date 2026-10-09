@@ -73,17 +73,22 @@
 
 /* ---- MCU registers (PY32F071, core and SysTick at 48 MHz, 10 ms period),
  * PA4 sampling as in the POCSAG and EPIRB 406 apps ---- */
-#define SYST_LOAD   (*(volatile uint32_t *)0xE000E014u)
-#define SYST_VAL    (*(volatile uint32_t *)0xE000E018u)
-#define ADC_SR      (*(volatile uint32_t *)0x40012400u)
-#define ADC_CR2     (*(volatile uint32_t *)0x40012408u)
-#define ADC_SMPR3   (*(volatile uint32_t *)0x40012414u)
-#define ADC_SQR3    (*(volatile uint32_t *)0x40012438u)
-#define ADC_DR      (*(volatile uint32_t *)0x40012450u)
+/* Registers as base + offset, the base passed through an empty asm so the
+ * compiler cannot fold it into one 4-byte literal per register: one literal
+ * per peripheral instead (the accesses themselves are unchanged). */
+static inline uint32_t periph(uint32_t base){ __asm__("" : "+l"(base)); return base; }
+#define PERIPH(base,off) (*(volatile uint32_t *)(periph(base) + (off)))
+#define SYST_LOAD   PERIPH(0xE000E010u, 0x04u)
+#define SYST_VAL    PERIPH(0xE000E010u, 0x08u)
+#define ADC_SR      PERIPH(0x40012400u, 0x00u)
+#define ADC_CR2     PERIPH(0x40012400u, 0x08u)
+#define ADC_SMPR3   PERIPH(0x40012400u, 0x14u)
+#define ADC_SQR3    PERIPH(0x40012400u, 0x38u)
+#define ADC_DR      PERIPH(0x40012400u, 0x50u)
 #define GPIOA_MODER (*(volatile uint32_t *)0x50000000u)
-#define DAC_CR      (*(volatile uint32_t *)0x40007400u)
-#define DAC_SWTRIGR (*(volatile uint32_t *)0x40007404u)
-#define DAC_DHR12R1 (*(volatile uint32_t *)0x40007408u)
+#define DAC_CR      PERIPH(0x40007400u, 0x00u)
+#define DAC_SWTRIGR PERIPH(0x40007400u, 0x04u)
+#define DAC_DHR12R1 PERIPH(0x40007400u, 0x08u)
 #define RCC_APBENR1 (*(volatile uint32_t *)0x4002103Cu)
 #define RCC_DACEN   (1u << 29)
 /* DAC channel 1 on, output buffer off, software trigger (TSEL1 = 111) */
@@ -179,9 +184,11 @@ struct globals {
     uint8_t *hist;                /* HIST_LEN levels, on app_main's stack */
     uint32_t tPrev, tCyc;         /* SysTick cycle counter */
     uint32_t savedSqr3, savedSmpr3, savedModer, savedDac, savedRcc, savedDhr;
-    sw_t     sw;
 };
 static struct globals g;
+/* The detector state on its own: inside g its fields sat past the reach of
+ * ldrb / ldrh offsets (31 / 62) and each access took two more instructions. */
+static sw_t sw;
 #define A (g.api)
 
 _Static_assert(offsetof(struct globals, histMax) < 32u, "byte fields out of ldrb range");
@@ -218,6 +225,9 @@ static char *puti(char *o,int32_t v){
 }
 /* Text from the assets in the caller's buffer (TEXT_MAX bytes). */
 static char *T(char *buf,uint16_t off){ asset(off,buf,TEXT_MAX); return buf; }
+/* Text from the assets appended at o: one call instead of T() + put(). */
+__attribute__((noinline))
+static char *putT(char *o,uint16_t off){ char t[TEXT_MAX]; return put(o,T(t,off)); }
 
 /* Q8 -> nearest whole dB (symmetric rounding) */
 static int32_t qdb(int32_t q){ return q<0 ? -((-q+128)>>8) : (q+128)>>8; }
@@ -404,22 +414,22 @@ static void drawHist(void){
 /* The sweep line: "ELT 1560>820Hz 3.1Hz" once detected (range and rate of the
  * last valid sweep), else "AF 1240Hz A35 S1" (frequency of the last window,
  * amplitude in ADC LSB, score), "AF --" without a tone. */
-static void drawSweep(char *str,char *t){
-    const sw_t *s=&g.sw;
+static void drawSweep(char *str){
+    const sw_t *s=&sw;
     char *o;
     if(sw_detected(s)){
-        o=putu(put(str,T(t,T_ELT_SP)),s->shHi); *o++='>';
-        o=put(putu(o,s->shLo),T(t,T_HZ)); *o++=' ';
+        o=putu(putT(str,T_ELT_SP),s->shHi); *o++='>';
+        o=putT(putu(o,s->shLo),T_HZ); *o++=' ';
         /* rate x10, rounded; per <= SW_PMAX so r >= 16: two digits at least */
         uint32_t r=(uint32_t)A->uidivmod(10000u+s->per/2u,s->per);
         char *e=putu(o,r);
         e[0]=e[-1]; e[-1]='.';                 /* "31" -> "3.1" */
-        o=put(e+1,T(t,T_HZ));
+        o=putT(e+1,T_HZ);
     } else {
-        o=put(str,T(t,T_AF_SP));
-        if(s->f) o=put(putu(o,s->f),T(t,T_HZ)); else { *o++='-'; *o++='-'; }
-        o=putu(put(o,T(t,T_AMP)),s->amp);
-        o=putu(put(o,T(t,T_SCORE)),s->score);
+        o=putT(str,T_AF_SP);
+        if(s->f) o=putT(putu(o,s->f),T_HZ); else { *o++='-'; *o++='-'; }
+        o=putu(putT(o,T_AMP),s->amp);
+        o=putu(putT(o,T_SCORE),s->score);
     }
     *o='\0';
     A->print_tiny(str,2,SWEEP_Y,false,true);
@@ -448,7 +458,7 @@ static void draw(void){
         }
     }
     if(g.locked||g.fArm) asset(g.locked?BMP_LOCK:BMP_F,sl+29,BMP_F_LEN);
-    if(sw_detected(&g.sw)) a->print_inverse(T(t,T_ELT),70,0,true,true,82);
+    if(sw_detected(&sw)) a->print_inverse(T(t,T_ELT),70,0,true,true,82);
 
     /* big: dB under the peak */
     int32_t dDb=qdb(g.dQ);
@@ -457,7 +467,7 @@ static void draw(void){
     a->print_normal(T(t,T_DB),(uint8_t)(slen(big)*13+4),0,1);
 
     /* right: absolute level and frequency */
-    put(puti(str,qdb(g.smQ)),T(t,T_DBM))[0]='\0';
+    putT(puti(str,qdb(g.smQ)),T_DBM)[0]='\0';
     rprint(str,0);
     /* the RX frequency (10 Hz units) as MHz with 3 decimals: every digit but
        the last two, then the point before the last three (f >= 1 MHz) */
@@ -468,13 +478,13 @@ static void draw(void){
     rprint(str,1);
 
     drawCloseness();
-    drawSweep(str,t);
+    drawSweep(str);
     drawHist();
 
     /* bottom tags: mode, attenuator, peak */
     tag(T(t,T_MODE+(g.mode==MODE_SWEEP?DECAY_COUNT:g.decayIdx)*T_MODE_STRIDE),2,6);
     tag(T(t,T_ATT+(g.autoAtt?g.attStep:ATT_COUNT+g.attStep)*T_ATT_STRIDE),54,6);
-    *puti(put(str,T(t,T_PK)),qdb(g.peakQ))='\0';
+    *puti(putT(str,T_PK),qdb(g.peakQ))='\0';
     tag(str,(uint8_t)(126-slen(str)*4),6);
 }
 
@@ -544,11 +554,11 @@ static void tickSample(void){
     for(uint8_t w=0;w<2u;w++){
         for(uint8_t k=0;k<SW_WIN;k++){
             while(clkCyc()<next){}
-            sw_push(&g.sw,adcRead());
+            sw_push(&sw,adcRead());
             next+=CYC_PER_SAMPLE;
             if(!--bl){ bl=BL_SAMPLES; a->backlight_update(); }
         }
-        sw_window(&g.sw,a->ticks_ms());
+        sw_window(&sw,a->ticks_ms());
     }
     adcRestore();
 }
