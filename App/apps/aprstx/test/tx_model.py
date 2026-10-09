@@ -97,9 +97,9 @@ def nav_dir(key, set_nav):
     return d if set_nav else -d
 
 
-def editor_keys(keys, ed, hemi=0, ssid=7, path=1, sym=5, cur=0, set_nav=True):
+def editor_keys(keys, ed, hemi=0, ssid=7, path=1, sym=5, cur=0):
     """aprstx_app.c handleKeys() in the editor: digits 0-9, '*', raw UP 'U' /
-    DOWN 'D' through nav_dir(), 'F'"""
+    DOWN 'D', 'F'"""
     ed = list(ed)
     farm = False
     for k in keys:
@@ -122,7 +122,7 @@ def editor_keys(keys, ed, hemi=0, ssid=7, path=1, sym=5, cur=0, set_nav=True):
             elif back: sym = sym - 1 if sym else 47
             else: sym = sym + 1 if sym < 47 else 0
         else:
-            d = nav_dir(k, set_nav)
+            d = (k == "D") - (k == "U")
             if d < 0 and cur: cur -= 1
             if d > 0 and cur < CUR_SYM: cur += 1
     return ed, hemi, ssid, path, sym, cur
@@ -257,28 +257,27 @@ def main():
     good = [nav_dir(k, sn) for sn in (True, False) for k in "UD*"] == [1, -1, 0, -1, 1, 0]
     # 13 digits typed in a row skip N/S and stay on the last digit; the
     # navigation keys reach N/S, E/W, SSID and path; '*' acts on the field under
-    # the cursor. Run for both SET_NAV settings: the raw key moving the cursor
-    # forward (nav_dir +1) is UP with SET_NAV, DOWN without.
+    # the cursor. DOWN / RIGHT moves forward and UP / LEFT moves backward,
+    # independently of SET_NAV.
     typed = editor_keys("3352131511256", [0] * 13)
     good &= typed == (pos, 0, 7, 1, 5, 13)
     good &= editor_keys("2*", pos)[:2] == ([2] + pos[1:], 1)              # '*' on a LAT digit
-    for sn in (True, False):
-        N, P = ("U", "D") if sn else ("D", "U")                          # next / previous field
-        k = lambda keys, **kw: editor_keys(keys, pos, set_nav=sn, **kw)
-        good &= k(N)[5] == 1 and k(P)[5] == 0 and k(N + P)[5] == 0       # the raw keys' direction
-        good &= k(P * 13 + N * 6 + "*")[1:] == (0 ^ 1, 7, 1, 5, CUR_NS)
-        good &= k(N * 14 + "*" + "5")[:2] == (pos, 2)                    # E/W: '*', a digit ignored
-        good &= k(N * 15 + "**")[2:] == (9, 1, 5, CUR_SSID)
-        good &= k(N * 16 + "**" + N)[3:] == (0, 5, CUR_SYM)
-        good &= k(N * 15 + "F*F*")[2] == 5                               # F then '*': SSID back
-        good &= k(N * 15 + "F*" * 8, ssid=3)[2] == 11                    # ... wrapping 0 -> 15
-        good &= k(N * 16 + "F*F*F*")[3] == 1                             # path back, 1 -> 0 -> 2 -> 1
-        good &= k(N * 15 + "FF*")[2] == 8                                # F twice: disarmed
-        good &= k(N * 15 + "F" + N + "*")[3:] == (2, 5, CUR_PATH)        # F used by a move, '*' forward
-        good &= k(N * 17 + "**")[4:] == (7, CUR_SYM)                     # symbol forward
-        good &= k(N * 17 + "F*")[4:] == (4, CUR_SYM)                     # symbol backward
+    N, P = "D", "U"                                                      # next / previous field
+    k = lambda keys, **kw: editor_keys(keys, pos, **kw)
+    good &= k(N)[5] == 1 and k(P)[5] == 0 and k(N + P)[5] == 0           # the raw keys' direction
+    good &= k(P * 13 + N * 6 + "*")[1:] == (0 ^ 1, 7, 1, 5, CUR_NS)
+    good &= k(N * 14 + "*" + "5")[:2] == (pos, 2)                        # E/W: '*', a digit ignored
+    good &= k(N * 15 + "**")[2:] == (9, 1, 5, CUR_SSID)
+    good &= k(N * 16 + "**" + N)[3:] == (0, 5, CUR_SYM)
+    good &= k(N * 15 + "F*F*")[2] == 5                                   # F then '*': SSID back
+    good &= k(N * 15 + "F*" * 8, ssid=3)[2] == 11                        # ... wrapping 0 -> 15
+    good &= k(N * 16 + "F*F*F*")[3] == 1                                 # path back, 1 -> 0 -> 2 -> 1
+    good &= k(N * 15 + "FF*")[2] == 8                                    # F twice: disarmed
+    good &= k(N * 15 + "F" + N + "*")[3:] == (2, 5, CUR_PATH)            # F used by a move, '*' forward
+    good &= k(N * 17 + "**")[4:] == (7, CUR_SYM)                         # symbol forward
+    good &= k(N * 17 + "F*")[4:] == (4, CUR_SYM)                         # symbol backward
     ok &= good
-    print("editor keys (SET_NAV on and off):", good)
+    print("editor keys (DOWN/RIGHT forward):", good)
     checks = [([4,8,5,0,9,0,0,0,2,1,6,2,5], True), ([9,0,0,0,0,0,1,8,0,0,0,0,0], True),
               ([9,0,0,1,0,0,0,0,0,0,0,0,0], False), ([4,8,6,0,0,0,0,0,0,0,0,0,0], False),
               ([4,8,0,0,0,0,1,8,0,0,0,0,1], False), ([4,8,0,0,0,0,1,8,1,0,0,0,0], False),

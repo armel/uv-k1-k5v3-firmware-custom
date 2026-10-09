@@ -544,7 +544,7 @@ static void handleKeys(void){
         }
         else if(key==APP_KEY_EXIT) g.edit=false;
         else {
-            int8_t d=A->nav_dir(key);
+            int8_t d=(key==APP_KEY_DOWN)-(key==APP_KEY_UP);
             if(d<0 && g.cur) g.cur--;
             if(d>0 && g.cur<CUR_SYM) g.cur++;
         }
