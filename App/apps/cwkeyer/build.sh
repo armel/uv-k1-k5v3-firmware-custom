@@ -4,8 +4,8 @@
 set -euo pipefail
 
 APP="$(basename "$PWD")"
-APP_NAME="CW Decode"
-APP_VER="0.2"
+APP_NAME="CW Keyer"
+APP_VER="0.1"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}
 OUT="${APP_NAME// /}"

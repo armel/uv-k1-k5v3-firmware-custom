@@ -1,8 +1,12 @@
 # CW Decode overlay app
 
-`CW Decode` decodes keyed RF carriers (A1A) from the BK4829 RSSI envelope. The
-receiver has no CW/SSB beat-frequency oscillator, so the noisy FM audio path
-is kept muted and decoding relies entirely on RSSI.
+`CW Decode` decodes keyed RF carriers (A1A) from the BK4829 RSSI envelope. It
+also uses the BK4829 USB baseband output as a product detector, with the
+receiver internally tuned 700 Hz below the displayed carrier frequency. This
+makes incoming CW audible without changing the RSSI-based decoding path.
+
+The adaptive detection threshold starts 4 dB above the calibrated quiet-channel
+level. This margin remains adjustable and is saved with the app configuration.
 
 ## IC-705 bench test
 
@@ -20,30 +24,44 @@ is kept muted and decoding relies entirely on RSSI.
 
 - The up/down marks show whether more decoded text is available.
 - The boxed `F` icon means that the next adjustable key runs in reverse.
+- The speaker icon, shared with Foxhunt, means that receive audio is enabled.
+  The `F` icon temporarily replaces it while reverse adjustment is armed.
 - The `AGC` icon means that automatic receiver gain is enabled.
-- The upper capsule row shows `RSSI` on the left, the adaptive `WPM` speed
-  estimate in the centre, and detection `THR` on the right. The bottom row
-  shows the current `MORSE` symbol on the left and the RX frequency on the
-  right, using Beacon's normal-font format.
+- The upper capsule row shows detection `THR` on the left, the adaptive `WPM`
+  speed estimate in the centre, and `RSSI` on the right. Their frames reserve
+  the maximum value widths and therefore remain fixed. The dBm suffix is
+  omitted from the main screen and documented in the lower-right corner of
+  the help page. The bottom row shows the current `MORSE` symbol on the left
+  and the RX frequency on the right, using Beacon's normal-font format.
 
 ## Controls
 
 - `UP` / `DOWN`: smooth pixel-by-pixel history scrolling.
+- `0`: enable or mute the continuously open CW receive audio path.
 - `*`: switch between normal and compact decoded-text fonts.
-- `1`: raise the threshold margin; `F` then `1` lowers it.
+- `1`: raise the detection threshold; `F` then `1` lowers it.
 - `2`: raise the current WPM bias; `F` then `2` lowers it.
 - `3`: enable or disable AGC, then repeat quiet-channel calibration.
-- `0`: clear the decoded history.
-- `MENU`: repeat quiet-channel calibration.
-- `EXIT`: leave the app.
+- `4`: repeat quiet-channel calibration.
+- `5`: clear the decoded history.
+- `MENU`: open the help page.
+- `EXIT`: leave the app from the decoder, or return to the decoder from help.
+  `MENU` also returns from help.
+
+Threshold and RSSI values are expressed in dBm.
+
+The help page uses the same two-column capsule layout as CW Keyer. Decoding
+and audio continue in the background while help is displayed, but its setting
+and scrolling controls are ignored until `MENU` or `EXIT` returns to the
+decoder.
 
 A normal Morse word gap schedules a space. A much longer silence of 15 dot
 units ends the sequence (about 1.2 seconds at 15 WPM), but does not create an
 empty line. The pending space or line break is inserted only when the next
 keyed carrier starts. Automatic following advances by one complete text row;
 manual history scrolling remains pixel-smooth, and a new keyed carrier resumes
-automatic following on the active line. The font, threshold margin and AGC mode
-are saved. To protect mark timing, decoded text is redrawn during the longer
+automatic following on the active line. The font, threshold margin, AGC mode
+and speaker state are saved. To protect mark timing, decoded text is redrawn during the longer
 inter-word silence; the `MORSE` capsule continues to show each symbol between
 full redraws. Timing is relearned on every launch. Letters A-Z, digits 0-9 and
 the `+`, `=` and `/` symbols are supported; malformed or unsupported patterns

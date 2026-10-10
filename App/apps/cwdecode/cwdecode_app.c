@@ -39,7 +39,7 @@
 #define MIN_DOT_MS       30u
 #define MAX_DOT_MS      300u
 #define SPEED_STEP_MS     5u
-#define DEFAULT_MARGIN    6u
+#define DEFAULT_MARGIN    4u
 #define MIN_MARGIN        4u
 #define MAX_MARGIN       30u
 #define HYSTERESIS_DB     3
@@ -47,15 +47,41 @@
 #define LINE_GAP_DOTS    15u
 #define TEXT_CAP        256u
 #define BODY_BOTTOM      39u
-#define CFG_MAGIC       0xC9u
+#define CFG_MAGIC_V1    0xC9u
+#define CFG_MAGIC       0xCAu
+#define RX_PITCH_10HZ    70u
 #define AGC_X            44u
 #define SCROLL_X         63u
 #define F_X              72u
+#define THR_CAPS_X        2u
+#define THR_CAPS_END     34u
+#define WPM_CAPS_X       52u
+#define WPM_CAPS_END     76u
+#define RSSI_CAPS_X      91u
+#define RSSI_CAPS_END   127u
 #define MORSE_CAPS_END   54u
 
+#define REG_TX_LINK      0x30u
+#define REG_AM_CTRL      0x31u
+#define REG_FREQ_LOW     0x38u
+#define REG_FREQ_HIGH    0x39u
+#define REG_AUDIO_FILTER 0x3Du
+#define REG_RX_LEVEL     0x42u
+#define REG_AUDIO_GAIN   0x48u
+#define REG_AUDIO_1      0x54u
+#define REG_AUDIO_2      0x55u
+#define REG_AFC          0x73u
+#define REG_RX_FILTER_1  0x2Au
+#define REG_RX_FILTER_2  0x2Bu
+#define REG_RX_FILTER_3  0x2Fu
+#define AF_USB              5u
+#define RX_LINK_OFF      0x0000u
+
 typedef struct {
-    uint8_t magic, compact, margin, agc;
+    uint8_t magic, compact, margin, agc, speaker;
 } config_t;
+
+_Static_assert(sizeof(config_t) <= 16u, "CW Decode config exceeds overlay slot");
 
 typedef struct {
     char morse[MORSE_TREE_LEN];
@@ -74,7 +100,8 @@ static struct {
     const char *morse;
     const uint32_t *decimalPlaces;
     bool running, down, candidate, fArm, redraw, follow, keyRedraw, morseRedraw;
-    bool agc;
+    bool help;
+    bool agc, speaker;
     bool linePending;
     uint8_t prevKey, margin, gapStage, sampleIndex;
     uint8_t code, depth, compact;
@@ -131,6 +158,36 @@ static char *puti(char *out, int32_t value)
         value = -value;
     }
     return putu(out, (uint32_t)value);
+}
+
+static void configureCwRx(void)
+{
+    uint32_t frequency = A->rx_freq();
+    if (frequency > RX_PITCH_10HZ)
+        frequency -= RX_PITCH_10HZ;
+
+    A->bk_write(REG_FREQ_LOW, (uint16_t)frequency);
+    A->bk_write(REG_FREQ_HIGH, (uint16_t)(frequency >> 16));
+    const uint16_t rxLink = A->bk_read(REG_TX_LINK);
+    A->bk_write(REG_TX_LINK, RX_LINK_OFF);
+    A->bk_write(REG_TX_LINK, rxLink);
+
+    /* Match CW Keyer's proven USB product-detector path. The displayed VFO
+     * remains the carrier frequency while the receiver runs 700 Hz below it. */
+    A->bk_write(REG_AM_CTRL, A->bk_read(REG_AM_CTRL) & 0xFFFEu);
+    A->bk_write(REG_RX_LEVEL, 0x6B5Au);
+    A->bk_write(REG_RX_FILTER_1, 0x7400u);
+    A->bk_write(REG_RX_FILTER_2, 0x0000u);
+    A->bk_write(REG_RX_FILTER_3, 0x9890u);
+    A->bk_write(REG_AUDIO_1, 0x9009u);
+    A->bk_write(REG_AUDIO_2, 0x31A9u);
+    A->bk_write(REG_AUDIO_GAIN,
+                (uint16_t)((A->bk_read(REG_AUDIO_GAIN) & 0xFFF0u) | 0x000Fu));
+    A->bk_write(REG_AUDIO_FILTER, 0u);
+    A->bk_write(REG_AFC, A->bk_read(REG_AFC) | 0x0010u);
+    A->set_agc(g.agc);
+    A->set_af(AF_USB);
+    A->audio_path(g.speaker);
 }
 
 static void updateLimit(void)
@@ -352,6 +409,8 @@ static void drawStatus(const char *ui)
                   A->status_line + SCROLL_X, BMP_SCROLL_W);
     if (g.fArm)
         A->asset_read(BMP_F, A->status_line + F_X, BMP_F_LEN);
+    else if (g.speaker)
+        A->asset_read(BMP_SPEAKER, A->status_line + F_X, BMP_SPEAKER_LEN);
     A->draw_battery();
 }
 
@@ -415,32 +474,20 @@ static void drawCapsules(const char *labels, bool blit)
         }
     }
 
-    out = put(line, labels);
-    out = puti(out, g.rssi);
-    out = put(out, labels + T_DBM - T_RSSI);
-    *out = '\0';
-    const unsigned rssiWidth = (unsigned)(out - line) * 4u;
-    const unsigned rssiRight = 2u + rssiWidth;
-    A->print_inverse(line, 2u, 5u, false, true,
-                     (uint8_t)rssiRight);
-
     out = put(line, labels + T_THR - T_RSSI);
     out = puti(out, g.threshold);
-    out = put(out, labels + T_DBM - T_RSSI);
     *out = '\0';
-    const unsigned thresholdWidth = (unsigned)(out - line) * 4u;
-    const unsigned thresholdLeft = 125u - thresholdWidth;
-    A->print_inverse(line,
-                     (uint8_t)(127u - thresholdWidth),
-                     5u, false, true, 127u);
+    A->print_inverse(line, THR_CAPS_X, 5u, false, true, THR_CAPS_END);
+
+    out = put(line, labels);
+    out = puti(out, g.rssi);
+    *out = '\0';
+    A->print_inverse(line, RSSI_CAPS_X, 5u, false, true, RSSI_CAPS_END);
 
     out = put(line, labels + T_WPM - T_RSSI);
     out = putu(out, udiv(1200u, g.dotMs));
     *out = '\0';
-    const unsigned wpmWidth = (unsigned)(out - line) * 4u;
-    const unsigned wpmX = (rssiRight + thresholdLeft - wpmWidth + 2u) / 2u;
-    A->print_inverse(line, (uint8_t)wpmX, 5u, false, true,
-                     (uint8_t)(wpmX + wpmWidth));
+    A->print_inverse(line, WPM_CAPS_X, 5u, false, true, WPM_CAPS_END);
 
     out = put(line, labels + T_MORSE - T_RSSI);
     if (g.pattern[0]) {
@@ -471,6 +518,31 @@ static void drawCapsules(const char *labels, bool blit)
     }
 }
 
+static void drawHelp(const char *ui)
+{
+    char text[TEXT_MAX];
+    A->status_clear();
+    A->print_inverse(ui + T_TITLE, 2u, 0u, true, true,
+                     (uint8_t)(2u + T_TITLE_CHARS * 4u));
+    A->asset_read(T_HELP, text, TEXT_MAX);
+    A->print_inverse(text, AGC_X, 0u, true, true,
+                     (uint8_t)(AGC_X + 4u * 4u));
+    A->draw_battery();
+    for (uint8_t i = 0u; i < 6u; i++) {
+        A->asset_read((uint16_t)(T_HELP_LEFT + i * T_HELP_LEFT_STRIDE),
+                      text, TEXT_MAX);
+        A->print_inverse(text, 2u, (uint8_t)(i + 1u), false, true, 46u);
+        A->asset_read((uint16_t)(T_HELP_RIGHT + i * T_HELP_RIGHT_STRIDE),
+                      text, TEXT_MAX);
+        if (text[0])
+            A->print_inverse(text, 79u, (uint8_t)(i + 1u), false, true, 127u);
+    }
+    A->asset_read(T_HELP_UNIT_1, text, TEXT_MAX);
+    A->print_tiny(text, 56u, 41u, false, true);
+    A->asset_read(T_HELP_UNIT_2, text, TEXT_MAX);
+    A->print_tiny(text, 56u, 49u, false, true);
+}
+
 static void refreshCapsules(void)
 {
     char labels[UI_SIZE - T_RSSI];
@@ -483,15 +555,18 @@ static void draw(bool calibrating)
     char ui[UI_SIZE] __attribute__((aligned(4)));
     A->asset_read(0u, ui, UI_SIZE);
     A->display_clear();
-    drawStatus(ui);
-
-    if (calibrating) {
-        A->asset_read(BMP_CAL_SCREEN, A->fb[1], BMP_CAL_SCREEN_LEN);
+    if (g.help) {
+        drawHelp(ui);
     } else {
-        if (g.textLen)
-            renderDecoded();
+        drawStatus(ui);
+        if (calibrating) {
+            A->asset_read(BMP_CAL_SCREEN, A->fb[1], BMP_CAL_SCREEN_LEN);
+        } else {
+            if (g.textLen)
+                renderDecoded();
 
-        drawCapsules(ui + T_RSSI, false);
+            drawCapsules(ui + T_RSSI, false);
+        }
     }
 
     A->blit_status();
@@ -538,20 +613,25 @@ static void loadConfig(void)
 {
     config_t cfg;
     A->cfg_load((uint8_t *)&cfg, sizeof(cfg));
-    if (cfg.magic == CFG_MAGIC) {
+    if (cfg.magic == CFG_MAGIC || cfg.magic == CFG_MAGIC_V1) {
         g.compact = (uint8_t)(cfg.compact == 1u);
         g.margin = cfg.margin >= MIN_MARGIN && cfg.margin <= MAX_MARGIN
             ? cfg.margin : DEFAULT_MARGIN;
         g.agc = cfg.agc <= 1u ? cfg.agc : true;
+        g.speaker = cfg.magic == CFG_MAGIC && cfg.speaker <= 1u
+            ? cfg.speaker : true;
     } else {
         g.margin = DEFAULT_MARGIN;
         g.agc = true;
+        g.speaker = true;
     }
 }
 
 static void saveConfig(void)
 {
-    const config_t cfg = { CFG_MAGIC, g.compact, g.margin, g.agc };
+    const config_t cfg = {
+        CFG_MAGIC, g.compact, g.margin, g.agc, g.speaker
+    };
     A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
 }
 
@@ -567,6 +647,22 @@ static void clearText(void)
 
 static void handleKey(uint8_t key)
 {
+    if (g.help) {
+        if (key == APP_KEY_INVALID || key == APP_KEY_SAVER ||
+            key == APP_KEY_WAKE || key == g.prevKey) {
+            g.prevKey = key;
+            return;
+        }
+        g.prevKey = key;
+        A->backlight_on();
+        if (key == APP_KEY_MENU || key == APP_KEY_EXIT) {
+            g.help = false;
+            g.redraw = true;
+            g.keyRedraw = true;
+        }
+        return;
+    }
+
     /* Scrolling is spatial: raw UP/DOWN is intentional and matches the
      * APRS RX/EPIRB fix for K5 UP/DOWN and K1 LEFT/RIGHT (issue #613).
      * Using nav_dir() here would reintroduce the model-dependent reversal. */
@@ -602,7 +698,8 @@ static void handleKey(uint8_t key)
             g.running = false;
             break;
         case APP_KEY_0:
-            clearText();
+            g.speaker = !g.speaker;
+            A->audio_path(g.speaker);
             break;
         case APP_KEY_1:
             if (!reverse && g.margin < MAX_MARGIN)
@@ -621,6 +718,12 @@ static void handleKey(uint8_t key)
             A->set_agc(g.agc);
             calibrate();
             break;
+        case APP_KEY_4:
+            calibrate();
+            break;
+        case APP_KEY_5:
+            clearText();
+            break;
         case APP_KEY_STAR:
             g.compact ^= 1u;
             updateLimit();
@@ -628,7 +731,7 @@ static void handleKey(uint8_t key)
             g.follow = true;
             break;
         case APP_KEY_MENU:
-            calibrate();
+            g.help = true;
             break;
         default:
             break;
@@ -650,14 +753,13 @@ void app_main(const app_api_t *api)
     A->asset_read(MORSE_TREE, &tables, sizeof(tables));
     g.running = true;
     g.follow = true;
+    g.help = false;
     g.prevKey = APP_KEY_INVALID;
     g.dotMs = DEFAULT_DOT_MS;
     loadConfig();
     updateLimit();
     A->backlight_on();
-    A->set_agc(g.agc);
-    A->set_af(APP_AF_MUTE);
-    A->audio_path(false);
+    configureCwRx();
     calibrate();
 
     while (g.running) {
@@ -681,7 +783,7 @@ void app_main(const app_api_t *api)
             g.lastDraw = now;
             draw(false);
             g.keyRedraw = false;
-        } else if (stableGap && g.morseRedraw) {
+        } else if (!g.help && stableGap && g.morseRedraw) {
             refreshCapsules();
             g.morseRedraw = false;
         }

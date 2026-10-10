@@ -15,7 +15,6 @@ UI = [
     ("T_TITLE", TITLE),
     ("T_RSSI", "RSSI "),
     ("T_THR", "THR "),
-    ("T_DBM", "dBm"),
     ("T_WPM", "WPM "),
     ("T_MORSE", "MORSE"),
     ("T_WAIT", "WAITING"),
@@ -29,6 +28,15 @@ for name, text in UI:
     ui_size += len(text) + 1 + padding
 a.const("UI_SIZE", ui_size)
 a.const("T_TITLE_CHARS", len(TITLE))
+a.text("T_HELP", "HELP")
+a.text("T_HELP_UNIT_1", "Threshold and RSSI")
+a.text("T_HELP_UNIT_2", "are in dBm")
+a.table("T_HELP_LEFT", [
+    "0 SPEAKER", "1 THRESHOLD", "2 WPM", "3 AGC", "4 CAL", "5 CLEAR",
+])
+a.table("T_HELP_RIGHT", [
+    "* FONT", "F+ DECREASE", "UP/DN SCROLL", "", "", "",
+])
 
 
 def load_small_font():
@@ -111,6 +119,8 @@ a.const("BMP_SCROLL_W", len(up))
 
 f_icon = [0x3E, 0x7F, 0x41, 0x75, 0x75, 0x75, 0x7D, 0x7F, 0x3E]
 a.u8("BMP_F", f_icon)
+a.u8("BMP_SPEAKER", [0x1C, 0x1C, 0x3E, 0x7F, 0x00,
+                     0x22, 0x1C, 0x41, 0x22, 0x1C])
 # Inverse "AGC" capsule, same style as the title and the F icon.
 a.u8("BMP_AGC", [0x3E, 0x7F, 0x43, 0x75, 0x43, 0x7F, 0x63, 0x5D, 0x45, 0x7F,
                  0x63, 0x5D, 0x5D, 0x7F, 0x3E])
