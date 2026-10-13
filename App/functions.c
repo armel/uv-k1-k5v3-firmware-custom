@@ -17,6 +17,9 @@
 #include <string.h>
 
 #include "app/dtmf.h"
+#ifdef ENABLE_FEAT_SELCALL
+    #include "app/selcall.h"
+#endif
 #if defined(ENABLE_FMRADIO_EMBEDDED)
     #include "app/fm.h"
 #endif
@@ -169,6 +172,13 @@ void FUNCTION_Transmit()
 
     // turn the RED LED on
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
+
+#ifdef ENABLE_FEAT_SELCALL
+    if (SELCALL_Pending()) {   // on-demand selcall burst: no DTMF PTT-ID, the main loop unkeys
+        SELCALL_Transmit();
+        return;
+    }
+#endif
 
     DTMF_Reply();
 

@@ -14,6 +14,9 @@
  *     limitations under the License.
  */
 
+#ifdef ENABLE_FEAT_SELCALL
+    #include "app/selcall.h"
+#endif
 #include <string.h>
 
 #if !defined(ENABLE_OVERLAY)
@@ -432,6 +435,19 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = ARRAY_SIZE(gSubMenu_PTT_ID) - 1;
             break;
 
+#ifdef ENABLE_FEAT_SELCALL
+        case MENU_SELCALL:
+            //*pMin = 0;
+            *pMax = SELCALL_TYPE_COUNT - 1;
+            break;
+
+        case MENU_SC_CD1:
+        case MENU_SC_CD2:
+            //*pMin = 0;
+            *pMax = SELCALL_CODE_NONE;     // 00000..99999, then OFF
+            break;
+#endif
+
         case MENU_D_PRE:
             *pMin = 3;
             *pMax = 99;
@@ -662,6 +678,9 @@ void MENU_AcceptSetting(void)
             return;
 
         case MENU_MEM_CH:
+#ifdef ENABLE_FEAT_SELCALL
+            SELCALL_Copy(gTxVfo->CHANNEL_SAVE, gEeprom.TX_VFO, (uint16_t)gSubMenuSelection);
+#endif
             gTxVfo->CHANNEL_SAVE = gSubMenuSelection;
             #if 0
                 gEeprom.MrChannel[0] = gSubMenuSelection;
@@ -797,6 +816,14 @@ void MENU_AcceptSetting(void)
             gRequestSaveChannel         = 1;
             return;
 
+#ifdef ENABLE_FEAT_SELCALL
+        case MENU_SELCALL:
+        case MENU_SC_CD1:
+        case MENU_SC_CD2:      // stored in the channel's selcall record, not in the channel
+            SELCALL_SetField((uint8_t)(UI_MENU_GetCurrentMenuId() - MENU_SELCALL), gSubMenuSelection);
+            return;
+#endif
+
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
             gTxVfo->DTMF_DECODING_ENABLE = gSubMenuSelection;
@@ -850,6 +877,9 @@ void MENU_AcceptSetting(void)
 
         case MENU_DEL_CH:
             SETTINGS_UpdateChannel(gSubMenuSelection, NULL, false);
+#ifdef ENABLE_FEAT_SELCALL
+            SELCALL_Clear((uint16_t)gSubMenuSelection);
+#endif
             gVfoConfigureMode = VFO_CONFIGURE_RELOAD;
             gFlagResetVfos    = true;
             return;
@@ -1216,6 +1246,14 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gTxVfo->DTMF_PTT_ID_TX_MODE;
             break;
 
+#ifdef ENABLE_FEAT_SELCALL
+        case MENU_SELCALL:
+        case MENU_SC_CD1:
+        case MENU_SC_CD2:
+            gSubMenuSelection = SELCALL_GetField((uint8_t)(UI_MENU_GetCurrentMenuId() - MENU_SELCALL));
+            break;
+#endif
+
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
             gSubMenuSelection = gTxVfo->DTMF_DECODING_ENABLE;
@@ -1547,6 +1585,20 @@ static void MENU_Key_0_to_9(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         gInputBoxIndex = 0;
         return;
     }
+
+#ifdef ENABLE_FEAT_SELCALL
+    if ((uint8_t)(UI_MENU_GetCurrentMenuId() - MENU_SC_CD1) <= MENU_SC_CD2 - MENU_SC_CD1)
+    {   // code 1 or 2: 5 digits, leading zeros kept (00000..99999)
+        if (gInputBoxIndex < SELCALL_DIGITS)
+        {
+            gRequestDisplayScreen = DISPLAY_MENU;
+            return;
+        }
+        gSubMenuSelection = StrToUL(INPUTBOX_GetAscii());   // stops at the 6th box, '-'
+        gInputBoxIndex    = 0;
+        return;
+    }
+#endif
 
     const int m = UI_MENU_GetCurrentMenuId();
 

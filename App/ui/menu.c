@@ -14,6 +14,9 @@
  *     limitations under the License.
  */
 
+#ifdef ENABLE_FEAT_SELCALL
+    #include "app/selcall.h"
+#endif
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -118,6 +121,11 @@ const t_menu_item MenuList[] =
     {"UPCode",      MENU_UPCODE        },
     {"DWCode",      MENU_DWCODE        },
     {"PTT ID",      MENU_PTT_ID        },
+#ifdef ENABLE_FEAT_SELCALL
+    {"SelCal",      MENU_SELCALL       },
+    {"SC CD1",      MENU_SC_CD1        },
+    {"SC CD2",      MENU_SC_CD2        },
+#endif
     {"D ST",        MENU_D_ST          },
 #ifdef ENABLE_DTMF_CALLING
     {"D Resp",      MENU_D_RSP         },
@@ -499,7 +507,9 @@ const char* const gSubMenu_SCRAMBLER[] =
     X(ACTION_OPT_POWER_HIGH,     "POWER\nHIGH") \
     X(ACTION_OPT_REMOVE_OFFSET,  "REMOVE\nOFFSET") \
     X(ACTION_OPT_FOXHUNT,        "FOX HUNT") \
-    X(ACTION_OPT_BEACON,         "BEACON")
+    X(ACTION_OPT_BEACON,         "BEACON") \
+    X(ACTION_OPT_SELCALL_1,      "SELCALL 1") \
+    X(ACTION_OPT_SELCALL_2,      "SELCALL 2")
 
 #define SIDEFUNCTION_NAME_ENTRY(action, name) [action] = name,
 const char *const gSubMenu_SIDEFUNCTIONS[ACTION_OPT_LEN] =
@@ -586,7 +596,11 @@ static const uint8_t CatChannels[] = {
 #ifdef ENABLE_FEAT_F4HWN_NARROWER
     MENU_SET_NFM,
 #endif
-    MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK, MENU_PTT_ID, MENU_LIST_CH,
+    MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK, MENU_PTT_ID,
+#ifdef ENABLE_FEAT_SELCALL
+    MENU_SELCALL, MENU_SC_CD1, MENU_SC_CD2,
+#endif
+    MENU_LIST_CH,
     MENU_MEM_CH, MENU_DEL_CH, MENU_MEM_NAME,
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     MENU_SET_CFG,
@@ -1440,6 +1454,22 @@ void UI_DisplayMenu(void)
         case MENU_PTT_ID:
             choiceTable = gSubMenu_PTT_ID;
             goto copy_menu_choice;
+
+#ifdef ENABLE_FEAT_SELCALL
+        case MENU_SELCALL:     // MENU_GetLimits keeps the selection within the type names
+            choiceTable = gSelCallTypeNames;
+            goto copy_menu_choice;
+
+        case MENU_SC_CD1:
+        case MENU_SC_CD2:
+            if (gIsInSubMenu && gInputBoxIndex > 0)
+                sprintf(String, "%.5s", INPUTBOX_GetAscii());   // '-' for the missing digits
+            else if (gSubMenuSelection >= (int32_t)SELCALL_CODE_NONE)
+                strcpy(String, "OFF");
+            else
+                sprintf(String, "%05u", (unsigned)gSubMenuSelection);
+            break;
+#endif
 
         case MENU_BAT_TXT:
             choiceTable = gSubMenu_BAT_TXT;

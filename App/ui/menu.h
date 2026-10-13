@@ -82,6 +82,11 @@ enum
     MENU_UPCODE,
     MENU_DWCODE,
     MENU_PTT_ID,
+#ifdef ENABLE_FEAT_SELCALL
+    MENU_SELCALL,          /* keep these three consecutive, in field order */
+    MENU_SC_CD1,           /* (selcall.h: field = menu id - MENU_SELCALL)  */
+    MENU_SC_CD2,
+#endif
     MENU_D_ST,
 #ifdef ENABLE_DTMF_CALLING
     MENU_D_RSP,

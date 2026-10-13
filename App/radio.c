@@ -14,6 +14,9 @@
  *     limitations under the License.
  */
 
+#ifdef ENABLE_FEAT_SELCALL
+    #include "app/selcall.h"
+#endif
 #include "driver/bk4819-regs.h"
 #include <string.h>
 
@@ -1283,6 +1286,10 @@ void RADIO_PrepareTX(void)
         gTx1750Active = false;
 #endif
 
+#ifdef ENABLE_FEAT_SELCALL
+        SELCALL_Cancel();
+#endif
+
 #ifdef ENABLE_DTMF_CALLING
         gDTMF_ReplyState = DTMF_REPLY_NONE;
 #endif
@@ -1377,8 +1384,15 @@ void RADIO_SendEndOfTransmission(void)
         }
     #endif
 
-    BK4819_PlayRoger(Bandwidth);
-    DTMF_SendEndOfTransmission();
+#ifdef ENABLE_FEAT_SELCALL
+    if (gSelCallTx)            // a selcall burst replaces the roger and the DTMF PTT-ID
+        BK4819_ExitDTMF_TX(true);
+    else
+#endif
+    {
+        BK4819_PlayRoger(Bandwidth);
+        DTMF_SendEndOfTransmission();
+    }
 
     // send the CTCSS/DCS tail tone - allows the receivers to mute the usual FM squelch tail/crash
     RADIO_SendCssTail();

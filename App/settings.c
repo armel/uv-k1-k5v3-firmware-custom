@@ -15,6 +15,9 @@
  *     limitations under the License.
  */
 
+#ifdef ENABLE_FEAT_SELCALL
+    #include "app/selcall.h"
+#endif
 #include <string.h>
 
 #include "app/dtmf.h"
@@ -813,6 +816,10 @@ void SETTINGS_FactoryReset(bool bIsAll)
     for (uint32_t addr = 0x000000; addr <= 0x009000; addr += 0x1000) {
         PY25Q16_SectorErase(addr);
     }
+
+#ifdef ENABLE_FEAT_SELCALL
+    SELCALL_EraseAll();    // per-channel selcall records go with the channels
+#endif
     
     // 0d60 - 0e30
     if (bIsAll)
