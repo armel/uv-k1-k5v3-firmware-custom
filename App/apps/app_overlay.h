@@ -98,7 +98,6 @@
 #define APP_SCREEN_SAVE_LEN  1024u
 #define APP_FLAG_SHORTCUT_SHIFT 8u
 #define APP_FLAG_SHORTCUT_MASK  0x0F00u
-#define APP_NAME_LEN      16
 #define APP_VERSION_LEN   16
 
 /* Shortcut IDs: the value of the header's shortcut field, one per app (the

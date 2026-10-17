@@ -127,7 +127,13 @@ static struct {
     bool shortcuts_cached;
     uint8_t shortcut_slots[APP_SHORTCUT_COUNT];   /* per position, 0xFF = none */
     uint8_t slot_revision;
+    /* Hand-off mailbox (RAM only): the slot to launch next, plus one; the
+     * message, its length (0 = none) and the sender's slot. */
+    uint8_t handoff_next;
+    uint8_t handoff_from;
+    uint8_t handoff_len;   /* never above APP_HANDOFF_MAX */
     uint8_t cfg_buf[APP_CONFIG_PROXY_MAX];
+    uint8_t handoff_buf[APP_HANDOFF_MAX];
 } app_state;
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
@@ -657,6 +663,46 @@ static void app_config_proxy_resolve(void)
     }
 }
 
+/* ---- hand-off (API level 3) ----
+ * handoff() only resolves the target and stages the message; the launch happens
+ * in APP_LaunchOverlay once the running app has returned and its config is
+ * committed, so the overlay is never overwritten under the running code. */
+_Static_assert(APP_HANDOFF_MAX >= 1u && APP_HANDOFF_MAX <= UINT8_MAX,
+               "hand-off lengths are uint8_t: a larger mailbox would wrap the clamp");
+
+static bool app_handoff(const char name[APP_NAME_LEN], const void *msg, uint8_t len)
+{
+    app_state.handoff_next = 0;   /* the last call wins */
+    for (uint8_t slot = 0; slot < APP_SLOT_COUNT; slot++) {
+        app_header_t h;
+        if (app_read_validated_header(slot, &h) != APP_OK ||
+            memcmp(h.name, name, APP_NAME_LEN) != 0)
+            continue;
+        if (len > APP_HANDOFF_MAX)
+            len = APP_HANDOFF_MAX;   /* bounds the copy into handoff_buf */
+        memcpy(app_state.handoff_buf, msg, len);
+        app_state.handoff_len  = len;
+        app_state.handoff_from = app_state.run_slot;
+        app_state.handoff_next = slot + 1u;
+        return true;
+    }
+    return false;
+}
+
+static uint8_t app_handoff_read(void *buf, uint8_t max, char *from)
+{
+    uint8_t len = app_state.handoff_len;
+    if (len == 0)
+        return 0;
+    app_state.handoff_len = 0;   /* read once */
+    if (len > max)
+        len = max;                   /* bounds the copy into the app's buf */
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(app_state.handoff_from) +
+                       offsetof(app_header_t, name), from, APP_NAME_LEN);
+    memcpy(buf, app_state.handoff_buf, len);
+    return len;
+}
+
 uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header)
 {
     app_header_t h;
@@ -872,9 +918,14 @@ static const app_api_t app_api = {
     .sys_stack_free_now  = STACK_FreeNow,
     .sys_stack_free_min  = STACK_FreeMinimum,
 #endif
+    /* Outside the block above: the hand-off is a loader service, available
+     * wherever overlay apps are (this whole file), with or without the
+     * system information; inside it, an app would call a NULL pointer. */
+    .handoff             = app_handoff,
+    .handoff_read        = app_handoff_read,
 };
 
-uint8_t APP_LaunchOverlay(uint8_t slot)
+static uint8_t app_launch(uint8_t slot)
 {
     app_header_t h;
     uint8_t rc = app_read_validated_header(slot, &h);
@@ -1036,6 +1087,24 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
     RXTX_LOG_Resume();
 #endif
     return APP_OK;
+}
+
+/* Run the app, then each app it hands off to, in a loop (no recursion, so no
+ * stack growth).  A hand-off whose target no longer launches is dropped: the
+ * caller gets the first app's result and shows its menu or screen as before. */
+uint8_t APP_LaunchOverlay(uint8_t slot)
+{
+    app_state.handoff_next = 0;
+    app_state.handoff_len = 0;   /* a menu or shortcut launch carries no message */
+    const uint8_t rc = app_launch(slot);
+
+    while (rc == APP_OK && app_state.handoff_next) {
+        slot = app_state.handoff_next - 1u;
+        app_state.handoff_next = 0;
+        if (app_launch(slot) != APP_OK)
+            break;
+    }
+    return rc;
 }
 
 uint8_t APP_SlotErase(uint8_t slot)

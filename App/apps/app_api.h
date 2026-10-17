@@ -35,6 +35,7 @@
 #ifndef APPS_APP_API_H
 #define APPS_APP_API_H
 
+#include <stddef.h>   /* offsetof */
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -43,9 +44,21 @@
  *   1  v6.0.0 baseline: every service up to and including beam_draw
  *   2  ticks_ms, rand32, asset_read (+ app_header_t asset_size / asset_crc),
  *      idivmod, uidivmod (the resident division helpers), Labs system info,
- *      current and minimum-since-boot free stack/RAM margin */
+ *      current and minimum-since-boot free stack/RAM margin
+ *   3  handoff, handoff_read (an app launches another and hands it a message) */
 #define APP_ABI_MAJOR  1u
-#define APP_API_LEVEL  2u
+#define APP_API_LEVEL  3u
+
+/* App name length in app_header_t, the name handoff() takes (API level 3). */
+#define APP_NAME_LEN    16
+
+/* Largest message handoff() carries from one app to the next (API level 3):
+ * raw bytes, not NUL-terminated.  32 covers a position, a symbol and a short
+ * ID.  It can be raised in a later release (one byte of resident RAM, i.e. of
+ * stack margin, per byte; len stays uint8_t, 255 at most); an older firmware
+ * then clamps, so receivers must check the length handoff_read() returns.  It
+ * must never be lowered. */
+#define APP_HANDOFF_MAX 32u
 
 /* Minimum API level of an app that ships read-only assets (pack_app.py). */
 #define APP_API_ASSETS 2u
@@ -263,8 +276,14 @@ typedef struct app_api {
     uint64_t (*idivmod)(int32_t n, int32_t d);
     uint64_t (*uidivmod)(uint32_t n, uint32_t d);
 
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
-    /* ---- API level 2: zero-code Labs system information ---- */
+    /* ---- API level 2: zero-code Labs system information ----
+     * Valid only with APP_CAP_SYSINFO (the loader sets them only with
+     * ENABLE_FEAT_F4HWN_OVERLAY_INFO, NULL otherwise).  The fields themselves
+     * are in the layout of every build, not under that #ifdef: apps are built
+     * apart from the firmware and mostly without the define, so an #ifdef here
+     * would put every later service at one offset in the app (276) and another
+     * in a Labs firmware (328), and the app would call the wrong address.
+     * Costs nothing in Labs, the only edition with overlay apps. */
     const char *sys_edition;
     const char *sys_version;
     const char *sys_build_date;
@@ -280,13 +299,34 @@ typedef struct app_api {
     /* ---- API level 2: stack watermark diagnostics ---- */
     uint32_t (*sys_stack_free_now)(void);
     uint32_t (*sys_stack_free_min)(void);
-#endif
+
+    /* ---- API level 3: hand-off to another app ----
+     * Only one app runs at a time, so an app asks the loader to launch the
+     * next one after it returns.  handoff() names the installed app to launch
+     * and stages up to APP_HANDOFF_MAX bytes for it, in RAM only.  name is
+     * APP_NAME_LEN bytes, NUL-padded as in the header, which a
+     * static const char name[APP_NAME_LEN] = "..." is.  The calling app then
+     * returns as usual: the loader commits its config, then launches the target
+     * instead of going back to the menu.  The last call wins: a name no
+     * valid app has returns false and leaves nothing pending, which also
+     * cancels an earlier call.  Copies min(len, APP_HANDOFF_MAX) bytes from
+     * msg (NULL only with len 0); a longer len is clamped. */
+    bool    (*handoff)(const char name[APP_NAME_LEN], const void *msg, uint8_t len);
+    /* The message handed to this app and its sender's name.  Copies
+     * min(message length, max) bytes into buf and returns that count; 0 when
+     * the app was launched from the menu or a shortcut (buf and from are then
+     * untouched).  from receives exactly APP_NAME_LEN bytes, NUL-padded but not
+     * NUL-terminated when the name fills them: give it char[APP_NAME_LEN + 1].
+     * Read once: call it at launch, before handoff(), which reuses the buffer. */
+    uint8_t (*handoff_read)(void *buf, uint8_t max, char *from);
 } app_api_t;
 
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_INFO
-_Static_assert(sizeof(app_api_t) == 328u,
-               "Labs system information must add exactly 52 API bytes");
-#endif
+/* Unconditional, for the same reason: these offsets are what the apps and
+ * the firmware must agree on, whatever the build options. */
+_Static_assert(offsetof(app_api_t, sys_edition) == 276u &&
+               offsetof(app_api_t, handoff) == 328u &&
+               sizeof(app_api_t) == 336u,
+               "app_api_t is append-only: every edition shares this layout");
 
 /* BK4819 AF modes for set_af (mirror driver/bk4819.h values). */
 enum { APP_AF_MUTE = 0, APP_AF_FM = 1, APP_AF_AM = 7 };
