@@ -91,6 +91,7 @@
 #define BODY_BOTTOM 39u
 #define BEEP_HZ     1536u   /* 3 << 9: a cheap Thumb constant */
 #define BEEP_MS     150u
+#define SETTLE_MS   50u     /* tune(): REG_30 cycle to amplifier on (5 ms clicked) */
 
 typedef struct {
     dec406_info_t info;
@@ -131,15 +132,14 @@ static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
 /* Formatting by repeated subtraction: no division, so no __udivsi3 in the
  * 4 KiB overlay. Values printed stay below 100000. */
 static unsigned sub(uint32_t *v,uint32_t d){ unsigned q=0; while(*v>=d){ *v-=d; q++; } return q; }
+/* One digit per call, the higher ones first by recursion: no table of powers
+ * of ten. At most five levels, and a few thousand subtractions for 65535. */
 static char *puti(char *o,int32_t v){
-    static const uint16_t P10[]={10000u,1000u,100u,10u,1u};
-    uint32_t u;
-    if(v<0){*o++='-';u=(uint32_t)(-v);} else u=(uint32_t)v;
-    bool lead=false;
-    for(unsigned i=0;i<5;i++){
-        unsigned c=sub(&u,P10[i]);
-        if(c||lead||i==4u){ *o++=(char)('0'+c); lead=true; }
-    }
+    uint32_t u=(uint32_t)v;
+    if(v<0){ *o++='-'; u=0u-u; }
+    unsigned q=sub(&u,10u);
+    if(q) o=puti(o,(int32_t)q);
+    *o++=(char)('0'+u);
     return o;
 }
 /* Arc seconds to truncated decimal degrees followed by the hemisphere. */
@@ -169,13 +169,15 @@ static void rxAudio(void){ g.A->set_af(APP_AF_FM); g.A->audio_path(g.cfg.spk); }
 /* ---- tuning: offset the RX frequency from the VFO (restored by the loader on exit) ---- */
 static void tune(void){
     /* Amplifier off first, as AUDIO_PlayBeep does: the REG_30 cycle below steps
-     * the AF DAC output, a loud click if amplified. The two frequency writes
-     * give it a head start; rxAudio() turns it back on if the speaker is on. */
+     * the AF DAC output, a loud click if amplified. The output then takes far
+     * longer than AUDIO_PlayBeep's 5 ms to settle (PA4 is held by the DAC
+     * bias): rxAudio() turns the amplifier back on SETTLE_MS later. */
     g.A->audio_path(false);
     uint32_t f=(uint32_t)((int32_t)g.vfoFreq+(int32_t)g.offSteps*STEP_10HZ);
     g.A->bk_write(REG_38,(uint16_t)(f&0xFFFFu));
     g.A->bk_write(REG_39,(uint16_t)(f>>16));
     g.A->tones_off_rx();         /* REG_30 to 0 then RX: VCO recalibration, relock */
+    g.A->delay_ms(SETTLE_MS);    /* the AF output re-centres on the PA4 bias: amplifier still off */
     rxAudio();
 }
 /* "433.645" from 10 Hz units, rounded to the kHz, without division */
