@@ -169,6 +169,7 @@ void     RADIO_SetupRegisters(bool switchToForeground);
 #endif
 BK4819_FilterBandwidth_t RADIO_GetAMFilterBandwidth(const VFO_Info_t *pVfo);
 void     RADIO_SetTxParameters(void);
+void     RADIO_PrepareTx(void);   /* same setup, no FM waits, PA left off */
 void     RADIO_SetupAGC(bool listeningAM, bool disable);
 void     RADIO_SetModulation(ModulationMode_t modulation);
 void     RADIO_SetVfoState(VfoState_t State);

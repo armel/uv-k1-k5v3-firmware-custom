@@ -1015,7 +1015,9 @@ void RADIO_SetupRegisters(bool switchToForeground)
     }
 #endif
 
-void RADIO_SetTxParameters(void)
+/* fm false (CW Keyer): no settling waits and PA_ENABLE left off, the caller
+ * re-locks the PLL and keys the PA itself. */
+static void RADIO_SetTxParametersEx(bool fm)
 {
     BK4819_FilterBandwidth_t Bandwidth = gCurrentVfo->CHANNEL_BANDWIDTH;
 
@@ -1051,17 +1053,17 @@ void RADIO_SetTxParameters(void)
 
     BK4819_PrepareTransmit();
 
-    SYSTEM_DelayMs(10);
+    SYSTEM_DelayMs(fm * 10);
 
     BK4819_PickRXFilterPathBasedOnFrequency(gCurrentVfo->pTX->Frequency);
 
-    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, true);
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, fm);
 
-    SYSTEM_DelayMs(5);
+    SYSTEM_DelayMs(fm * 5);
 
     BK4819_SetupPowerAmplifier(gCurrentVfo->TXP_CalculatedSetting, gCurrentVfo->pTX->Frequency);
 
-    SYSTEM_DelayMs(10);
+    SYSTEM_DelayMs(fm * 10);
 
     switch (gCurrentVfo->pTX->CodeType)
     {
@@ -1079,6 +1081,16 @@ void RADIO_SetTxParameters(void)
             BK4819_SetCDCSSCodeWord(DCS_GetGolayCodeWord(gCurrentVfo->pTX->CodeType, gCurrentVfo->pTX->Code));
             break;
     }
+}
+
+void RADIO_SetTxParameters(void)
+{
+    RADIO_SetTxParametersEx(true);
+}
+
+void RADIO_PrepareTx(void)
+{
+    RADIO_SetTxParametersEx(false);
 }
 
 void RADIO_SetModulation(ModulationMode_t modulation)

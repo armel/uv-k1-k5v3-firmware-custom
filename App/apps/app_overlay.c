@@ -1139,6 +1139,7 @@ static const app_api_t app_api = {
      * system information; inside it, an app would call a NULL pointer. */
     .handoff             = app_handoff,
     .handoff_read        = app_handoff_read,
+    .tx_prepare          = RADIO_PrepareTx,
 };
 
 /* Hand-off guards: a chain of apps that hand off to each other for ever (a

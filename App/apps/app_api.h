@@ -47,8 +47,9 @@
  *      current and minimum-since-boot free stack/RAM margin
  *   3  append_i32 / append_u32 (resident decimal formatters), af_capture_open /
  *      sample / close (RX audio on PA4), cycles_48mhz, draw_frequency,
- *      handoff / handoff_read; the Labs system information slots become part
- *      of the layout in every build, so level 3 services have one offset */
+ *      handoff / handoff_read, tx_prepare; the Labs system information slots
+ *      become part of the layout in every build, so level 3 services have one
+ *      offset */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  3u
 
@@ -371,6 +372,11 @@ typedef struct app_api {
      * Read once, -1 afterwards: call it at launch, before handoff(), which
      * replaces the message. */
     int16_t (*handoff_read)(void *buf, uint8_t max, char *from);
+
+    /* tx_set_params without the FM waits and with PA_ENABLE left off, for a
+     * caller that keys the PA itself (tx_set_params leaves an unshaped
+     * carrier burst). On an older level 3 table, check api_size first. */
+    void    (*tx_prepare)(void);
 } app_api_t;
 
 /* Unconditional, for the same reason: these offsets are what the apps and
@@ -379,7 +385,8 @@ _Static_assert(offsetof(app_api_t, sys_edition) == 276u &&
                offsetof(app_api_t, append_i32) == 328u,
                "the level 2 API prefix must stay 328 bytes");
 _Static_assert(offsetof(app_api_t, handoff) == 356u &&
-               sizeof(app_api_t) == 364u,
+               offsetof(app_api_t, tx_prepare) == 364u &&
+               sizeof(app_api_t) == 368u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter
