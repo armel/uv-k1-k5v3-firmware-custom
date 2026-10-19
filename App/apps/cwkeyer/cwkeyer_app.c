@@ -32,6 +32,13 @@
  * the USB clock (a powered USB device holds D+ for about two seconds after a
  * contact closes). Only those bits are touched, under masked IRQs, and they are
  * put back on exit, so the PC link works again once the app is closed.
+ * After about 0.5 s without contact, the radio board cuts a closing contact
+ * off from the MCU: it reads closed for a few ms, then open for about 200 ms
+ * while still held (measured with a plain wire too, USB core in reset, no
+ * TX). So from receive, a first paddle press only arms: TX is prepared,
+ * nothing is sent, the paddles are ignored for ARM_HOLDOFF_MS, then each
+ * element starts on the first closed reading. The break-in time must exceed
+ * the word spaces, or each word starts with an arming press again.
  *
  * Element timing is measured on the SysTick counter rather than by counting
  * 1 ms waits: each wait iteration also scans the keypad (about 0.2 ms), which
@@ -92,6 +99,11 @@
 #define TAG_RIGHT_X          87u
 #define HELP_RIGHT_X         79u
 #define DEBOUNCE_POLLS        3u   /* straight key: ~3.5 ms of stable reading */
+#define RX_SETTLE_MS         50u   /* RX return: REG_30 cycle to amplifier on */
+#define AMP_SETTLE_MS        10u   /* TX: AF output settle before the amplifier */
+#define CONFIRM_CYCLES     9600u   /* paddle start: second read 200 us later */
+#define ARM_HOLDOFF_MS      300u   /* arming press: paddles ignored this long */
+#define ARM_WAIT_MS        3000u   /* armed, no mark yet: back to RX after this */
 
 _Static_assert(SMETER_BAR_X + SMETER_MAX_LEVEL * 5u <= 128u,
                "CW S-meter bars exceed the display width");
@@ -156,14 +168,14 @@ _Static_assert(sizeof(config_t) <= 16u, "CW Keyer config exceeds overlay slot");
 static struct {
     const app_api_t *A;
     bool running, txReady, keyDown, denied, fArm, redraw, statusRedraw;
-    bool uiHandled, help;
+    bool uiHandled, help, armWait;
     bool reverse, speaker, portOpen;
     uint8_t wpm, mode, port, uiCandidate, paBias, paControl;
     uint8_t padRaw, padStable, padPolls;
-    uint8_t smMs;
+    uint8_t smMs, ampMs;   /* ampMs: amplifier on in that many service ms */
     int16_t calSteps, tuneOffset10Hz;
     uint16_t rxPitchHz, breakInMs, xtalBase;
-    uint16_t serviceMs, batteryMs, markMs, hangElapsedMs;
+    uint16_t serviceMs, batteryMs, markMs, hangElapsedMs, armMs;
     uint32_t moder, pupdr, apbenr1;   /* saved USB-port bits only */
     uint32_t ticksPerMs, lastVal;
     int32_t smDbm;   /* held reading, capped at SMETER_DBM_MAX */
@@ -277,33 +289,70 @@ static void configureCwRx(bool enableAudio)
     a->audio_path(enableAudio && g.speaker);
 }
 
+/* The amplifier goes off before anything moves the AF output: a gain fade
+ * with the amplifier on steps the AF_ALAM DC level (a click), and so does
+ * the REG_30 cycle in configureCwRx. */
+static void speakerOff(uint16_t gainBase)
+{
+    A->audio_path(false);
+    setAudioGain(gainBase, 0u);
+}
+
+/* After configureCwRx(false): the AF output re-centres (as in EPIRB 406),
+ * then the amplifier comes back and the gain fades in. */
+static void speakerOn(uint16_t gainBase)
+{
+    const app_api_t *const a = A;
+    a->delay_ms(RX_SETTLE_MS);
+    a->audio_path(true);
+    a->delay_ms(20u);
+    fadeAudioGain(gainBase, true);
+}
+
+static uint16_t gainBase(void)
+{
+    return A->bk_read(REG_AUDIO_GAIN) & AUDIO_GAIN_BASE_MASK;
+}
+
 static void returnToRx(void)
 {
     const app_api_t *const a = A;   /* one load: calls may change g */
-    /* Fade the AF DAC before toggling AUDIO_PA_EN, then restore it only after
-     * the USB output and the amplifier have both settled. */
-    uint16_t gainBase = a->bk_read(REG_AUDIO_GAIN) & AUDIO_GAIN_BASE_MASK;
+    const uint16_t base = gainBase();
     if (g.speaker)
-        fadeAudioGain(gainBase, false);
+        speakerOff(base);
     else
-        setAudioGain(gainBase, 0u);
+        setAudioGain(base, 0u);
     a->set_af(AF_USB);
-    a->delay_ms(20u);
-    a->audio_path(false);
     a->delay_ms(10u);
     a->tx_end();
     g.txReady = false;
+    g.ampMs = 0u;
     g.hangElapsedMs = 0u;
+    g.armWait = false;
+    g.armMs = 0u;
     configureCwRx(false);
-    if (g.speaker) {
-        a->delay_ms(20u);
-        a->audio_path(true);
-        a->delay_ms(20u);
-        fadeAudioGain(gainBase, true);
-    } else {
-        setAudioGain(gainBase, AUDIO_DAC_GAIN_MAX);
-    }
+    if (g.speaker)
+        speakerOn(base);
+    else
+        setAudioGain(base, AUDIO_DAC_GAIN_MAX);
     g.statusRedraw = true;
+}
+
+/* A receive retune (pitch, crystal, offset) with the same muting. */
+static void retuneRx(void)
+{
+    if (g.txReady) {
+        returnToRx();
+        return;
+    }
+    if (!g.speaker) {
+        configureCwRx(true);
+        return;
+    }
+    const uint16_t base = gainBase();
+    speakerOff(base);
+    configureCwRx(false);
+    speakerOn(base);
 }
 
 static uint16_t dotMs(void)
@@ -636,19 +685,25 @@ static uint8_t debounced(uint8_t p)
     return g.padStable;
 }
 
-/* Called by keyOn once tx_state has allowed the transmission. */
+/* Called by keyOn or the arming press once tx_state has allowed the
+ * transmission. */
 static void prepareTx(void)
 {
     const app_api_t *const a = A;   /* one load: calls may change g */
     a->audio_path(false);
-    a->tx_set_params();
+    /* tx_prepare (API level 3, table of 368 B) leaves PA_ENABLE off and skips
+     * the FM waits; tx_set_params returns with RF enabled after a 10 ms
+     * unshaped burst. Either way, remove PA drive, apply the calibrated
+     * frequency, then start every mark with the same controlled ramp.
+     * REG_38/39 use 10 Hz synthesizer units. */
+    if (a->api_size >= 368u)
+        a->tx_prepare();
+    else
+        a->tx_set_params();
     const uint16_t pa = a->bk_read(REG_PA_BIAS);
     g.paBias = (uint8_t)(pa >> 8);
     g.paControl = (uint8_t)pa;
 
-    /* tx_set_params is atomic and returns with RF enabled. Remove PA drive
-     * immediately, apply the calibrated frequency, then start every mark with
-     * the same controlled ramp. REG_38/39 use 10 Hz synthesizer units. */
     a->tx_carrier(false);
     writeBias(0u);
 
@@ -676,7 +731,9 @@ static void prepareTx(void)
     a->bk_write(REG_TONE, TONE1_CONFIG);
     sidetone(false);
     a->set_af(AF_ALAM);
-    a->audio_path(g.speaker);
+    /* The TX setup leaves the AF output moving: the amplifier comes on
+     * AMP_SETTLE_MS later, from serviceOneMs, while the mark goes on. */
+    g.ampMs = AMP_SETTLE_MS;
     g.txReady = true;
     g.denied = false;
     g.statusRedraw = true;
@@ -698,6 +755,7 @@ static bool keyOn(void)
         prepareTx();
     sidetone(true);
     rampUp();
+    g.armWait = false;
     g.keyDown = true;
     g.markMs = 0u;
     g.hangElapsedMs = 0u;
@@ -725,6 +783,10 @@ static void serviceOneMs(void)
 {
     const app_api_t *const a = A;   /* one load: calls may change g */
     a->delay_ms(1u);
+    if (g.ampMs && --g.ampMs == 0u)
+        a->audio_path(g.speaker);
+    if (g.armMs)
+        g.armMs--;
     /* hangElapsedMs needs no reset here: keyOn() zeroes it and it only counts
      * while the key is up. */
     if (g.keyDown && ++g.markMs >= MARK_MAX_MS) {
@@ -734,7 +796,8 @@ static void serviceOneMs(void)
         g.denied = true;
         g.statusRedraw = true;
     }
-    if (g.txReady && !g.keyDown && ++g.hangElapsedMs >= g.breakInMs) {
+    if (g.txReady && !g.keyDown &&
+        ++g.hangElapsedMs >= (g.armWait ? ARM_WAIT_MS : g.breakInMs)) {
         returnToRx();
     }
     if (++g.serviceMs >= SERVICE_MS) {
@@ -829,10 +892,7 @@ static bool adjustFrequency(int8_t direction)
                     -TUNE_MAX_10HZ, TUNE_MAX_10HZ))
         return false;
 
-    if (g.txReady)
-        returnToRx();
-    else
-        configureCwRx(true);
+    retuneRx();
     g.denied = false;
     return true;
 }
@@ -882,12 +942,8 @@ static void adjustSetting(uint8_t key, int8_t direction)
         default:
             return;
     }
-    if (retune) {
-        if (g.txReady)
-            returnToRx();
-        else
-            configureCwRx(true);
-    }
+    if (retune)
+        retuneRx();
     g.redraw = true;
 }
 
@@ -1052,8 +1108,22 @@ void app_main(const app_api_t *api)
 
         /* Keying is ignored while the help page is shown: PTT and the
          * paddle contacts then only reach the help key handler. */
-        const uint8_t pad = debounced(paddles(key));
-        const bool keying = !g.help;
+        const uint8_t raw = paddles(key);
+        uint8_t pad = debounced(raw);
+        /* Paddle start on the first closed reading, confirmed 200 us later
+         * (a spike is not a contact). Bounce no longer matters once an
+         * element runs: the paddles are read again after the space. SIDE
+         * keys come from the debounced keypad scan. */
+        if (g.mode != MODE_STRAIGHT && raw && !pad) {
+            if (g.port == PORT_USB) {
+                const uint32_t t = A->cycles_48mhz();
+                while (A->cycles_48mhz() - t < CONFIRM_CYCLES)
+                    ;
+            }
+            if (paddles(key) == raw)
+                pad = raw;
+        }
+        const bool keying = !g.help && !g.armMs;
         const bool straight = keying &&
             (key == APP_KEY_PTT || (g.mode == MODE_STRAIGHT && pad));
         if (straight) {
@@ -1066,7 +1136,22 @@ void app_main(const app_api_t *api)
         } else if (keying && g.mode != MODE_STRAIGHT && pad) {
             resetUiInput();
             A->backlight_on();
-            runPaddle(pad);
+            if (g.port == PORT_USB && !g.txReady) {
+                /* Arming press. After a pause, the USB-C port reads a
+                 * held contact as open for about 200 ms (radio board, not
+                 * the paddle): this press only prepares TX, sends nothing
+                 * and takes that window; the keying starts after it. */
+                if (A->tx_state() != 0u) {
+                    g.denied = true;
+                    g.statusRedraw = true;
+                } else {
+                    prepareTx();
+                    g.armWait = true;
+                    g.armMs = ARM_HOLDOFF_MS;
+                }
+            } else {
+                runPaddle(pad);
+            }
             g.padRaw = g.padStable = g.padPolls = 0u;   /* no stale restart */
         } else if (key != APP_KEY_INVALID) {
             handleUiInput(key);
