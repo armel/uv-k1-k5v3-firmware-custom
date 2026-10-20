@@ -1,6 +1,10 @@
 /* Copyright 2026 Armel F4HWN
  * https://github.com/armel
  *
+ * USB-C paddle port and paddle keyer,
+ * Copyright 2026 Johan Denoyer F4WAT
+ * https://github.com/jdenoy
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -17,9 +21,21 @@
 /*
  * CW Keyer - self-contained A1A-style manual keyer overlay.
  *
- * PTT is always a straight key. SIDE1/SIDE2 are either straight keys or a
- * single-paddle-at-a-time automatic keyer. The existing overlay ABI reports
- * only one key, so true iambic squeeze detection is intentionally not claimed.
+ * PTT is always a straight key. The paddle port is either SIDE1/SIDE2 or a
+ * paddle on the USB-C connector (D+ = dit, D- = dah, closed to ground). Modes:
+ * STRAIGHT and PADDLE (AUTO legacy, IAMB A or IAMB B with opposite-paddle
+ * memory). get_key() reports one key only, so a squeeze is only visible
+ * on the USB port, whose two contacts are read together from GPIOA_IDR; on
+ * SIDE1/SIDE2 the paddle mode behaves as a single-paddle keyer.
+ *
+ * USB port: on entry the app sets PA11/PA12 to inputs with pull-up and stops
+ * the USB clock (a powered USB device holds D+ for about two seconds after a
+ * contact closes). Only those bits are touched, under masked IRQs, and they are
+ * put back on exit, so the PC link works again once the app is closed.
+ *
+ * Element timing is measured on the SysTick counter rather than by counting
+ * 1 ms waits: each wait iteration also scans the keypad (about 0.2 ms), which
+ * would otherwise stretch every element by roughly 20 %.
  *
  * The BK4829 VRAMP PA-bias byte in REG_36 is stepped across four milliseconds
  * at each edge. The board PA GPIO is enabled before the rise and disabled after
@@ -32,16 +48,19 @@
 #include "../app_api.h"
 #include "cwkeyer_assets.h"
 
-#define CFG_MAGIC_V1       0xC7u
-#define CFG_MAGIC_V2       0xC8u
-#define CFG_MAGIC_V3       0xC9u
-#define CFG_MAGIC          0xCAu
+#ifndef APP_VERSION
+#define APP_VERSION "dev"
+#endif
+
+#define CFG_MAGIC_V4       0xCAu   /* 0.2: crystal correction in centi-ppm */
+#define CFG_MAGIC          0xCBu   /* 0.4: crystal correction in REG_3B steps */
 #define WPM_DEFAULT        18u
 #define WPM_MIN             5u
-#define WPM_MAX            40u
-#define CAL_DEFAULT       277
-#define CAL_MIN          -999
-#define CAL_MAX           999
+#define WPM_MAX            60u
+#define CAL_DEFAULT        14   /* REG_3B steps: 14 x 0.1923 = +2.69 ppm */
+#define CAL_MIN           -50
+#define CAL_MAX            50
+#define REG_XTAL         0x3Bu
 #define RX_PITCH_DEFAULT  700u
 #define RX_PITCH_MIN      300u
 #define RX_PITCH_MAX      900u
@@ -61,6 +80,7 @@
 #define SERVICE_MS          10u
 #define BATTERY_MS         500u
 #define F_X                  72u
+#define DEBOUNCE_POLLS        3u   /* straight key: ~3.5 ms of stable reading */
 
 _Static_assert(1200u / WPM_MAX > 2u * RAMP_MS,
                "CW mark must remain longer than both RF ramps");
@@ -98,34 +118,51 @@ _Static_assert(1200u / WPM_MAX > 2u * RAMP_MS,
 #define KEY_SIDE1          18u
 
 enum { MODE_STRAIGHT, MODE_PADDLE };
+enum { PORT_SIDE, PORT_USB };
+#define GPIOA_MODER (*(volatile uint32_t *)0x50000000u)
+#define GPIOA_PUPDR (*(volatile uint32_t *)0x5000000Cu)
+#define GPIOA_IDR   (*(volatile uint32_t *)0x50000010u)
+#define RCC_APBENR1 (*(volatile uint32_t *)0x4002103Cu)
+#define SYST_LOAD   (*(volatile uint32_t *)0xE000E014u)
+#define SYST_VAL    (*(volatile uint32_t *)0xE000E018u)
+#define USBEN       (1u << 23)
+#define PIN_DM      11u   /* PA11 USB D-, adapter ring  */
+#define PIN_DP      12u   /* PA12 USB D+, adapter tip   */
+#define USB_PINS    (0xFu << (2u * PIN_DM))   /* PA11/PA12 MODER and PUPDR */
+#define USB_PULLUP  (0x5u << (2u * PIN_DM))
+#define P_DIT 1u
+#define P_DAH 2u
 
 typedef struct {
     uint8_t magic, wpm, mode, reverse;
-    int16_t calCentiPpm;
+    int16_t calSteps;
     uint16_t rxPitchHz, breakInMs;
-    uint8_t speaker, reserved;
+    uint8_t speaker, port;
+    uint8_t keyer, keyerTag; /* offsets 12/13; legacy prefix unchanged */
 } config_t;
 
 _Static_assert(sizeof(config_t) <= 16u, "CW Keyer config exceeds overlay slot");
+_Static_assert(__builtin_offsetof(config_t, keyer) == 12u && sizeof(config_t) == 14u,
+               "Config must preserve the legacy 12-byte prefix");
 
 static struct {
     const app_api_t *A;
     bool running, txReady, keyDown, denied, fArm, redraw, statusRedraw;
-    bool help, uiHandled;
-    bool reverse, speaker;
-    uint8_t wpm, mode, uiCandidate, paBias, paControl;
-    int16_t calCentiPpm, tuneOffset10Hz;
-    uint16_t rxPitchHz, breakInMs;
+    bool uiHandled;
+    bool cfgDirty;
+    bool reverse, speaker, portOpen;
+    uint8_t wpm, mode, port, uiCandidate, paBias, paControl;
+    uint8_t padRaw, padStable, padPolls;
+    uint8_t keyer, element, memory; /* AUTO/A/B; element bit 2 = mark */
+    uint32_t moder, pupdr, apbenr1;   /* saved USB-port bits only */
+    uint32_t ticksPerMs, lastVal;
+    int16_t calSteps, tuneOffset10Hz;
+    uint16_t rxPitchHz, breakInMs, xtalBase;
     uint16_t serviceMs, batteryMs, markMs, hangElapsedMs;
     uint32_t uiCandidateAt, navRepeatAt;
 } g;
 
 #define A (g.A)
-
-static const uint32_t places[] = {
-    1000000000u, 100000000u, 10000000u, 1000000u, 100000u,
-    10000u, 1000u, 100u, 10u, 1u
-};
 
 static char *text(char *buf, uint16_t offset)
 {
@@ -150,24 +187,21 @@ static char *put(char *out, const char *s)
 
 static char *putu(char *out, uint32_t value)
 {
-    bool started = false;
-    for (uint8_t i = 0u; i < sizeof(places) / sizeof(places[0]); i++) {
-        uint8_t digit = 0u;
-        while (value >= places[i]) {
-            value -= places[i];
-            digit++;
-        }
-        if (digit || started || places[i] == 1u) {
-            *out++ = (char)('0' + digit);
-            started = true;
-        }
-    }
+    char tmp[10];
+    uint8_t n = 0u;
+    do {
+        const uint64_t qr = A->uidivmod(value, 10u);
+        tmp[n++] = (char)('0' + (uint32_t)(qr >> 32));
+        value = (uint32_t)qr;
+    } while (value);
+    while (n)
+        *out++ = tmp[--n];
     return out;
 }
 
 static char *putCalibration(char *out)
 {
-    int16_t value = g.calCentiPpm;
+    int16_t value = (int16_t)(uint32_t)A->idivmod(g.calSteps * 1923 + (g.calSteps < 0 ? -50 : 50), 100);
     *out++ = value < 0 ? '-' : '+';
     uint16_t magnitude = (uint16_t)(value < 0 ? -value : value);
     const uint64_t qr = A->uidivmod(magnitude, 100u);
@@ -184,29 +218,10 @@ static char *putCalibration(char *out)
     return out;
 }
 
-/* Calibration is stored in hundredths of one ppm. Positive means the radio's
- * measured carrier is high, so the programmed synthesizer word is reduced. */
-static uint32_t calibratedFrequency(uint32_t frequency)
-{
-    const int16_t signedCal = g.calCentiPpm;
-    const uint16_t cal = (uint16_t)(signedCal < 0 ? -signedCal : signedCal);
-    if (cal == 0u)
-        return frequency;
-
-    uint64_t qr = A->uidivmod(frequency, 100000u);
-    const uint32_t wholeMHz = (uint32_t)qr;
-    const uint32_t fraction = (uint32_t)(qr >> 32);
-
-    qr = A->uidivmod(wholeMHz * cal, 1000u);
-    uint32_t correction = (uint32_t)qr;
-    const uint32_t tail = (uint32_t)(qr >> 32) * 100000u + fraction * cal;
-    correction += (uint32_t)A->uidivmod(tail + 50000000u, 100000000u);
-
-    if (signedCal > 0)
-        return correction < frequency ? frequency - correction : 0u;
-    return frequency + correction;
-}
-
+/* The crystal correction is a signed count of BK4829 REG_3B steps (5 Hz on
+ * the 26 MHz reference, 0.1923 ppm each). Positive means the radio's measured
+ * carrier is high: the chip is told its crystal is faster, which lowers every
+ * RX and TX frequency in proportion. The display shows it in ppm. */
 static uint32_t tunedFrequency(uint32_t frequency)
 {
     const int16_t offset = g.tuneOffset10Hz;
@@ -234,7 +249,7 @@ static void fadeAudioGain(uint16_t base, bool up)
 
 static void configureCwRx(bool enableAudio)
 {
-    uint32_t frequency = calibratedFrequency(tunedFrequency(A->rx_freq()));
+    uint32_t frequency = tunedFrequency(A->rx_freq());
     const uint32_t pitch = (uint32_t)A->uidivmod(g.rxPitchHz, 10u);
     if (frequency > pitch)
         frequency -= pitch;
@@ -248,13 +263,14 @@ static void configureCwRx(bool enableAudio)
     /* Use the BK4829 USB baseband output as a CW product detector. Tuning the
      * receiver below the carrier produces the configured receive tone. */
     A->bk_write(REG_AM_CTRL, A->bk_read(REG_AM_CTRL) & 0xFFFEu);
-    A->bk_write(REG_RX_LEVEL, 0x6B5Au);
-    A->bk_write(REG_RX_FILTER_1, 0x7400u);
-    A->bk_write(REG_RX_FILTER_2, 0x0000u);
-    A->bk_write(REG_RX_FILTER_3, 0x9890u);
-    A->bk_write(REG_AUDIO_1, 0x9009u);
-    A->bk_write(REG_AUDIO_2, 0x31A9u);
-    A->bk_write(REG_AUDIO_FILTER, 0u);
+    static const uint16_t rxProfile[][2] = {
+        { REG_RX_LEVEL, 0x6B5Au }, { REG_RX_FILTER_1, 0x7400u },
+        { REG_RX_FILTER_2, 0u }, { REG_RX_FILTER_3, 0x9890u },
+        { REG_AUDIO_1, 0x9009u }, { REG_AUDIO_2, 0x31A9u },
+        { REG_AUDIO_FILTER, 0u },
+    };
+    for (uint8_t i = 0u; i < 7u; i++)
+        A->bk_write((uint8_t)rxProfile[i][0], rxProfile[i][1]);
     A->bk_write(REG_AFC, A->bk_read(REG_AFC) | 0x0010u);
     A->set_agc(true);
     A->set_af(AF_USB);
@@ -315,11 +331,6 @@ static bool isSide(uint8_t key)
     return key == KEY_SIDE1 || key == KEY_SIDE2;
 }
 
-static uint8_t ditKey(void)
-{
-    return g.reverse ? KEY_SIDE2 : KEY_SIDE1;
-}
-
 static void drawConfigTag(const char *s, bool right, uint8_t line)
 {
     A->print_inverse(s, right ? 87u : 2u, line, false, true,
@@ -332,6 +343,7 @@ static void drawStatus(uint16_t title, uint8_t titleChars)
     char t[TEXT_MAX];
     A->print_inverse(text(t, title), 2u, 0u, true, true,
                      (uint8_t)(2u + titleChars * 4u));
+    A->print_tiny(APP_VERSION, 92u, 1u, true, false);
     A->draw_battery();
 }
 
@@ -374,7 +386,7 @@ static void drawMain(void)
 
     drawBigFrequency(s);
 
-    char *out = put(s, text(t, g.mode == MODE_PADDLE ? T_PADDLE : T_STRAIGHT));
+    char *out = put(s, text(t, T_MODE + (g.mode ? 1u + g.keyer : 0u) * T_MODE_STRIDE));
     *out = '\0';
     out = put(right, text(t, T_SPEED));
     out = putu(out, g.wpm);
@@ -391,7 +403,8 @@ static void drawMain(void)
     drawConfigTag(s, false, 5u);
     drawConfigTag(right, true, 5u);
 
-    out = put(s, g.reverse ? "DAH-DIT" : "DIT-DAH");
+    out = put(s, text(t, T_PORT + g.port * T_PORT_STRIDE));
+    out = put(out, g.reverse ? "DA-DI" : "DI-DA");
     *out = '\0';
     out = put(right, text(t, T_XTAL));
     out = putCalibration(out);
@@ -400,29 +413,10 @@ static void drawMain(void)
     drawConfigTag(right, true, 6u);
 }
 
-static void drawHelp(void)
-{
-    char t[TEXT_MAX];
-    drawStatus(T_TITLE, T_TITLE_CHARS);
-    A->print_inverse(text(t, T_HELP), 43u, 0u, true, true,
-                     (uint8_t)(43u + slen(t) * 4u));
-    for (uint8_t i = 0u; i < 6u; i++) {
-        A->print_inverse(text(t, T_HELP_LEFT + i * T_HELP_LEFT_STRIDE),
-                         2u, (uint8_t)(i + 1u), false, true, 42u);
-        text(t, T_HELP_RIGHT + i * T_HELP_RIGHT_STRIDE);
-        if (t[0])
-            A->print_inverse(t, 79u, (uint8_t)(i + 1u), false, true, 127u);
-    }
-    A->print_tiny(text(t, T_HELP_STEP), 56u, 49u, false, true);
-}
-
 static void draw(void)
 {
     A->display_clear();
-    if (g.help)
-        drawHelp();
-    else
-        drawMain();
+    drawMain();
     A->blit_status();
     A->blit_full();
     g.redraw = false;
@@ -451,28 +445,131 @@ static void sidetone(bool on)
     A->bk_write(REG_TONE_FREQ, on ? toneControlWord(g.rxPitchHz) : 0u);
 }
 
+static void observe(uint8_t key);
+
+static void rampDelay(void)
+{
+    A->delay_ms(1u);
+    if (g.keyer && g.element && g.port == PORT_USB)
+        observe(APP_KEY_INVALID);
+}
+
 static void rampUp(void)
 {
     const uint8_t quarter = (uint8_t)(g.paBias >> 2);
     const uint8_t half = (uint8_t)(g.paBias >> 1);
     A->bk_write(REG_TX_LINK, TX_LINK_NO_MIC);
     A->tx_carrier(true);
-    writeBias(quarter);                         A->delay_ms(1u);
-    writeBias(half);                            A->delay_ms(1u);
-    writeBias((uint8_t)(g.paBias - quarter));  A->delay_ms(1u);
-    writeBias(g.paBias);                        A->delay_ms(1u);
+    writeBias(quarter);                         rampDelay();
+    writeBias(half);                            rampDelay();
+    writeBias((uint8_t)(g.paBias - quarter));  rampDelay();
+    writeBias(g.paBias);                        rampDelay();
 }
 
 static void rampDown(void)
 {
     const uint8_t quarter = (uint8_t)(g.paBias >> 2);
     const uint8_t half = (uint8_t)(g.paBias >> 1);
-    writeBias((uint8_t)(g.paBias - quarter));  A->delay_ms(1u);
-    writeBias(half);                            A->delay_ms(1u);
-    writeBias(quarter);                         A->delay_ms(1u);
-    writeBias(0u);                              A->delay_ms(1u);
+    writeBias((uint8_t)(g.paBias - quarter));  rampDelay();
+    writeBias(half);                            rampDelay();
+    writeBias(quarter);                         rampDelay();
+    writeBias(0u);                              rampDelay();
     A->tx_carrier(false);
     A->bk_write(REG_TX_LINK, TX_LINK_NO_PA);
+}
+
+static uint32_t irqSave(void)
+{
+    uint32_t primask;
+    __asm volatile ("mrs %0, primask\n cpsid i" : "=r" (primask) :: "memory");
+    return primask;
+}
+
+static void irqRestore(uint32_t primask)
+{
+    __asm volatile ("msr primask, %0" :: "r" (primask) : "memory");
+}
+
+/* open: pull-up, then input mode, then USB clock off, as validated on the bench
+ * with Key Probe 0.3; close puts the saved bits back. Read-modify-write of the
+ * named bits only, IRQs masked. */
+static void portSet(bool open)
+{
+    if (open == g.portOpen || (open && g.port != PORT_USB))
+        return;
+    const uint32_t irq = irqSave();
+    if (open) {
+        g.moder = GPIOA_MODER & USB_PINS;
+        g.pupdr = GPIOA_PUPDR & USB_PINS;
+        g.apbenr1 = RCC_APBENR1 & USBEN;
+    }
+    GPIOA_PUPDR = (GPIOA_PUPDR & ~USB_PINS) | (open ? USB_PULLUP : g.pupdr);
+    GPIOA_MODER = (GPIOA_MODER & ~USB_PINS) | (open ? 0u : g.moder);
+    RCC_APBENR1 = (RCC_APBENR1 & ~USBEN) | (open ? 0u : g.apbenr1);
+    irqRestore(irq);
+    g.portOpen = open;
+}
+
+/* CPU clock ticks since the previous call, from the 10 ms SysTick down-counter.
+ * Valid while calls are less than 10 ms apart. */
+static uint32_t ticksSince(void)
+{
+    const uint32_t now = SYST_VAL;
+    const uint32_t prev = g.lastVal;
+    g.lastVal = now;
+    return prev >= now ? prev - now : prev + SYST_LOAD + 1u - now;
+}
+
+/* Both contacts are sampled together, so a squeeze is visible. */
+static uint8_t paddles(uint8_t key)
+{
+    uint8_t p = 0u;
+    if (g.port == PORT_USB) {
+        const uint32_t a = ~GPIOA_IDR;
+        if (a & (1u << PIN_DP)) p = P_DIT;
+        if (a & (1u << PIN_DM)) p |= P_DAH;
+    } else if (key == KEY_SIDE1) {
+        p = P_DIT;
+    } else if (key == KEY_SIDE2) {
+        p = P_DAH;
+    }
+    /* A straight key keys on the tip only, so a mono plug (ring shorted to
+     * sleeve) works; the two SIDE keys stay parallel straight keys. */
+    if (g.mode == MODE_STRAIGHT)
+        return g.port == PORT_SIDE ? (uint8_t)(p != 0u) : (uint8_t)(p & P_DIT);
+    return g.reverse ? (uint8_t)(((p & 1u) << 1) | (p >> 1)) : p;
+}
+
+/* A contact must read the same on DEBOUNCE_POLLS consecutive polls before the
+ * straight-key and keyer-start decisions see it. */
+static uint8_t debounced(uint8_t p)
+{
+    if (p != g.padRaw) {
+        g.padRaw = p;
+        g.padPolls = 0u;
+    } else if (g.padPolls < DEBOUNCE_POLLS) {
+        g.padPolls++;
+    } else {
+        g.padStable = p;
+    }
+    return g.padStable;
+}
+
+/* A remembers isolated opposite taps. B additionally remembers a squeeze
+ * during the mark, including both ramps. Squeeze during the space alone does
+ * not queue a tail. Consuming a queued element clears the memory. */
+static void observe(uint8_t key)
+{
+    const uint8_t p = paddles(key);
+    /* Two consecutive samples for active memory; the slower legacy debounce
+     * remains in place for starting a sequence and for straight keying. */
+    if (p != g.padRaw) {
+        g.padRaw = p;
+        return;
+    }
+    const uint8_t opposite = (g.element & 3u) ^ 3u;
+    if (p == opposite || (p == 3u && g.keyer == 2u && (g.element & 4u)))
+        g.memory = opposite;
 }
 
 static bool prepareTx(void)
@@ -501,7 +598,7 @@ static bool prepareTx(void)
     A->tx_mute(true);
     A->bk_write(REG_SUBAUDIO, 0u);
     A->bk_write(REG_TONE, 0u);
-    const uint32_t frequency = calibratedFrequency(tunedFrequency(A->tx_freq()));
+    const uint32_t frequency = tunedFrequency(A->tx_freq());
     A->bk_write(REG_FREQ_LOW, (uint16_t)frequency);
     A->bk_write(REG_FREQ_HIGH, (uint16_t)(frequency >> 16));
 
@@ -592,54 +689,53 @@ static void serviceOneMs(void)
     }
 }
 
-/* Wait without touching the display. Opposite-paddle taps are remembered, and
- * EXIT remains an immediate RF-safe abort even during a dah. */
-static bool keyerWait(uint16_t ms, uint8_t current, uint8_t *memory)
+/* Element wait: observe A/B on every scan; AUTO keeps its legacy behavior.
+ * EXIT aborts the wait and the caller safely ramps the carrier down. */
+static bool keyerWait(uint16_t ms)
 {
-    while (ms-- && g.running) {
-        serviceOneMs();
+    uint32_t left = ms * g.ticksPerMs;
+    ticksSince();
+    for (;;) {
         const uint8_t key = A->get_key();
         if (key == APP_KEY_EXIT) {
             g.running = false;
             return false;
         }
-        if (isSide(key) && key != current)
-            *memory = key;
+        if (g.keyer)
+            observe(key);
+        const uint32_t spent = ticksSince();
+        if (spent >= left)
+            return g.running;
+        left -= spent;
+        /* Poll without sleeping for the last millisecond: overshoot stays
+         * below one keypad scan instead of a whole 1 ms step. */
+        if (left > g.ticksPerMs)
+            serviceOneMs();
     }
-    return g.running;
 }
 
-static bool sendElement(uint8_t key, uint8_t *memory)
+static void runPaddle(uint8_t p)
 {
-    if (!keyOn())
-        return false;
-
-    const uint16_t dot = dotMs();
-    uint16_t mark = dot;
-    if (key != ditKey())
-        mark = (uint16_t)(mark * 3u);
-    const uint16_t holdMs = (uint16_t)(mark - 2u * RAMP_MS);
-
-    const bool complete = keyerWait(holdMs, key, memory);
-    keyOff();
-    if (!complete)
-        return false;
-    return keyerWait(dot, key, memory);
-}
-
-static void runKeyer(uint8_t first)
-{
-    uint8_t current = first;
-    while (g.running && isSide(current)) {
-        uint8_t memory = APP_KEY_INVALID;
-        if (!sendElement(current, &memory))
+    uint8_t last = 0u;
+    while (p) {
+        const uint8_t el = p != (P_DIT | P_DAH) ? p : last == P_DIT ? P_DAH : P_DIT;
+        g.element = el | 4u;
+        g.memory = 0u;
+        if (!keyOn())
             break;
-        if (isSide(memory)) {
-            current = memory;
-            continue;
-        }
-        current = A->get_key();
+        const uint16_t dot = dotMs();
+        /* The PA bias ramps take RAMP_MS at each edge and cross half drive
+         * about one millisecond off centre, so the waits are trimmed to give a
+         * 1:1 mark/space at the half-drive points and an exact 2-dot period. */
+        const bool done = keyerWait((uint16_t)((el == P_DAH ? 3u * dot : dot) - RAMP_MS - 1u));
+        keyOff();
+        g.element = el;
+        if (!done || !keyerWait((uint16_t)(dot - RAMP_MS + 1u)))
+            break;
+        last = el;
+        p = g.keyer && g.memory ? g.memory : paddles(A->get_key());
     }
+    g.element = 0u;
 }
 
 static bool adjustFrequency(int8_t direction)
@@ -673,7 +769,15 @@ static void adjustSetting(uint8_t key, int8_t direction)
             A->audio_path(g.speaker);
             break;
         case APP_KEY_1:
-            g.mode ^= 1u;
+            g.mode = (uint8_t)(g.mode ^ 1u);
+            break;
+        case APP_KEY_8:
+            g.keyer = g.keyer == 2u ? 0u : g.keyer + 1u;
+            break;
+        case APP_KEY_7:
+            portSet(false);
+            g.port = (uint8_t)(g.port ^ 1u);
+            portSet(true);
             break;
         case APP_KEY_2:
             if (direction > 0) {
@@ -712,14 +816,15 @@ static void adjustSetting(uint8_t key, int8_t direction)
             break;
         case APP_KEY_6:
             if (direction > 0) {
-                if (g.calCentiPpm >= CAL_MAX)
+                if (g.calSteps >= CAL_MAX)
                     return;
-                g.calCentiPpm++;
+                g.calSteps++;
             } else {
-                if (g.calCentiPpm <= CAL_MIN)
+                if (g.calSteps <= CAL_MIN)
                     return;
-                g.calCentiPpm--;
+                g.calSteps--;
             }
+            A->bk_write(REG_XTAL, (uint16_t)(g.xtalBase + g.calSteps));
             retune = true;
             break;
         default:
@@ -731,19 +836,12 @@ static void adjustSetting(uint8_t key, int8_t direction)
         else
             configureCwRx(true);
     }
+    g.cfgDirty = true;
     g.redraw = true;
 }
 
 static void handleUiKey(uint8_t key)
 {
-    if (g.help) {
-        if (key == APP_KEY_EXIT || key == APP_KEY_MENU) {
-            g.help = false;
-            g.redraw = true;
-        }
-        return;
-    }
-
     int8_t direction = A->nav_dir(key);
     if (direction != 0) {
         if (adjustFrequency(direction))
@@ -757,18 +855,12 @@ static void handleUiKey(uint8_t key)
         case APP_KEY_EXIT:
             g.running = false;
             break;
-        case APP_KEY_MENU:
-            disarm();
-            g.fArm = false;
-            g.help = true;
-            g.redraw = true;
-            break;
         case APP_KEY_F:
             g.fArm = !g.fArm;
             g.statusRedraw = true;
             break;
         case APP_KEY_0: case APP_KEY_1: case APP_KEY_2: case APP_KEY_3:
-        case APP_KEY_4: case APP_KEY_5: case APP_KEY_6:
+        case APP_KEY_4: case APP_KEY_5: case APP_KEY_6: case APP_KEY_7: case APP_KEY_8:
             adjustSetting(key, g.fArm ? -1 : 1);
             g.fArm = false;
             g.statusRedraw = true;
@@ -817,27 +909,33 @@ static void loadConfig(void)
 {
     config_t cfg;
     A->cfg_load((uint8_t *)&cfg, sizeof(cfg));
-    if ((cfg.magic == CFG_MAGIC || cfg.magic == CFG_MAGIC_V3 ||
-         cfg.magic == CFG_MAGIC_V2 || cfg.magic == CFG_MAGIC_V1) &&
+    if (cfg.magic == CFG_MAGIC_V4) {
+        /* 0.2 config: no port byte, correction in centi-ppm. */
+        cfg.port = PORT_SIDE;
+        cfg.calSteps = (int16_t)(uint32_t)A->idivmod(
+            cfg.calSteps * 100 + (cfg.calSteps < 0 ? -961 : 961), 1923);
+        cfg.magic = CFG_MAGIC;
+    }
+    if (cfg.magic == CFG_MAGIC &&
         cfg.wpm >= WPM_MIN && cfg.wpm <= WPM_MAX &&
-        cfg.mode <= MODE_PADDLE && cfg.reverse <= 1u) {
+        cfg.mode <= MODE_PADDLE && cfg.port <= PORT_USB && cfg.reverse <= 1u) {
         g.wpm = cfg.wpm;
         g.mode = cfg.mode;
         g.reverse = cfg.reverse;
-        g.calCentiPpm = (cfg.magic == CFG_MAGIC || cfg.magic == CFG_MAGIC_V3 ||
-            cfg.magic == CFG_MAGIC_V2) &&
-            cfg.calCentiPpm >= CAL_MIN && cfg.calCentiPpm <= CAL_MAX
-            ? cfg.calCentiPpm : CAL_DEFAULT;
+        g.port = cfg.port;
+        g.keyer = cfg.keyerTag == 0xD3u && cfg.keyer <= 2u ? cfg.keyer : 0u;
+        g.calSteps = cfg.calSteps >= CAL_MIN && cfg.calSteps <= CAL_MAX
+            ? cfg.calSteps : CAL_DEFAULT;
     } else {
         g.wpm = WPM_DEFAULT;
         g.mode = MODE_STRAIGHT;
         g.reverse = false;
-        g.calCentiPpm = CAL_DEFAULT;
+        g.calSteps = CAL_DEFAULT;
     }
-    g.rxPitchHz = (cfg.magic == CFG_MAGIC || cfg.magic == CFG_MAGIC_V3) &&
+    g.rxPitchHz = cfg.magic == CFG_MAGIC &&
         cfg.rxPitchHz >= RX_PITCH_MIN && cfg.rxPitchHz <= RX_PITCH_MAX
         ? cfg.rxPitchHz : RX_PITCH_DEFAULT;
-    g.breakInMs = (cfg.magic == CFG_MAGIC || cfg.magic == CFG_MAGIC_V3) &&
+    g.breakInMs = cfg.magic == CFG_MAGIC &&
         cfg.breakInMs >= BREAKIN_MIN && cfg.breakInMs <= BREAKIN_MAX
         ? cfg.breakInMs : BREAKIN_DEFAULT;
     g.speaker = cfg.magic == CFG_MAGIC && cfg.speaker <= 1u
@@ -847,23 +945,30 @@ static void loadConfig(void)
 static void saveConfig(void)
 {
     const config_t cfg = {
-        CFG_MAGIC, g.wpm, g.mode, (uint8_t)g.reverse, g.calCentiPpm,
-        g.rxPitchHz, g.breakInMs, (uint8_t)g.speaker, 0u
+        CFG_MAGIC, g.wpm, g.mode, (uint8_t)g.reverse, g.calSteps,
+        g.rxPitchHz, g.breakInMs, (uint8_t)g.speaker, g.port, g.keyer, 0xD3u
     };
-    A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
+    if (g.cfgDirty)
+        A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
 }
 
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
     A = api;
+    g.keyer = 0u;
+    g.cfgDirty = false;
+    g.element = 0u;
     g.running = true;
     g.redraw = true;
     g.statusRedraw = false;
-    g.help = false;
     resetUiInput();
     loadConfig();
+    portSet(true);
+    g.ticksPerMs = (uint32_t)A->uidivmod(SYST_LOAD + 1u, 10u);
     A->backlight_on();
+    g.xtalBase = A->bk_read(REG_XTAL);
+    A->bk_write(REG_XTAL, (uint16_t)(g.xtalBase + g.calSteps));
     configureCwRx(true);
     draw();
 
@@ -880,7 +985,7 @@ void app_main(const app_api_t *api)
         /* A denied key-down is latched until every keying control is released;
          * otherwise a held PTT would call tx_state and repaint every millisecond. */
         if (g.denied) {
-            if (key == APP_KEY_PTT || isSide(key)) {
+            if (key == APP_KEY_PTT || isSide(key) || paddles(key)) {
                 resetUiInput();
                 serviceOneMs();
                 continue;
@@ -889,8 +994,9 @@ void app_main(const app_api_t *api)
             g.statusRedraw = true;
         }
 
-        const bool straight = !g.help && (key == APP_KEY_PTT ||
-            (g.mode == MODE_STRAIGHT && isSide(key)));
+        const uint8_t pad = debounced(paddles(key));
+        const bool straight =
+            (key == APP_KEY_PTT || (g.mode == MODE_STRAIGHT && pad));
         if (straight) {
             resetUiInput();
             if (!g.keyDown)
@@ -898,10 +1004,11 @@ void app_main(const app_api_t *api)
         } else if (g.keyDown) {
             keyOff();
             resetUiInput();
-        } else if (!g.help && g.mode == MODE_PADDLE && isSide(key)) {
+        } else if (g.mode != MODE_STRAIGHT && pad) {
             resetUiInput();
             A->backlight_on();
-            runKeyer(key);
+            runPaddle(pad);
+            g.padRaw = g.padStable = g.padPolls = 0u;   /* no stale restart */
         } else if (key != APP_KEY_INVALID) {
             handleUiInput(key);
         } else {
@@ -910,12 +1017,14 @@ void app_main(const app_api_t *api)
 
         if (g.redraw && !g.keyDown)
             draw();
-        else if (g.statusRedraw && !g.help && !g.keyDown)
+        else if (g.statusRedraw && !g.keyDown)
             redrawMainStatus();
         serviceOneMs();
     }
 
     disarm();
+    A->bk_write(REG_XTAL, g.xtalBase);
+    portSet(false);
     saveConfig();
     A->set_af(APP_AF_MUTE);
     A->audio_path(false);
