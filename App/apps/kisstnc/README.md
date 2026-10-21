@@ -16,7 +16,7 @@ the same port as the programming cable. No firmware rebuild is required.
 2. Set the squelch above zero. SQL mode will not transmit while the squelch
    is open.
 3. Start KISS TNC, then open the programming-cable serial port from the host
-   at **38400 8N1**, KISS, one port.
+   at **38400 8N1**, KISS, one port. Hardware flow control should be off.
 4. EXIT on the radio leaves the modem and restores the programming port.
 
 YAAC, Xastir and APRSISCE/32 use this the same way. Close the host before
@@ -37,11 +37,8 @@ Tools, Options, TNC:
 | Send startup script | off |
 | Send shutdown script | off |
 
-`The write timed out` is PinPoint's serial write. Hardware flow control waits
-for CTS, and the Kenwood programming jack does not have that pin, so the
-write never finishes. Kenwood TH-D7 / TM-D710 in the TNC list is the text
-TNC2 protocol, not this modem. Start KISS TNC on the radio before connecting
-in PinPoint.
+Kenwood TH-D7 / TM-D710 in the TNC list is the text TNC2 protocol, not this
+modem. Start KISS TNC on the radio before connecting in PinPoint.
 
 KISS data is the AX.25 frame without flags and without the FCS. The TNC
 checks the FCS on receive and strips it, and appends a new FCS, flags and
