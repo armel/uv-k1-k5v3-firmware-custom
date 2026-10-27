@@ -1,0 +1,9 @@
+*.elf
+*.bin
+*.map
+*.app
+*.su
+*_assets.h
+__pycache__/
+test/out*/
+editor/tests/out/

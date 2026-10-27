@@ -1,0 +1,12 @@
+{
+  "version": "0.4",
+  "source_branch": "experiment/cw-qso-auto-repeat01",
+  "overlay": 4092,
+  "bss": 92,
+  "assets": 2282,
+  "app_sha256": "9aa7749f6614a3c7ef111edf78582a70fc18ee491441602d8fd3df889018517a",
+  "source_sha256": "c7c7594068464a5f231f1e4d343e2366b1b6ab908bd1512722fa99ebdfb11e16",
+  "code_sha256": "d5ec353509642b5aeba50386102e5d813ece1de4cbd9364e492bc1c07bb9e3c4",
+  "assets_sha256": "c0fac51202763e31398c973e98266ad84a5f97ef13edf308766a7d74f31a444d",
+  "compiler": "GNU Arm Embedded GCC 13.3.Rel1 (13.3.1 20240614)"
+}

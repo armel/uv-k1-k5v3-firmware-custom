@@ -1,0 +1,6 @@
+* text=auto eol=lf
+# Preserve the exact bytes of the hardware-validated input sources.
+cwqsoauto_app.c -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+gen_assets.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+qso_identity.h -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+app.ld -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
