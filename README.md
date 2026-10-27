@@ -195,6 +195,9 @@ between two tones (DTMF, FSK, Bell 202...). Both work in FM, AM and USB.
 > Fusion. Use the app files supplied with the same firmware release so their ABI
 > and required capabilities match the installed firmware.
 
+To write your own app and share it through UV Studio's Community tab, see
+[Writing an overlay app](https://github.com/armel/uv-k1-k5v3-firmware-custom/wiki/Writing-an-overlay-app) in the Wiki.
+
 > [!CAUTION]
 > Transmitting apps must only be used on frequencies, power levels and modes
 > permitted by your licence and local regulations.
