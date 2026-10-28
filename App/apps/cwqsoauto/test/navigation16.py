@@ -21,11 +21,11 @@ int main(void){
         setup(1,18);
         for(unsigned n=0;n<64;n++){
             handleUiKeyDirection(APP_KEY_DOWN,direction);
-            assert(q.selected==(n+1)%16 && !quietN && !g.tuneOffset10Hz);navCases++;
+            assert(q.selected==(n+1)%16 && !quietN && !q.settings);navCases++;
         }
         for(unsigned n=0;n<64;n++){
             handleUiKeyDirection(APP_KEY_UP,direction);
-            assert(q.selected==(63-n)%16 && !quietN && !g.tuneOffset10Hz);navCases++;
+            assert(q.selected==(63-n)%16 && !quietN && !q.settings);navCases++;
         }
     }
     for(unsigned selection=0;selection<16;selection++){
@@ -37,9 +37,9 @@ int main(void){
         assert(q.selected==selection && q.message==selection && markN==expectedMarks);
         assert(quietN==1 && endN==1 && !rf);navCases++;
         setup(1,18);q.selected=selection;draw();
-        char label[20];sprintf(label,selection<3?"%02u ":"MSG %02u",selection+1);
+        char label[20];sprintf(label,"%02u ",selection+1);
         assert(!strncmp(screen[2],label,strlen(label)) && !strcmp(screen[4],"RST 599"));
-        if(selection<3)assert(!screen[3][0]);else assert(screen[3][0]);
+        assert(screen[3][0]);
         assert(!screen[5][0] && !screen[6][0] && !quietN);navCases++;
         for(unsigned speed=5;speed<=60;speed++){
             setup(1,speed);q.message=selection;startAuto();runAuto();

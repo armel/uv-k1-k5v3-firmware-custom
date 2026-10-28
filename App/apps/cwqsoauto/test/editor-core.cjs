@@ -7,8 +7,8 @@ const html=fs.readFileSync(path.join(root,"editor.html"),"utf8");
 const source=html.match(/<script id="bank16-core">([\s\S]*?)<\/script>/)[1];
 const context=vm.createContext({crypto:webcrypto,Uint8Array,ArrayBuffer,DataView});vm.runInContext(source,context);
 const core=context.Bank16;
-const PROFILE=core.PROFILES.find(p=>p.id==="repeat01");assert.ok(PROFILE);
-const reference=new Uint8Array(fs.readFileSync(path.resolve(root,"../../../archive/apps/v6.3.0/CWQSOAuto.app")));
+const PROFILE=core.PROFILES.find(p=>p.id==="names16-selected");assert.ok(PROFILE);
+const reference=new Uint8Array(fs.readFileSync(path.join(root,"CWQSOAuto.app")));
 const start=64+PROFILE.codeSize;
 const clone=()=>reference.slice();
 const assetsCRC=b=>new DataView(b.buffer).setUint16(62,core.crc32(b.subarray(start))&65535,true);
@@ -39,6 +39,57 @@ async function rejected(bytes,pattern){await assert.rejects(()=>core.validateFil
       }
       core.compareAllowed(reference,result.bytes,PROFILE);
     }
+  });
+  await test("Noms indépendants, courts, vides et limite 12 pour les 16 messages",async()=>{
+    assert.equal(parsed.names.length,16);
+    for(let i=0;i<16;i++)for(const name of ["", "POTA", "ABCDEFGHIJKL"]){
+      const names=Array.from(parsed.names);names[i]=name;
+      const output=await core.generate(reference,Array.from(parsed.messages),names);
+      const reopened=await core.validateFile(output.bytes);
+      assert.deepEqual(Array.from(reopened.names),names);
+      assert.deepEqual(Array.from(reopened.messages),Array.from(parsed.messages));
+      for(let j=0;j<16;j++)if(j!==i)assert.equal(reopened.names[j],parsed.names[j]);
+      assert.deepEqual(output.bytes.subarray(64,start),reference.subarray(64,start));
+    }
+  });
+  await test("Noms : ASCII exact, longueurs et métadonnées immuables",async()=>{
+    for(let c=0;c<256;c++){
+      if(c>=32 && c<=126)assert.equal(core.encodeName(String.fromCharCode(c),1)[0],c);
+      else assert.throws(()=>core.encodeName(String.fromCharCode(c),1),/nom/);
+    }
+    for(const invalid of ["A".repeat(13),"é","😀","\0","\n"]){
+      const names=Array.from(parsed.names);names[15]=invalid;
+      await assert.rejects(()=>core.generate(reference,Array.from(parsed.messages),names),/MSG 16/);
+    }
+    for(let i=0;i<16;i++)for(let j=0;j<3;j++){
+      const b=clone();b[start+PROFILE.nameBase+i*16+j]^=1;assetsCRC(b);await rejected(b);
+      assert.throws(()=>core.compareAllowed(reference,b,PROFILE),/interdite/);
+    }
+    for(const [at,value] of [[3,255],[15,65],[3,0],[8,1]]){
+      const b=clone();b[start+PROFILE.nameBase+at]=value;assetsCRC(b);await rejected(b,/MSG 01/);
+    }
+    const b=clone();b[start+PROFILE.marker]^=1;assetsCRC(b);await rejected(b,/QNM1/);
+  });
+  await test("16 noms et contenus modifiés ensemble, export puis réouverture",async()=>{
+    const names=Array.from({length:16},(_,i)=>`POTA ${i+1}`);
+    const texts=Array.from({length:16},(_,i)=>`E {RST} ${i+1}`);
+    const output=await core.generate(reference,texts,names),r=await core.validateFile(output.bytes);
+    assert.deepEqual(Array.from(r.names),names);assert.deepEqual(Array.from(r.messages),texts);
+    fs.writeFileSync(path.join(out,"named-custom.app"),output.bytes);
+  });
+  await test("Anciens fichiers : contenus préservés, absence de noms explicite",async()=>{
+    for(const file of [path.resolve(root,"../../../archive/apps/v6.3.0/CWQSOAuto.app")]){
+      const old=new Uint8Array(fs.readFileSync(file)),r=await core.validateFile(old);
+      assert.equal(r.names,null);
+      assert.deepEqual((await core.generate(old,Array.from(r.messages))).bytes,old);
+      await assert.rejects(()=>core.generate(old,Array.from(r.messages),Array(16).fill("X")),/Ancien format sans noms/);
+    }
+  });
+  if(process.env.CWQSO_NAMES_REFERENCE)await test("Ancienne référence nommée : noms, contenus et code préservés",async()=>{
+    const old=new Uint8Array(fs.readFileSync(process.env.CWQSO_NAMES_REFERENCE));
+    const r=await core.validateFile(old);assert.equal(r.profile.id,"names16");assert.equal(r.names.length,16);
+    const output=await core.generate(old,Array.from(r.messages),Array.from(r.names));
+    assert.deepEqual(output.bytes,old);
   });
   await test("64 octets utiles, sans NUL ; 64 jetons RST = 64 octets",async()=>{
     for(const text of ["A".repeat(64),"{RST}".repeat(64),"A".repeat(63)+"{RST}"]){
@@ -81,7 +132,7 @@ async function rejected(bytes,pattern){await assert.rejects(()=>core.validateFil
     const b=clone();b[100]^=1;codeCRC(b);await rejected(b,/Code exécutable/);
   });
   await test("Autres assets altérés refusés même avec CRC recalculé",async()=>{
-    for(const off of [0,46,47,91,403,1600,1755]){const b=clone();b[start+off]^=1;assetsCRC(b);await rejected(b,/Assets hors banque/);}
+    for(const off of [0,46,47,91,403,1600,2200]){const b=clone();b[start+off]^=1;assetsCRC(b);await rejected(b,/Assets hors banque/);}
   });
   await test("Toutes les signatures et métadonnées de banque contrôlées",async()=>{
     for(let i=0;i<16;i++)for(let j=0;j<4;j++){

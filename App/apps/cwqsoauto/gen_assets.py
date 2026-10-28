@@ -40,13 +40,16 @@ a.u16("RX_PROFILE", [
 ])
 # Normal-font QSO labels and the separate settings screen.
 a.const("T_TITLE_CHARS", len(TITLE))
-a.table("T_MESSAGES", ["01 CQ / APPEL", "02 REPONSE/RST", "03 73 / FIN"]
-        + [f"MSG {i:02}" for i in range(4, 17)], stride=16)
+# Fixed number, space, editable ASCII name (0..12 bytes), terminating NUL.
+# All 16 records have identical structure; CW payloads remain at offset 512.
+message_names = ["CQ", "REPONSE", "73"] + [f"MSG {i}" for i in range(4, 15)] + ["AGN?", "?"]
+a.const("MSG_NAME_BYTES", 12)
+a.table("T_MESSAGES", [f"{i:02} {name}" for i, name in enumerate(message_names, 1)], stride=16)
 a.text("T_SETTINGS", "CW SETTINGS")
 a.text("T_SETTINGS_F", "CW F(-)")
 a.text("T_RST", "RST ")
 a.text("T_FREQ_TAIL", "0 Hz")
-a.text("T_IDLE", "\0" * 11)
+a.text("T_IDLE", "\0REPEAT: " + "\0" * 2)
 a.text("IDLE_PADDING", "\0" * 5)
 a.table("T_TX", [f"TX MSG {i:02}" for i in range(1, 17)], stride=16)
 a.table("T_HINTS", ["UP/DN MSG MENU", "0-9 RST PTT TX", "S1 AGN? S2 ?"], stride=16)
@@ -116,7 +119,7 @@ assert all(not wide or ram_offsets[name] % 2 == 0 for name, wide in display)
 a.u8("CONFIG_FIELDS", [value for i, ((label, stride), (name, wide)) in enumerate(zip(config, display))
                        for value in (offsets[label], stride, ram_offsets[name] | (128 if wide else 0),
                                      2 + (i % 2) * 64, 4 + i // 2, 61 + (i % 2) * 64)]
-     + [0, 0, 0, 2, 2, 59, 0, 0, 0, 2, 3, 27])
+     + [offsets["T_IDLE"] + 1, 0, 30, 2, 2, 59, 0, 0, 0, 2, 3, 27])
 
 # Read the existing C definitions rather than maintain a second set of defaults.
 source = (Path(__file__).parent / "cwqsoauto_app.c").read_text()
@@ -128,5 +131,8 @@ a.raw("DEFAULT_CONFIG", struct.pack("<BBBBhHHBB", default("CFG_MAGIC"),
 
 # Cold preview legend: keep the bank and existing settings offsets stable.
 a.raw("T_PREVIEW_HELP", b"*=RST >=SUITE\0")
+
+# Names-aware format marker. Contents keep their original CW/v1 records.
+a.raw("NAME_FORMAT", b"QNM1")
 
 a.main()

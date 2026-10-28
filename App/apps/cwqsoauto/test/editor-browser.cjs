@@ -43,17 +43,19 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  await until("document.readyState==='complete' && typeof Bank16==='object' && !document.getElementById('download').disabled");
  assert.equal(await evaluate("document.querySelectorAll('textarea').length"),16);
  assert.equal(await evaluate("document.getElementById('msg-1').value"),"CQ CQ CQ DE F4XXX F4XXX K");
- assert.match(await evaluate("document.getElementById('file-status').textContent"),/Référence embarquée.*repeat01/);
- const original=fs.readFileSync(path.resolve(root,"../../../archive/apps/v6.3.0/CWQSOAuto.app"));
+ assert.match(await evaluate("document.getElementById('file-status').textContent"),/Référence embarquée.*names16/);
+ const original=fs.readFileSync(path.join(root,"CWQSOAuto.app"));
  async function download(){
   const completedBefore=completedDownloads.size;
   fs.rmSync(downloaded,{force:true});
   await evaluate("document.getElementById('download').click()");
   await until("!document.getElementById('download').disabled && document.getElementById('file-status').textContent.includes('téléchargée')");
-  for(let i=0;i<100;i++){if(completedDownloads.size>completedBefore && fs.existsSync(downloaded)&&fs.statSync(downloaded).size===6438)break;await pause(50);}
+  for(let i=0;i<100;i++){if(completedDownloads.size>completedBefore && fs.existsSync(downloaded)&&fs.statSync(downloaded).size===6434)break;await pause(50);}
   assert.ok(completedDownloads.size>completedBefore,"Browser download must finish before reimport");
-  assert.ok(fs.existsSync(downloaded));assert.equal(fs.statSync(downloaded).size,6438);
+  assert.ok(fs.existsSync(downloaded));assert.equal(fs.statSync(downloaded).size,6434);
  }
+ assert.equal(await evaluate("document.querySelectorAll('input[id^=name-]').length"),16);
+ assert.equal(await evaluate("document.getElementById('name-1').value"),"CQ");
  // Initial download needs no imported .app and is byte-identical.
  await download();assert.deepEqual(fs.readFileSync(downloaded),original);
  await evaluate("document.getElementById('msg-15').value='é';document.getElementById('msg-15').dispatchEvent(new Event('input'))");
@@ -64,13 +66,21 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  await evaluate("document.getElementById('msg-4').value+='{RST}';document.getElementById('msg-4').dispatchEvent(new Event('input'))");
  assert.equal(await evaluate("document.getElementById('download').disabled"),true);
  await evaluate("for(const id of ['msg-1','msg-2']){const f=document.getElementById(id);f.value=f.value.replaceAll('F4XXX','F5XYZ').replace('SEB','ALICE');f.dispatchEvent(new Event('input'));}document.getElementById('msg-4').value='TEST WEB {RST}';document.getElementById('msg-4').dispatchEvent(new Event('input'))");
+ await evaluate("for(let i=1;i<=16;i++){const f=document.getElementById('name-'+i);f.value='POTA '+i;f.dispatchEvent(new Event('input'));}");
+ await evaluate("document.getElementById('name-16').value='ABCDEFGHIJKLM';document.getElementById('name-16').dispatchEvent(new Event('input'))");
+ assert.equal(await evaluate("document.getElementById('download').disabled"),true);
+ await evaluate("document.getElementById('name-16').value='POTA 16';document.getElementById('name-16').dispatchEvent(new Event('input'))");
  await download();const custom=fs.readFileSync(downloaded);
- assert.deepEqual(custom.subarray(64,64+4092),original.subarray(64,64+4092));
+ assert.deepEqual(custom.subarray(64,64+4084),original.subarray(64,64+4084));
  const doc=await call("DOM.getDocument");const {nodeId}=await call("DOM.querySelector",{nodeId:doc.root.nodeId,selector:"#app-file"});
- await call("DOM.setFileInputFiles",{nodeId,files:[downloaded]});await until("!document.getElementById('download').disabled && document.getElementById('file-status').textContent.includes('repeat01')");
+ await call("DOM.setFileInputFiles",{nodeId,files:[downloaded]});await until("!document.getElementById('download').disabled && document.getElementById('file-status').textContent.includes('names16')");
  assert.equal(await evaluate("document.getElementById('msg-1').value"),"CQ CQ CQ DE F5XYZ F5XYZ K");
  assert.equal(await evaluate("document.getElementById('msg-2').value"),"DE F5XYZ UR {RST} {RST} NAME ALICE HW?");
  assert.equal(await evaluate("document.getElementById('msg-4').value"),"TEST WEB {RST}");
+ assert.equal(await evaluate("Array.from({length:16},(_,i)=>document.getElementById('name-'+(i+1)).value).join('|')"),Array.from({length:16},(_,i)=>'POTA '+(i+1)).join('|'));
+ const legacy=path.resolve(root,"../../../archive/apps/v6.3.0/CWQSOAuto.app");
+ await call("DOM.setFileInputFiles",{nodeId,files:[legacy]});await until("!document.getElementById('download').disabled && document.getElementById('file-status').textContent.includes('Ancien format sans noms')");
+ assert.equal(await evaluate("[...document.querySelectorAll('input[id^=name-]')].every(x=>x.disabled)"),true);
  const bad=Buffer.from(original);bad[0]=0;const badFile=path.join(out,"corrupt.app");fs.writeFileSync(badFile,bad);
  await call("DOM.setFileInputFiles",{nodeId,files:[badFile]});await until("document.getElementById('file-status').textContent==='Fichier refusé.'");
  assert.equal(await evaluate("document.getElementById('download').disabled && [...document.querySelectorAll('textarea')].every(x=>x.disabled)"),true);
@@ -82,7 +92,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  assert.equal(await evaluate("document.documentElement.scrollWidth<=window.innerWidth"),true);
  const mobile=await call("Page.captureScreenshot",{format:"png"});fs.writeFileSync(path.join(out,"mobile.png"),Buffer.from(mobile.data,"base64"));
  assert.deepEqual(exceptions,[]);assert.equal(requests.some(url=>/^https?:/.test(url)),false);
- const result={browser:"Microsoft Edge headless, file://",network_forced_offline:true,external_requests:0,embedded_bootstrap:true,embedded_download_identical:true,fields:16,invalid_char_blocked:true,exact_64_tokens:true,overflow_blocked:true,code_preserved:true,custom_callsign_reimport:true,bad_file_clears_state:true,reset_defaults:true,mobile_no_horizontal_overflow:true,passed:true};
+ const result={browser:"Microsoft Edge headless, file://",network_forced_offline:true,external_requests:0,embedded_bootstrap:true,embedded_download_identical:true,fields:16,names:16,names_roundtrip:true,name_overflow_blocked:true,legacy_names_disabled:true,invalid_char_blocked:true,exact_64_tokens:true,overflow_blocked:true,code_preserved:true,custom_callsign_reimport:true,bad_file_clears_state:true,reset_defaults:true,mobile_no_horizontal_overflow:true,passed:true};
  fs.writeFileSync(path.join(out,"browser-results.json"),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
  await send("Browser.close");
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>{for(const task of waiting.values())clearTimeout(task.timeout);waiting.clear();browser.kill();});

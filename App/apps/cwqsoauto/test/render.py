@@ -16,6 +16,7 @@ out = p / "out-visual"
 out.mkdir(exist_ok=True)
 code = (p / "out/functional.c").read_text().replace("int main(void)", "int functional_main(void)")
 code = code.replace("static const uint8_t assets[]={", "static uint8_t assets[]={")
+code = code.replace("g.ticksPerMs=48000;", "g.ticksPerMs=48000;g.repeatSeconds=5;")
 helper = (root / "App/ui/helper.c").read_text()
 
 def function(name):
@@ -101,6 +102,12 @@ int main(void){
     memset(preview,RST_TOKEN,64);frame("preview-64-rst.pbm");
     q.selected=15;preview=assets+MSG_MODELS+15*MSG_STRIDE+MSG_HEADER;
     memset(preview,'E',64);frame("preview-64-bytes.pbm");
+    setup(1,18);q.selected=3;
+    uint8_t *name=assets+T_MESSAGES+3*T_MESSAGES_STRIDE+3;
+    memset(name,0,13);memcpy(name,"POTA",4);frame("name-short.pbm");
+    memset(name,'W',12);name[12]=0;frame("name-max.pbm");
+    memset(name,0,13);frame("name-empty.pbm");
+    name[0]=255;frame("name-invalid.pbm");
     return 0;
 }
 '''
@@ -130,4 +137,4 @@ for file in sorted(out.glob("*.pbm")):
                for x in range(128)] for y in range(64)]
     png(file.with_suffix(".png"), pixels)
     png(file.with_name(file.stem + "-4x.png"), pixels, 4)
-print("PASS 36 screens: 16 selections, six custom previews, four SETTINGS modes, cleared STRAIGHT and shrinking B-to-AUTO frame")
+print("PASS simulated screens: 16 selections, custom previews, SETTINGS modes and four name boundaries")

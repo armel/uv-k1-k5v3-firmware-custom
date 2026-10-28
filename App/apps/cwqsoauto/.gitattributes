@@ -4,3 +4,4 @@ cwqsoauto_app.c -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-a
 gen_assets.py -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 qso_identity.h -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 app.ld -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+editor.html -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

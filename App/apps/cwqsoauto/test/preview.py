@@ -10,8 +10,7 @@ static unsigned previewCases,legendCalls,menuCalls;
 static uint8_t original[sizeof(assets)];
 static void previewTiny(const char *s,uint8_t x,uint8_t y,bool st,bool fill){
     assert(y==49 && !st && fill);
-    if(x==2){assert(!strcmp(s,"*=RST >=SUITE"));legendCalls++;}
-    else{assert(x==110 && !strcmp(s,"MENU"));menuCalls++;}
+    assert(x==2 && !strcmp(s,"MENU"));menuCalls++;
     assert(x+4*strlen(s)<=128);
 }
 static void check(unsigned selection){
@@ -19,10 +18,10 @@ static void check(unsigned selection){
     __typeof__(q) savedQ;memcpy(&savedQ,&q,sizeof(q));
     draw();assert(!memcmp(&q,&savedQ,sizeof(q)) && !quietN && !markN);
     assert(!strcmp(screen[4],"RST 599") && menuCalls==1);
-    if(selection<3){assert(!screen[3][0] && !legendCalls);}
-    else{
-        assert(legendCalls==1);
-        char title[16];sprintf(title,"MSG %02u",selection+1);assert(!strcmp(screen[2],title));
+    {
+        assert(!legendCalls);
+        char title[16];memcpy(title,assets+T_MESSAGES+selection*T_MESSAGES_STRIDE,16);title[15]=0;
+        assert(!strcmp(screen[2],title));
         const uint8_t *stored=assets+MSG_MODELS+selection*MSG_STRIDE+MSG_HEADER;
         unsigned length=0;while(length<64 && stored[length])length++;
         unsigned shown=length>15?15:length;char expected[16];
@@ -38,7 +37,7 @@ int main(void){
     for(unsigned selection=0;selection<16;selection++){
         setup(1,18);check(selection);
     }
-    for(unsigned selection=3;selection<16;selection++){
+    for(unsigned selection=0;selection<16;selection++){
         uint8_t *stored=assets+MSG_MODELS+selection*MSG_STRIDE+MSG_HEADER;
         for(unsigned length=0;length<=64;length++){
             memcpy(assets,original,sizeof(assets));memset(stored,0,64);memset(stored,'E',length);

@@ -1,5 +1,9 @@
 # CW QSO Auto
 
+**Experimental QNM1 named-message branch:** see [FORMAT-NAMES.md](FORMAT-NAMES.md)
+for the current format, build/tests and controls. The PR release documentation
+below describes the older archived binary, not the new embedded experimental APP.
+
 Standalone Morse overlay application for compatible F4HWN UV-K5 V3 firmware
 (ABI 1, API level 3). The contribution targets the `v6.3.0` app archive.
 Hardware validation reported by the author covers **UV-K5 V3**, not UV-K1.

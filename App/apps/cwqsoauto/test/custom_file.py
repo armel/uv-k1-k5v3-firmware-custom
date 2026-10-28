@@ -1,6 +1,6 @@
 """Feed real web-generated nav16 assets into the production reader / RF harness."""
 from pathlib import Path
-import json,os,struct,subprocess,sys,zlib
+import json,os,struct,subprocess,sys,zlib,re
 
 p=Path(__file__).resolve().parent;out=p/'out'
 assert len(sys.argv)>1,'Pass one or more web-generated nav16 APP paths'
@@ -15,7 +15,7 @@ int main(int argc,char **argv){
     assert(fread(assets,1,sizeof(assets),file)==sizeof(assets));assert(fgetc(file)==EOF);fclose(file);
     for(unsigned message=0;message<16;message++){
         setup(1,18);q.message=message;q.selected=message;strcpy(q.rst,"579");draw();
-        if(message>=3)printf("{\"message\":%u,\"preview\":\"%s\",\"title\":\"%s\"}\n",message,screen[3],screen[2]);
+        printf("{\"message\":%u,\"preview\":\"%s\",\"title\":\"%s\"}\n",message,screen[3],screen[2]);
         char text[200];unsigned n=0;
         do{assert(n<sizeof(text));text[n]=nextCharacter();}while(text[n++]);
         printf("{\"message\":%u,\"text\":\"%s\"}\n",message,text);
@@ -47,7 +47,10 @@ for argument in sys.argv[1:]:
         if 'preview' in row:
             raw=assets[512+68*row['message']+4:512+68*row['message']+68].split(b'\0')[0].replace(b'\x02',b'*').decode('ascii')
             expected=raw if len(raw)<=15 else raw[:14]+'>'
-            assert row['preview']==expected and row['title']==f"MSG {row['message']+1:02}"
+            namebase=int(re.search(r'#define T_MESSAGES (\d+)u',(p.parent/'cwqsoauto_assets.h').read_text())[1])
+            at=namebase+row['message']*16
+            title=assets[at:at+16].split(b'\0')[0].decode('ascii')
+            assert row['preview']==expected and row['title']==title
         elif 'text' in row:assert row['text']==text
         else:assert row['marks']==sum(len(oracle[c]) for c in text if c!=' ')
         cases+=1

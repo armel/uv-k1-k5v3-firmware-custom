@@ -183,7 +183,7 @@ static struct {
     uint8_t iambic; /* element bits 0/1, mark 2, pending 3, mode 4/5 */
 #endif
 #endif
-    int16_t tuneOffset10Hz;
+    uint8_t repeatSeconds; /* Former RF-offset storage; next byte is padding. */
     uint16_t xtalBase;
 #if CW_KEYER_USB
     uint8_t batteryTicks; /* Service intervals, 0..BATTERY_MS/SERVICE_MS-1. */
@@ -372,7 +372,7 @@ static char *putText(char *out, uint16_t offset)
  * 18 MHz, so the sum can neither wrap below zero nor overflow. */
 static uint32_t tunedFrequency(uint32_t frequency)
 {
-    return frequency + (uint32_t)(int32_t)g.tuneOffset10Hz;
+    return frequency;
 }
 
 API_LEAF
@@ -555,7 +555,11 @@ __attribute__((noinline))
 static void label(uint16_t offset, uint8_t line)
 {
     char s[TEXT_MAX];
-    normalText(text(s, offset), 2u, line);
+    text(s, offset);
+    s[TEXT_MAX - 1u] = 0;
+    for (unsigned i = 0; i < TEXT_MAX - 1u; ++i)
+        if (s[i] && (unsigned char)(s[i] - ' ') > 94u) s[i] = '?';
+    normalText(s, 2u, line);
 }
 
 /* VFO units are 10 Hz. Append the last zero as text: exact Hz without
@@ -582,7 +586,7 @@ static void drawMain(void)
     drawSmallFrequency(s);
     if (!q.settings) {
         label(T_MESSAGES + q.selected * T_MESSAGES_STRIDE, 2u);
-        if (q.selected >= 3u) {
+        {
             /* Preview only: never touch the stored record or TX cursors.
              * '*' denotes the one-byte RST token; '>' marks hidden text. */
             readAsset(MSG_MODELS + q.selected * MSG_STRIDE + MSG_HEADER, s, TEXT_MAX);
@@ -591,13 +595,12 @@ static void drawMain(void)
             if (s[TEXT_MAX - 1u]) s[TEXT_MAX - 2u] = '>';
             s[TEXT_MAX - 1u] = 0;
             normalText(s, 2u, 3u);
-            A->print_tiny(text(s, T_PREVIEW_HELP), 2u, 49u, false, true);
         }
-        /* Selection on line 2, preview (04..16) on line 3, RST on line 4.
-         * The bottom-right MENU hint is separate from the message and RST. */
+        /* Selection on line 2, preview (01..16) on line 3, RST on line 4.
+         * The bottom-left MENU hint is separate from the message and RST. */
         label(T_RST, 4u);
         normalText(q.rst, 30u, 4u);
-        A->print_tiny(text(s, T_MENU), 110u, 49u, false, true);
+        A->print_tiny(text(s, T_MENU), 2u, 49u, false, true);
         return;
     }
     /* Descriptors use the checked layout above. Halfword offsets are aligned
@@ -606,19 +609,16 @@ static void drawMain(void)
     for (int i = 6 + g.mode; i >= 0; i--) {
         uint8_t field[6];
         readAsset(CONFIG_FIELDS + 6u * i, field, sizeof(field));
-        if (i < 6) {
+        if (i < 7) {
             const uint8_t *valueAt = (const uint8_t *)&g + (field[2] & 127u);
             const int16_t value = field[2] & 128u ? *(const int16_t *)valueAt : *valueAt;
             char *end = putText(s, field[0] + value * field[1]);
             if (!field[1]) end = A->append_i32(end, value);
+            if (i == 6) *end++ = 's';
             *end = 0;
         } else {
-            unsigned offset = T_TUNE;
-            if (i == 7) {
-                offset = T_VERSION + T_VERSION_STRIDE + (g.iambic & 48u);
-                field[5] = (g.iambic & 48u) ? 35u : 27u;
-            }
-            text(s, offset);
+            text(s, T_VERSION + T_VERSION_STRIDE + (g.iambic & 48u));
+            field[5] = (g.iambic & 48u) ? 35u : 27u;
         }
         A->print_inverse(s, field[3], field[4], false, true, field[5]);
     }
@@ -963,11 +963,15 @@ static void serviceAuto(void)
             uint8_t c = nextCharacter();
             if (c == ' ') { duration += 4u * dot; c = nextCharacter(); }
             q.code = morse(c);
-            duration = q.code ? duration + 2u * dot : 3000u;
+            if (!q.code) {
+                q.at = nowCycles() + (uint32_t)g.repeatSeconds * 48000000u;
+                stopAuto();
+                return;
+            }
+            duration += 2u * dot;
         }
     }
     q.at = nowCycles() + duration * 48000u;
-    if (!q.code) stopAuto();
 }
 
 static void serviceOneMs(void)
@@ -1113,17 +1117,6 @@ static bool stepWithin(int16_t *value, int8_t direction, int16_t step,
     return true;
 }
 
-static bool adjustFrequency(int8_t direction)
-{
-    if (!stepWithin(&g.tuneOffset10Hz, direction, TUNE_STEP_10HZ,
-                    -TUNE_MAX_10HZ, TUNE_MAX_10HZ))
-        return false;
-
-    retuneRx();
-    g.denied = false;
-    return true;
-}
-
 static void adjustSetting(uint8_t key, int8_t direction)
 {
     bool retune = false;
@@ -1176,13 +1169,16 @@ static void handleUiKeyDirection(uint8_t key, int8_t direction)
 static void handleUiKey(uint8_t key)
 #endif
 {
-    if (key == APP_KEY_MENU) {
+    if (key == APP_KEY_MENU || (key == APP_KEY_EXIT && q.settings)) {
         q.settings = !q.settings;
+        stopAuto(); /* Consume held controls across screen transitions. */
     } else if (key == APP_KEY_EXIT) {
-        if (q.settings) q.settings = false;
-        else g.running = false;
+        g.running = false;
     } else if (direction) {
-        if (q.settings) adjustFrequency(direction);
+        if (q.settings) {
+            const unsigned next = g.repeatSeconds + direction;
+            if (next - 1u < 15u) g.repeatSeconds = (uint8_t)next;
+        }
         else {
             /* nav_dir identifies UP/DOWN; use their physical order for QSO. */
             const unsigned next = q.selected + 2u * (key - APP_KEY_UP) - 1u;
@@ -1252,6 +1248,7 @@ static void handleUiInput(uint8_t key)
 
 static void loadConfig(void)
 {
+    g.repeatSeconds = 5;
     A->cfg_load((uint8_t *)&g + __builtin_offsetof(__typeof__(g), magic), sizeof(config_t));
     if (g.magic != CFG_MAGIC) {
         readAsset(DEFAULT_CONFIG, (uint8_t *)&g + __builtin_offsetof(__typeof__(g), magic), sizeof(config_t));
@@ -1261,7 +1258,7 @@ static void loadConfig(void)
     /* Preserve the grouped legacy validity rule for WPM/mode/reverse/cal. */
     if (g.wpm >= WPM_MIN && g.wpm <= WPM_MAX &&
         g.mode <= MODE_PADDLE && g.reverse <= 1u) {
-        g.calSteps = g.calSteps >= CAL_MIN && g.calSteps <= CAL_MAX
+        g.calSteps = (unsigned)(g.calSteps - CAL_MIN) <= CAL_MAX - CAL_MIN
             ? g.calSteps : CAL_DEFAULT;
     } else {
         g.wpm = WPM_DEFAULT;
@@ -1269,24 +1266,25 @@ static void loadConfig(void)
         g.reverse = false;
         g.calSteps = CAL_DEFAULT;
     }
-    g.rxPitchHz = g.rxPitchHz >= RX_PITCH_MIN && g.rxPitchHz <= RX_PITCH_MAX
+    g.rxPitchHz = (unsigned)(g.rxPitchHz - RX_PITCH_MIN) <= RX_PITCH_MAX - RX_PITCH_MIN
         ? g.rxPitchHz : RX_PITCH_DEFAULT;
-    g.breakInMs = g.breakInMs >= BREAKIN_MIN && g.breakInMs <= BREAKIN_MAX
+    g.breakInMs = (unsigned)(g.breakInMs - BREAKIN_MIN) <= BREAKIN_MAX - BREAKIN_MIN
         ? g.breakInMs : BREAKIN_DEFAULT;
-    g.speaker = g.magic == CFG_MAGIC && g.speaker <= 1u
-        ? g.speaker : true;
+    /* Invalid stored nonzero values also normalize to enabled. */
+    g.speaker = g.speaker != 0u;
 #if IAMBIC_ENGINE
     /* Only app entry calls loadConfig, before TX or any element. Older
      * USB configs wrote zero here; absent/invalid bytes select AUTO. */
-    g.iambic = g.magic == CFG_MAGIC && g.reservedPort <= 2u
-        ? (uint8_t)(g.reservedPort << 4) : IAMBIC_AUTO;
+    if (g.reservedPort >> 4) g.repeatSeconds = g.reservedPort >> 4;
+    const unsigned algo = g.reservedPort & 15u;
+    g.iambic = algo <= 2u ? (uint8_t)(algo << 4) : IAMBIC_AUTO;
 #endif
 }
 
 static void saveConfig(void)
 {
     g.magic = CFG_MAGIC;
-    g.reservedPort = (uint8_t)(g.iambic >> 4);
+    g.reservedPort = (uint8_t)((g.repeatSeconds << 4) | (g.iambic >> 4));
     A->cfg_save((const uint8_t *)&g + __builtin_offsetof(__typeof__(g), magic), sizeof(config_t));
 }
 
@@ -1321,6 +1319,13 @@ void app_main(const app_api_t *api)
     while (g.running) {
         uint8_t key = A->get_key();
         const uint8_t contacts = usbContacts();
+        if (q.settings && key == APP_KEY_PTT) {
+            q.repeat = false;
+            if (q.active) {
+                q.active = q.release = false;
+                q.ready = true; /* An active auto message already qualified input. */
+            }
+        }
         if (key == KEY_SIDE2) q.repeat = false;
         if (q.active || q.repeat) {
             if (key == APP_KEY_EXIT || contacts ||
@@ -1357,15 +1362,17 @@ idleInput:
             goto txKeyDone;
         }
         if (key >= APP_KEY_PTT && key <= KEY_SIDE1) {
+            if (q.settings && key == APP_KEY_PTT) {
+                goto manualKey;
+            }
             /* No manual PTT/SIDE carrier on overlap.
              * A TX key overlapping a paddle cannot queue an automatic start. */
             const bool launch = key != KEY_SIDE2 && q.ready && !contacts && !g.keyDown && !q.settings;
             { q.repeat = false; stopAuto(); } /* Also discard stale filtered manual contacts. */
-            q.release = true;
             if (launch) {
                 q.repeat = key == KEY_SIDE1;
+                q.message = q.selected; /* Freeze the selection for this repeat session. */
 repeatLaunch:
-                q.message = q.repeat ? 0u : q.selected;
                 startAuto();
             }
 txKeyDone:
@@ -1380,6 +1387,7 @@ txKeyDone:
         if (key == APP_KEY_WAKE)
             key = APP_KEY_INVALID;
 
+manualKey:
         /* A denied key-down is latched until every keying control is released;
          * otherwise a held PTT would call tx_state and repaint every millisecond. */
         if (g.denied) {
@@ -1417,8 +1425,9 @@ txKeyDone:
 #else
         const bool keying = !g.help;
 #endif
+        /* The PTT/SIDE dispatcher permits PTT here only in SETTINGS. */
         const bool straight = keying &&
-            (g.mode == MODE_STRAIGHT && pad);
+            ((g.mode == MODE_STRAIGHT && pad) || key == APP_KEY_PTT);
         if (straight) {
             resetUiInput();
             if (!g.keyDown)

@@ -16,6 +16,7 @@ input::file-selector-button{padding:10px 16px;border:1px solid var(--line);borde
 .section-title{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:28px 0 16px}.section-title h2{margin:0;font-size:1.25rem}.section-title span{font-size:.9rem;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.message{min-width:0;border:1px solid var(--line);border-radius:10px;background:white;padding:18px}.message.invalid{border-color:var(--error)}
 .message label{font-weight:700;display:block;margin-bottom:10px}.number{font-size:.8rem;color:var(--accent);margin-right:10px;letter-spacing:.04em}
+.message input[type=text]{width:100%;padding:10px 12px;border:1px solid #b6c9ca;border-radius:6px;font:inherit;background:#fafcfc}.message input[type=text]:focus{outline:2px solid var(--accent);outline-offset:2px}.message input[type=text]:disabled{background:#f4f6f6;color:#77858a}.message .field-note{margin-bottom:12px}
 textarea{display:block;resize:vertical;width:100%;min-height:92px;padding:12px;border:1px solid #b6c9ca;border-radius:6px;background:#fafcfc;color:var(--ink);font:15px/1.5 ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
 textarea:focus{outline:2px solid var(--accent);outline-offset:2px}textarea:disabled{color:#77858a;background:#f4f6f6}.field-note{display:flex;gap:12px;justify-content:space-between;margin-top:8px;font-size:.8rem;color:var(--muted)}.field-error{min-height:1.3em;font-size:.85rem;color:var(--error);margin-top:5px;overflow-wrap:anywhere}.invalid .count{color:var(--error);font-weight:700}
 footer{position:fixed;bottom:0;left:0;right:0;background:#fffffff5;border-top:1px solid var(--line);padding:18px 24px;box-shadow:0 -6px 22px #172b3406}.actions{max-width:1088px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:20px}.actions p{margin:0;font-size:.9rem;color:var(--muted)}button{background:var(--accent);color:white;border:0;padding:13px 20px;border-radius:7px;font:700 .95rem system-ui;cursor:pointer}button:disabled{background:#d6e0df;color:#697b7c;cursor:not-allowed}
@@ -30,7 +31,7 @@ footer{position:fixed;bottom:0;left:0;right:0;background:#fffffff5;border-top:1p
   <section class="file-card" aria-label="Charger l’application">
     <label for="app-file">Réimporter un fichier .app compatible (facultatif)</label>
     <input id="app-file" type="file" accept=".app" aria-describedby="compat file-status">
-    <p id="compat" class="status">La référence embarquée inclut HP anticipé et la répétition CQ. Les anciens profils Bank16 stable, nav16 et preview16 restent importables : leur code et leurs commandes sont conservés, sans mise à niveau automatique.</p>
+    <p id="compat" class="status">La référence QNM1 permet de nommer les 16 messages. Les anciens profils approuvés restent importables pour modifier leurs contenus, mais ne stockent pas de noms. Leur code et leurs commandes sont conservés, sans migration automatique.</p>
     <p id="file-status" class="status" role="status" aria-live="polite">Vérification de la référence embarquée…</p>
     <button id="reset-reference" type="button">Recharger les messages par défaut</button>
     <p id="file-error" class="error" role="alert"></p>
@@ -38,7 +39,8 @@ footer{position:fixed;bottom:0;left:0;right:0;background:#fffffff5;border-top:1p
   <aside class="help">
     <p><strong>Alphabet accepté :</strong> A–Z, 0–9, espace, <code>/</code> et <code>?</code>. Aucune conversion automatique.</p>
     <p><code>{RST}</code> insère le report courant et compte pour <strong>1 octet</strong>. Pas d’espace au début, à la fin ou en double. Un message vide désactive son émission.</p>
-    <p>Version fournie : UP/DOWN parcourt les 16 messages, PTT transmet la sélection. SIDE 1 répète MSG 01 avec trois secondes de pause ; SIDE 2 laisse finir le message commencé puis arrête. MSG 15 et 16 restent accessibles par navigation. Aucun remplacement d’indicatif n’est automatique : modifiez les textes concernés.</p>
+    <p><strong>Noms :</strong> 0 à 12 caractères ASCII visibles, identiques pour les 16 emplacements. Le numéro est fixe. Un nom vide laisse le numéro seul à l’écran. Le nom n’est jamais transmis. Les accents ne sont pas pris en charge par la police du poste.</p>
+    <p>Version fournie : UP/DOWN parcourt les 16 messages, PTT transmet la sélection. SIDE 1 répète le message sélectionné ; SIDE 2 laisse finir le message commencé puis arrête. Dans SETTINGS, UP/DOWN règle REPEAT de 1 à 15 s (5 s par défaut, sauvegardé) et PTT sert de pioche. MSG 15 et 16 restent accessibles par navigation. Aucun remplacement d’indicatif ou de prénom n’est automatique : modifiez les textes concernés. Seul {RST} est un jeton.</p>
   </aside>
   <details class="help"><summary>Personnalisation et installation / Customization and installation</summary>
     <p>Modifiez notamment MSG 01 et 02 pour remplacer F4XXX et SEB. Cliquez sur « Vérifier et télécharger », conservez la copie .app puis importez-la dans la vue Applications / Apps d’UV Studio pour l’installer sur un firmware F4HWN compatible ABI 1 / API 3 (série 6.3.0).</p>
@@ -54,92 +56,7 @@ footer{position:fixed;bottom:0;left:0;right:0;background:#fffffff5;border-top:1p
   <button id="download" disabled>Vérifier et télécharger</button>
 </div></footer>
 <script id="bank16-reference" type="application/octet-stream">
-RkFQMQEAAQP8DwAAgD9kwQAAAQBDVyBRU08gQXV0bwAAAAAAMC40AAAAAAAAAAAAAAAAAIACACAAAAAA6ggVbbgj97VCiFsAmkJi
-07xPvUoAJfpgOSK8THA7/ztjdbtgI3NjdBIzYGSjdQwhA29ldiAAZYP9cTqCvXSldJhHI3jMK0fQjSAMIiEAAAEA8EH6ASBldwDw
-OvusSwohGGhjbAEw/DNbaZhHY2xgYwQz22+YR2NsOyDbbJhHo4gghMAYY2yBshttOyCYRwEgAPCI+gDwuvslewAtWNEA8L/+Y2wh
-jBttOyCYRygAAPAP+8wjI3BjfwwhGwnjcmNsIABbb5hHY2woAJttmEdjbCgA222YR/e9Y3gFOzcrMdijeOJ4E0MBKyzYBCKjXhoA
-MjKSsmQqANkOI6OA44iWIRoALTr/OpKyiQCKQgHZryObAOOAI4l/SRoA+jqSsopCAdmWI1sAonojgRMcACoA0AEjo3LjegAlAisA
-2YrnGwHdsofnEiNjcAAjY4AOM9TnY2zbaphHBQAAkADwF/sBkBEtAdEAI7t0+3kAKwLRunwAKlzQDS0F0AGaACoC0eJ7ACoE0AAj
-u3QA8F7+I+AAK0jQAPCb+TtowBoc1ADwr/mjewYAACsh0QElu3krQgDQAjV1QwU9APCX/QAo4tC7eVsIu3EA8IL5U0trQxsYO2C7
-eQAr2ND7eQArBNFjfAArAdAA8BP7APBF/lXnAPD+/bt59R4BK+XRAPCe+SAoA9GzAO0YAPCY+VooA9kAI7txQk3X5wDwhPm4cQAo
-+NB2AK0Zz+cA8FL5O2jAGkfVe3oAKxTREy0F0aN4ACsE0QGb2wcE1QAjCeABmwAr+tEA8D35u3oAKw7R4GMBM7tyPnoALhjQY30A
-KxLQDS0Q0SgAAPAO/Lfn42vAGilLmELu2YAjWwA7gQAjY3UTIwCTYOATI6N1p+cSLUTRu3wAKy7RfnoALkbRACO7dADwzf0BIzty
-AC4j0BI9a0JdQb10ACO5fBoAmUIA0fp6u4A6cwDwM/kAI1ooAtgA8CL5AwC7cVoek0G6fNuy+3ETQAElu3QAIz2Bu3IA8On4ZXQ4
-YBMjo3Vr5yASACAAADU5NBIAIBTgAODiBAAAgLsAALgLAAD/pQ4AKwAQO9uyAisN2BEtudC15wAmAZuzQrTRo3uzQrHRe3sBNl5A
-ref9LaDQ/i2b0ON7ACsH0ADwbvwAKJfRASPgc6B2o3QA8Gb8Y34FAINCP9AAI2B243ajeKZ+ACsT0AAtEdAALg/RAPCf+AGQAPCc
-+AGbwBqWI5sBmEL30wDwSvyoQgDRLgB7eqV7ACtd0KN4ACth0QAuX9ATM6N1AC0B0QDwkPxjfAArA9CjewArANEF56N8ACsA0QPn
-pXsALQDQ/+YA8N35Y2ybaphHpXT45uN+AisB2AEzvOegdrvnAPB8+AUABTgCLgLRAyBoQwU4gLIA8I/9AJAA8Ob8BCJjf5NDY3cA
-mwArRdADPaiyAPCB/QAoP9BjfxsHBdUDIHBAwLI1AAYAJeBjbNtqmEcA8PH7ACj10S7gAJsTKwPQGAAA8BT7rucAmwTgAC300ADw
-u/wTI6N1pecALfjRo3gAK+rQAC7o0BMjo3VjbAQz22+YRyVkAy4D0QE9a0JdQW4cMCJjfxNAM0MsOhNDY3cA8Bn8ACij0TAiY38T
-QGN3ACNjdmODfufARhNLW2z8M9ttGEcRS1ts/DPbaBhHAUNIIA1LW2wbbRhHELULS1ts22xIIJhHDyGIQxC9B0tZeFts/DNbaUsg
-AAEYRxNGAkpSbNJrlEYAImBHNBIAIAe1ACNqRtNxa0YBItkd//fS/2tG2HkOvXC1RCUPTCN5PysN2IEiIHuSAGhDmxjAGP/35v8C
-KAXQI3kBMyNxcL0AIPnnY3laHGJx4xiYewAo9dEjeWBxATMjcd/nIBIAIBC1BAAIABAiIQD/96T/IAAQvRC1//f0/wN4ACsA0RC9
-ATD55/C1Mk6JsHRsBwDjbphHHiP1XiMA/DMtGAoh8IhbaZhHqEIA0i0aqbI4ICNtmEcpDDkgI22YR+NsMCCYRwUAACEwICNtmEcp
-ADAgI22YR+NsMSAlbZhHASOYQ4GyMSCoRxQgHCIBqf8w//dj/wGtaYgoeCNtmEcENQirnUL30eNscyAlbZhHECEBQ4mycyCoRwEg
-Y22YRwUgo22YR+NsSCCYRzkADyNKHpFBmENJQoCyGUD/90P/ACDjbYdCAtCwekIekEGYRwmw8L3ARjQSACAftQwAAQBoRv/3gP8i
-AAIh//dD/x+9AAAQtQRLAAIZfltsAUMbbTYgmEcQvTQSACAAIQhLELVabBJtiEIG0NuIBUlZQ4AjWwLJGEkMcSCQRxC9wEY0EgAg
-HaYUAPC1HksafYJCM9Dv8xCEcrYbThxJACgO0KAi8CXSBRJorQQqQJpiMmgqQIAl2mIKaC0EKkAaYzJoE00qQAAoGdHfajpDMmCg
-JvYFMmgqQAAlqEIA0Z1qKkMyYAxNCmgqQAAlqEIA0R1rKkMKYITzEIgYdfC9oCd/BOPnwEY0EgAgDAAAUDwQAkD//z/8//9//wdL
-GGgHS5prmGOQQgHYEBpwRwVLG2ibGAEzGBr458BGGOAA4DQSACAU4ADgBEsCIhto20PYBJsKE0DADxhDcEcQAABQcLUXShdL0XmG
-sAApItAUe3o0JAFSewAqBNAafKQkACoA0Aw0XWwCrutomEchADAA//fU/jN4ACsI0C4jAZMtOwCTACICITAALGygR6tvmEcGsHC9
-2XvCJAAp29BnPNnnIBIAIDQSACDwtWNMibBjbJtomEf/98T/Y2waAKgzG2j8MlVumEceI+FeCRgEqKhHBSIBAL0g//dM/gAiAiEE
-qP/3Y/5VTWt7ACtW0eh6AiFqMAAB//cM/+t6Aist2UQgWEOBI5sAECLAGASp//cx/g4iKiEEq5h7AigA0ZlzATsBOvjSa0bbfwAr
-AtA+I2pGk3drRgAlAyICIQSo3Xf/9zT+Y2w+SQSo3mn/92f+ASMxIgCTAiErALBHBCG4IP/31/4EIh4hN0j/9x/+Y2zeIQSo3Wn/
-91L+ASMxIgCTbiEAI6hHY2ybaphHY2wbaphHACNjdKN0CbDwvaZ4BjYGIIojcEMbAQKtwBgGIikAgLL/99/9BS4q3H8jqngTQFKy
-4xgAKiHaACffX2t4KXh7Q8kYibIEqP/3Kv5reAArBNFjbDkA/DPbbJhHACMDcGh5Y2wqeel4AZABIACQHWwEqAAjqEcBPsrSvOcf
-eN3ngiFJAAcuCtEwImN/E0DKItIAmRgbIgArANAIMmpxibIEqP/39P3b58BGNBIAICASACDcCAAALhIAIHC1DU4FAHRsMiAja5hH
-420BIJhHI2sUIJhHASQhACgA//eI/XNsATQBIBtr5LKYRxAs89FwvcBGNBIAIHC1FkxlbP/3ff2jegYAACsC0AAg622YRwAhMAD/
-92z9q20FIJhHCiAra6A1mEcraJhHACBgcyB34IT/97/9o3oAKwXQMAD/973/ASOjdHC9DyEwAP/3UP3358BGNBIAIHC1EE51ewAt
-AtD/98n/cL2zegArA9EBIP/3oP335//3Qf0EAHNsKADbbZhHKQAgAP/3Mv0oAP/3kf0gAP/3kv/l58BGNBIAIPi1ZEwGAGNs/DNb
-aJhHpX21QgTQACOmdeBj43T4ved8AC/70eNrwBoTKPfZY2wEM9tvmEdjbCgA3DMbaJhHVksKLQfRASJZe0pAWnOAI1sAI4JE4Fp7
-DS0F0QAqAdBfc/TnInPy5wAoGdAAKg7QHiKjXgoiQkObGEhKmRhISpFC5Njjg//3mP/nc9/n2noLPQE6bQCtGA8iFUDdctbnACoI
-0Qkt0tjaezA1mnMafB102nPL5wgtC9Fjfx8rAdgYABAwYnsAKsHRmwe/0WB3vecBIyJ8Dy0E0VpAInSjdAEjm+cAKgHQASNbQgMu
-KtAK2AEuI9ACLhjRYnjTGFofNyqk2GNwoucFLi3QBi4w0AQunNEIIWJeMiFLQ9MYGQAhSvo5kUKS2COBkOegekNCWEFjbMCy222g
-cphHh+ejeF5ApnCD5wYhYl4yIUtD0xgZAJYiLTn/OZIAkUIA2Xbn44D/9yr/cufjeFpCU0HjcG3nBCKhXskYCwAyM2QrANll5yOM
-oYDJGGNsOyAbbYmymEfm58BGNBIAICASACCIEwAAECcAAOIEAAAQtf/3p/0IS5p4ACoC0QEjGEAQvdt4ACv70AIiQwATQEAIGEPA
-svTnNBIAIHC1DU1sfw8sCNkDJjRCBdD/9+D/a36DQgHQaHZwvaZDs0IF0AMr+dEhMyNAJCv10QgjI0Nrd/HnNBIAIPe1ACEFAGhG
-ASQEJw1O830BcJoIQnBZCJoagXDCcANxIwAALQDROxtqRtBc//fe/HNsASAbawE0mEf/98P/BSzu0fe9NBIAIPi1PUxjbJAzG2iY
-R2Z7ACgJ0AElAC4E0P/3cv4AIOVz+L1ldPrnAC5S0WVsMADrbZhHKwD8MxtvmEfrbDYgmEcDCuN1KwCkMxtoIHYwAJhHMAD/96f8
-KwCcMwEgG2iYRzEAUSArbZhHMQBwICttmEcrAKgzG2iYRx4j514rbT8YubI4IJhHOSArbTkMmEcxADAgK22YRzAgK20YSZhHzCEr
-bQkCcCCYRzAA//eH/KttAiCYR6B6JndDHphB623AsphHK2sCIJhHASPmc2Nzo3QBIP/3c/xlbAlJK20wIKQ1mEcraAEgmEcBIP/3
-Zf8BIAAjoHNjYpPnNBIAIPLDAAD6wwAAELUAIP/3Vv8ITAAgY2ykMxtomEdjbAZJG20wIJhHACD/90r8ACOjcxC9wEY0EgAg8sMA
-ABC1CEyjewArAdD/99//Y3sAKwHQ//fY/QAj43MBM6N0EL3ARjQSACBwtQAiASUwIQZLB0wdgdpxmnJjf2J2C0Bjd2KD//fc/2V0
-cL0gEgAgNBIAIHC1LUwBIGVsK2uYRyN/ACsK0AE727IjdwArBdGgekMemEHrbcCymEejeyaJACsQ0KOMIkoBM5uyo4STQgnZ//eb
-/2N7ACsB0P/3lP0BI+Nzo3QbS9t5ACsN0WN7ACsK0KN7ACsH0eOMATObsuOEs0IB0//3f/0iHdN/ATPbsgkrAdjTd3C9KwAAJggz
-22/Wd5hH4hzTfwEz27IxK/HZ1ndjewArA9Hrb5hHASOjdAQ162+YR+bnwEY0EgAgDycAACASACD4tRhMFCdla0VD//cN/GNs22qY
-RwMAEDvbsgYAAisE2AEiEUsagQAimnL/93/+//f7+w0uBdAAIyNkhUIL2CB7COBiayNsekPDGCNkk0L00wAgIHP4vWNrLRqrQtfS
-//dt/9TnNBIAICASACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAKT8+PDgwICEjJy8AAAAAAEwABhEVCQIUCxAEHg0SBwUPFhsKCAMMGA4ZHRNUWCBPRkYAMSBTVFJBSUdIVAAxIFBBRERMRQAA
-ADUgREktREEANSBEQS1ESQAyIFdQTSAAMyBUT05FIAA0IEJLIAA2IENBTCAAQ1cgU0VUVElOR1MAQ1cgRigtKQBSU1QgADAgSHoA
-AAAAAAAAAAAAAAAAAAAAAAAAVVAvRE4gTVNHIE1FTlUAADAtOSBSU1QgUFRUIFRYAABTMSBBR04/IFMyID8AAAAAVVAvRE4gRlJF
-USBGOi0AQgBaayoAAHQrAAAALwCQmFQACZBVAKkxPQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAQ1cBAUNRIENRIENRIERFIEY0WFhYIEY0WFhYIEsAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAABDVwECREUgRjRYWFggVVIgAiACIE5BTUUgU0VCIEhXPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAENXAQM3MyBUVSBFIEUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cB
-BE1TRyA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEFTVNHIDUA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQZNU0cgNgAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBB01TRyA3AAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEITVNHIDgAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQlNU0cgOQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBCk1TRyAxMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwELTVNHIDExAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-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
+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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQFDUSBDUSBDUSBERSBGNFhYWCBGNFhYWCBLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBAkRFIEY0WFhYIFVSIAIgAiBOQU1FIFNFQiBIVz8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEDNzMgVFUgRSBFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQRNU0cgNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBBU1TRyA1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEGTVNHIDYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQdNU0cgNwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBCE1TRyA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEJTVNHIDkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQpNU0cgMTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBC01TRyAxMQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEMTVNHIDEyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQ1NU0cgMTMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBDk1TRyAxNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEPQUdOPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXARA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOCBTVFJBSUdIVAAAAAAAADggQVVUTwAAAAAAAAAAAAA4IElBTUIgQQAAAAAAAAAAOCBJQU1CIEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDEgQ1EAAAAAAAAAAAAAADAyIFJFUE9OU0UAAAAAAAAwMyA3MwAAAAAAAAAAAAAAMDQgTVNHIDQAAAAAAAAAADA1IE1TRyA1AAAAAAAAAAAwNiBNU0cgNgAAAAAAAAAAMDcgTVNHIDcAAAAAAAAAADA4IE1TRyA4AAAAAAAAAAAwOSBNU0cgOQAAAAAAAAAAMTAgTVNHIDEwAAAAAAAAADExIE1TRyAxMQAAAAAAAAAxMiBNU0cgMTIAAAAAAAAAMTMgTVNHIDEzAAAAAAAAADE0IE1TRyAxNAAAAAAAAAAxNSBBR04/AAAAAAAAAAAAMTYgPwAAAAAAAAAAAAAAAFRYIE1TRyAwMQAAAAAAAABUWCBNU0cgMDIAAAAAAAAAVFggTVNHIDAzAAAAAAAAAFRYIE1TRyAwNAAAAAAAAABUWCBNU0cgMDUAAAAAAAAAVFggTVNHIDA2AAAAAAAAAFRYIE1TRyAwNwAAAAAAAABUWCBNU0cgMDgAAAAAAAAAVFggTVNHIDA5AAAAAAAAAFRYIE1TRyAxMAAAAAAAAABUWCBNU0cgMTEAAAAAAAAAVFggTVNHIDEyAAAAAAAAAFRYIE1TRyAxMwAAAAAAAABUWCBNU0cgMTQAAAAAAAAAVFggTVNHIDE1AAAAAAAAAFRYIE1TRyAxNgAAAAAAAABiCwICBD2IAAFCBH2PAIYCBT2XAIhCBX14CAMCBj2dAIRCBn3DAB4CAjsAAAACAxvMEgAADgC8AiwBAQAqPVJTVCA+PVNVSVRFAFFOTTE=
 </script>
 <script id="bank16-core">
 "use strict";
@@ -156,7 +73,11 @@ globalThis.Bank16 = (() => {
   const REPEAT01 = Object.freeze({id:"repeat01",name:"CW QSO Auto",header:64,codeSize:4092,assetSize:2282,base:512,stride:68,count:16,payload:64,
     codeHash:"d5ec353509642b5aeba50386102e5d813ece1de4cbd9364e492bc1c07bb9e3c4",
     otherAssetsHash:"23141025027163dca3871e5bd4652ebe305a75077ac243993b669626259a88b1"});
-  const PROFILES = Object.freeze([PROFILE,NAV16,PREVIEW16,REPEAT01]);
+  /* NAMES16_PROFILE */
+  const MENU_LEFT = Object.freeze({"id":"menu-left","name":"CW QSO Auto","header":64,"codeSize":4068,"assetSize":2282,"base":512,"stride":68,"count":16,"payload":64,"codeHash":"4c1d8736d73a0cf0a8a4f7e6741a75cb20635522ff0f09c14a63f057d03bd637","otherAssetsHash":"7eb56aa6b1874c36be9654f9635f167b85c110c546734e41714b8693178de4aa"});
+  const NAMES16 = Object.freeze({"id":"names16","name":"CW QSO Auto","header":64,"codeSize":4096,"assetSize":2286,"base":512,"stride":68,"count":16,"payload":64,"nameBase":1696,"nameBytes":12,"marker":2282,"codeHash":"9a018ff1951644976664d2524c99e7902657b6c3a836fbffdd9a18368ee827e7","otherAssetsHash":"262ebbdb9ba07944422d94b7dfa74e9f6ee652ab1da71f9ff7922bea7ffe1368"});
+  const REPEAT_SELECTED = Object.freeze({"id":"names16-selected","name":"CW QSO Auto","header":64,"codeSize":4084,"assetSize":2286,"base":512,"stride":68,"count":16,"payload":64,"nameBase":1696,"nameBytes":12,"marker":2282,"codeHash":"71f91e4424bfec52dced0164835620b52b1930320f2d9e97395b3979fd4f2576","otherAssetsHash":"262ebbdb9ba07944422d94b7dfa74e9f6ee652ab1da71f9ff7922bea7ffe1368"});
+  const PROFILES = Object.freeze([PROFILE,NAV16,PREVIEW16,REPEAT01,MENU_LEFT,NAMES16,REPEAT_SELECTED]);
   const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/? ";
   const label = id => `MSG ${String(id).padStart(2,"0")}`;
   const fail = message => { throw new Error(message); };
@@ -212,6 +133,28 @@ globalThis.Bank16 = (() => {
     for(let i=0;i<size;i++) if(bytes[offset+i] !== (i<text.length?text.charCodeAt(i):0)) return false;
     return true;
   }
+  function encodeName(text,id) {
+    if(typeof text!=="string" || text.length>12) messageError(id,"nom : maximum 12 caractères ASCII, sans troncature.");
+    const bytes=[];
+    for(const c of text) {
+      const value=c.codePointAt(0);
+      if(value<32 || value>126) messageError(id,"nom : seuls les caractères ASCII visibles (espace compris) sont acceptés.");
+      bytes.push(value);
+    }
+    return Uint8Array.from(bytes);
+  }
+  function decodeName(record,id) {
+    const prefix=`${String(id).padStart(2,"0")} `;
+    for(let i=0;i<3;i++) if(record[i]!==prefix.charCodeAt(i)) messageError(id,"numéro fixe du nom incorrect.");
+    if(record[15]!==0) messageError(id,"nom non terminé : format invalide.");
+    let text="",ended=false;
+    for(const byte of record.subarray(3)) {
+      if(!byte){ended=true;continue;}
+      if(ended) messageError(id,"remplissage du nom non nul.");
+      text+=String.fromCharCode(byte);
+    }
+    encodeName(text,id);return text;
+  }
   async function validateFile(input) {
     if(!(input instanceof Uint8Array) && !(input instanceof ArrayBuffer)) fail("Données binaires attendues.");
     if(input.byteLength<64 || input.byteLength>8000) fail("Taille du fichier FAP1 invalide.");
@@ -223,7 +166,7 @@ globalThis.Bank16 = (() => {
     if(codeSize<2 || codeSize>4096 || assetSize>3840) fail("Sections hors des limites FAP1 (code 4 096, assets 3 840 octets).");
     if(bytes.length!==64+codeSize+assetSize) fail("Fichier tronqué ou octets supplémentaires après les sections.");
     const profile=PROFILES.find(p=>codeSize===p.codeSize && assetSize===p.assetSize && fieldEquals(bytes,20,16,p.name));
-    if(!profile) fail("Nom ou dimensions incompatibles avec les profils CW QSO AUTO stable / CW QSO Auto nav16.");
+    if(!profile) fail("Version .app inconnue : dimensions ou nom incompatibles. Aucun fichier modifié. Les anciens profils approuvés et le format noms QNM1 sont reconnus.");
     if(!fieldEquals(bytes,36,16,"0.4")) fail("Version d’application incompatible : 0.4 attendue.");
     if(view.getUint16(16,true)!==0 || view.getUint16(18,true)!==1 || view.getUint32(52,true)!==0x20000280 || view.getUint32(56,true)!==0)
       fail("Paramètres de chargement FAP1 incompatibles avec la référence stable.");
@@ -231,8 +174,13 @@ globalThis.Bank16 = (() => {
     if(crc32(code)!==view.getUint32(12,true)) fail("CRC du code incorrect : fichier corrompu.");
     if((crc32(assets)&0xffff)!==view.getUint16(62,true)) fail("CRC des assets incorrect : fichier corrompu.");
     if(await sha256(code)!==profile.codeHash) fail("Code exécutable différent du profil de référence : fichier refusé.");
+    const immutable=assets.slice();
+    if(profile.nameBase!==undefined) {
+      if(!fieldEquals(assets,profile.marker,4,"QNM1")) fail("Signature de format noms QNM1 incorrecte.");
+      for(let i=0;i<16;i++) immutable.fill(0,profile.nameBase+i*16+3,profile.nameBase+(i+1)*16);
+    }
     const outside=new Uint8Array(assetSize-profile.count*profile.stride);
-    outside.set(assets.subarray(0,profile.base));outside.set(assets.subarray(profile.base+profile.count*profile.stride),profile.base);
+    outside.set(immutable.subarray(0,profile.base));outside.set(immutable.subarray(profile.base+profile.count*profile.stride),profile.base);
     if(await sha256(outside)!==profile.otherAssetsHash) fail("Assets hors banque modifiés ou version incompatible : fichier refusé.");
     const messages=[];
     for(let i=0;i<PROFILE.count;i++) {
@@ -241,7 +189,8 @@ globalThis.Bank16 = (() => {
         messageError(i+1,"signature CW / format 1 / numéro d’enregistrement incorrect.");
       messages.push(decodeMessage(assets.subarray(start+4,start+68),i+1));
     }
-    return {bytes,messages,assetStart,codeSize,assetSize,profile};
+    const names=profile.nameBase===undefined ? null : Array.from({length:16},(_,i)=>decodeName(assets.subarray(profile.nameBase+i*16,profile.nameBase+(i+1)*16),i+1));
+    return {bytes,messages,names,assetStart,codeSize,assetSize,profile};
   }
   function compareAllowed(original,output,profile=PROFILE) {
     if(original.length!==output.length) fail("Comparaison impossible : la longueur du fichier a changé.");
@@ -249,53 +198,70 @@ globalThis.Bank16 = (() => {
     for(let i=0;i<original.length;i++) if(original[i]!==output[i]) {
       const relative=i-assetStart-PROFILE.base;
       const payload=relative>=0 && relative<PROFILE.count*PROFILE.stride && relative%PROFILE.stride>=4;
-      if(!(i===62 || i===63 || payload)) fail(`Modification interdite à l’offset fichier ${i}. Aucun fichier généré.`);
+      const nameRelative=i-assetStart-profile.nameBase;
+      const name=profile.nameBase!==undefined && nameRelative>=0 && nameRelative<256 && nameRelative%16>=3;
+      if(!(i===62 || i===63 || payload || name)) fail(`Modification interdite à l’offset fichier ${i}. Aucun fichier généré.`);
       changed++;
     }
     return changed;
   }
-  async function generate(original,texts) {
+  async function generate(original,texts,names) {
     const input=await validateFile(original);
     if(!Array.isArray(texts) || texts.length!==16) fail("Exactement 16 messages sont requis.");
     const encoded=texts.map((text,i)=>encodeMessage(text,i+1));
+    if(names!==undefined && (!Array.isArray(names) || names.length!==16)) fail("Exactement 16 noms sont requis.");
+    if(input.names===null && names!==undefined) fail("Ancien format sans noms : les contenus restent éditables, mais les noms nécessitent la nouvelle référence QNM1.");
+    const named=input.names===null ? null : (names===undefined ? input.names : names);
+    const encodedNames=named && named.map((name,i)=>encodeName(name,i+1));
     const output=input.bytes.slice();
     for(let i=0;i<16;i++) {
       const start=input.assetStart+PROFILE.base+i*PROFILE.stride+4;
       output.fill(0,start,start+64);output.set(encoded[i],start);
+      if(encodedNames) {
+        const n=input.assetStart+input.profile.nameBase+i*16+3;
+        output.fill(0,n,n+13);output.set(encodedNames[i],n);
+      }
     }
     new DataView(output.buffer).setUint16(62,crc32(output.subarray(input.assetStart))&0xffff,true);
     const changed=compareAllowed(input.bytes,output,input.profile);
     const result=await validateFile(output);
     if(result.messages.some((text,i)=>text!==texts[i])) fail("Échec de la relecture des messages après génération.");
-    return {bytes:output,messages:result.messages,changed};
+    if(named && result.names.some((name,i)=>name!==named[i])) fail("Échec de la relecture des noms après génération.");
+    return {bytes:output,messages:result.messages,names:result.names,changed};
   }
-  return Object.freeze({PROFILE,PROFILES,ALPHABET,crc32,encodeMessage,decodeMessage,validateFile,compareAllowed,generate});
+  return Object.freeze({PROFILE,PROFILES,ALPHABET,crc32,encodeMessage,decodeMessage,encodeName,decodeName,validateFile,compareAllowed,generate});
 })();
 </script>
 <script id="bank16-ui">
 "use strict";
 (() => {
   const $=id=>document.getElementById(id), fields=[];
-  let source=null,busy=false,ticket=0;
-  const roles=["CQ / Appel","Réponse / RST","Fin QSO",...Array(13).fill("Message libre / navigation")];
+  let source=null,busy=false,ticket=0,hasNames=false;
   for(let i=0;i<16;i++) {
     const card=document.createElement("section"),label=document.createElement("label"),number=document.createElement("span");
     const input=document.createElement("textarea"),note=document.createElement("div"),count=document.createElement("span"),error=document.createElement("div");
     card.className="message";label.htmlFor=`msg-${i+1}`;number.className="number";number.textContent=`MSG ${String(i+1).padStart(2,"0")}`;
-    label.append(number,document.createTextNode(roles[i]));input.id=label.htmlFor;input.disabled=true;
+    label.append(number,document.createTextNode("Contenu CW"));input.id=label.htmlFor;input.disabled=true;
+    const nameLabel=document.createElement("label"),nameInput=document.createElement("input"),nameCount=document.createElement("span");
+    nameLabel.htmlFor=`name-${i+1}`;nameLabel.textContent="Nom (12 caractères ASCII maximum)";
+    nameInput.id=nameLabel.htmlFor;nameInput.type="text";nameInput.maxLength=12;nameInput.disabled=true;nameInput.autocomplete="off";
+    nameCount.className="field-note";nameCount.id=`name-count-${i+1}`;nameInput.setAttribute("aria-describedby",`name-count-${i+1} error-${i+1}`);
     input.rows=3;input.spellcheck=false;input.autocomplete="off";input.setAttribute("autocapitalize","off");
     input.setAttribute("aria-describedby",`count-${i+1} error-${i+1}`);
     note.className="field-note";count.className="count";count.id=`count-${i+1}`;count.textContent="— / 64 octets";
-    error.className="field-error";error.id=`error-${i+1}`;note.append(count);card.append(label,input,note,error);$("messages").append(card);
-    fields.push({card,input,count,error});input.addEventListener("input",refresh);
+    error.className="field-error";error.id=`error-${i+1}`;note.append(count);card.append(number,nameLabel,nameInput,nameCount,label,input,note,error);$("messages").append(card);
+    fields.push({card,input,count,error,nameInput,nameCount});input.addEventListener("input",refresh);nameInput.addEventListener("input",refresh);
   }
   function refresh() {
     let invalid=0;
     for(let i=0;i<fields.length;i++) {
       const f=fields[i];f.input.disabled=!source || busy;
-      if(!source) {f.input.value="";f.count.textContent="— / 64 octets";f.error.textContent="";f.card.classList.remove("invalid");f.input.removeAttribute("aria-invalid");continue;}
+      f.nameInput.disabled=!source || busy || !hasNames;
+      f.nameCount.textContent=hasNames?`${f.nameInput.value.length} / 12 caractères`:"Noms indisponibles dans cet ancien format.";
+      if(!source) {f.nameInput.value="";f.input.value="";f.count.textContent="— / 64 octets";f.error.textContent="";f.card.classList.remove("invalid");f.input.removeAttribute("aria-invalid");continue;}
       try {
         const bytes=Bank16.encodeMessage(f.input.value,i+1);f.count.textContent=`${bytes.length} / 64 octets`;
+        if(hasNames)Bank16.encodeName(f.nameInput.value,i+1);
         f.error.textContent="";f.card.classList.remove("invalid");f.input.setAttribute("aria-invalid","false");
       } catch(error) {
         invalid++;f.count.textContent=error.count===undefined?"Encodage invalide":`${error.count} / 64 octets`;
@@ -311,8 +277,8 @@ globalThis.Bank16 = (() => {
     $("file-status").textContent="Vérification du fichier…";
     try {
       const result=await Bank16.validateFile(await input);if(current!==ticket)return;
-      source=result.bytes;fields.forEach((f,i)=>f.input.value=result.messages[i]);
-      $("file-status").textContent=`${name} · ${result.profile.name} (${result.profile.id}) · ${source.length.toLocaleString("fr-FR")} octets · 16 messages vérifiés. L’original reste intact.`;
+      source=result.bytes;hasNames=result.names!==null;fields.forEach((f,i)=>{f.input.value=result.messages[i];f.nameInput.value=hasNames?result.names[i]:"";});
+      $("file-status").textContent=`${name} · ${result.profile.name} (${result.profile.id}) · ${source.length.toLocaleString("fr-FR")} octets · 16 messages vérifiés. ${hasNames?"16 noms éditables.":"Ancien format sans noms : seuls les contenus sont éditables ; chargez la nouvelle référence pour les noms."} L’original reste intact.`;
     } catch(error) {
       if(current!==ticket)return;source=null;$("file-status").textContent="Fichier refusé.";$("file-error").textContent=error.message;
     } finally {if(current===ticket){busy=false;refresh();}}
@@ -330,9 +296,9 @@ globalThis.Bank16 = (() => {
   });
   $("download").addEventListener("click",async()=>{
     if(!source || busy || $("download").disabled)return;
-    const original=source.slice(),texts=fields.map(f=>f.input.value);busy=true;$("file-error").textContent="";refresh();
+    const original=source.slice(),texts=fields.map(f=>f.input.value),names=hasNames?fields.map(f=>f.nameInput.value):undefined;busy=true;$("file-error").textContent="";refresh();
     try {
-      const result=await Bank16.generate(original,texts);
+      const result=await Bank16.generate(original,texts,names);
       const url=URL.createObjectURL(new Blob([result.bytes],{type:"application/octet-stream"}));
       const link=document.createElement("a");link.href=url;link.download="CWQSOAuto-personnalise.app";document.body.append(link);link.click();link.remove();
       setTimeout(()=>URL.revokeObjectURL(url),1000);
