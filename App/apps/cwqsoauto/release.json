@@ -1,12 +1,15 @@
 {
   "version": "0.4",
-  "source_branch": "experiment/cw-qso-auto-repeat01",
-  "overlay": 4092,
+  "source_branch": "contribution/cw-qso-auto",
+  "overlay": 4084,
   "bss": 92,
-  "assets": 2282,
-  "app_sha256": "9aa7749f6614a3c7ef111edf78582a70fc18ee491441602d8fd3df889018517a",
-  "source_sha256": "c7c7594068464a5f231f1e4d343e2366b1b6ab908bd1512722fa99ebdfb11e16",
-  "code_sha256": "d5ec353509642b5aeba50386102e5d813ece1de4cbd9364e492bc1c07bb9e3c4",
-  "assets_sha256": "c0fac51202763e31398c973e98266ad84a5f97ef13edf308766a7d74f31a444d",
-  "compiler": "GNU Arm Embedded GCC 13.3.Rel1 (13.3.1 20240614)"
+  "assets": 2286,
+  "app_sha256": "40d20652b008e8134b26faf5e69116b8335ffb3a7c944819d4c15abdbc5d037b",
+  "source_sha256": "f4ffe2004554b627abd59810ece0d309211045c8d2ee845d007dd1d6d151bdee",
+  "code_sha256": "71f91e4424bfec52dced0164835620b52b1930320f2d9e97395b3979fd4f2576",
+  "assets_sha256": "8f6dcc2b2bc719520493b56a7fe65c337922049566da65186b77dd12572b2449",
+  "compiler": "GNU Arm Embedded GCC 13.3.Rel1 (13.3.1 20240614)",
+  "release": "v1.0",
+  "firmware_base": "68d4d40793b254d7578f12d10f9d63259c4b0e31",
+  "stable_reference": "654820a6423c49423243c0cb5b8373c513d3d1f7"
 }

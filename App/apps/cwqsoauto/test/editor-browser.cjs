@@ -78,7 +78,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
  assert.equal(await evaluate("document.getElementById('msg-2').value"),"DE F5XYZ UR {RST} {RST} NAME ALICE HW?");
  assert.equal(await evaluate("document.getElementById('msg-4').value"),"TEST WEB {RST}");
  assert.equal(await evaluate("Array.from({length:16},(_,i)=>document.getElementById('name-'+(i+1)).value).join('|')"),Array.from({length:16},(_,i)=>'POTA '+(i+1)).join('|'));
- const legacy=path.resolve(root,"../../../archive/apps/v6.3.0/CWQSOAuto.app");
+ const legacy=path.join(root,"test/fixtures/legacy-repeat01.app");
  await call("DOM.setFileInputFiles",{nodeId,files:[legacy]});await until("!document.getElementById('download').disabled && document.getElementById('file-status').textContent.includes('Ancien format sans noms')");
  assert.equal(await evaluate("[...document.querySelectorAll('input[id^=name-]')].every(x=>x.disabled)"),true);
  const bad=Buffer.from(original);bad[0]=0;const badFile=path.join(out,"corrupt.app");fs.writeFileSync(badFile,bad);

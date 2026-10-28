@@ -1,7 +1,7 @@
 # Experimental repeat of the captured selection
 
 Based on the hardware-validated `experiment/cw-qso-auto-names16` working tree.
-New branch: `experiment/cw-qso-auto-repeat-selected`. No commit or publication.
+Integrated on `contribution/cw-qso-auto` for feature_update_v7; the stable tag remains unchanged.
 
 The sole application change is at the shared launch path in `app_main`:
 

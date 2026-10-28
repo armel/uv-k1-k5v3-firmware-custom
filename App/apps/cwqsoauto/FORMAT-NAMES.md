@@ -1,7 +1,6 @@
 # Experimental named Bank16 format (QNM1)
 
-This experiment starts from `CWQSOAuto-menu-left.app`, not the archived PR
-release. It preserves early HP, REPEAT 1–15 seconds/default 5/persistent,
+This V7 contribution preserves the hardware-validated named v1.0 release. It preserves early HP, REPEAT 1–15 seconds/default 5/persistent,
 SETTINGS PTT straight keying, SIDE 1 repeat the selection captured at activation
 and SIDE 2 stop-after-message. See [REPEAT-SELECTED.md](REPEAT-SELECTED.md).
 Only `{RST}` is a dynamic token. CALL/NAME remain editable literal CW text.
@@ -70,8 +69,9 @@ Set ARM_CC to the existing Cortex-M0+ GCC toolchain, then run:
 python App/apps/cwqsoauto/test/experimental.py --browser
 ```
 
-This uses the strict production linker and targeted replacement tests; the old
-`test/run.py` has release/frequency/display assumptions for the PR version.
+This uses the strict production linker and the current V7 suites;
+`test/run.py` is an equivalent entry point. Some older individual drivers retain
+historical release/frequency/display assumptions and are not the current runner.
 Host GPIO/audio/Flash mocks are software checks, not physical radio validation.
 
 Final overlay: **4084 bytes including 92 bytes BSS**, 12 spare bytes.
@@ -81,4 +81,5 @@ Hardware checks: customize names 01/04/15/16, including empty and 12-character
 names; install the exported APP; inspect number/name/preview/MENU; check restart
 persistence; PTT must send the CW content without the name. Test an RST message,
 SIDE 1 repetition/SIDE 2 stop, SETTINGS PTT and receive audio after TX. These
-checks have not yet been performed on a radio for this experiment.
+checks still need to be performed on V7. The user validated the stable binary
+on UV-K5 V3 before this software-only V7 integration.

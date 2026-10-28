@@ -30,6 +30,11 @@ def function(name):
     return helper[start:end]
 
 renderer = '\n#include "' + (root / "App/font.h").as_posix() + '"\n'
+renderer += '#include "' + (root / "App/fw_assets.h").as_posix() + '"\n'
+renderer += "static uint8_t renderVariant;\n#define UI_FONT_SETTING renderVariant\n"
+# V7 stores glyphs in resident external assets. Model only their byte reads;
+# the real helper/font code and all twelve SetFnt variants remain under test.
+renderer += "void FW_ASSETS_Read(const void *src, void *dst, uint32_t len){memcpy(dst,src,len);}\n"
 renderer += "#define gFrameBuffer fb\n#define gStatusLine status\n"
 renderer += "\n".join(function(name) for name in [
     "UI_DrawPixelBuffer", "PutPixel", "PutPixelStatus", "GUI_DisplaySmallest",
@@ -108,6 +113,12 @@ int main(void){
     memset(name,'W',12);name[12]=0;frame("name-max.pbm");
     memset(name,0,13);frame("name-empty.pbm");
     name[0]=255;frame("name-invalid.pbm");
+    memset(name,'W',12);name[12]=0;
+    for(renderVariant=0;renderVariant<FONT_VARIANT_COUNT;renderVariant++){
+        char file[48];sprintf(file,"v7-font-%02u-qso.pbm",renderVariant);frame(file);
+        q.settings=true;sprintf(file,"v7-font-%02u-settings.pbm",renderVariant);frame(file);
+        q.settings=false;
+    }
     return 0;
 }
 '''
@@ -115,7 +126,8 @@ test = out / "render.c"
 test.write_text(code + renderer)
 exe = out / "render.exe"
 subprocess.run([os.environ.get("HOST_CC", "gcc"), "-std=c11", "-O1", "-Wall", "-Wextra",
-                str(test), str(root / "App/font.c"), "-o", str(exe)], check=True)
+                "-DENABLE_FEAT_F4HWN_FW_ASSETS", "-DENABLE_FEAT_F4HWN_SET_FNT",
+                str(test), str(root / "App/font.c"), str(root / "App/font_alt.c"), "-o", str(exe)], check=True)
 subprocess.run([str(exe)], cwd=out, check=True)
 
 def png(path, pixels, scale=1):

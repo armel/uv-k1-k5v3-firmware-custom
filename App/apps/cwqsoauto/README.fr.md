@@ -1,105 +1,68 @@
-# CW QSO Auto — notice française
+# CW QSO Auto v1.0 — notice française
 
-Application overlay autonome pour **UV-K5 V3**, firmware F4HWN compatible ABI 1 /
-API 3. Le paquet vise l'archive `v6.3.0`. La validation matérielle rapportée
-concerne l'UV-K5 V3 ; l'UV-K1 n'a pas été qualifié ici.
+Application CW autonome pour UV-K5 V3, firmware F4HWN ABI 1/API 3 minimum.
+Compilation et tests logiciels effectués sur `feature_update_v7` (API 4).
+La version stable a été validée par son auteur sur UV-K5 V3 ; aucun nouvel
+essai matériel V7 n’est revendiqué. [English](README.md) · [Tests](TESTING.md)
 
-[Documentation anglaise](README.md) · [Architecture](ARCHITECTURE.md) ·
-[Tests et limites](TESTING.md)
+## Personnalisation
 
-## Personnaliser sans compiler
+Ouvrir [editor.html](editor.html) comme fichier local dans un navigateur récent.
+Le binaire actuel est embarqué : aucun serveur, réseau ou compilateur nécessaire.
+Chacun des 16 messages possède un numéro fixe, un nom de 0 à 12 caractères ASCII
+visibles et un contenu CW de 64 octets encodés maximum. Le nom n’est jamais émis.
+Alphabet CW : A–Z, chiffres, espace, `/`, `?`, jeton `{RST}` (un octet).
+Pas d’espaces en début/fin ou doublés. Un contenu vide désactive le message.
+Remplacer F4XXX et SEB ; CALL et NAME sont du texte, pas des jetons dynamiques.
 
-1. Télécharger [editor.html](editor.html), puis ouvrir ce fichier local dans
-   un navigateur récent. Le `.app` de référence est **déjà embarqué** : les
-   16 champs se remplissent sans importer de fichier et sans accès réseau.
-2. Remplacer `F4XXX` par son indicatif dans MSG 01 et 02, et `SEB` par son
-   prénom si nécessaire. Ces valeurs génériques sont seulement les valeurs
-   initiales ; les textes personnalisés restent libres dans l'alphabet permis.
-   Vérifier les messages avant un QSO réel.
-3. Modifier les textes, puis cliquer sur **Vérifier et télécharger**. Alphabet :
-   `A–Z`, chiffres, espace, `/`, `?` et jeton exact `{RST}`. Chaque emplacement
-   accepte 64 octets utiles ; `{RST}` ne consomme qu'un octet. Pas d'espace
-   initial/final/doublé, de conversion automatique ni de troncature. Un champ
-   vide désactive ce message.
-4. Conserver le `.app` téléchargé : le réimporter dans le HTML permet de
-   retrouver les 16 textes. La fermeture de la page ne sauvegarde rien
-   automatiquement. L'éditeur ne relit pas la Flash du poste.
+Exporter le .app personnalisé et l’installer avec la vue Applications d’UV Studio.
+Le conserver pour sauvegarde : sa réimportation restaure noms et contenus.
+Fermer l’éditeur ne sauvegarde pas automatiquement. Réinstaller les valeurs par
+défaut remplace les personnalisations. L’éditeur ne lit pas le poste.
 
-Les anciens profils Bank16 autorisés restent importables, **sans changement de
-leur code ni de leurs commandes**. Importer un ancien `.app` n'installe donc pas
-automatiquement la répétition CQ. Pour reprendre ses textes avec le nouveau
-code, utiliser deux onglets : ancien fichier dans l'un, référence embarquée
-dans l'autre ; copier les textes puis télécharger depuis la référence.
+La seule référence actuelle à installer est
+[`archive/apps/v6.3.0/CWQSOAuto.app`](../../../archive/apps/v6.3.0/CWQSOAuto.app),
+identique au binaire embarqué. Ce répertoire suit la convention actuelle du dépôt
+V7. Les anciens profils approuvés gardent leur code lors d’un import, sans
+migration automatique ; ceux sans noms restent éditables pour leurs contenus.
 
-Le fichier indépendant
-[`CWQSOAuto.app`](../../../archive/apps/v6.3.0/CWQSOAuto.app) et le fichier
-embarqué sont identiques avant personnalisation. Installer de nouveau la
-référence par défaut ne conserve pas les anciens messages personnalisés.
+## Commandes
 
-## Installer avec UV Studio
-
-Quitter l'application du poste avant de connecter l'ordinateur au port USB-C.
-Ouvrir [UV Studio](https://armel.github.io/uvstudio/), aller dans la vue
-Applications / Apps, connecter le port série, choisir son `.app` local et
-l'installer avec les commandes d'application. Utiliser un firmware compatible
-de la série 6.3.0 : ce fichier est une **application**, pas un firmware `.bin`.
-Déconnecter ensuite l'ordinateur avant de brancher l'adaptateur paddle USB-C.
-Lancer **CW QSO Auto** dans le menu Apps du poste.
-
-## Utilisation
-
-| Commande | Effet sur l'écran QSO |
+| Touche | Écran principal |
 | --- | --- |
-| UP / DOWN | Navigation circulaire entre MSG 01 et MSG 16 |
-| PTT | Une émission du message sélectionné, sans confirmation ; maintien sans répétition |
-| SIDE 1 | MSG 01 immédiatement, puis répétition avec trois secondes de pause après la dernière marque de chaque message |
-| SIDE 2 | Termine le message déjà commencé puis arrête ; pendant la pause, supprime le prochain départ |
-| EXIT / paddle | Annulation immédiate de la séquence automatique par le chemin RX normal, avec relâchement obligatoire |
-| Chiffres | Saisie glissante du RST sur trois chiffres ; `599` à l'ouverture |
-| MENU | Accès à CW SETTINGS |
+| UP/DOWN | Parcourir les 16 messages en boucle |
+| PTT | Envoyer une fois le message sélectionné |
+| SIDE 1 | Répéter le message sélectionné au lancement |
+| SIDE 2 | Arrêter après la fin du message courant ; pendant la pause, annuler le prochain départ |
+| EXIT ou paddle pendant un message | Annuler immédiatement l’envoi automatique |
+| Chiffres | Saisie glissante du RST, initialement 599 |
+| MENU | Ouvrir SETTINGS |
+| EXIT au repos | Quitter et sauvegarder les réglages |
 
-Les nouveaux appuis SIDE 1 ne s'empilent pas. Pendant la pause, PTT transmet la
-sélection courante et reprend la main. MSG 15 `AGN?` et MSG 16 `?` restent
-accessibles par navigation/PTT. Les MSG 04 à 16 affichent un aperçu borné du
-contenu réel : `*` représente `{RST}`, `>` signale une suite non affichée.
-Le texte stocké et transmis n'est pas tronqué.
+MSG 01 est sélectionné au départ. Changer la sélection pendant une pause ne
+change pas le message répété. Un PTT pendant la pause arrête la répétition et
+envoie la sélection courante. SIDE 1 n’empile pas les demandes. Les 16 messages
+affichent numéro, nom et aperçu : `*` représente RST, `>` la suite non affichée.
+MENU est en bas à gauche ; la ligne d’aide de prévisualisation reste masquée.
 
-Il n'y a plus d'armement TIP de cinq secondes, ni d'affichage LOCK/READY.
-Une commande déjà maintenue à l'ouverture est consommée jusqu'au relâchement
-qualifié. Les modes STRAIGHT, AUTO, IAMB A et IAMB B restent disponibles.
+Dans SETTINGS : UP/DOWN règle REPEAT de 1 à 15 s, défaut 5 s, sauvegardé ;
+1 bascule STRAIGHT/PADDLE ; 8 choisit AUTO/IAMB A/IAMB B ; 2 règle les WPM
+(5–60), 3 la tonalité, 4 le break-in, 5 l’inversion, 6 la calibration XTAL,
+0 le HP. F puis une touche de réglage numérique diminue la valeur.
+PTT fonctionne comme une pioche : maintien de la porteuse jusqu’au relâchement,
+avec rampes, refus TX et protection de durée maximale inchangés.
+MENU/EXIT revient à l’écran principal. Relâcher les commandes au démarrage
+et après une annulation ; aucun armement TIP de cinq secondes n’est requis.
 
-CW SETTINGS : `1` STRAIGHT/PADDLE, `2` vitesse 5–60 WPM, `3` hauteur audio,
-`4` break-in, `5` inversion du paddle, `6` correction du quartz, `8` AUTO/A/B,
-`0` haut-parleur, UP/DOWN fréquence. `F` sélectionne la diminution pour le
-prochain réglage numérique. MENU/EXIT revient à QSO ; EXIT depuis QSO au repos
-quitte l'application. Le RST est distinct des réglages CW sauvegardés.
+## Construction et limites
 
-## Architecture et limites
+Avec ARM_CC pointant vers GCC ARM 13.3.Rel1 :
+`python App/apps/cwqsoauto/build.py`. Le point d’entrée compile-app est build.sh.
+Overlay **4084/4096 octets, dont 92 BSS**, assets **2286 octets**.
+Le binaire est identique au tag stable `cw-qso-auto-v1.0-stable` ; son en-tête
+reste en version 0.4 pour préserver le fichier validé. v1.0 désigne la version
+fonctionnelle stable. Aucun changement du résident ou des autres applications.
 
-L'overlay occupe **4 092 / 4 096 octets, dont 92 de BSS**. Les **2 282 octets
-d'assets** restent en Flash externe ; les 16 messages sont des enregistrements
-fixes de 68 octets, dont 64 de texte. `{RST}` est l'octet `02`, développé avec
-le report courant lors de l'émission. L'éditeur modifie ces données et leur
-CRC, jamais le code exécutable.
-
-La configuration sur ordinateur évite d'ajouter un éditeur clavier dans les
-4 Kio du poste ou de modifier le firmware résident. Le HTML contient le
-binaire pour fournir un point de départ cohérent, utilisable hors ligne.
-Ses profils de code et d'assets sont stricts ; un fichier inconnu, corrompu ou
-hors format est refusé, y compris lorsque son CRC a été recalculé.
-
-La préparation HP anticipée traite le premier DIT localement muet après RX :
-Tone1 à fréquence nulle, sélection AF_ALAM puis activation HP avant l'attente
-PLL existante de 2 ms. Aucun tampon temporel ni préambule supplémentaire de
-10/16 ms n'est intégré. La calibration VCO, les rampes RF et le retour RX sont
-conservés. Un très léger clic de commutation a été rapporté pendant le
-développement ; aucune absence totale de clic n'est garantie ici.
-
-La marge mémoire n'est que de quatre octets. La compilation de référence est
-GCC ARM 13.3.Rel1 ; un autre compilateur peut dépasser la limite. Les relais
-Thumb sont compatibles Cortex-M0+ et leurs offsets ABI sont vérifiés à la
-compilation. Les résultats logiciels et les essais matériels rapportés sont
-distingués dans [TESTING.md](TESTING.md).
-
-Licence : conditions Apache-2.0 existantes du dépôt, attributions d'origine
-conservées. Aucun nouveau régime de licence.
+Le premier DIT est audible grâce à l’activation anticipée du HP. Un léger clic
+initial subsiste, compromis assumé lors des essais de l’auteur. L’absence de
+clic sur V7 et la qualification matérielle UV-K1 ne sont pas revendiquées.

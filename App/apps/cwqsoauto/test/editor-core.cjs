@@ -78,7 +78,7 @@ async function rejected(bytes,pattern){await assert.rejects(()=>core.validateFil
     fs.writeFileSync(path.join(out,"named-custom.app"),output.bytes);
   });
   await test("Anciens fichiers : contenus préservés, absence de noms explicite",async()=>{
-    for(const file of [path.resolve(root,"../../../archive/apps/v6.3.0/CWQSOAuto.app")]){
+    for(const file of [path.join(root,"test/fixtures/legacy-repeat01.app")]){
       const old=new Uint8Array(fs.readFileSync(file)),r=await core.validateFile(old);
       assert.equal(r.names,null);
       assert.deepEqual((await core.generate(old,Array.from(r.messages))).bytes,old);

@@ -27,4 +27,5 @@ run('editor-core',[node,'--preserve-symlinks','--preserve-symlinks-main',str(p/'
 if '--browser' in sys.argv:
     run('editor-browser',[node,'--preserve-symlinks','--preserve-symlinks-main',str(p/'editor-browser.cjs')])
 run('custom-file',[sys.executable,str(p/'custom_file.py'),str(p/'out-editor/named-custom.app')])
+run('release',[sys.executable,str(p/'release.py')])
 (out/'experimental-results.json').write_text(json.dumps(results,indent=2))
