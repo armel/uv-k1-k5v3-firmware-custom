@@ -26,12 +26,18 @@ extern uint8_t UART_DMA_Buffer[256];
 void UART_Init(void);
 void UART_Send(const void *pBuffer, uint32_t Size);
 void UART_LogSend(const void *pBuffer, uint32_t Size);
-#ifdef ENABLE_AIRCOPY_UART
+#if defined(ENABLE_AIRCOPY_UART) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 bool UART_SetBaudRate(uint32_t BaudRate);
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+uint8_t UART_RxHead(void);   /* DMA write position in UART_DMA_Buffer */
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     bool UART_IsCableConnected(void);
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    void UART_K5ViewerSync(void);
+#endif
 #endif
 
 #endif

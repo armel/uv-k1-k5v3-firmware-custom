@@ -35,6 +35,9 @@ bool UART_IsCommandAvailable(uint32_t Port);
 #if defined(ENABLE_USB) && defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 extern uint16_t VCP_ReadIndex;   /* the command parser's VCP_RxBuf read index */
 #endif
+#if defined(ENABLE_UART) && defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+extern uint16_t gUART_WriteIndex; /* the command parser's UART_DMA_Buffer read index */
+#endif
 void UART_HandleCommand(uint32_t Port);
 void UART_ServiceCommands(void);
 #ifdef ENABLE_AIRCOPY_UART
