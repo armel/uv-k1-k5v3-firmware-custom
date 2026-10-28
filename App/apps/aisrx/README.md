@@ -1,6 +1,6 @@
 # AIS RX (overlay app)
 
-Receives **AIS at 9600 bit/s** from the current VFO and keeps the four most
+Receives **AIS at 9600 bit/s** from the current VFO and keeps the eight most
 recent vessels. Dynamic position reports and static data are merged by MMSI.
 The implementation is self-contained in the overlay and uses the resident API
 level 3 audio-capture services; it adds no resident AIS mode or menu.
@@ -12,7 +12,7 @@ level 3 audio-capture services; it adds no resident AIS mode or menu.
 | Reference format (`test/ais.py`) | Builds and parses message types 1, 2, 3, 5, 8 (Inland, DAC 200, FI 10), 18, 19 and 24; field layout checked against a real gpsd AIVDM report; HDLC stuffing and CRC-16/X-25 self-tested |
 | Receiver model (`test/model_rx.py`) | Radio channel as the other RAW decoders' models (0.065 LSB/Hz, high-pass corner 300-1500 Hz, 4th-order low-pass swept 3.3-8 kHz, +/-1 % clock, noise, both polarities); every case decodes with a low-pass at 5 kHz or above, most at 4 kHz, few at 3.3 kHz; no frame from 20 s of noise |
 | Flipper vectors | Twelve AIS `.sub` files (one frame each, as a ship sends one report, checked through the model channel) plus a stock-preset probe at 433.650 MHz |
-| Radio app (`aisrx_app.c`) | v0.1. During development: **decodes the Flipper files on the radio** and **receives real AIS on AIS1, 161.975 MHz** (2026-10-20); build 3920 B (176 B free), all app data in one assets block copied onto the stack |
+| Radio app (`aisrx_app.c`) | v0.2 source: eight vessels and `MENU` hold/resume, shown by a padlock. v0.1 validation: **decodes the Flipper files on the radio** and **receives real AIS on AIS1, 161.975 MHz** (2026-10-20); last measured v0.1 build 3920 B (176 B free); v0.2 size pending build, all app data in one assets block copied onto the stack |
 
 Two design points matter, both found by giving up an early version that
 could never receive a real ship:
@@ -33,15 +33,17 @@ could never receive a real ship:
 1. Select FM and tune the VFO to **AIS1, 161.975 MHz**, or **AIS2,
    162.025 MHz** (433.650 MHz for the Flipper Zero bench files). The app
    listens to one channel at a time.
-2. Launch `AIS RX`. `WAIT` shows in the status bar until a first vessel.
-3. A valid CRC report brings that MMSI to the front of the list.
+2. Launch `AIS RX`. Until a first vessel, the bottom row shows the receive
+   diagnostic `sync` and `crc` counters.
+3. A valid CRC report brings that MMSI to the front of the list unless the
+   list is held with `MENU`.
 
 The screen follows ATIS RX and APRS RX:
 
 | Screen | Content |
 |---|---|
-| Status bar | `AIS RX` title, a `WAIT` capsule until the first vessel, the speaker icon while it is on, then ▲ while rows or a newer vessel hide above and ▼ while rows or an older vessel hide below |
-| Line 0 | The vessel name in bold (cut before the capsules), or its MMSI until a static report names it; at its right the frames received and, with several vessels kept, `2/4` (vessel shown / vessels kept, 1 = newest) |
+| Status bar | `AIS RX` title, a padlock while the list is held, the speaker icon while it is on, then ▲ while rows or a newer vessel hide above and ▼ while rows or an older vessel hide below |
+| Line 0 | The vessel name in bold (cut before the capsules), or its MMSI until a static report names it; at its right the frames received and, with several vessels kept, `2/8` (vessel shown / vessels kept, 1 = newest) |
 | Lines 1-3 | The body, nothing cut, scrolled as in APRS RX: `227123456 Moored` (the MMSI when line 0 shows the name, never twice, then the navigational status); `48.8566N 2.3522E` (position, four decimals, about 11 m); `SOG 12.3kt COG 088` (speed over ground in knots, course over ground in degrees from 1 kt: below, it is only GPS noise); `HDG 090` (true heading, where the bow points); `>LE HAVRE` (destination); for Inland AIS vessels `ENI 01823456`, `110.0x11.4x2.5m` (length x beam x draught, on the ENI row when compact) and `Loaded 2 cones` (load, blue cones or B-flag); the whole name when line 0 had to cut it. A field the vessel has not sent takes no row. Normal view: 18 characters a row, 8 px apart, 3 rows at rest. Key `*` switches to the compact view, as APRS RX: 32 tiny characters a row, 6 px apart, 4 rows at rest, the heading on the speed row |
 | Lines 4-5 | Under the dotted separator, the frequency in big digits, with `AIS` over `1` or `2` at its right on 161.975 / 162.025 MHz (where ATIS RX shows the marine channel) |
 | Bottom row | `-89dBm  heard 3  last 02m15`: level, reports from this vessel (up to 999), time since the last one, `02m15` (minutes, seconds) under an hour then `03h07` (hours, minutes); refreshed every 5 s. Before the first vessel, the receive diagnostic below |
@@ -49,13 +51,19 @@ The screen follows ATIS RX and APRS RX:
 | Key | Action |
 |---|---|
 | UP / DOWN (held) | Scroll the body 1 px per 50 ms (UV-K1: LEFT / RIGHT), down to its last row |
-| UP / DOWN (pressed again at the first / last row) | The newer / older vessel, from its first row, up to four kept; holding a key never leaves the vessel |
+| UP / DOWN (pressed again at the first / last row) | The newer / older vessel, from its first row, up to eight kept; holding a key never leaves the vessel |
 | * | Normal / compact view, saved on exit |
 | 1 | Speaker on / off (saved, off by default: the decoder does not need it). Not gated by the squelch, as POCSAG RX, EPIRB 406 and the sonde apps on the same RAW path: the hiss is heard between bursts, and each burst as a short buzz |
+| MENU | Hold / resume the vessel list. Reception and the valid-CRC counter continue, but no vessel is added, updated or reordered while held |
 | 2 | Clear the list and the counters |
 | EXIT | Quit and restore the BK4829 receive registers |
 
 AIS values which mean “not available” are not promoted to valid positions.
+While held, the screen still refreshes every 5 s, so the selected vessel's
+`last` age and the valid-CRC counter show that the application remains alive.
+The eight vessel records live on `app_main`'s stack; compared with v0.1's four
+records they use about 352 additional bytes without occupying the 4 KiB code
+overlay.
 Keys are read every 50 ms, whatever the squelch, except while a lane is
 inside a training sequence or a frame: a key scan takes about 0.4 ms, four
 bits at 9600 bit/s. A key redraws at once; a new report or the 5 s refresh

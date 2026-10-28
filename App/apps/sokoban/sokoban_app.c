@@ -7,6 +7,9 @@ void *memset(void *p,int c,size_t n){uint8_t *b=p;while(n--)*b++=c;return p;}
 void *memcpy(void *p,const void *q,size_t n){uint8_t *d=p;const uint8_t *s=q;while(n--)*d++=*s++;return p;}
 static struct {const app_api_t *api;game_t game;uint8_t level,previous;bool confirm,won_pending,wait_release,title,title_on;uint32_t confirm_at,repeat_at,won_at,title_at;} g;
 #define A (g.api)
+/* Division through the resident helper (API level 2) instead of libgcc's 266-byte unsigned division: GCC calls __aeabi_uidiv for `/` and __aeabi_uidivmod for `%`, and both find the quotient in r0 (the remainder in r1), as the helper returns them. */
+__attribute__((noinline))uint64_t __aeabi_uidivmod(uint32_t n,uint32_t d){return A->uidivmod(n,d);}
+uint64_t __aeabi_uidiv(uint32_t n,uint32_t d)__attribute__((alias("__aeabi_uidivmod")));
 static void value(char *p,uint32_t n,unsigned digits){while(digits){p[--digits]='0'+n%10;n/=10;}}
 static bool load(void){
  uint8_t packed[LEVEL_BYTES];if(A->asset_read(LEVELS+g.level*LEVEL_BYTES,packed,sizeof packed)!=sizeof packed)return false;

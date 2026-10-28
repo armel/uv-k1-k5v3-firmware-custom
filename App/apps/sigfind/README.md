@@ -6,8 +6,9 @@ finds any carrier: a 121.5 / 243 MHz homing beacon, a fox, an interferer. It
 also tells you whether the signal is a real distress beacon: the ELT detector
 recognises the homer's swept tone and shows `ELT` in the status bar.
 
-Forked from Armel F4HWN's FoxHunt app. Needs the Labs firmware v6.1.0 or later
-(app API level 2). 3,276 bytes of the 4 KiB overlay, version 1.8.
+Forked from Armel F4HWN's FoxHunt app. Needs a Labs or Fusion_ firmware
+v6.3.0 or later (app API level 3, with `handoff_read` and `vfo_stage` for the
+return hand-off). 3,084 bytes of the 4 KiB overlay, version 1.9.
 
 | Step | State |
 |---|---|
@@ -15,13 +16,16 @@ Forked from Armel F4HWN's FoxHunt app. Needs the Labs firmware v6.1.0 or later
 | ELT swept-tone detector (`sweep.c`), host-tested (`test/sweep_test.c`) | **Done**: all legal sweeps found within about 2 s, no false detection on noise, steady tones, voice-like tone hops or upward sweeps |
 | Detector on the radio with the Flipper Zero files (`test/flipper/`) | **Done** (v1.7) |
 | Detector on the radio with LimeSDR IQ files (`test/limesdr/`) | **Done** (v1.7) |
+| Return hand-off: opened by EPIRB 406 (keys 8 / 9), EXIT gives its VFO back and reopens it | **Done** (v1.9, UV-K1, 2026-10-22) |
 | Detector on a real beacon | To do |
 
 ## Using the app
 
 1. Tune the VFO to the signal: **AM** for a 121.5 / 243 MHz homer (or the
    Flipper / LimeSDR test signal on 433.650 MHz), FM or USB for anything else.
-2. Launch **Sig Finder** from the app menu.
+2. Launch **Sig Finder** from the app menu, or from EPIRB 406 (keys 8 / 9),
+   which sets the VFO for you and gets it back on EXIT (see
+   [Return hand-off](#return-hand-off)).
 3. Hold the antenna in front of you and turn slowly. The feedback is
    **relative to the strongest level seen** (the peak), not an absolute level,
    so it keeps working when the signal gets strong close to the source.
@@ -94,7 +98,7 @@ Identical on the UV-K5 and the UV-K1.
 | **MENU** | Reset the peak; in SWEEP mode, start a new sweep |
 | **F** (short press) | The next 2, 3 or 5 cycles backwards (F icon in the status bar) |
 | **F** (held 0.5 s) | Keypad lock on / off (lock icon in the status bar) |
-| **EXIT** | Quit |
+| **EXIT** | Quit; after a return hand-off, give the VFO back and open the calling app again (a long press gives the VFO back and goes to the main screen) |
 
 While the keypad is locked, only UP / DOWN and MENU work; hold F to unlock
 before quitting. Mode, audio mode, attenuator step, automatic attenuator,
@@ -103,6 +107,25 @@ decay rate and backlight setting are saved when you quit.
 The backlight hold (key 6) re-arms the backlight once a second, which also
 keeps the radio's sleep timer from running out during a long search. It has no
 icon: the backlight staying on is the sign.
+
+## Return hand-off
+
+An app can open Sig Finder on another frequency and get its own VFO back
+afterwards. It reads its VFO with `beam_get`, hands off to `Sig Finder` with
+the first `offsetof(app_beam_channel_t, name)` bytes of it (26 B: every
+setting but the name; `handoff()` copies the message at once), then sets the
+homing frequency with `vfo_stage` and returns. On EXIT, Sig Finder stages
+that VFO again (`vfo_stage`) and hands off to the calling app, whose name
+`handoff_read` gave.
+
+Sig Finder only does this when the message has exactly that length and the
+firmware has `vfo_stage`. Launched from the Apps menu or a shortcut, or with
+any other message (VFO Test sends none), EXIT just quits and the VFO stays as
+it is. If the staging is refused (frequency outside the radio's range), EXIT
+quits without the hand-off.
+
+EPIRB 406 uses it on keys 8 (121.500 MHz AM narrow) and 9 (243.000 MHz AM
+wide): EXIT in Sig Finder brings it back on its 406 MHz VFO.
 
 ## Screen
 

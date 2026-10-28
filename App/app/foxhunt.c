@@ -26,6 +26,7 @@
 #include "k5viewer.h"
 #endif
 
+#include "fw_assets.h"
 #include "settings.h"
 #include "ui/status.h"
 
@@ -435,9 +436,9 @@ static void FOXHUNT_Tag(const char *s, uint8_t x, uint8_t line)
 static void FOXHUNT_DrawFKey(void)
 {
     if (foxLocked)
-        memcpy(gStatusLine + 70, gFontKeyLock, sizeof(gFontKeyLock));
+        FW_ASSETS_COPY(gStatusLine + 70, gFontKeyLock);
     else if (gWasFKeyPressed)
-        memcpy(gStatusLine + 70, gFontF, sizeof(gFontF));
+        FW_ASSETS_COPY(gStatusLine + 70, gFontF);
 }
 
 // Draw a string right-aligned in the small (7 px) font: its right edge lands at rightX.
@@ -486,16 +487,16 @@ static void FOXHUNT_Draw(void)
     // bars for the S-meter staircase, a sine wave for the signal history. Each
     // bitmap has its own width, so copy its own size.
     if (foxGraphMode == FOXHUNT_GRAPH_HIST)
-        memcpy(gStatusLine + 38, BITMAP_FoxHuntGraph, sizeof(BITMAP_FoxHuntGraph));
+        FW_ASSETS_COPY(gStatusLine + 38, BITMAP_FoxHuntGraph);
     else
-        memcpy(gStatusLine + 38, BITMAP_FoxHuntBars, sizeof(BITMAP_FoxHuntBars));
+        FW_ASSETS_COPY(gStatusLine + 38, BITMAP_FoxHuntBars);
 
     // Audio state icon between the label and the battery: speaker for beep,
     // headphones for station audio, nothing when silent.
     if (foxAudioMode == FOXHUNT_AUDIO_BEEP)
-        memcpy(gStatusLine + 55, BITMAP_FoxHuntSignal, sizeof(BITMAP_FoxHuntSignal));
+        FW_ASSETS_COPY(gStatusLine + 55, BITMAP_FoxHuntSignal);
     else if (foxAudioMode == FOXHUNT_AUDIO_STATION)
-        memcpy(gStatusLine + 55, BITMAP_FoxHuntSpeaker, sizeof(BITMAP_FoxHuntSpeaker));
+        FW_ASSETS_COPY(gStatusLine + 55, BITMAP_FoxHuntSpeaker);
 
     // Hero level, floating: the big number renders naturally (left-anchored) and
     // the "dBm" unit follows right after it, so the block flows with the width.
@@ -508,7 +509,7 @@ static void FOXHUNT_Draw(void)
     trendIcon = (trendDelta > 0) ? BITMAP_FoxHuntUp
               : (trendDelta < 0) ? BITMAP_FoxHuntDown
               : BITMAP_FoxHuntFlat;
-    memcpy(gFrameBuffer[0] + (126 - 11), trendIcon, 11);
+    FW_ASSETS_Read(trendIcon, gFrameBuffer[0] + (126 - 11), 11);
     // Signed delta on line 1 — only when it actually moved (no "00 dBm" when
     // stable). "dBm" right-anchored to x126, the value 2 px to its left (a real
     // space would be 7 px), so they are drawn as two separate strings.
@@ -821,7 +822,7 @@ static void FOXHUNT_EnterHunt(void)
 // RADIO_PrepareTX (F LOCK / per-VFO TX LOCK, then battery, then modulation) and
 // return the matching VfoState_t. VFO_STATE_NORMAL means the burst is clear to
 // transmit. Reusing the radio's own states keeps the on-screen wording identical
-// to the main display (VfoStateStr).
+// to the main display.
 static VfoState_t FOXHUNT_TxState(void)
 {
     if (TX_freq_check(gTxVfo->pTX->Frequency) != 0 && gTxVfo->TX_LOCK)
@@ -836,8 +837,8 @@ static VfoState_t FOXHUNT_TxState(void)
 }
 
 // Refuse feedback shown when a burst is barred: reuse the beacon screen layout and
-// the radio's own state label (VfoStateStr, e.g. "TX DISABLE" / "BAT LOW" / "VOLT
-// HIGH"), same font as the main screen, for a beat; the caller then waits through
+// the radio's own state label (e.g. "TX DISABLE" / "BAT LOW" / "VOLT HIGH"),
+// same font as the main screen, for a beat; the caller then waits through
 // a fresh idle gap before checking again.
 static void FOXHUNT_TxDeniedNotice(VfoState_t state)
 {
@@ -846,7 +847,8 @@ static void FOXHUNT_TxDeniedNotice(VfoState_t state)
 
     // Centred, gFontBig — same wording and font as the main screen's VFO state,
     // on line 1 so it sits exactly where the beacon's "TX" / "IDLE" text appears.
-    UI_PrintString(VfoStateStr[state], 0, 127, 1, 8);
+    UI_LoadText(str, sizeof(str), (UI_Text_t)(UI_TEXT_VFO_NORMAL + state));
+    UI_PrintString(str, 0, 127, 1, 8);
 
     FOXHUNT_BlitScreen();
 
@@ -1190,7 +1192,7 @@ static void FOXHUNT_BeaconDraw(bool txNow, uint16_t idleLeft)
     if (txNow) {
         // On-air icon in the status bar (only while the carrier is up), then the top
         // line "TX" + remaining window seconds (refreshed live in FOXHUNT_TxDelay).
-        memcpy(gStatusLine + 48, BITMAP_FoxHuntTx, sizeof(BITMAP_FoxHuntTx));
+        FW_ASSETS_COPY(gStatusLine + 48, BITMAP_FoxHuntTx);
         FOXHUNT_DrawTxSeconds();
         FOXHUNT_DrawBeaconMessage(beaconCharsSent);
     } else {

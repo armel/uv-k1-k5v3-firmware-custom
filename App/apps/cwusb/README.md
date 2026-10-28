@@ -3,7 +3,20 @@
 `CW USB` is the USB-C-input variant of CW Keyer. It transmits a manually
 keyed A1A-style carrier on the current TX VFO and is entirely contained in its
 own 4 KiB overlay. The implementation is shared with `CW Keyer`, but this
-binary contains only the USB-C paddle input path.
+binary contains only the USB-C paddle input path. Since version 1.4 the red
+LED lights for each transmitted mark (see
+[Red TX LED](../cwkeyer/README.md#red-tx-led) in the CW Keyer README).
+Since version 1.5 (#726): a contact change is qualified on time (2.7 ms stable
+on the 48 MHz cycle counter, as in CW Trainer) instead of on a number of polls,
+so a slow poll (S-meter blits are byte-paced since 6.3.0) no longer delays it;
+the speaker amplifier is enabled 25 ms before the first mark of each TX
+session, before the TX link comes up (no carrier leak during the wait), so the
+first element keeps its sidetone; and in STRAIGHT the release
+is held as long as the carrier came late after the contact closed, so every
+mark, the first dit included, keeps its keyed length.
+Since version 1.6, key `7` opens [`CW Mem`](../cwmem/README.md), a message
+keyer that uses the same settings and hands back to CW USB when the paddle is
+touched. Key `7` works once CW USB is armed, and CW USB comes back armed.
 
 ## Requirements and install
 
@@ -69,6 +82,9 @@ help page (`MENU`) cancels an arming in progress.
 - `6`: raise the crystal correction by one BK4829 `REG_3B` step.
 - `F`, then `2`, `3`, `4` or `6`: lower the corresponding setting.
 - `UP` / `DOWN`: tune locally in 100 Hz steps, up to +/-50 kHz.
+- `7`: once armed, open `CW Mem` with the current settings and UP/DOWN
+  offset (see [CW Mem](../cwmem/README.md)); CW USB comes back armed.
+  Before arming, or without `CW Mem` installed, nothing happens.
 - `MENU`: show or close the help page.
 - `EXIT`: leave the app.
 
@@ -112,8 +128,8 @@ configures PA11/PA12 as inputs and stops the USB clock (a powered USB device
 holds D+ for about two seconds after a contact closes), then restores the saved
 register bits on exit. There is no PC link while the app is open.
 
-A USB contact change must read the same on five consecutive polls, about 5 ms,
-before a straight-key edge or keyer start is accepted.
+A USB contact change must stay the same for 2.7 ms (2^17 cycles of the 48 MHz
+counter) before a straight-key edge or keyer start is accepted.
 
 The common RF keying, CW receive, timing, sidetone and protection behavior is
 documented in the sibling [`CW Keyer` README](../cwkeyer/README.md).
@@ -140,7 +156,9 @@ documented in the sibling [`CW Keyer` README](../cwkeyer/README.md).
 
   They compile the app source against simulated GPIO and API callbacks: they
   cover arming, keying and the three keyer modes, not RF or the electrical
-  contacts.
+  contacts. The waveform test also checks one red LED write per mark when
+  register `0x33` reads back `0x90xx`, and the functional test checks that
+  the register is never written when it does not.
 - After about 0.5 s without contact, the radio's USB-C path reports a closing
   contact as closed for only 3 to 10 ms, then as open for about 150 to 220 ms
   while it is still held, before it follows the contact again. When that first
@@ -173,15 +191,22 @@ keyer, CW receive, display, settings and RF keying are shared with CW Keyer.
   in both: SIDE and PTT keying in CW Keyer, USB-C and PTT keying in CW USB.
 - USB-only texts go in [`../cwkeyer/gen_assets.py`](../cwkeyer/gen_assets.py)
   behind `USB_VARIANT`; each app gets its own generated asset offsets.
+- `CW Mem` is a third build of the shared source (`CW_KEYER_MEM`, SIDE
+  layout plus the USB-C port code): it reuses the receive, TX keying and
+  display functions and brings its own screen and `app_main`. Keyer screens,
+  settings and paddle code sit under `#if !CW_KEYER_MEM`. `handoff_t` (the
+  saved `config_t` and the UP/DOWN offset) is the hand-off message in both
+  directions; CW USB hands over only once armed, so a message back means
+  armed; build `cwmem` too after a shared change.
 - `config_t` is shared. Its last byte, `reservedPort`, now holds the CW USB
   keyer mode (0 `AUTO`, 1 `IAMB A`, 2 `IAMB B`; CW Keyer always saves 0), so
   no spare byte is left. Changing the `config_t` layout or `CFG_MAGIC` resets
   the settings of both apps.
 - Each app has its own `APP_VER` in its `build.sh`: a USB-only change bumps
   CW USB, a shared change bumps both.
-- Build both apps after every change to the shared source:
-  `./compile-app.sh cwkeyer cwusb`. Each build fails if its binary exceeds
-  the 4 KiB overlay. CW USB has very little room left.
+- Build all three apps after every change to the shared source:
+  `./compile-app.sh cwkeyer cwusb cwmem`. Each build fails if its binary exceeds
+  the 4 KiB overlay. CW USB has 4 bytes left since 1.6.
 
 ## Credits
 

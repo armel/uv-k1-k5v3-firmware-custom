@@ -40,6 +40,7 @@
     #include "driver/mb_flash.h"
     #include "ui/multiboot.h"
 #endif
+#include "font.h"
 #include "frequencies.h"
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
     #include "functions.h"

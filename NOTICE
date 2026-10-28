@@ -60,6 +60,14 @@ Paland, licensed under the MIT License. Its license is included at:
 
   App/external/printf/LICENSE
 
+The QR Map overlay app's QR Code encoder is derived from the QR Code
+generator library by Project Nayuki, licensed under the MIT License.
+Its copyright and permission notice are included at the top of:
+
+  App/apps/qrmap/qr.c
+
+  https://www.nayuki.io/page/qr-code-generator-library
+
 License and endorsement notice
 ------------------------------
 

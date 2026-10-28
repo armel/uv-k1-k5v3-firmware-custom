@@ -9,7 +9,9 @@ a.text("T_TITLE", "FLASH MAP")
 a.table("T_ZONE", [
     "CONFIG 0", "CALIBRATION", "CAL RESERVE", "BOOT LOGO", "FREE", "RX/TX LOG",
     "CONFIG 1", "CONFIG 2", "CONFIG 3", "CONFIG 4",
-    "STATE A", "STATE B", "APP RESERVE", "SONIC 4K",
+    "STATE A", "STATE B", "APP RESERVE",
+    "FW0 ASSETS", "FW1 ASSETS", "FW2 ASSETS", "FW3 ASSETS", "FW4 ASSETS",
+    "SONIC 4K",
 ])
 a.table("T_DESC", [
     "Main channels + settings",
@@ -21,12 +23,13 @@ a.table("T_DESC", [
     "Multiboot slot, 128 KB",
     "Private channels + settings",
     "Overlay app slot",
-    "Reserve for 62 app slots",
+    "Reserve for 36 app slots",
+    "Firmware fonts + UI data",
     "Sonic 4K interop area",
 ])
 a.table("T_HEADER_STATE", ["EMPTY", "BAD HEADER", "UNNAMED"])
 a.table("T_TYPE", ["CONF", "CAL", "LOGO", "FREE", "LOG", "FW", "MB", "APP", "4K",
-                   "LIVE"])
+                   "ASSET", "LIVE"])
 
 # Multiboot state sector verdicts, indexed by MARK_* in flashmap_app.c.
 a.table("T_STATE", ["Erased", "Corrupt record", "Legacy", "Gen "])

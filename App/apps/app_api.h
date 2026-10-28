@@ -52,9 +52,10 @@
  *      offset; serial_read / serial_write / serial_ctl (the USB-C serial
  *      port, K-plug reserved; APP_CAP_SERIAL); blit_page, lcd_feed,
  *      viewer_update (the LCD without the K5Viewer side effect), vfo_stage
- *      (deferred update of the current VFO) */
+ *      (deferred update of the current VFO)
+ *   4  mr: memory-channel query, scan-list name and deferred selection */
 #define APP_ABI_MAJOR  1u
-#define APP_API_LEVEL  3u
+#define APP_API_LEVEL  4u
 
 /* App name length in app_header_t, the name handoff() takes (API level 3). */
 #define APP_NAME_LEN    16
@@ -69,6 +70,8 @@
 
 /* Minimum API level of an app that ships read-only assets (pack_app.py). */
 #define APP_API_ASSETS 2u
+/* Minimum API level for the memory-channel service. */
+#define APP_API_MEMORY 4u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -90,6 +93,8 @@ enum {
     APP_KEY_STAR    = 14,
     APP_KEY_F       = 15,
     APP_KEY_PTT     = 16,
+    APP_KEY_SIDE2   = 17,
+    APP_KEY_SIDE1   = 18,
     APP_KEY_INVALID = 19,
     APP_KEY_SAVER   = 0xFD, /* virtual: saver active, skip this app frame       */
     APP_KEY_WAKE    = 0xFE, /* virtual: saver dismissed, redraw without action */
@@ -134,6 +139,27 @@ typedef struct {
     uint8_t  compander;
     char     name[16]; /* fixed-width wire field; NUL termination is not required */
 } app_beam_channel_t;
+
+/* Minimal memory-channel view used by the API level 4 service. */
+typedef struct {
+    uint32_t rx_frequency; /* 10 Hz units */
+    char     name[11];     /* at most 10 characters plus NUL */
+} app_mr_channel_t;
+
+_Static_assert(offsetof(app_mr_channel_t, name) == 4u &&
+               sizeof(app_mr_channel_t) == 16u,
+               "memory-channel ABI layout changed");
+
+/* Memory-channel service operations and results (API level 4). */
+enum {
+    APP_MR_READ      = 0, /* index is a memory, out is app_mr_channel_t * or NULL   */
+    APP_MR_LIST_NAME = 1, /* index is 1..APP_MR_LISTS, out is char[5] or NULL       */
+    APP_MR_STAGE     = 2, /* index is a memory, out is ignored                       */
+};
+#define APP_MR_LISTS 24u
+#define APP_MR_COUNT 1024u
+#define APP_MR_EVERY (APP_MR_LISTS + 1u)
+#define APP_MR_INVALID (-1)
 
 _Static_assert(sizeof(app_beam_channel_t) == 44u,
                "BEAM ABI/wire channel layout changed");
@@ -441,6 +467,24 @@ typedef struct app_api {
      * beam_save, so start from beam_get and change what is needed. NULL on a
      * build without the BEAM bridge. */
     bool     (*vfo_stage)(const app_beam_channel_t *ch);
+
+    /* ---- API level 4: memory channels and scan lists ----
+     * One append-only service keeps the resident API surface small:
+     *
+     * APP_MR_READ returns the channel's scan-list value (0 for none,
+     * 1..APP_MR_LISTS, or APP_MR_EVERY), or APP_MR_INVALID. If out is not
+     * NULL, it receives the RX frequency and NUL-terminated name.
+     *
+     * APP_MR_LIST_NAME returns the trimmed name length (0..4), or
+     * APP_MR_INVALID for an invalid list. If out is not NULL, char[5] receives
+     * the NUL-terminated name.
+     *
+     * APP_MR_STAGE returns 0 after staging a valid memory for selection when
+     * app_main() returns, a negative APP_MR_* result otherwise. It writes no
+     * flash while the overlay executes and makes the Apps menu return to the
+     * main screen. Only one selection can be staged per run. */
+    int      (*mr)(uint8_t op, uint16_t index, void *out);
+
 } app_api_t;
 
 /* Serial ports and serial_ctl state bits (API level 3). */
@@ -461,7 +505,8 @@ _Static_assert(offsetof(app_api_t, handoff) == 356u &&
                offsetof(app_api_t, serial_read) == 368u &&
                offsetof(app_api_t, blit_page) == 380u &&
                offsetof(app_api_t, vfo_stage) == 392u &&
-               sizeof(app_api_t) == 396u,
+               offsetof(app_api_t, mr) == 396u &&
+               sizeof(app_api_t) == 400u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter

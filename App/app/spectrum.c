@@ -27,6 +27,7 @@
 
 #include "driver/backlight.h"
 #include "frequencies.h"
+#include "fw_assets.h"
 #include "ui/helper.h"
 #include "ui/main.h"
 
@@ -345,10 +346,13 @@ static void GUI_DisplaySmallest(const char *pString, uint8_t x, uint8_t y,
 
     while ((c = *p++) && c != '\0')
     {
+        uint8_t glyph[3];
+
         c -= 0x20;
+        FW_ASSETS_Read(gFont3x5[c], glyph, sizeof(glyph));
         for (int i = 0; i < 3; ++i)
         {
-            pixels = gFont3x5[c][i];
+            pixels = glyph[i];
             for (int j = 0; j < 6; ++j)
             {
                 if (pixels & 1)

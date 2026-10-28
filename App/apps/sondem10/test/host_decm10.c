@@ -146,6 +146,31 @@ int main(void)
             puts("  softin frame: OK");
     }
 
+    /* Heading past 255: the byte holds bits 0..7, bit 8 rides in the flags. */
+    {
+        uint8_t g[M10_FRAME_LEN];
+        decm10_t d;
+        sonde_info_t out;
+        memcpy(g, f, sizeof g);
+        g[0x04] = 0xF9; g[0x05] = 0xC0;   /* -1600: 8 m/s west  */
+        g[0x06] = 0x02; g[0x07] = 0x58;   /*   600: 3 m/s north */
+        {
+            uint16_t cs = mk_check(g, 0x63);
+            g[0x63] = (uint8_t)(cs >> 8);
+            g[0x64] = (uint8_t)cs;
+        }
+        decm10_init(&d);
+        memcpy(d.frm, g, M10_FRAME_LEN);
+        memset(&out, 0, sizeof out);
+        if (!decm10_parse(&d, &out) || out.hs_ms != 9 ||
+            (out.hdg | (out.flags & SONDE_HDG_256) * (256u / SONDE_HDG_256)) != 291u) {
+            fprintf(stderr, "heading 291: hs=%u hdg=%u flags=%u\n",
+                    out.hs_ms, out.hdg, out.flags);
+            fail++;
+        } else
+            puts("  heading past 255: OK");
+    }
+
     if (fail) return 1;
     puts("OK");
     return 0;

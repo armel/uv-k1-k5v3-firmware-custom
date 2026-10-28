@@ -7,8 +7,9 @@ humidity, vertical speed, horizontal speed, and heading.
 
 ## Status
 
-Version 0.5 implements the standard M10 `0x9F` telemetry frame, outside
-temperature and humidity conversion, and the GPS velocity. The parser and soft-input path have a synthetic host
+Version 0.6 implements the standard M10 `0x9F` telemetry frame, outside
+temperature and humidity conversion, and the GPS velocity, and opens GeoNav
+on `MENU`. The parser and soft-input path have a synthetic host
 test. Live reception has also been validated in the field with an operational
 M10 radiosonde transmitted from Trappes, France.
 
@@ -44,6 +45,7 @@ samples per chip. The decoder DPLL tracks this small difference.
 | `3` / `F`+`3` | Cycle attenuation forward / backward |
 | `4` | Restore the VFO frequency |
 | `5` | Decode beep on/off, saved on exit |
+| `MENU` | Open GeoNav (bearing, distance from the APRS position) once a position is decoded; its `EXIT` comes back here with the last frame |
 | `EXIT` | Quit |
 
 ## Supported frame
@@ -110,4 +112,4 @@ Use only a frequency permitted by the Flipper's configured region.
 
 ## Version
 
-Current: **v0.5**.
+Current: **v0.6**.

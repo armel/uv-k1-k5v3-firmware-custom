@@ -72,7 +72,15 @@
 #endif
 #define IAMBIC_ENGINE (CW_KEYER_USB && CW_USB_IAMBIC)
 
-#if !CW_KEYER_USB
+/* CW Mem (cwmem_app.c) reuses the receive, TX keying and display code of
+ * the SIDE build and brings its own screen, keys and app_main. It reads the
+ * USB-C contacts too, to return to CW USB when the paddle is touched. */
+#ifndef CW_KEYER_MEM
+#define CW_KEYER_MEM 0
+#endif
+#define CW_PORT (CW_KEYER_USB || CW_KEYER_MEM)
+
+#if !CW_KEYER_USB && !CW_KEYER_MEM
 #include "cwkeyer_assets.h"
 #endif
 
@@ -121,15 +129,17 @@ _Static_assert(SERVICE_MS > 0u && SERVICE_MS <= UINT8_MAX && BATTERY_MS % SERVIC
                "CW USB battery interval must fit in whole uint8_t ticks");
 #endif
 #define F_X                  72u
-#define STATE_X              43u
 #define TAG_LEFT_X            2u
 #define TAG_RIGHT_X          87u
-#define HELP_RIGHT_X         79u
+#define HELP_RIGHT_X         67u   /* help: two half-width columns, 0-63 and 65-127 */
 #define DEBOUNCE_POLLS        3u   /* contacts: 5 identical polls, ~4.8 ms */
 #define RX_SETTLE_MS         50u   /* RX return: REG_30 cycle to amplifier on */
 #define AMP_SETTLE_MS        10u   /* TX: AF output settle before the amplifier */
 #if CW_KEYER_USB
-#define CONFIRM_CYCLES     9600u   /* paddle start: second read 200 us later */
+#define AMP_START_MS         25u   /* TX: amplifier start-up before the first mark */
+#endif
+#if CW_KEYER_USB
+#define DEBOUNCE_SHIFT       17u   /* contacts: 2^17 cycles = 2.7 ms stable */
 #endif
 
 _Static_assert(SMETER_BAR_X + SMETER_MAX_LEVEL * 5u <= 128u,
@@ -149,6 +159,9 @@ _Static_assert(1200u / WPM_MAX > 2u * RAMP_MS,
 #define REG_AFC            0x73u
 #define REG_TONE           0x70u
 #define REG_TONE_FREQ      0x71u
+#define REG_GPIO_OUT       0x33u
+#define GPIO_SHADOW        0x90u /* fixed high byte of the shadow */
+#define GPIO_RED         0x0001u
 #define AF_ALAM              2u
 #define AF_USB               5u
 #define TX_LINK_OFF      0x0000u
@@ -167,7 +180,7 @@ _Static_assert(1200u / WPM_MAX > 2u * RAMP_MS,
 #endif
 
 enum { MODE_STRAIGHT, MODE_PADDLE };
-#if CW_KEYER_USB
+#if CW_PORT
 #define GPIOA_MODER (*(volatile uint32_t *)0x50000000u)
 #define GPIOA_PUPDR (*(volatile uint32_t *)0x5000000Cu)
 #define GPIOA_IDR   (*(volatile uint32_t *)0x50000010u)
@@ -191,6 +204,16 @@ typedef struct {
 } config_t;
 
 _Static_assert(sizeof(config_t) <= 16u, "CW Keyer config exceeds overlay slot");
+
+/* Hand-off between a keyer and CW Mem (key 7), both ways: the settings and
+ * the UP/DOWN offset. CW USB hands over only once armed, so a message back
+ * from CW Mem also means armed. */
+#define MEM_APP_NAME "CW Mem"
+typedef struct {
+    config_t cfg;
+    int16_t tune;
+} handoff_t;
+_Static_assert(sizeof(handoff_t) <= APP_HANDOFF_MAX, "CW Mem hand-off too long");
 #if IAMBIC_ENGINE
 _Static_assert(sizeof(config_t) == 12u && __builtin_offsetof(config_t, reservedPort) == 11u,
                "CW USB legacy config layout must stay compatible");
@@ -201,18 +224,25 @@ _Static_assert(sizeof(config_t) == 12u && __builtin_offsetof(config_t, reservedP
  * field past its range costs an extra instruction at every access. */
 static struct {
     const app_api_t *A;
-    bool running, txReady, keyDown, denied, fArm, redraw, statusRedraw;
+    /* fArm / statusRedraw and denied / redraw are written together: next to
+     * each other, a pair takes one store (CW USB needs those bytes). */
+    bool running, txReady, keyDown, fArm, statusRedraw, denied, redraw;
     bool uiHandled, help;
-    bool reverse, speaker;
-#if CW_KEYER_USB
+    bool reverse, speaker, toMem;
+#if CW_PORT
     bool portOpen;
+#endif
+#if CW_KEYER_USB
     uint8_t armState; /* 0/1 release, 2/3 hold, 4/5 final release, 6 armed */
 #endif
     uint8_t wpm, mode, uiCandidate, paBias, paControl;
+#if CW_KEYER_USB
+    uint8_t padRaw, padStable;
+#else
     uint8_t padRaw, padStable, padPolls;
+#endif
     uint8_t smMs;
 #if CW_KEYER_USB
-    uint8_t ampMs;   /* amplifier on in that many service milliseconds */
 #if IAMBIC_ENGINE
     uint8_t iambic; /* element bits 0/1, mark 2, pending 3, mode 4/5 */
 #endif
@@ -226,10 +256,13 @@ static struct {
 #else
     uint16_t serviceMs, batteryMs, markMs, hangElapsedMs;
 #endif
-#if CW_KEYER_USB
+#if CW_PORT
     uint32_t moder, pupdr, apbenr1;   /* saved USB-port bits only */
 #endif
     uint32_t ticksPerMs, lastVal;
+#if CW_KEYER_USB
+    uint32_t padSince;   /* cycle count of the last contact change */
+#endif
     int32_t smDbm;   /* held reading, capped at SMETER_DBM_MAX */
 #if CW_KEYER_USB
     /* Candidate qualification precedes navigation repeats, never overlaps. */
@@ -287,6 +320,7 @@ static char *putu(char *out, uint32_t value)
     return A->append_u32(out, value);
 }
 
+#if !CW_KEYER_MEM
 /* The correction in ppm with two decimals, rounded half away from zero:
  * |steps| x 0.1923. It stays below 10 ppm, so magnitude + 1000 prints as
  * four digits, "1" then the units and the two decimals: the units digit
@@ -306,6 +340,7 @@ static char *putCalibration(char *out)
     out[1] = '.';
     return end;
 }
+#endif
 
 /* The crystal correction is a signed count of BK4829 REG_3B steps (5 Hz on
  * the 26 MHz reference, 0.1923 ppm each). Positive means the radio's measured
@@ -334,6 +369,8 @@ static void fadeAudioGain(uint16_t base, bool up)
     }
 }
 
+static uint16_t gainBase(void);
+
 static void configureCwRx(bool enableAudio)
 {
     const app_api_t *const a = A;   /* one load: calls may change g */
@@ -360,8 +397,7 @@ static void configureCwRx(bool enableAudio)
     a->bk_write(REG_AFC, a->bk_read(REG_AFC) | 0x0010u);
     a->set_agc(true);
     a->set_af(AF_USB);
-    const uint16_t gainBase = a->bk_read(REG_AUDIO_GAIN) & AUDIO_GAIN_BASE_MASK;
-    setAudioGain(gainBase, enableAudio ? AUDIO_DAC_GAIN_MAX : 0u);
+    setAudioGain(gainBase(), enableAudio ? AUDIO_DAC_GAIN_MAX : 0u);
     /* CW must not use the FM squelch gate: its opening delay clips dits and
      * repeatedly chops the recovered tone at every carrier transition. */
     a->audio_path(enableAudio && g.speaker);
@@ -410,9 +446,6 @@ static void returnToRx(void)
     a->delay_ms(10u);
     a->tx_end();
     g.txReady = false;
-#if CW_KEYER_USB
-    g.ampMs = 0u;
-#endif
     g.hangElapsedMs = 0u;
     configureCwRx(false);
     if (g.speaker)
@@ -444,13 +477,14 @@ static uint16_t dotMs(void)
     return (uint16_t)(uint32_t)A->uidivmod(1200u, g.wpm);
 }
 
-/* A capsule of the two-column layouts, from x to the end of its column: the
- * main screen's right column starts at TAG_RIGHT_X, the help page's wider
- * one at HELP_RIGHT_X. */
+#if !CW_KEYER_MEM
+/* A capsule of the main screen's two columns, from x to the end of its
+ * column. The help page draws its wider capsules itself. */
 static void drawConfigTag(const char *s, uint8_t x, uint8_t line)
 {
     A->print_inverse(s, x, line, false, true, x < 64u ? 42u : 127u);
 }
+#endif
 
 static void drawStatus(uint16_t title, uint8_t titleChars)
 {
@@ -460,8 +494,10 @@ static void drawStatus(uint16_t title, uint8_t titleChars)
     a->print_inverse(text(t, title), 2u, 0u, true, true,
                      (uint8_t)(2u + titleChars * 4u));
 #if IAMBIC_ENGINE
-    a->print_tiny(text(t, T_VERSION + (g.iambic >> 4) * T_VERSION_STRIDE),
-                  48u, 33u, false, true);
+    /* The keyer mode sits on the main screen: not behind the help page. */
+    if (!g.help)
+        a->print_tiny(text(t, T_VERSION + (g.iambic >> 4) * T_VERSION_STRIDE),
+                      48u, 33u, false, true);
 #else
     a->print_tiny(text(t, T_VERSION), 92u, 1u, true, false);
 #endif
@@ -480,39 +516,24 @@ static void drawBigFrequency(char *s)
     A->draw_frequency(frequency, (uint8_t)((137u - digits * 13u) >> 1), 0u);
 }
 
+#if !CW_KEYER_MEM
 static void drawMainStatus(void)
 {
     const app_api_t *const a = A;
-#if CW_KEYER_USB
-    /* Reuse the title capsule for HELP / TX OFF instead of a second label.
-     * The glyph certifies the hold (states 4/5/6), not TX permission (6). */
+    /* HELP / TX OFF reuse the title capsule. TX is shown by the red LED
+     * on each mark (1.4), so there is no RX / TX label (#716). */
     drawStatus(g.help ? T_HELP : g.denied ? T_DENIED : T_TITLE, T_TITLE_CHARS);
+#if CW_KEYER_USB
+    /* The glyph certifies the hold (states 4/5/6), not TX permission (6). */
     a->asset_read(g.armState >= 4u ? BMP_READY : BMP_LOCK,
                   a->status_line + 32u, BMP_LOCK_LEN);
-#else
-    char t[TEXT_MAX];
-    drawStatus(T_TITLE, T_TITLE_CHARS);
-    if (g.denied || !g.txReady) {
-        const bool help = g.help, denied = g.denied;
-        text(t, help ? T_HELP : denied ? T_DENIED : T_READY);
-        a->print_inverse(t, STATE_X, 0u, true, true,
-                         (uint8_t)(STATE_X + (help ? T_HELP_LEN - 1u
-                                          : denied ? T_DENIED_LEN - 1u
-                                                   : T_READY_LEN - 1u) * 4u));
-    }
 #endif
     /* F is never armed on the help page; it shows no speaker icon. */
-#if CW_KEYER_USB
     if (g.fArm || (g.speaker && !g.help))
         a->asset_read(g.fArm ? BMP_F : BMP_SPEAKER, a->status_line + F_X,
-                      g.fArm ? BMP_F_LEN : BMP_SPEAKER_LEN);
-#else
-    if (g.fArm)
-        a->asset_read(BMP_F, a->status_line + F_X, BMP_F_LEN);
-    else if (g.speaker && !g.help)
-        a->asset_read(BMP_SPEAKER, a->status_line + F_X, BMP_SPEAKER_LEN);
-#endif
+                      BMP_SPEAKER_LEN);
 }
+#endif
 
 /* S-meter scale of the main screen: S9 at -93 dBm, 6 dB per S-unit below
  * it, one more bar per 10 dB above it. The reading is capped at
@@ -592,6 +613,7 @@ static void serviceSmeter(void)
     }
 }
 
+#if !CW_KEYER_MEM
 static void drawMain(void)
 {
     char s[TEXT_MAX], right[TEXT_MAX + 8u];
@@ -630,13 +652,14 @@ static void drawHelp(void)
 {
     char t[TEXT_MAX];
     drawMainStatus();
-    /* T_HELP_KEYS: the left column (lines 1 to 6), then the right one. */
-    for (uint8_t i = 0u; i < 12u; i++) {
+    /* T_HELP_KEYS: the left column (lines 0 to 6), then the right one. */
+    for (uint8_t i = 0u; i < 14u; i++) {
+        /* Full width: the left capsules end 2 px before the right ones. */
         if (text(t, T_HELP_KEYS + i * T_HELP_KEYS_STRIDE)[0])
-            drawConfigTag(t, i < 6u ? TAG_LEFT_X : HELP_RIGHT_X,
-                          (uint8_t)(i < 6u ? i + 1u : i - 5u));
+            A->print_inverse(t, i < 7u ? TAG_LEFT_X : HELP_RIGHT_X,
+                             (uint8_t)(i < 7u ? i : i - 7u), false, true,
+                             i < 7u ? HELP_RIGHT_X - 4u : 127u);
     }
-    A->print_tiny(text(t, T_HELP_STEP), 56u, 49u, false, true);
 }
 
 static void draw(void)
@@ -658,6 +681,7 @@ static void redrawMainStatus(void)
     A->blit_status();
     g.statusRedraw = false;
 }
+#endif
 
 static void writeBias(uint8_t bias)
 {
@@ -679,14 +703,11 @@ static void rememberPaddle(void);
 #endif
 
 /* PA bias in four 1 ms steps, 1/4, 1/2, 3/4 and full drive going up, the
- * same levels the other way down to 0. */
+ * same levels the other way down to 0 (quarters rounded down). */
 static void rampBias(bool up)
 {
-    const uint8_t quarter = (uint8_t)(g.paBias >> 2);
-    const uint8_t level[5] = { 0u, quarter, (uint8_t)(g.paBias >> 1),
-                               (uint8_t)(g.paBias - quarter), g.paBias };
     for (uint8_t i = 1u; i <= 4u; i++) {
-        writeBias(level[up ? i : 4u - i]);
+        writeBias((uint8_t)(g.paBias * (up ? i : 4u - i) >> 2));
         A->delay_ms(1u);
 #if IAMBIC_ENGINE
         rememberPaddle();
@@ -699,6 +720,13 @@ static void rampUp(void)
     const app_api_t *const a = A;   /* one load: calls may change g */
     a->bk_write(REG_TX_LINK, TX_LINK_NO_MIC);
     a->tx_carrier(true);
+    /* Red LED on each mark. The resident drives REG_33 (LEDs, PA, RX and LNA
+     * switches) from a RAM shadow that is always 0x90xx, and the API only has
+     * the green LED, so REG_33 is read back, and left alone unless it reads
+     * 0x90xx. tx_carrier(false) rewrites the shadow: red goes off with the PA. */
+    const uint16_t gpio = a->bk_read(REG_GPIO_OUT);
+    if (gpio >> 8 == GPIO_SHADOW)
+        a->bk_write(REG_GPIO_OUT, gpio | GPIO_RED);
     rampBias(true);
 }
 
@@ -709,7 +737,7 @@ static void rampDown(void)
     A->bk_write(REG_TX_LINK, TX_LINK_NO_PA);
 }
 
-#if CW_KEYER_USB
+#if CW_PORT
 static uint32_t irqSave(void)
 {
     uint32_t primask;
@@ -730,14 +758,20 @@ static void portSet(bool open)
     if (open == g.portOpen)
         return;
     const uint32_t irq = irqSave();
+    /* The bits to write: open = pull-up, input, clock off; close = saved. */
+    uint32_t pu = USB_PULLUP, mode = 0u, clock = 0u;
     if (open) {
         g.moder = GPIOA_MODER & USB_PINS;
         g.pupdr = GPIOA_PUPDR & USB_PINS;
         g.apbenr1 = RCC_APBENR1 & USBEN;
+    } else {
+        pu = g.pupdr;
+        mode = g.moder;
+        clock = g.apbenr1;
     }
-    GPIOA_PUPDR = (GPIOA_PUPDR & ~USB_PINS) | (open ? USB_PULLUP : g.pupdr);
-    GPIOA_MODER = (GPIOA_MODER & ~USB_PINS) | (open ? 0u : g.moder);
-    RCC_APBENR1 = (RCC_APBENR1 & ~USBEN) | (open ? 0u : g.apbenr1);
+    GPIOA_PUPDR = (GPIOA_PUPDR & ~USB_PINS) | pu;
+    GPIOA_MODER = (GPIOA_MODER & ~USB_PINS) | mode;
+    RCC_APBENR1 = (RCC_APBENR1 & ~USBEN) | clock;
     irqRestore(irq);
     g.portOpen = open;
 }
@@ -753,13 +787,16 @@ static uint32_t ticksSince(void)
     return prev >= now ? prev - now : prev + SYST_LOAD + 1u - now;
 }
 
-#if CW_KEYER_USB
+#if CW_PORT
 __attribute__((noinline))
 static uint8_t usbContacts(void)
 {
     const uint32_t pins = ~GPIOA_IDR;
     return (uint8_t)(((pins >> PIN_DP) & 1u) | ((pins >> (PIN_DM - 1u)) & 2u));
 }
+#endif
+
+#if CW_KEYER_USB
 
 /* No wait, TX setup or carrier here. Odd phases time only observed input.
  * A gap over 50 ms restarts the phase: an unobserved interval is not proof
@@ -793,6 +830,7 @@ static bool armUsb(uint8_t key)
 }
 #endif
 
+#if !CW_KEYER_MEM
 /* Both contacts are sampled together, so a squeeze is visible. */
 static uint8_t paddles(uint8_t key)
 {
@@ -825,6 +863,19 @@ static uint8_t paddles(uint8_t key)
  * per ~1.2 ms (keypad scan plus the 1 ms wait), that is about 4.8 ms. */
 static uint8_t debounced(uint8_t p)
 {
+#if CW_KEYER_USB
+    /* USB-C: qualified on time, as in CW Trainer. Counting polls stretched
+     * the filter whenever a poll took longer (S-meter blits are byte-paced
+     * since 6.3.0), delaying every first contact (#726). */
+    const uint32_t now = A->cycles_48mhz();
+    if (p != g.padRaw) {
+        g.padRaw = p;
+        g.padSince = now;
+    } else if ((now - g.padSince) >> DEBOUNCE_SHIFT) {
+        g.padStable = p;
+    }
+    return g.padStable;
+#else
     if (p != g.padRaw) {
         g.padRaw = p;
         g.padPolls = 0u;
@@ -834,6 +885,7 @@ static uint8_t debounced(uint8_t p)
         g.padStable = p;
     }
     return g.padStable;
+#endif
 }
 
 #if IAMBIC_ENGINE
@@ -856,6 +908,7 @@ static void rememberPaddle(void)
         (p == 3u && (state & 36u) == 36u))
         g.iambic = state | 8u;
 }
+#endif
 #endif
 
 /* Called by keyOn only, after tx_state has allowed the transmission. */
@@ -899,8 +952,6 @@ static void prepareTx(void)
      * recalibrate the VCO and latch the corrected synthesizer frequency. Keep
      * internal PA gain disabled when the link comes back up. */
     a->bk_write(REG_TX_LINK, TX_LINK_OFF);
-    a->bk_write(REG_TX_LINK, TX_LINK_NO_PA);
-    a->delay_ms(PLL_LOCK_MS);
 
     /* AF_ALAM is the BK4829's local alarm/tone output. Unlike AF_BEEP, it
      * remains audible while REG_50 keeps the TX modulation path muted. Keep
@@ -909,18 +960,20 @@ static void prepareTx(void)
     a->bk_write(REG_TONE, TONE1_CONFIG);
     sidetone(false);
     a->set_af(AF_ALAM);
-#if CW_KEYER_USB
-    /* Preserve the USB arming path: it lets the AF output settle
-     * asynchronously before the usual first paddle mark. */
-    g.ampMs = AMP_SETTLE_MS;
-#else
-    /* CW Keyer has no arming interval. Keep the tone and RF off until the AF
-     * output has settled, then enable the amplifier before the first mark so
-     * its local sidetone is not clipped. */
+    /* Let the AF output settle, then enable the amplifier, both while the TX
+     * link is still down: with the link up and the PA off, a nearby receiver
+     * hears the leak during the wait as a dit before the first mark (#726). */
     if (g.speaker)
         a->delay_ms(AMP_SETTLE_MS);
     a->audio_path(g.speaker);
+#if CW_KEYER_USB
+    /* The amplifier takes longer than the PLL lock and the ramp to start:
+     * without this wait a first dit's sidetone is clipped (#726). */
+    if (g.speaker)
+        a->delay_ms(AMP_START_MS);
 #endif
+    a->bk_write(REG_TX_LINK, TX_LINK_NO_PA);
+    a->delay_ms(PLL_LOCK_MS);
     g.txReady = true;
     g.denied = false;
     g.statusRedraw = true;
@@ -933,8 +986,7 @@ static bool keyOn(void)
     if (A->tx_state() != 0u) {
         if (g.txReady)
             returnToRx();
-        else
-            g.redraw = true;
+        g.redraw = true;   /* TX OFF in the status bar */
         g.denied = true;
         return false;
     }
@@ -969,21 +1021,12 @@ static void serviceOneMs(void)
 {
     const app_api_t *const a = A;   /* one load: calls may change g */
     a->delay_ms(1u);
-#if CW_KEYER_USB
-    if (g.ampMs && --g.ampMs == 0u)
-        a->audio_path(g.speaker);
     const uint16_t hangMs = g.breakInMs;
-#else
-    const uint16_t hangMs = g.breakInMs;
-#endif
     /* hangElapsedMs needs no reset here: keyOn() zeroes it and it only counts
      * while the key is up. */
     if (g.keyDown && ++g.markMs >= MARK_MAX_MS) {
-        keyOff();
-        if (g.txReady)
-            returnToRx();
+        disarm();   /* key up, back to RX, status repainted */
         g.denied = true;
-        g.statusRedraw = true;
     }
     if (g.txReady && !g.keyDown && ++g.hangElapsedMs >= hangMs) {
         returnToRx();
@@ -1020,6 +1063,7 @@ static void serviceOneMs(void)
     }
 }
 
+#if !CW_KEYER_MEM
 /* Element wait. AUTO looks at paddles after the space; experimental A/B
  * also observes them during waits. EXIT aborts once read for UI_DEBOUNCE_MS of
  * waiting: while a SIDE contact bounces, the keypad scan can miss the zero
@@ -1094,6 +1138,8 @@ static void runPaddle(uint8_t p)
 #endif
 }
 
+#endif
+
 /* One step up or down, refused when it would leave [lo, hi]: the bounded
  * settings and the frequency offset all follow this rule. */
 static bool stepWithin(int16_t *value, int8_t direction, int16_t step,
@@ -1123,6 +1169,7 @@ static bool adjustFrequency(int8_t direction)
     return true;
 }
 
+#if !CW_KEYER_MEM
 static void adjustSetting(uint8_t key, int8_t direction)
 {
     bool retune = false;
@@ -1188,11 +1235,14 @@ static void handleUiKey(uint8_t key)
 #if !CW_KEYER_USB
     int8_t direction = A->nav_dir(key);
 #endif
+    /* Every key below consumes a pending F and repaints the status bar;
+     * F itself toggles it and an unused key leaves it as it was. */
+    const bool f = g.fArm;
+    g.fArm = false;
+    g.statusRedraw = true;
     if (direction != 0) {
         if (adjustFrequency(direction))
             g.redraw = true;
-        g.fArm = false;
-        g.statusRedraw = true;
         return;
     }
 
@@ -1200,30 +1250,35 @@ static void handleUiKey(uint8_t key)
 #if IAMBIC_ENGINE
         case APP_KEY_8:
             setIambicMode(g.iambic < IAMBIC_B ? g.iambic + 16u : IAMBIC_AUTO);
-            g.fArm = false;
             g.redraw = true;
             break;
 #endif
+        case APP_KEY_7:
+#if CW_KEYER_USB
+            /* Armed first: back from CW Mem, the paddle answers at once. */
+            if (g.armState != 6u)
+                break;
+#endif
+            /* Hand over to CW Mem on the way out (saveConfig stages the
+             * settings); without CW Mem installed, stay. */
+            if (!(g.toMem = A->handoff(MEM_APP_NAME, 0, 0u)))
+                break;
+            /* fall through */
         case APP_KEY_EXIT:
             g.running = false;
             break;
         case APP_KEY_MENU:
             disarm();   /* ends a break-in hang: no keying behind the help */
-            g.fArm = false;
             g.help = true;
             g.redraw = true;
             break;
-        case APP_KEY_F:
-            g.fArm = !g.fArm;
-            g.statusRedraw = true;
-            break;
         case APP_KEY_0: case APP_KEY_1: case APP_KEY_2: case APP_KEY_3:
         case APP_KEY_4: case APP_KEY_5: case APP_KEY_6:
-            adjustSetting(key, g.fArm ? -1 : 1);
-            g.fArm = false;
-            g.statusRedraw = true;
+            adjustSetting(key, f ? -1 : 1);
             break;
+        case APP_KEY_F:
         default:
+            g.fArm = key == APP_KEY_F ? !f : f;
             break;
     }
 }
@@ -1259,29 +1314,23 @@ static void handleUiInput(uint8_t key)
 #endif
         return;
     }
+    /* First action once debounced, then auto-repeat on UP / DOWN only. */
     if (!g.uiHandled) {
         if ((uint32_t)(now - g.uiCandidateAt) < UI_DEBOUNCE_MS)
             return;
-        A->backlight_on();
-#if CW_KEYER_USB
-        handleUiKeyDirection(key, direction);
-#else
-        handleUiKey(key);
-#endif
         g.uiHandled = true;
-        if (direction != 0)
-            g.navRepeatAt = now + NAV_REPEAT_DELAY_MS;
+        g.navRepeatAt = now + NAV_REPEAT_DELAY_MS;
+    } else if (direction == 0 || (int32_t)(now - g.navRepeatAt) < 0) {
         return;
-    }
-    if (direction != 0 && (int32_t)(now - g.navRepeatAt) >= 0) {
-        A->backlight_on();
-#if CW_KEYER_USB
-        handleUiKeyDirection(key, direction);
-#else
-        handleUiKey(key);
-#endif
+    } else {
         g.navRepeatAt = now + NAV_REPEAT_MS;
     }
+    A->backlight_on();
+#if CW_KEYER_USB
+    handleUiKeyDirection(key, direction);
+#else
+    handleUiKey(key);
+#endif
 }
 
 static void loadConfig(void)
@@ -1322,31 +1371,48 @@ static void loadConfig(void)
 
 static void saveConfig(void)
 {
-    const config_t cfg = {
-        CFG_MAGIC, g.wpm, g.mode, (uint8_t)g.reverse, g.calSteps,
-        g.rxPitchHz, g.breakInMs, (uint8_t)g.speaker,
+    /* The saved settings head the CW Mem hand-off: one structure for both. */
+    const handoff_t h = {
+        { CFG_MAGIC, g.wpm, g.mode, (uint8_t)g.reverse, g.calSteps,
+          g.rxPitchHz, g.breakInMs, (uint8_t)g.speaker,
 #if IAMBIC_ENGINE
-        (uint8_t)(g.iambic >> 4)
+          (uint8_t)(g.iambic >> 4)
 #else
-        0u
+          0u
 #endif
+        },
+        g.tuneOffset10Hz
     };
-    A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
+    A->cfg_save((const uint8_t *)&h.cfg, sizeof(h.cfg));
+    if (g.toMem)
+        A->handoff(MEM_APP_NAME, &h, sizeof(h));
 }
 
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
     A = api;
-#if CW_KEYER_USB
-    g.armState = 0u; /* Never restored from configuration. */
-#endif
-    g.running = true;
-    g.redraw = true;
-    g.statusRedraw = false;
+    g.running = true;   /* the first draw() below repaints everything */
     g.smDbm = SMETER_DBM_START;
     resetUiInput();
     loadConfig();
+    {
+        /* Back from CW Mem, the only app handing a message of this size
+         * to a keyer: same UP/DOWN offset, and CW USB armed again, since
+         * it only hands over once armed (key 7). Any other launch starts
+         * disarmed, whatever the RAM held. */
+        handoff_t h;
+        uint8_t armState = 0u;
+        if (A->handoff_read(&h, sizeof(h), 0) == (int16_t)sizeof(h)) {
+            g.tuneOffset10Hz = h.tune;
+            armState = 6u;
+        }
+#if CW_KEYER_USB
+        g.armState = armState;
+#else
+        (void)armState;
+#endif
+    }
 #if CW_KEYER_USB
     portSet(true);
 #endif
@@ -1387,19 +1453,15 @@ void app_main(const app_api_t *api)
          * paddle contacts then only reach the help key handler. */
         const uint8_t raw = paddles(key);
         uint8_t pad = debounced(raw);
-        /* Paddle start on the first closed reading. On USB-C it is confirmed
-         * 200 us later (a spike is not a contact); SIDE keys come from the
+#if !CW_KEYER_USB
+        /* Paddle start on the first closed reading: SIDE keys come from the
          * debounced keypad scan. Bounce no longer matters once an element
-         * runs: the paddles are read again after the space. */
-        if (g.mode != MODE_STRAIGHT && raw && !pad) {
-#if CW_KEYER_USB
-            const uint32_t t = A->cycles_48mhz();
-            while (A->cycles_48mhz() - t < CONFIRM_CYCLES)
-                ;
-            if (paddles(key) == raw)
+         * runs: the paddles are read again after the space. On USB-C the
+         * start waits for the time-qualified contact (2.7 ms): a spike is
+         * not a contact. */
+        if (g.mode != MODE_STRAIGHT && raw && !pad)
+            pad = raw;
 #endif
-                pad = raw;
-        }
 #if CW_KEYER_USB
         const bool keying = armUsb(key) && !g.help;
 #else
@@ -1409,16 +1471,32 @@ void app_main(const app_api_t *api)
             (key == APP_KEY_PTT || (g.mode == MODE_STRAIGHT && pad));
         if (straight) {
             resetUiInput();
+#if CW_KEYER_USB
+            /* Remember how late the carrier came after the contact closed
+             * (qualification, TX setup, amplifier, ramp): the release is
+             * held as long, so the mark keeps its keyed length (#726). */
+            if (!g.keyDown && keyOn())
+                g.armSince = pad ? A->cycles_48mhz() - g.padSince : 0u;
+#else
             if (!g.keyDown)
                 keyOn();
+#endif
         } else if (g.keyDown) {
+#if CW_KEYER_USB
+            while (A->cycles_48mhz() - g.padSince < g.armSince)
+                ;
+#endif
             keyOff();
             resetUiInput();
         } else if (keying && g.mode != MODE_STRAIGHT && pad) {
             resetUiInput();
             A->backlight_on();
             runPaddle(pad);
+#if CW_KEYER_USB
+            g.padRaw = g.padStable = 0u;   /* no stale restart */
+#else
             g.padRaw = g.padStable = g.padPolls = 0u;   /* no stale restart */
+#endif
         } else if (key != APP_KEY_INVALID) {
             handleUiInput(key);
         } else {
@@ -1436,9 +1514,9 @@ void app_main(const app_api_t *api)
     A->bk_write(REG_XTAL, g.xtalBase);
 #if CW_KEYER_USB
     portSet(false);
-    g.armState = 0u;
 #endif
-    saveConfig();
+    saveConfig();   /* also stages the CW Mem hand-off (key 7) */
     A->set_af(APP_AF_MUTE);
     A->audio_path(false);
 }
+#endif /* !CW_KEYER_MEM */

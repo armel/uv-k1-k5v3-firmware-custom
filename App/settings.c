@@ -24,6 +24,9 @@
 #include "driver/bk1080.h"
 #include "driver/bk4819.h"
 #include "driver/py25q16.h"
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    #include "font.h"
+#endif
 #include "misc.h"
 #include "settings.h"
 #include "ui/menu.h"
@@ -516,6 +519,11 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gSetting_set_lck = (Data[2] < SET_LCK_LEN) ? Data[2] : SET_LCK_KEYS;
         gSetting_set_met = (tmp >> 2) & 0x01;
         gSetting_set_gui = (tmp >> 3) & 0x01;
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        gSetting_set_fnt = (Data[3] < FONT_VARIANT_COUNT)
+                         ? Data[3]
+                         : FONT_VARIANT_DEFAULT;
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_CTR
         int ctr_value = Data[5] & 0x0F;
@@ -846,6 +854,10 @@ void SETTINGS_FactoryReset(bool bIsAll)
 
     // Keep RAM consistent with the persisted defaults.
     gEeprom.SET_NAV = false;
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        if (bIsAll)
+            gSetting_set_fnt = FONT_VARIANT_DEFAULT;
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
         gEeprom.MENU_LOCK = 0;
     #endif
@@ -1193,6 +1205,9 @@ void SETTINGS_SaveSettings(void)
             (gSetting_set_gui << 3);
 
     State[2] = gSetting_set_lck;
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    State[3] = gSetting_set_fnt;
+#endif
     State[5] = ((tmp << 4) | (gSetting_set_ctr & 0x0F));
     State[6] = ((gSetting_set_tot << 4) | (gSetting_set_eot & 0x0F));
     uint8_t set_ptt_scn_sav = gSetting_set_ptt & 0x01;

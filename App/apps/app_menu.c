@@ -26,6 +26,7 @@
 #include "driver/st7565.h"
 #include "driver/keyboard.h"
 #include "driver/system.h"
+#include "scheduler.h"
 #include "ui/helper.h"
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "k5viewer.h"
@@ -35,8 +36,11 @@
  * selector.  Bit 3 leaves room for the selected-row capsule's top edge. */
 static void app_status_bar(void)
 {
+    char text[UI_TEXT_SIZE];
+
     UI_StatusClear();
-    GUI_DisplaySmallestInverse("F4HWN APPS", 44, 0, true, true, 84);
+    UI_LoadText(text, sizeof(text), UI_TEXT_APP_TITLE);
+    GUI_DisplaySmallestInverse(text, 44, 0, true, true, 84);
 
     for (uint8_t x = 2u; x < LCD_WIDTH - 2u; x++)
         gFrameBuffer[0][x] |= 0x08u;
@@ -68,7 +72,7 @@ static void app_invert_name(uint8_t line)
  * UP and DOWN held past the repeat delay are returned without waiting for the
  * release, again and again: a held key scrolls the list. The release that ends
  * such a hold returns nothing. */
-static KEY_Code_t app_get_key(void)
+static KEY_Code_t app_get_key(uint32_t *pressed_at)
 {
     static bool held;   /* the last key was returned by the repeat delay */
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
@@ -113,6 +117,9 @@ static KEY_Code_t app_get_key(void)
             if (KEYBOARD_Poll() == key)
             {
                 BACKLIGHT_TurnOn();
+                /* Date the accepted press, not its eventual release. */
+                if (pressed_at)
+                    *pressed_at = SCHEDULER_GetTick10ms();
                 uint8_t wait = 0u;       /* 0: no repeat, wait for the release */
                 if (key == KEY_UP || key == KEY_DOWN)
                     wait = held ? APP_KEY_REPEAT_NEXT : APP_KEY_REPEAT_FIRST;
@@ -169,25 +176,25 @@ static void app_format_size(char out[6], uint32_t bytes)
 }
 
 /* Human-readable action for an APP_LaunchOverlay / APP_ValidateSlot failure. */
-static const char *app_err_text(const app_header_t *header, uint8_t rc)
+static UI_Text_t app_err_text(const app_header_t *header, uint8_t rc)
 {
     switch (rc)
     {
-        case APP_ERR_SLOT:          return "BAD SLOT";
-        case APP_ERR_MAGIC:         return "NO APP";
+        case APP_ERR_SLOT:          return UI_TEXT_BAD_SLOT;
+        case APP_ERR_MAGIC:         return UI_TEXT_NO_APP;
         case APP_ERR_ABI:
             /* api_min == 0 also identifies pre-reset development blobs whose
              * former uint16_t ABI value occupies these two bytes. */
             if (header->api_min == 0u || header->abi_major < APP_ABI_MAJOR)
-                return "UPDATE APP";
-            return "UPDATE FIRMWARE";
-        case APP_ERR_NOT_COMMITTED: return "REINSTALL APP";
-        case APP_ERR_SIZE:          return "UPDATE APP";
-        case APP_ERR_CRC:           return "REINSTALL APP";
-        case APP_ERR_VMA:           return "UPDATE APP";
-        case APP_ERR_AUTH:          return "AUTH";
-        case APP_ERR_CAP:           return "NOT SUPPORTED";
-        default:                    return "ERROR";
+                return UI_TEXT_UPDATE_APP;
+            return UI_TEXT_UPDATE_FIRMWARE;
+        case APP_ERR_NOT_COMMITTED: return UI_TEXT_REINSTALL_APP;
+        case APP_ERR_SIZE:          return UI_TEXT_UPDATE_APP;
+        case APP_ERR_CRC:           return UI_TEXT_REINSTALL_APP;
+        case APP_ERR_VMA:           return UI_TEXT_UPDATE_APP;
+        case APP_ERR_AUTH:          return UI_TEXT_AUTH;
+        case APP_ERR_CAP:           return UI_TEXT_NOT_SUPPORTED;
+        default:                    return UI_TEXT_ERROR;
     }
 }
 
@@ -196,23 +203,28 @@ static const char *app_err_text(const app_header_t *header, uint8_t rc)
 static void app_show_error(const app_header_t *header, uint8_t rc)
 {
     char nm[19];
+    char text[UI_TEXT_SIZE];
     app_copy(nm, sizeof(nm), header->name, APP_NAME_LEN);
 
     UI_DisplayClear();
     UI_StatusClear();
-    GUI_DisplaySmallestInverse("APP ERROR", 46, 0, true, true, 82);
+    UI_LoadText(text, sizeof(text), UI_TEXT_APP_ERROR);
+    GUI_DisplaySmallestInverse(text, 46, 0, true, true, 82);
     UI_PrintStringSmallNormal(nm, 2, 0, 2);                 /* which app */
-    UI_PrintStringSmallNormal(app_err_text(header, rc), 2, 0, 4); /* action */
-    UI_PrintStringSmallNormal("Press any key", 2, 0, 6);
+    UI_LoadText(text, sizeof(text), app_err_text(header, rc));
+    UI_PrintStringSmallNormal(text, 2, 0, 4);               /* action */
+    UI_LoadText(text, sizeof(text), UI_TEXT_PRESS_ANY_KEY);
+    UI_PrintStringSmallNormal(text, 2, 0, 6);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 
-    app_get_key();   /* blocking: dismiss on any key */
+    app_get_key(NULL);   /* blocking: dismiss on any key */
 }
 
 /* Five visible apps; line 0 holds the separator and line 6 the key hints. */
 #define APP_MENU_ROWS 5u
 #define APP_MENU_SLOT_COUNT APP_SLOT_COUNT
+#define APP_MENU_DIGIT_TIMEOUT 100u  /* 10 ms ticks: one second */
 
 _Static_assert(APP_MENU_SLOT_COUNT <= APP_SLOT_COUNT,
                "APP_MENU_SLOT_COUNT exceeds the physical app slot count");
@@ -275,6 +287,8 @@ void APP_MenuOpen(void)
     /* Right column: the code size, or the version after KEY_STAR. Kept across
      * menu openings, back to the size at power-on. */
     static bool show_version = false;
+    uint8_t digit = KEY_INVALID;
+    uint32_t digit_tick = 0u;
     APP_WaitKeyRelease();
 
     for (;;)
@@ -282,6 +296,7 @@ void APP_MenuOpen(void)
         const uint8_t current_revision = APP_SlotRevision();
         if (current_revision != slot_revision)
         {
+            digit = KEY_INVALID;
             const uint8_t previous_index = sel;
             const uint8_t previous_slot = installed_count > 0u
                 ? installed_slots[sel]
@@ -310,7 +325,9 @@ void APP_MenuOpen(void)
 
         if (installed_count == 0u)
         {
-		UI_PrintStringSmallNormal("NO APPS", 0, LCD_WIDTH - 1u, 3);
+            char text[UI_TEXT_SIZE];
+            UI_LoadText(text, sizeof(text), UI_TEXT_NO_APPS);
+            UI_PrintStringSmallNormal(text, 0, LCD_WIDTH - 1u, 3);
         }
         else
         {
@@ -364,12 +381,42 @@ void APP_MenuOpen(void)
         K5VIEWER_Update(false);
 #endif
 
-        const KEY_Code_t key = app_get_key();
+        uint32_t key_tick = 0u;
+        const KEY_Code_t key = app_get_key(&key_tick);
+        if (key > KEY_9)
+            digit = KEY_INVALID;
         if (key == KEY_EXIT)
             return;
 
         switch (key)
         {
+            case KEY_0 ... KEY_9:
+            {
+                const uint32_t now = key_tick;
+                uint8_t index = installed_count;
+                if (digit != KEY_INVALID &&
+                    (uint32_t)(now - digit_tick) < APP_MENU_DIGIT_TIMEOUT)
+                {
+                    const uint8_t number = (uint8_t)(digit * 10u + key);
+                    if (number > 0u)
+                        index = app_find_slot(installed_slots, installed_count,
+                                              (uint8_t)(number - 1u));
+                }
+                if (index < installed_count)
+                    digit = KEY_INVALID;  /* A successful pair is complete. */
+                else
+                {
+                    if (key != KEY_0)
+                        index = app_find_slot(installed_slots, installed_count,
+                                              (uint8_t)(key - KEY_1));
+                    /* Even an empty single-digit slot can prefix an installed pair. */
+                    digit = (uint8_t)key;
+                    digit_tick = now;
+                }
+                if (index < installed_count)
+                    sel = index;
+                break;
+            }
             case KEY_UP:
                 if (installed_count > 0u)
                     sel = sel == 0u ? (uint8_t)(installed_count - 1u)

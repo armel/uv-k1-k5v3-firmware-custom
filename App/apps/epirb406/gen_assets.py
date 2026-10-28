@@ -61,6 +61,39 @@ for name, s in UI:
     a.text(name, s + "\0" * pad)
     ui_size += len(s) + 1 + pad
 a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
+# Pages drawn by page(): NUL-separated lines, each block word-aligned.
+def page(name, lines, tail=()):
+    blob = "\0".join(list(lines) + list(tail)) + "\0"
+    blob += "\0" * (-len(blob) % 4)
+    a.text("T_" + name, blob[:-1])          # text() adds the last NUL
+    if name == "HELP":
+        a.const("HELP_SIZE", len(blob))
+        a.const("HELP_LINES", len(lines))
+    return len(blob)
+
+# 8 / 9: the homing confirmations, then the handoff() name (as in
+# sigfind/build.sh). Same layout and size: homing() reads either with ASK_SIZE.
+ASK = ["THEN SIG FINDER", "", "MENU OK   OTHER KEY NO"]
+ask_size = page("ASK121", ["121.500 MHZ AM NARROW"] + ASK, tail=["Sig Finder"])
+assert page("ASK243", ["243.000 MHZ AM WIDE  "] + ASK, tail=["Sig Finder"]) == ask_size
+# 7: the position to QR Map, same layout, read with ASK_SIZE as well.
+assert page("ASKQR", ["POSITION AS A QR CODE", "THEN QR MAP", "",
+                      "MENU OK   OTHER KEY NO"], tail=["QR Map"]) <= ask_size
+a.const("ASK_SIZE", ask_size)
+a.const("ASK_LINES", 1 + len(ASK))
+# MENU: the help page.
+help_size = page("HELP", [
+    "UP/DN  SCROLL, MESSAGE",
+    "*      NORMAL/COMPACT VIEW",
+    "4/5/6  TUNE -5/VFO/+5 KHZ",
+    "1      SPEAKER ON/OFF",
+    "0      CLEAR MESSAGES",
+    "7      QR MAP",
+    "8 / 9  SIG FINDER 121.5 / 243",
+    "EXIT   QUIT",
+])
+assert ask_size <= help_size                # both pages share handleKey()'s buffer
+assert help_size <= 184                      # handleKey()'s stack frame: +24 B of code at 192
 a.const("T_TITLE_CHARS", len(TITLE))
 a.table("T_PROTO", proto_names())           # 16 location, then 8 user protocols
 UP, DN = [0x04, 0x06, 0x07, 0x06, 0x04], [0x10, 0x30, 0x70, 0x30, 0x10]

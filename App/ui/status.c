@@ -33,6 +33,7 @@
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
 #include "functions.h"
+#include "fw_assets.h"
 #include "helper/battery.h"
 #include "misc.h"
 #include "settings.h"
@@ -133,7 +134,7 @@ void UI_DisplayStatus()
 #ifdef ENABLE_NOAA
         // NOAA indicator
         if (!(gScanStateDir != SCAN_OFF || SCANNER_IsScanning()) && gIsNoaaMode) { // NOASS SCAN indicator
-            memcpy(line + x, BITMAP_NOAA, sizeof(BITMAP_NOAA));
+            FW_ASSETS_COPY(line + x, BITMAP_NOAA);
         }
         else
 #endif
@@ -142,10 +143,10 @@ void UI_DisplayStatus()
             const uint8_t bank = MB_GetActiveBank();
 
             if (bank < MB_BANK_COUNT) {
-                memcpy(line + x, gFontConfigBank[0], sizeof(gFontConfigBank[0]));
+                FW_ASSETS_COPY(line + x, gFontConfigBank[0]);
                 if (bank == 0u) {
-                    memcpy(line + x + sizeof(gFontConfigBank[0]),
-                           gFontConfigBank[1], sizeof(gFontConfigBank[0]));
+                    FW_ASSETS_COPY(line + x + sizeof(gFontConfigBank[0]),
+                                   gFontConfigBank[1]);
                 } else {
                     str[0] = (char)('0' + bank);
                     str[1] = '\0';
@@ -156,7 +157,7 @@ void UI_DisplayStatus()
 #else
         // Power Save indicator
         if (gCurrentFunction == FUNCTION_POWER_SAVE) {
-            memcpy(line + x, gFontPowerSave, sizeof(gFontPowerSave));
+            FW_ASSETS_COPY(line + x, gFontPowerSave);
         }
 #endif
     }
@@ -223,7 +224,7 @@ void UI_DisplayStatus()
 #endif
             }
             else {  // frequency mode
-                memcpy(line + x + 1, gFontS, sizeof(gFontS));
+                FW_ASSETS_COPY(line + x + 1, gFontS);
                 //UI_PrintStringSmallBufferNormal("S", line + x + 1);
             }
             x1 = x + 10;
@@ -272,9 +273,9 @@ void UI_DisplayStatus()
                             if (gEeprom.DUAL_WATCH == DUAL_WATCH_FULL)
                                 font = gFontFWR;
 #endif
-                            memcpy(modeLine + sOff, font[0], sizeof(font[0]));
-                            memcpy(modeLine + sOff + sizeof(font[0]),
-                                   font[xb ? 1u : 2u], sizeof(font[0]));
+                            FW_ASSETS_COPY(modeLine + sOff, font[0]);
+                            FW_ASSETS_COPY(modeLine + sOff + sizeof(font[0]),
+                                           font[xb ? 1u : 2u]);
                         } else {
                             src = gFontHold;
                             sOff = 1u;
@@ -287,7 +288,7 @@ void UI_DisplayStatus()
                 }
 
                 if (src != NULL)
-                    memcpy(modeLine + sOff, src, sSize);
+                    FW_ASSETS_Read(src, modeLine + sOff, sSize);
             }
         }
         x += 17u;
@@ -300,7 +301,7 @@ void UI_DisplayStatus()
 #ifdef ENABLE_VOX
     // VOX indicator
     if (gEeprom.VOX_SWITCH) {
-        memcpy(line + x, gFontVox, sizeof(gFontVox));
+        FW_ASSETS_COPY(line + x, gFontVox);
         x1 = x + sizeof(gFontVox) + 1u;
     }
     x += sizeof(gFontVox) + 5u;
@@ -313,7 +314,7 @@ void UI_DisplayStatus()
                         ? (const void *)gFontPttOnePush
                         : (const void *)gFontPttClassic;
 
-        memcpy(line + x, src, sizeof(gFontPttClassic));
+        FW_ASSETS_Read(src, line + x, sizeof(gFontPttClassic));
         x1 = x + sizeof(gFontPttClassic) + 1u;
     }
     x += sizeof(gFontPttClassic) + 5u;
@@ -363,7 +364,7 @@ void UI_DisplayStatus()
 
     // Perform the memcpy if a source was selected
     if (src) {
-        memcpy(line + x + 1, src, size);
+        FW_ASSETS_Read(src, line + x + 1, size);
     }
 
     UI_DrawStatusBattery(line, str);
@@ -371,15 +372,17 @@ void UI_DisplayStatus()
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
     if (gScreenToDisplay == DISPLAY_MENU) {
         // "MENU" at category level, otherwise the uppercased category name.
-        const char *source = gMenuLevel == MENU_LEVEL_CAT
-                           ? "MENU"
-                           : CategoryNames[gMenuCategory];
-        char text[9];   // longest label ("Channels") + NUL
+        char text[sizeof(CategoryNames[0])];   // longest label ("Channels") + NUL
         uint8_t n = 0;
 
-        // & 0xDF uppercases letters and keeps the NUL (labels are letters only).
-        while ((text[n] = (char)(source[n] & 0xDFu)) != '\0')
-            n++;
+        if (gMenuLevel == MENU_LEVEL_CAT)
+            strcpy(text, "MENU");
+        else
+            FW_ASSETS_STRCPY(text, CategoryNames, gMenuCategory);
+
+        // & 0xDF uppercases letters (labels are letters only).
+        for (; text[n] != '\0'; n++)
+            text[n] = (char)(text[n] & 0xDFu);
 
         // Clear through the last pixel of the three-letter receiver-mode bitmap.
         memset(line, 0, 36u);

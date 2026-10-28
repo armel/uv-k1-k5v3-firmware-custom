@@ -1,0 +1,171 @@
+/* Copyright 2023 Dual Tachyon
+ * https://github.com/DualTachyon
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
+ */
+
+/*
+ * Menu list, in display order: MENU_ITEM(name, menu ID). Included twice by
+ * ui/menu.c, which builds MenuListId[] (internal flash, read everywhere) and
+ * MenuListName[] (firmware assets, read only to draw) from the same entries.
+ * No include guard on purpose. Names are at most MENU_NAME_SIZE - 1 chars.
+ */
+
+//          text,          menu ID
+    MENU_ITEM("Step",        MENU_STEP          )
+    MENU_ITEM("Power",       MENU_TXP           ) // was "TXP"
+    MENU_ITEM("RxDCS",       MENU_R_DCS         ) // was "R_DCS"
+    MENU_ITEM("RxCTCS",      MENU_R_CTCS        ) // was "R_CTCS"
+    MENU_ITEM("TxDCS",       MENU_T_DCS         ) // was "T_DCS"
+    MENU_ITEM("TxCTCS",      MENU_T_CTCS        ) // was "T_CTCS"
+    MENU_ITEM("TxODir",      MENU_SFT_D         ) // was "SFT_D"
+    MENU_ITEM("TxOffs",      MENU_OFFSET        ) // was "OFFSET"
+    MENU_ITEM("W/N",         MENU_W_N           )
+#ifndef ENABLE_FEAT_F4HWN
+    MENU_ITEM("Scramb",      MENU_SCR           ) // was "SCR"
+#endif
+    MENU_ITEM("BusyCL",      MENU_BCL           ) // was "BCL"
+    MENU_ITEM("Compnd",      MENU_COMPAND       )
+    MENU_ITEM("Mode",        MENU_AM            ) // was "AM"
+#ifdef ENABLE_FEAT_F4HWN
+    MENU_ITEM("TXLock",      MENU_TX_LOCK       )
+#endif
+    MENU_ITEM("ChList",      MENU_LIST_CH       )
+    MENU_ITEM("ChSave",      MENU_MEM_CH        ) // was "MEM-CH"
+    MENU_ITEM("ChDele",      MENU_DEL_CH        ) // was "DEL-CH"
+    MENU_ITEM("ChName",      MENU_MEM_NAME      )
+
+    MENU_ITEM("ScList",       MENU_S_LIST       )
+    MENU_ITEM("ScPri",        MENU_S_PRI        )
+    MENU_ITEM("PriCh1",       MENU_S_PRI_CH_1   )
+    MENU_ITEM("PriCh2",       MENU_S_PRI_CH_2   )
+    MENU_ITEM("ScnRev",      MENU_SC_REV        )
+#ifndef ENABLE_FEAT_F4HWN
+    #ifdef ENABLE_NOAA
+        MENU_ITEM("NOAA-S",      MENU_NOAA_S    )
+    #endif
+#endif
+    MENU_ITEM("F1Shrt",      MENU_F1SHRT        )
+    MENU_ITEM("F1Long",      MENU_F1LONG        )
+    MENU_ITEM("F2Shrt",      MENU_F2SHRT        )
+    MENU_ITEM("F2Long",      MENU_F2LONG        )
+    MENU_ITEM("M Long",      MENU_MLONG         )
+
+    MENU_ITEM("KeyLck",      MENU_AUTOLK        ) // was "AUTOLk"
+    MENU_ITEM("TxTOut",      MENU_TOT           ) // was "TOT"
+    MENU_ITEM("BatSav",      MENU_SAVE          ) // was "SAVE"
+    MENU_ITEM("BatTxt",      MENU_BAT_TXT       )
+    MENU_ITEM("Mic",         MENU_MIC           )
+    MENU_ITEM("MicBar",      MENU_MIC_BAR       )
+    MENU_ITEM("ChDisp",      MENU_MDF           ) // was "MDF"
+    MENU_ITEM("POnMsg",      MENU_PONMSG        )
+    MENU_ITEM("BLTime",      MENU_ABR           ) // was "ABR"
+    MENU_ITEM("BLMin",       MENU_ABR_MIN       )
+    MENU_ITEM("BLMax",       MENU_ABR_MAX       )
+    MENU_ITEM("BLTxRx",      MENU_ABR_ON_TX_RX  )
+    MENU_ITEM("Beep",        MENU_BEEP          )
+#ifdef ENABLE_VOICE
+    MENU_ITEM("Voice",       MENU_VOICE         )
+#endif
+    MENU_ITEM("Roger",       MENU_ROGER         )
+    MENU_ITEM("STE",         MENU_STE           )
+    MENU_ITEM("RP STE",      MENU_RP_STE        )
+    MENU_ITEM("1 Call",      MENU_1_CALL        )
+#ifdef ENABLE_DTMF_CALLING
+    MENU_ITEM("ANI ID",      MENU_ANI_ID        )
+#endif
+    MENU_ITEM("UPCode",      MENU_UPCODE        )
+    MENU_ITEM("DWCode",      MENU_DWCODE        )
+    MENU_ITEM("PTT ID",      MENU_PTT_ID        )
+    MENU_ITEM("D ST",        MENU_D_ST          )
+#ifdef ENABLE_DTMF_CALLING
+    MENU_ITEM("D Resp",      MENU_D_RSP         )
+    MENU_ITEM("D Hold",      MENU_D_HOLD        )
+#endif
+    MENU_ITEM("D Prel",      MENU_D_PRE         )
+#ifdef ENABLE_DTMF_CALLING
+    MENU_ITEM("D Decd",      MENU_D_DCD         )
+    MENU_ITEM("D List",      MENU_D_LIST        )
+#endif
+    MENU_ITEM("D Live",      MENU_D_LIVE_DEC    ) // live DTMF decoder
+    MENU_ITEM("VOX",         MENU_VOX           )
+#ifdef ENABLE_FEAT_F4HWN
+    MENU_ITEM("SysInf",      MENU_VOL           ) // was "VOL"
+#else
+    MENU_ITEM("BatVol",      MENU_VOL           ) // was "VOL"
+#endif
+    MENU_ITEM("RxMode",      MENU_TDR           )
+    MENU_ITEM("Sql",         MENU_SQL           )
+#ifdef ENABLE_FEAT_F4HWN
+    MENU_ITEM("SetPwr",      MENU_SET_PWR       )
+    MENU_ITEM("SetPTT",      MENU_SET_PTT       )
+    MENU_ITEM("SetTOT",      MENU_SET_TOT       )
+    MENU_ITEM("SetEOT",      MENU_SET_EOT       )
+    MENU_ITEM("SetCtr",      MENU_SET_CTR       )
+    MENU_ITEM("SetInv",      MENU_SET_INV       )
+    MENU_ITEM("SetLck",      MENU_SET_LCK       )
+    MENU_ITEM("SetMet",      MENU_SET_MET       )
+    MENU_ITEM("SetGUI",      MENU_SET_GUI       )
+#ifdef ENABLE_FEAT_F4HWN_AUDIO
+    MENU_ITEM("SetRxA",      MENU_SET_AUD       )
+#endif
+    MENU_ITEM("SetTmr",      MENU_SET_TMR       )
+#ifdef ENABLE_FEAT_F4HWN_SLEEP
+    MENU_ITEM("SetOff",       MENU_SET_OFF      )
+#endif
+#ifdef ENABLE_FEAT_F4HWN_NARROWER
+    MENU_ITEM("SetNFM",      MENU_SET_NFM       )
+#endif
+#ifdef ENABLE_FEAT_F4HWN_VOL
+    MENU_ITEM("SetVol",      MENU_SET_VOL       )
+#endif
+#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+    MENU_ITEM("SetKey",      MENU_SET_KEY       )
+#endif
+#ifdef ENABLE_NOAA
+    MENU_ITEM("SetNWR",      MENU_NOAA_S    )
+#endif
+#ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
+    MENU_ITEM("SetScn",      MENU_SET_SCN       )
+#endif
+#ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
+    MENU_ITEM("SetSav",      MENU_SET_SAV       )
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    MENU_ITEM("SetCfg",      MENU_SET_CFG       ) // load another settings bank
+#endif
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    MENU_ITEM("SetFnt",      MENU_SET_FNT       )
+#endif
+#endif
+    // hidden menu items from here on
+    // enabled if pressing both the PTT and upper side button at power-on
+    MENU_ITEM("F Lock",      MENU_F_LOCK        )
+#ifndef ENABLE_FEAT_F4HWN
+    MENU_ITEM("Tx 200",      MENU_200TX         ) // was "200TX"
+    MENU_ITEM("Tx 350",      MENU_350TX         ) // was "350TX"
+    MENU_ITEM("Tx 500",      MENU_500TX         ) // was "500TX"
+#endif
+    MENU_ITEM("350 En",      MENU_350EN         ) // was "350EN"
+#ifndef ENABLE_FEAT_F4HWN
+    MENU_ITEM("ScraEn",      MENU_SCREN         ) // was "SCREN"
+#endif
+#ifdef ENABLE_F_CAL_MENU
+    MENU_ITEM("FrCali",      MENU_F_CALI        ) // reference xtal calibration
+#endif
+    MENU_ITEM("BatCal",      MENU_BATCAL        ) // battery voltage calibration
+    MENU_ITEM("BatTyp",      MENU_BATTYP        ) // battery type 1600/2200mAh
+    MENU_ITEM("SetNav",      MENU_SET_NAV       ) // set navigation (LEFT / RIGHT or UP / DOWN)
+    MENU_ITEM("Reset",       MENU_RESET         ) // might be better to move this to the hidden menu items ?
+
+    MENU_ITEM("",                              0xff               ) // end of list - DO NOT delete or move this this

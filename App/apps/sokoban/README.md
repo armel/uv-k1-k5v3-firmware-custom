@@ -1,4 +1,4 @@
-# Sokoban 1.3
+# Sokoban 1.4
 
 A classic push-box puzzle overlay for F4HWN Labs ABI 1 / API 2.
 Twenty-four original, deterministic levels fit a 10x6 board of 8x8-pixel tiles;

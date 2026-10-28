@@ -18,9 +18,14 @@ ATIS DSC RX reads the variable-length calls of channel 70.
 |---|---|
 | Call format (`test/dsc.py`) | Built from ITU-R M.493 (annex 1); an ATIS sequence built with it is bit for bit the one of `atisrx/test/atis.py` (ETSI EN 300 698 annex C) |
 | Receive model (`test/model_dsc.py`) | ATIS RX's channel and front end with the DSC sequence decoder, in the standard FM audio path the app reads: the 7 test calls decoded from the Flipper files, with +-4 kHz offset, +-1 % clock, noise up to 3000 Hz rms, sine FSK from -6 to +4.2 dB of twist; the bad error check rejected; nothing out of 60 s of noise. The samples captured on a UV-K1 (`test/captures/`) check the slicers: 99.5 to 100 % of the bits right |
-| Radio app (`atisdscrx_app.c`) | v0.10, 3656 B of code. Host test (`test/host_test.py`, the app compiled for the host): the 7 calls shown as expected, three alerts for a distress or urgency call, none otherwise, two calls in a row, nothing from the bad error check or 30 s of noise, 93 to 94 of 96 calls with the radio's key-scan and blit gaps |
+| Radio app (`atisdscrx_app.c`) | v0.2, functionally identical to v0.10, 3656 B of code. Host test (`test/host_test.py`, the app compiled for the host): the 7 calls shown as expected, three alerts for a distress or urgency call, none otherwise, two calls in a row, nothing from the bad error check or 30 s of noise, 93 to 94 of 96 calls with the radio's key-scan and blit gaps |
 | On the radio | **Tested on a UV-K1** with a LimeSDR sending sine FSK on 433.650 MHz (-56 dBm, radio 1 m away): v0.10 decoded 10/10 distress calls at each of 1.5, 2.5 and 3.5 kHz of deviation (v0.9, slicers 5:4, 4:3, 3:2: distress acknowledgement 10/10, urgency 10/10, routine 9/10, distress 9/10). The three alerts seen through K5Viewer |
 | On air | Not tested yet with a real DSC call on channel 70 |
+
+Version 0.2 normalizes the application version from `0.10` to the `X.Y`
+format. It does not change the decoder or runtime behavior; the radio test
+record above therefore remains attributed to the package that was actually
+tested, v0.10.
 
 ### The slicer weights
 

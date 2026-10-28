@@ -46,6 +46,7 @@
 #define WORD_GAP_DOTS     6u
 #define LINE_GAP_DOTS    15u
 #define TEXT_CAP        256u
+#define MORSE_MAX_MARKS   7u
 /* The decoded text uses frame-buffer rows 0 to 30; row 31 stays blank above
  * the three capsule lines (4: THR / WPM, 5: RSSI / XTAL, 6: MORSE / RX
  * frequency). */
@@ -71,6 +72,8 @@
 
 _Static_assert(BODY_LAST_PAGE + 1u == CAPS_LINE,
                "CW Decode text body must end right above the capsules");
+_Static_assert(MORSE_TREE_LEN <= (1u << (MORSE_MAX_MARKS + 1u)),
+               "CW Decode Morse tree exceeds the symbol accumulator");
 _Static_assert((CAL_MAX * 1923 + 50) / 100 < 1000 &&
                (-(CAL_MIN) * 1923 + 50) / 100 < 1000,
                "XTAL correction must stay below 10 ppm");
@@ -110,7 +113,7 @@ static struct {
     int16_t rssi, threshold, samples[3];
     int32_t noiseQ8;
     uint32_t edgeAt, candidateAt, lastDraw, lastBattery, lastKey;
-    char pattern[7];
+    char pattern[MORSE_MAX_MARKS + 1u];
     char *text;
 } g;
 
@@ -290,7 +293,7 @@ static void finishCharacter(void)
 {
     if (!g.depth)
         return;
-    append(g.depth <= 5u && g.code < 64u && g.morse[g.code]
+    append(g.depth <= MORSE_MAX_MARKS && g.code < MORSE_TREE_LEN && g.morse[g.code]
            ? g.morse[g.code] : '?');
     clearSymbol();
 }
@@ -319,12 +322,12 @@ static void addMark(uint32_t duration)
         estimate = high;
     g.dotMs = (uint16_t)(((uint32_t)g.dotMs * 3u + estimate + 2u) >> 2);
 
-    if (g.depth < 6u) {
+    if (g.depth < MORSE_MAX_MARKS) {
         g.pattern[g.depth++] = dash ? '-' : '.';
         g.pattern[g.depth] = '\0';
-        if (g.depth <= 5u)
-            g.code = (uint8_t)((g.code << 1) | (dash ? 1u : 0u));
-    }
+        g.code = (uint8_t)((g.code << 1) | (dash ? 1u : 0u));
+    } else
+        g.depth = MORSE_MAX_MARKS + 1u;
     g.morseRedraw = true;
     g.redraw = true;
 }

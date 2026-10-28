@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"
 APP_NAME="Sokoban"
-APP_VER="1.3"
+APP_VER="1.4"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}
 OUT="${APP_NAME// /}"

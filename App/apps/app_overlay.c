@@ -92,6 +92,13 @@ _Static_assert(APP_SCREEN_SAVE_LEN == sizeof(gStatusLine) + sizeof(gFrameBuffer)
                "the saved screen is the status line plus the frame buffer");
 _Static_assert(APP_SLOT_BASE(APP_SLOT_COUNT) <= 0x001DE000u,
                "overlay app slots overlap the Sonic 4K reserve");
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+/* The app region may grow up to 100 slots; the firmware asset zones follow. */
+#define APP_SLOT_CEILING 100u
+_Static_assert(APP_SLOT_COUNT <= APP_SLOT_CEILING &&
+               APP_SLOT_BASE(APP_SLOT_CEILING) <= MB_ASSET_REGION_BASE,
+               "overlay app slots overlap the firmware assets");
+#endif
 
 enum {
     APP_AVAILABLE_CAPS = APP_CAP_CFG_PROXY
@@ -117,9 +124,7 @@ static struct {
     uint16_t asset_size;
     uint16_t cfg_target_offset;
     uint32_t cfg_target_magic;
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
-    uint16_t beam_pending_channel;
-#endif
+    uint16_t pending_channel;
     uint8_t run_slot;
     uint8_t cfg_len;       /* staged length; 0 = nothing to commit */
     uint8_t cfg_target_slot;
@@ -130,9 +135,7 @@ static struct {
 #ifdef ENABLE_FMRADIO
     bool fm_dirty;
 #endif
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
-    bool beam_dirty;
-#endif
+    uint8_t pending_kind;  /* 0 = none, 1 = BEAM/VFO, 2 = memory */
     bool shortcuts_cached;
     uint8_t shortcut_slots[APP_SHORTCUT_COUNT];   /* per position, 0xFF = none */
     uint8_t slot_revision;
@@ -156,7 +159,7 @@ static struct {
     uint8_t handoff_buf[APP_HANDOFF_MAX];
 } app_state;
 
-/* vfo_stage: the Apps menu hands back to the main screen (app_menu.c). */
+/* A staged VFO or memory makes the Apps menu return to main (app_menu.c). */
 bool gAppVfoExit;
 
 /* ---- ABI wrappers: the few resident calls that are not a direct signature match ---- */
@@ -474,7 +477,7 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
 
     /* Only one external-flash write can be deferred per app run.  Preserve the
        first successfully received channel if an older app tries to queue more. */
-    if (app_state.beam_dirty)
+    if (app_state.pending_kind)
         return 0xFFFFu;
 
     uint16_t channel = MR_CHANNEL_FIRST;
@@ -487,8 +490,8 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
        sector-cache RAM.  Keep the pointer-free payload separate from the radio
        VFO: app_beam_prepare() may reuse that VFO before the app returns. */
     memcpy(&app_beam_pending, in, sizeof(app_beam_pending));
-    app_state.beam_pending_channel = channel;
-    app_state.beam_dirty = true;
+    app_state.pending_channel = channel;
+    app_state.pending_kind = 1u;
     return channel;
 }
 
@@ -496,13 +499,13 @@ static uint16_t app_beam_save(const app_beam_channel_t *in)
  * frequency channel) instead of the first free memory. */
 static bool app_vfo_stage(const app_beam_channel_t *in)
 {
-    if (in == NULL || app_state.beam_dirty)
+    if (in == NULL || app_state.pending_kind)
         return false;
     if (RX_freq_check(in->rx_frequency))       /* the radio's RX range, as the keypad */
         return false;
     memcpy(&app_beam_pending, in, sizeof(app_beam_pending));
-    app_state.beam_pending_channel = FREQ_CHANNEL_FIRST + FREQUENCY_GetBand(in->rx_frequency);
-    app_state.beam_dirty = true;
+    app_state.pending_channel = FREQ_CHANNEL_FIRST + FREQUENCY_GetBand(in->rx_frequency);
+    app_state.pending_kind = 1u;
     gAppVfoExit = true;
     return true;
 }
@@ -511,11 +514,11 @@ static bool app_vfo_stage(const app_beam_channel_t *in)
  * from the PY25Q16 sector cache. */
 static void app_beam_commit(void)
 {
-    if (!app_state.beam_dirty)
+    if (app_state.pending_kind != 1u)
         return;
-    app_state.beam_dirty = false;
+    app_state.pending_kind = 0u;
 
-    const uint16_t channel = app_state.beam_pending_channel;
+    const uint16_t channel = app_state.pending_channel;
 
     /* The overlay has returned, so the temporary radio VFO is now free to
        become the channel-save staging object. */
@@ -564,6 +567,99 @@ static void app_beam_draw(const char *status)
     UI_PrintStringSmallBold(status, 2, LCD_WIDTH - 1u, line);
 }
 #endif
+
+/* ---- API level 4: memory channels and scan lists ----
+ * One operation-based service is sufficient for enumeration, compact reads,
+ * list names and deferred selection. External-flash writes remain deferred
+ * until the overlay code no longer occupies the PY25Q16 sector cache. */
+
+_Static_assert(APP_MR_COUNT == MR_CHANNELS_MAX &&
+               APP_MR_LISTS == MR_CHANNELS_LIST &&
+               APP_MR_EVERY == SCAN_LIST_MODE_ALL,
+               "overlay memory API must match the resident scan-list layout");
+
+static int app_mr_read(uint16_t ch, app_mr_channel_t *out)
+{
+    if (!IS_MR_CHANNEL(ch))
+        return APP_MR_INVALID;
+
+    const ChannelAttributes_t *const att = MR_GetChannelAttributes(ch);
+    if (att == NULL || att->band > BAND7_470MHz)
+        return APP_MR_INVALID;
+
+    const uint32_t frequency = SETTINGS_FetchChannelFrequency(ch);
+    if (frequency == 0u || frequency == UINT32_MAX)
+        return APP_MR_INVALID;
+
+    if (out != NULL) {
+        out->rx_frequency = frequency;
+        SETTINGS_FetchChannelName(out->name, ch);
+    }
+
+    const uint8_t list = att->scanlist;
+    return list <= APP_MR_EVERY ? list : 0;
+}
+
+static int app_mr(uint8_t op, uint16_t index, void *out)
+{
+    if (op == APP_MR_READ) {
+        return app_mr_read(index, out);
+    }
+
+    if (op == APP_MR_LIST_NAME) {
+        if (index < 1u || index > APP_MR_LISTS)
+            return APP_MR_INVALID;
+
+        const char *const name = gListName[index - 1u];
+        uint8_t n = 0;
+        while (n < sizeof(gListName[0]) && name[n] >= 32 && name[n] < 127)
+            n++;
+        while (n && name[n - 1u] == ' ')
+            n--;
+        if (out != NULL) {
+            memcpy(out, name, n);
+            ((char *)out)[n] = '\0';
+        }
+        return n;
+    }
+
+    if (op == APP_MR_STAGE) {
+        if (app_state.pending_kind)
+            return APP_MR_INVALID;
+        const int status = app_mr_read(index, NULL);
+        if (status < 0)
+            return status;
+        app_state.pending_channel = index;
+        app_state.pending_kind = 2u;
+        gAppVfoExit = true;
+        return 0;
+    }
+
+    return APP_MR_INVALID;
+}
+
+/* Apply APP_MR_STAGE as channelMove() does for a channel number typed on the
+ * keypad, after the overlay has returned. */
+static void app_mr_commit(void)
+{
+    if (app_state.pending_kind != 2u)
+        return;
+
+    const uint16_t ch = app_state.pending_channel;
+    const uint8_t vfo = gEeprom.TX_VFO;
+    app_state.pending_kind = 0u;
+    gEeprom.MrChannel[vfo] = ch;
+    gEeprom.ScreenChannel[vfo] = ch;
+#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
+    gRemoveOffset = false;
+    gPowerHigh = false;
+#endif
+    RADIO_ConfigureChannel(vfo, VFO_CONFIGURE_RELOAD);
+    SETTINGS_SaveVfoIndices();
+    /* RADIO_ConfigureChannel() reloads the VFO state but does not apply it to
+     * the BK4829, so request the normal main-loop hardware reconfiguration. */
+    gFlagReconfigureVfos = true;
+}
 
 /* ---- radio wrappers ---- */
 static int16_t  app_rssi_dbm(void)     { return BK4819_GetRSSI_dBm() + dBmCorrTable[gRxVfo->Band]; }
@@ -1315,6 +1411,7 @@ static const app_api_t app_api = {
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     .vfo_stage           = app_vfo_stage,
 #endif
+    .mr                  = app_mr,
 };
 
 /* Hand-off guards: a chain of apps that hand off to each other for ever (a
@@ -1383,9 +1480,7 @@ static uint8_t app_launch(uint8_t slot)
 #ifdef ENABLE_FMRADIO
     app_state.fm_dirty = false;
 #endif
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
-    app_state.beam_dirty = false;
-#endif
+    app_state.pending_kind = 0u;
 
     app_state.allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
     app_state.screen_saver_wake = false;
@@ -1450,6 +1545,7 @@ static uint8_t app_launch(uint8_t slot)
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_BEAM
     app_beam_commit();
 #endif
+    app_mr_commit();
 
     /* Commit ordinary per-app config, or the bounded target asset selected by
      * a validated proxy descriptor.  Both paths run only after app_main exits. */

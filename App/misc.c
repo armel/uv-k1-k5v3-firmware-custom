@@ -16,6 +16,9 @@
 
 #include <string.h>
 
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    #include "font.h"
+#endif
 #include "misc.h"
 #include "settings.h"
 #include "driver/py25q16.h"
@@ -126,6 +129,9 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     uint8_t       gSetting_set_lck = SET_LCK_KEYS;
     bool          gSetting_set_met = 0;
     bool          gSetting_set_gui = 0;
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        uint8_t       gSetting_set_fnt = FONT_VARIANT_DEFAULT;
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         uint8_t       gSetting_set_audio_fm = 0;
         uint8_t       gSetting_set_audio_am = 0;

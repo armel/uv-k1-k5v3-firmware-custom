@@ -40,7 +40,10 @@ a.const("ATT_COUNT", 6)
 # Footer labels, one NUL-padded record per attenuation step (ATT_REG13 order).
 ATT_REC = 16
 ATT_LBL = ["ATT 0dB", "ATT 6dB", "ATT 15dB", "ATT 27dB", "ATT BYP", "ATT BYP+"]
-a.raw("ATT_LBL", b"".join(s.encode().ljust(ATT_REC, b"\0") for s in ATT_LBL))
+# Each record: the x that right-aligns the label (3x5 font, 4 px a char),
+# then the NUL-padded text.
+a.raw("ATT_LBL", b"".join((bytes([128 - 4 * len(s)]) + s.encode()).ljust(ATT_REC, b"\0")
+                          for s in ATT_LBL))
 a.const("ATT_REC", ATT_REC)
 
 # M20 main thermistor (auto_rx m20mod get_Temp): ADC12 of a divider per range,

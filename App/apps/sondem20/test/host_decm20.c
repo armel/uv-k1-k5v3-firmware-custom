@@ -170,6 +170,60 @@ int main(void)
             printf("  ✅ no fix: no position, no velocity\n");
     }
 
+    /* ---- heading past 255: the byte holds bits 0..7, bit 8 rides in the flags ---- */
+    {
+        uint8_t g[M20_FRAME_LEN];
+        decm20_t d;
+        sonde_info_t out;
+        memcpy(g, f, sizeof g);
+        g[0x0B] = 0xFC; g[0x0C] = 0xE0;   /* -800 cm/s: west  */
+        g[0x0D] = 0x01; g[0x0E] = 0x2C;   /*  300 cm/s: north */
+        {
+            uint16_t cs = mk_check(g, 0x44);
+            g[0x44] = (uint8_t)(cs >> 8);
+            g[0x45] = (uint8_t)(cs & 0xFF);
+        }
+        memset(&d, 0, sizeof d);
+        decm20_init(&d);
+        memcpy(d.frm, g, M20_FRAME_LEN);
+        d.state = 2;
+        memset(&out, 0, sizeof out);
+        if (!decm20_parse(&d, &out) || out.hs_ms != 9 ||
+            (out.hdg | (out.flags & SONDE_HDG_256) * (256u / SONDE_HDG_256)) != 291u) {
+            fprintf(stderr, "heading 291: hs=%u hdg=%u flags=%u\n",
+                    out.hs_ms, out.hdg, out.flags);
+            fail++;
+        } else
+            printf("  ✅ heading past 255\n");
+    }
+
+    /* ---- horizontal speed past a byte: saturated at 255 m/s ---- */
+    {
+        uint8_t g[M20_FRAME_LEN];
+        decm20_t d;
+        sonde_info_t out;
+        memcpy(g, f, sizeof g);
+        g[0x0B] = 0x75; g[0x0C] = 0x30;   /* 30000 cm/s: 300 m/s east */
+        g[0x0D] = 0x00; g[0x0E] = 0x00;
+        {
+            uint16_t cs = mk_check(g, 0x44);
+            g[0x44] = (uint8_t)(cs >> 8);
+            g[0x45] = (uint8_t)(cs & 0xFF);
+        }
+        memset(&d, 0, sizeof d);
+        decm20_init(&d);
+        memcpy(d.frm, g, M20_FRAME_LEN);
+        d.state = 2;
+        memset(&out, 0, sizeof out);
+        if (!decm20_parse(&d, &out) || out.hs_ms != 255 || out.hdg != 90 ||
+            (out.flags & SONDE_HDG_256)) {
+            fprintf(stderr, "hs 300: hs=%u hdg=%u flags=%u\n",
+                    out.hs_ms, out.hdg, out.flags);
+            fail++;
+        } else
+            printf("  ✅ horizontal speed saturated\n");
+    }
+
     /* ---- softin path ---- */
     {
         decm20_t d;

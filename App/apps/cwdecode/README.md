@@ -77,8 +77,10 @@ empty line. The pending space or line break is inserted only when the next
 keyed carrier starts. Automatic following advances by one complete text row;
 manual history scrolling remains pixel-smooth, and a new keyed carrier resumes
 automatic following on the active line. The font, threshold margin, AGC mode,
-speaker state and crystal correction are saved. To protect mark timing, decoded text is redrawn during the longer
-inter-word silence; the `MORSE` capsule continues to show each symbol between
+speaker state and crystal correction are saved. To protect mark timing, decoded
+text is redrawn during the longer inter-word silence; the `MORSE` capsule
+continues to show each symbol between
 full redraws. Timing is relearned on every launch. Letters A-Z, digits 0-9 and
-the `+`, `=` and `/` symbols are supported; malformed or unsupported patterns
-are shown as `?`.
+the `+`, `=`, `/`, `-`, `:`, `!`, `'`, `.`, `;`, `@`, `$`, `(` and `)` symbols
+are supported. The decoder accepts symbols up to seven marks long; malformed,
+longer or unsupported patterns are shown as `?`.

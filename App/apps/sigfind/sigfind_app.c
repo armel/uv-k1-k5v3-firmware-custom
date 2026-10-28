@@ -56,6 +56,12 @@
  *   (saved) · UP/DOWN attenuator (manual) · MENU reset peak / new sweep
  *   F reverses 2, 3 and 5 · long F keypad lock · EXIT quit.
  *
+ * Return hand-off: an app that hands off to Sig Finder with a VFO_RET_LEN-byte
+ * message (the first bytes of its app_beam_channel_t from beam_get, every
+ * setting but the name) gets that VFO back on EXIT (vfo_stage) and is
+ * launched again (handoff). Launched from the menu, or with any other
+ * message, EXIT just quits and the VFO is left as it is.
+ *
  * Size: texts, icons, the attenuator ladder and the powers of ten are read-only
  * assets (gen_assets.py), the state is one struct, the history lives on
  * app_main's stack, and the only division (the sweep rate) goes through the
@@ -141,6 +147,10 @@ _Static_assert(BMP_SIGNAL_LEN == BMP_SPEAKER_LEN && BMP_F_LEN == BMP_LOCK_LEN, "
 
 /* per-tick peak decay in Q8: dB/s * 256 / 20 */
 static const uint8_t DECAY_Q8[DECAY_COUNT] = { 6, 13, 26, 51 };
+
+/* The return message: a VFO, without its name. */
+#define VFO_RET_LEN  offsetof(app_beam_channel_t, name)
+_Static_assert(VFO_RET_LEN <= APP_HANDOFF_MAX, "the return VFO no longer fits a hand-off");
 
 /* All the state in one struct: Thumb-1 code then reaches every field from a
  * single base address, byte fields first so their offsets fit ldrb's 0..31
@@ -501,8 +511,16 @@ static void tickSample(void){
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     uint8_t hist[HIST_LEN];   /* the history, on the stack: not in the overlay */
+    app_beam_channel_t back;  /* return hand-off: the VFO to give back */
+    char from[APP_NAME_LEN+1];/* and the app to launch again */
     A=api; g.hist=hist;
     g.prevKey=APP_KEY_INVALID;
+
+    /* vfo_stage (and the BEAM bridge behind beam_get) only exist in newer
+     * firmware: without it the message is still consumed, and ignored. */
+    bool ret=api->api_size>=offsetof(app_api_t,vfo_stage)+sizeof api->vfo_stage && api->vfo_stage;
+    if(ret) api->beam_get(&back);     /* the name field stays the current one */
+    ret=api->handoff_read(&back,VFO_RET_LEN,from)==(int16_t)VFO_RET_LEN && ret;
 
     loadConfig();
     /* before anything touches the AF: what did the VFO set up? */
@@ -543,4 +561,6 @@ void app_main(const app_api_t *api){
     saveConfig();
     api->af_capture_close();
     api->audio_path(false);
+    /* Staging refused (frequency out of range): plain exit, VFO unchanged. */
+    if(ret && api->vfo_stage(&back)) api->handoff(from,NULL,0);
 }

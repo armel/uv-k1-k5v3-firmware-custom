@@ -13,6 +13,8 @@ rate of the last preamble heard, 2400 bauds included (told, not decoded).
 | Receive model (`test/model_rx.py`) | See "Model results" below |
 | Radio app (`pocsagrx_app.c`) | v0.2 (three hysteresis slicers). v0.1 on the radio (2026-10-13): with feedback slicers only, the Flipper transmission was heard but nothing decoded, not even a sync codeword. **With the hysteresis slicers, every Flipper file decodes as expected** (`alpha`, `long`, `gap` with its `?` marks, `same`, `two`, ...), and key 3 read `syn 2 ok 0 0 0 32 32` for the five slicers of that build: only the 1/4 and 1/2 hysteresis ones. The feedback slicers and the 1/8 one were then removed and a 3/8 one added: that is v0.2, **checked on the radio the same day** with `alpha` (key 3 counters), `gap` and `same` |
 | v0.5: 10 pages, bell mark, Text Lost | 10 pages kept instead of 5 (100 B of stack each: 1000 B for the 10), the "page shown / pages kept" capsule on two digits (`10/10`). Key 4 on shows a bell between the title and the speaker icon in place of the `T` capsule. A page without text shows `Tone Only` in a capsule under the address, or `Text Lost` when its message codewords came but none could be read (v0.4 showed those as tone-only). Not built or checked on the radio yet |
+| v0.6: latency fix | A sync codeword skipped for the keys and screen is taken as found only after a batch with a good codeword, so a false sync in noise is dropped after one batch instead of holding a slicer for good (keys and screen once every 0.45 s / 1.06 s, discussion #736). Model: the false sync is dropped after one batch, both rates still decode, and the sweep output is unchanged. **Checked on the radio** (UV-K1): 3 hours without latency on a channel where it showed within minutes with v0.5 |
+| v0.7: smaller | The slicer setup no longer uses `%`, which pulled libgcc's 266-byte unsigned division into the app: same thresholds, same decoding. Not built or checked on the radio yet |
 | v0.4: tone-only pages | Key 4 keeps the pages without text (saved, off by default). Model: with it off, the results are unchanged; with it on, the pages with text are the same in all 264 runs, 3 false tone-only pages appear, and 90/90 real tone-only transmissions (alone, two, or before a text page; 1200 and 512 bauds; clock 1 % off) decode exactly. 60 s of noise gives nothing. **Checked on the radio** (UV-K1) with `pocsag_tone.sub` and `pocsag_tonemix.sub`, key 4 on and off |
 | v0.3: 512 bauds and preamble rate | A 512-baud lane (8-sample box, its own three slicers) runs beside the 1200 one, and key 3 shows the rate of the last preamble. The 512-baud lane remains model-only (see "Model results"); Flipper files `pocsag512_*.sub` and `pocsag2400_alpha.sub` |
 | On air | Not tested: no DAPNET transmitter heard yet |
@@ -164,7 +166,12 @@ Keys and screen take up to 15 ms, during which no sample is read. Outside a
 batch they are served every 50 ms. Inside a transmission they wait for the
 sync codeword that opens each batch (twice a second), where no page bit is
 lost; the bit clocks run on over the missing samples, and the sync codeword not
-read for that reason is taken as found.
+read for that reason is taken as found, provided the batch before it held a
+good codeword. Without that condition (up to v0.5), a false sync codeword found
+in noise (about once in 13 minutes across the six slicers) was excused at every
+batch and never let go: keys and screen were then served once a batch, every
+0.45 s (1.06 s on the 512 lane), and the backlight came up a step a second
+(discussion #736).
 
 ## Model results (`test/model_rx.py`)
 

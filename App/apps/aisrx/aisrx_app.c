@@ -24,7 +24,7 @@
  *
  * Supported messages: 1, 2, 3, 5, 18, 19, 24 and 8 Inland AIS ship static
  * data (DAC 200, FI 10: ENI, dimensions, load). Dynamic and static reports
- * for the same MMSI are merged in a four-vessel history. This application
+ * for the same MMSI are merged in an eight-vessel history. This application
  * listens to the current VFO only: AIS1 and AIS2 must be selected separately.
  * The screen follows ATIS RX and APRS RX: name in bold with the counters at
  * its right, then the body, nothing cut and scrolled as APRS RX's (MMSI and
@@ -38,7 +38,8 @@
  * Keys (UV-K5 and UV-K1): UP/DOWN held scroll the body, pressed again at its
  *   first / last row the newer / older vessel · * normal / compact view
  *   (saved) · 1 speaker on/off (saved, off by default; not gated by the
- *   squelch, as the other RAW apps) · 2 clear · EXIT quit.
+ *   squelch, as the other RAW apps) · MENU hold/resume · 2 clear ·
+ *   EXIT quit.
  */
 
 #include <stdint.h>
@@ -69,7 +70,8 @@ _Static_assert(AIS_FREQS == 0u && REG_SETUP == 8u && BMP_TAIL == DATA_SIZE,
 #define RAW_BITS           544u
 #define RAW_BYTES          ((RAW_BITS + 7u) / 8u)
 #define FRAME_BYTES        57u
-#define HISTORY            4u
+#define HISTORY            8u
+_Static_assert(HISTORY <= 9u, "vessel count capsule supports one digit");
 
 #define HAS_POS            1u
 #define HAS_NAME           2u
@@ -83,7 +85,7 @@ _Static_assert(AIS_FREQS == 0u && REG_SETUP == 8u && BMP_TAIL == DATA_SIZE,
 #define TINY_CHARS         32u     /* tiny font: 4 px a character, no clipping  */
 #define SEEN_MAX           999u    /* keeps the bottom row within 32 characters */
 
-#define WAIT_CAPS_X        40u     /* "WAIT" capsule in the status bar          */
+#define LOCK_X             40u     /* hold lock in the status bar               */
 #define SPK_X              59u     /* speaker icon, then the marks at x = 72-76 */
 #define CAPS_END           127u    /* last column of the line-0 capsules        */
 #define CH_X               108u    /* the AIS channel, where ATIS RX shows CH   */
@@ -142,6 +144,7 @@ static struct {
     uint8_t spk;                       /* saved settings, in cfg order: speaker, */
     uint8_t cw;                        /* compact view (key *)                   */
     bool running;
+    bool hold;                         /* freeze vessel history, keep receiving  */
     uint16_t vrow;                     /* y of the next body row before scrolling */
     uint16_t top, lim;                 /* pixel scroll of the body, its limit    */
     uint16_t sync;
@@ -396,7 +399,7 @@ static bool finish_frame(const uint8_t *raw, unsigned raw_bits)
     unsigned n = out_n >> 3;
     if (crc16(frame, n) != 0xF0B8u) return false;
     g.ok++;
-    accept_message(frame, n - 2u);
+    if (!g.hold) accept_message(frame, n - 2u);
     return true;
 }
 
@@ -546,12 +549,11 @@ static void draw(void)
                      (uint8_t)(2u + T_TITLE_CHARS * 4u));
     A->draw_battery();
 
-    if (!g.count)                       /* no vessel yet: a capsule, as ATIS RX */
-        A->print_inverse(g.ui + T_WAIT, WAIT_CAPS_X, 0, true, true,
-                         (uint8_t)(WAIT_CAPS_X + T_WAIT_CHARS * 4u));
-    else {
+    if (g.hold)
+        A->asset_read(BMP_LOCK, A->status_line + LOCK_X, BMP_LOCK_LEN);
+    if (g.count) {
         /* Line 0 first, drawn last over the scrolled rows: at its right the
-         * frames received and, once several vessels are kept, "2/4" at the
+         * frames received and, once several vessels are kept, "2/8" at the
          * edge (the vessel shown / the vessels kept, 1 = newest); in bold the
          * name, cut before the capsules, else the MMSI. */
         char l0[22], nb[8];
@@ -723,6 +725,7 @@ static void handle_key(void)
     g.redraw |= REDRAW_KEY;
     if (key == APP_KEY_EXIT) g.running = false;
     else if (key == APP_KEY_1) g.spk = !g.spk;
+    else if (key == APP_KEY_MENU) g.hold = !g.hold;
     else if (key == APP_KEY_STAR) { g.cw = !g.cw; g.top = 0; }   /* saved on exit */
     else if (key == APP_KEY_2) {        /* g.lim: 0 at the redraw that follows */
         g.count = g.cur = 0;

@@ -31,9 +31,13 @@
 #define CONFIG_COUNT        4u
 #define STATE_FIRST         (CONFIG_FIRST + CONFIG_COUNT)
 #define APP_SLOT_FIRST      (STATE_FIRST + 2u)
-#define APP_SLOT_COUNT      48u
-#define TAIL_FIRST          (APP_SLOT_FIRST + APP_SLOT_COUNT)
-#define ENTRY_COUNT         (TAIL_FIRST + 2u)
+#define APP_SLOT_COUNT      64u
+#define APP_SLOT_CEILING    100u
+#define APP_RESERVE_FIRST   (APP_SLOT_FIRST + APP_SLOT_COUNT)
+#define FW_ASSET_FIRST      (APP_RESERVE_FIRST + 1u)
+#define FW_ASSET_COUNT      FW_SLOT_COUNT
+#define SONIC_FIRST         (FW_ASSET_FIRST + FW_ASSET_COUNT)
+#define ENTRY_COUNT         (SONIC_FIRST + 1u)
 #define ROW_COUNT           (ENTRY_COUNT * CARD_ROWS)
 #define NO_ENTRY            0xFFu
 
@@ -50,6 +54,11 @@
 #define APP_HEADER_VERSION  1u
 #define APP_FLAG_COMMITTED  0x0001u
 #define APP_CODE_MAX        0x00001000u
+
+#define FW_ASSET_REGION_BASE 0x001CA000u
+#define FW_ASSET_SLOT_SIZE   0x00004000u
+#define SONIC_REGION_BASE    0x001DE000u
+#define EXT_FLASH_END        0x001FFFFFu
 
 #define STATE_BASE          0x00100000u
 #define STATE_SECTOR        0x00001000u
@@ -116,6 +125,12 @@ _Static_assert(sizeof(app_header_t) == 64u && offsetof(app_header_t, name) == 20
 _Static_assert(sizeof(state_record_t) == 24u &&
                offsetof(state_record_t, state_crc32) == 20u,
                "multiboot state layout changed");
+_Static_assert(APP_REGION_BASE + APP_SLOT_CEILING * APP_SLOT_STRIDE ==
+               FW_ASSET_REGION_BASE,
+               "app reserve must end where firmware assets start");
+_Static_assert(FW_ASSET_REGION_BASE + FW_ASSET_COUNT * FW_ASSET_SLOT_SIZE ==
+               SONIC_REGION_BASE,
+               "firmware assets must end where Sonic 4K starts");
 
 /* State sector verdicts, ordered by preference (also T_STATE indices). */
 enum { MARK_MISSING = 0, MARK_CORRUPT, MARK_LEGACY, MARK_VALID };
@@ -135,6 +150,7 @@ struct globals {
     bool dump_text;
     uint8_t dump_entry;
     uint8_t live_fw;
+    uint8_t live_asset;
     uint8_t live_cfg;
     uint8_t live_state;
 };
@@ -151,9 +167,9 @@ static const uint32_t first_ends[] = {
 
 /* Entry shown at the top for keys 0..9: 1..9 in flash order, 0 the end. */
 static const uint8_t section_entries[10] = {
-    TAIL_FIRST + 1u,                    /* SONIC 4K */
+    SONIC_FIRST,                        /* SONIC 4K */
     0u, 1u, 3u, 5u,                     /* CONFIG 0, CALIBRATION, LOGO, LOG */
-    FW_SLOT_FIRST, CONFIG_FIRST, STATE_FIRST, APP_SLOT_FIRST, TAIL_FIRST,
+    FW_SLOT_FIRST, CONFIG_FIRST, STATE_FIRST, APP_SLOT_FIRST, APP_RESERVE_FIRST,
 };
 
 static char hex_digit(uint8_t value)
@@ -214,15 +230,19 @@ static void entry_range(uint16_t entry, uint32_t *start, uint32_t *end)
     } else if (entry < APP_SLOT_FIRST) {
         *start = STATE_BASE + (uint32_t)(entry - STATE_FIRST) * STATE_SECTOR;
         *end = *start + STATE_SECTOR - 1u;
-    } else if (entry < TAIL_FIRST) {
+    } else if (entry < APP_RESERVE_FIRST) {
         *start = APP_REGION_BASE + (uint32_t)(entry - APP_SLOT_FIRST) * APP_SLOT_STRIDE;
         *end = *start + APP_SLOT_STRIDE - 1u;
-    } else if (entry == TAIL_FIRST) {
-        *start = 0x162000u;
-        *end = 0x1DDFFFu;
+    } else if (entry == APP_RESERVE_FIRST) {
+        *start = APP_REGION_BASE + APP_SLOT_COUNT * APP_SLOT_STRIDE;
+        *end = FW_ASSET_REGION_BASE - 1u;
+    } else if (entry < SONIC_FIRST) {
+        *start = FW_ASSET_REGION_BASE +
+                 (uint32_t)(entry - FW_ASSET_FIRST) * FW_ASSET_SLOT_SIZE;
+        *end = *start + FW_ASSET_SLOT_SIZE - 1u;
     } else {
-        *start = 0x1DE000u;
-        *end = 0x1FFFFFu;
+        *start = SONIC_REGION_BASE;
+        *end = EXT_FLASH_END;
     }
 }
 
@@ -441,7 +461,7 @@ static void format_state_description(uint8_t sector, char *out)
     tail[LIVE_PAIR_CFG] = (char)(tail[LIVE_PAIR_CFG] + record.config_bank);
 }
 
-/* Pick the record the resident would boot from and mark its three cards. */
+/* Pick the record the resident would boot from and mark its four cards. */
 static void load_live(void)
 {
     state_record_t records[2];
@@ -455,19 +475,22 @@ static void load_live(void)
     const state_record_t *live = &records[chosen];
 
     g.live_fw = NO_ENTRY;
+    g.live_asset = NO_ENTRY;
     g.live_cfg = NO_ENTRY;
     g.live_state = NO_ENTRY;
     if (marks[chosen] < MARK_LEGACY)
         return;
     g.live_state = (uint8_t)(STATE_FIRST + chosen);
     g.live_fw = (uint8_t)(FW_SLOT_FIRST + live->firmware_slot);
+    g.live_asset = (uint8_t)(FW_ASSET_FIRST + live->firmware_slot);
     g.live_cfg = live->config_bank == 0u
         ? 0u : (uint8_t)(CONFIG_FIRST + live->config_bank - 1u);
 }
 
 static bool entry_is_live(uint16_t entry)
 {
-    return entry == g.live_fw || entry == g.live_cfg || entry == g.live_state;
+    return entry == g.live_fw || entry == g.live_asset ||
+           entry == g.live_cfg || entry == g.live_state;
 }
 
 static void format_label(uint16_t entry, char *out)
@@ -482,10 +505,10 @@ static void format_label(uint16_t entry, char *out)
     } else if (entry < APP_SLOT_FIRST) {
         const uint16_t zone = 10u + entry - STATE_FIRST;
         asset_text(T_ZONE + zone * T_ZONE_STRIDE, out, T_ZONE_STRIDE);
-    } else if (entry < TAIL_FIRST) {
+    } else if (entry < APP_RESERVE_FIRST) {
         format_slot((uint8_t)(entry - APP_SLOT_FIRST), false, out);
     } else {
-        const uint16_t zone = 12u + entry - TAIL_FIRST;
+        const uint16_t zone = 12u + entry - APP_RESERVE_FIRST;
         asset_text(T_ZONE + zone * T_ZONE_STRIDE, out, T_ZONE_STRIDE);
     }
 }
@@ -503,11 +526,15 @@ static void format_description(uint16_t entry, char *out)
     } else if (entry < APP_SLOT_FIRST) {
         format_state_description((uint8_t)(entry - STATE_FIRST), out);
         return;
-    } else if (entry < TAIL_FIRST) {
+    } else if (entry < APP_RESERVE_FIRST) {
         format_app_description((uint8_t)(entry - APP_SLOT_FIRST), out);
         return;
+    } else if (entry == APP_RESERVE_FIRST) {
+        description = 9u;
+    } else if (entry < SONIC_FIRST) {
+        description = 10u;
     } else {
-        description = (uint16_t)(9u + entry - TAIL_FIRST);
+        description = 11u;
     }
     asset_text(T_DESC + description * T_DESC_STRIDE, out, T_DESC_STRIDE);
 }
@@ -520,7 +547,7 @@ static uint8_t entry_type(uint16_t entry)
         return 1u;
     if (entry == 3u)
         return 2u;
-    if (entry == 2u || entry == 4u || entry == TAIL_FIRST)
+    if (entry == 2u || entry == 4u || entry == APP_RESERVE_FIRST)
         return 3u;
     if (entry == 5u)
         return 4u;
@@ -528,15 +555,17 @@ static uint8_t entry_type(uint16_t entry)
         return 5u;
     if (entry >= STATE_FIRST && entry < APP_SLOT_FIRST)
         return 6u;
-    if (entry >= APP_SLOT_FIRST && entry < TAIL_FIRST)
+    if (entry >= APP_SLOT_FIRST && entry < APP_RESERVE_FIRST)
         return 7u;
+    if (entry >= FW_ASSET_FIRST && entry < SONIC_FIRST)
+        return 9u;
     return 8u;
 }
 
 static void draw_type_capsule(uint16_t entry, uint8_t line)
 {
     char type[T_TYPE_STRIDE];
-    const uint8_t index = entry_is_live(entry) ? 9u : entry_type(entry);
+    const uint8_t index = entry_is_live(entry) ? 10u : entry_type(entry);
     asset_text(T_TYPE + index * T_TYPE_STRIDE, type, T_TYPE_STRIDE);
     A->print_inverse(type, (uint8_t)(127u - text_length(type) * 4u),
                      line, false, true, 127u);
@@ -544,7 +573,7 @@ static void draw_type_capsule(uint16_t entry, uint8_t line)
 
 static bool entry_is_unused(uint16_t entry)
 {
-    return entry == 2u || entry == 4u || entry == TAIL_FIRST;
+    return entry == 2u || entry == 4u || entry == APP_RESERVE_FIRST;
 }
 
 static void draw_ribbon(bool separator, uint8_t line)

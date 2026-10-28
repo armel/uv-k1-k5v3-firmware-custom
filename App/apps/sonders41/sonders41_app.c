@@ -5,9 +5,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "../app_api.h"
+#include "../geonav_handoff.h"
 #include "sonders41_assets.h"
 #include "sonde_info.h"
 #include "decrs41.c"
+
+GEONAV_ASSERT_SONDE_PREFIX(sonde_info_t);
 
 void *memcpy(void *d, const void *s, size_t n)
 {
@@ -212,12 +215,15 @@ static void draw(const char *s)
     tiny(str, (uint8_t)(128u - (unsigned)(o - str) * 4u), 49, o);
 }
 
-/* One new key press (EXIT is handled by listen). */
-static void handleKey(uint8_t key)
+/* One new key press (EXIT and a successful GeoNav handoff leave listen). */
+static bool handleKey(uint8_t key)
 {
-    if (key == APP_KEY_F) { g.fArm = !g.fArm; return; }
+    if (key == APP_KEY_F) { g.fArm = !g.fArm; return false; }
     const bool reverse = g.fArm;
-    g.fArm = false;
+    g.fArm = false;              /* any other key disarms F, MENU included */
+    if (key == APP_KEY_MENU)
+        return (g.info.flags & SONDE_HAS_POS) != 0u &&
+               g.A->handoff(GEONAV_APP_NAME, &g.info, APP_HANDOFF_MAX);
     switch (key) {
         case APP_KEY_1: g.cfg.spk = !g.cfg.spk; rxAudio(); break;
         case APP_KEY_2: {
@@ -229,6 +235,7 @@ static void handleKey(uint8_t key)
         case APP_KEY_5: g.cfg.beep ^= 1u; break;
         default: break;
     }
+    return false;
 }
 
 __attribute__((noinline))
@@ -276,8 +283,9 @@ static void listen(const char *ui)
         if (g.pendKey == APP_KEY_EXIT) break;
         bool keyUi = false;
         if (!busy && g.pendKey != APP_KEY_INVALID) {
-            handleKey(g.pendKey);
+            const bool geo = handleKey(g.pendKey);
             g.pendKey = APP_KEY_INVALID;
+            if (geo) break;
             keyUi = true;
         }
         if ((uint32_t)(clk() - g.tFrame) > TRACK_CYC) g.track = false;
@@ -327,6 +335,9 @@ void app_main(const app_api_t *api)
     applyAtt();
     rxAudio();
     api->delay_ms(50);
+    /* Back from GeoNav: show the last frame again (the whole sonde_info_t). */
+    if (api->handoff_read(&g.info, APP_HANDOFF_MAX, NULL) == (int16_t)APP_HANDOFF_MAX)
+        g.nOk = 1u;
     listen(ui);
     if (g.offSteps) { g.offSteps = 0; tune(); }
     api->bk_write(BK_REG_13, r13);

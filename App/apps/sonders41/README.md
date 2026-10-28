@@ -7,8 +7,9 @@ speed, the horizontal speed and heading, and the sonde's battery voltage.
 
 ## Status
 
-Version 0.5 implements the common 320-byte RS41 frame at 4800 bit/s, in its
-classic GPS layout and in the newer multi-GNSS layout. The parser, CRC path,
+Version 0.6 implements the common 320-byte RS41 frame at 4800 bit/s, in its
+classic GPS layout and in the newer multi-GNSS layout, and opens GeoNav on
+`MENU`. The parser, CRC path,
 normal RF polarity, and inverted RF polarity have synthetic host tests, and
 `test/model_rx.py` runs the demodulator through a model of the radio's RAW
 audio path. Reception of the classic layout on a UV-K1 or UV-K5 V3 has been
@@ -86,6 +87,7 @@ before the multi-GNSS layout.
 | `3` / `F`+`3` | Cycle attenuation forward / backward |
 | `4` | Restore the VFO frequency |
 | `5` | Decode beep on/off, saved on exit |
+| `MENU` | Open GeoNav (bearing, distance from the APRS position) once a position is decoded; its `EXIT` comes back here with the last frame |
 | `EXIT` | Quit |
 
 ## Supported frame
@@ -161,4 +163,4 @@ Use only a frequency permitted by the Flipper's configured region.
 
 ## Version
 
-Current: **v0.5**.
+Current: **v0.6**.

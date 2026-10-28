@@ -93,16 +93,29 @@ def calibration_screen():
     print_normal("KEEP CHANNEL QUIET", 0, 127, 4)
     return frame[128:5 * 128]
 
-morse = bytearray(64)
-for index, char in {
+morse_chars = {
     2: "E", 3: "T", 4: "I", 5: "A", 6: "N", 7: "M",
     8: "S", 9: "U", 10: "R", 11: "W", 12: "D", 13: "K", 14: "G", 15: "O",
     16: "H", 17: "V", 18: "F", 20: "L", 22: "P", 23: "J",
     24: "B", 25: "X", 26: "C", 27: "Y", 28: "Z", 29: "Q",
-    42: "+", 49: "=", 50: "/",
     32: "5", 33: "4", 35: "3", 39: "2", 47: "1",
-    48: "6", 56: "7", 60: "8", 62: "9", 63: "0",
+    42: "+", 48: "6", 49: "=", 50: "/", 56: "7",
+    60: "8", 62: "9", 63: "0",
+}
+for char, pattern in {
+    "-": "-....-", ":": "---...", "!": "-.-.--", "'": ".----.",
+    ".": ".-.-.-", ";": "-.-.-.", "@": ".--.-.", "$": "...-..-",
+    "(": "-.--.", ")": "-.--.-",
 }.items():
+    index = 1
+    for mark in pattern:
+        index = (index << 1) | (mark == "-")
+    if index in morse_chars:
+        raise RuntimeError(f"duplicate Morse code {pattern}")
+    morse_chars[index] = char
+# Root bit 1 followed by Morse bits (dit=0, dah=1).
+morse = bytearray(max(morse_chars) + 1)
+for index, char in morse_chars.items():
     morse[index] = ord(char)
 a.raw("MORSE_TREE", morse)
 

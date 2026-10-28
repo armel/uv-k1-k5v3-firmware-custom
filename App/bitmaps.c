@@ -1,36 +1,37 @@
 
 #include "bitmaps.h"
+#include "fw_assets.h"
 
 // all these images are on their right sides
 // turn your monitor 90-deg anti-clockwise to see the images
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
-const uint8_t gFontConfigBank[2][6] =
+const uint8_t gFontConfigBank[2][6] FW_ASSET =
 {   // "C" and "M"; numbered banks use the regular small font
     {0x00, 0x3e, 0x41, 0x41, 0x41, 0x22},
     {0x00, 0x7f, 0x02, 0x1c, 0x02, 0x7f},
 };
 #else
-const uint8_t gFontPowerSave[2][6] =
+const uint8_t gFontPowerSave[2][6] FW_ASSET =
 {
     {0x00, 0x7f, 0x9, 0x9, 0x9, 0x6},
     {0x00, 0x26, 0x49, 0x49, 0x49, 0x32},
 };
 #endif
 
-const uint8_t gFontPttOnePush[2][6] =
+const uint8_t gFontPttOnePush[2][6] FW_ASSET =
 {
     {0x00, 0x3e, 0x41, 0x41, 0x41, 0x3e},
     {0x00, 0x7f, 0x09, 0x09, 0x09, 0x06},
 };
 
-const uint8_t gFontPttClassic[2][6] =
+const uint8_t gFontPttClassic[2][6] FW_ASSET =
 {
     {0x00, 0x3e, 0x41, 0x41, 0x41, 0x22},
     {0x00, 0x7f, 0x40, 0x40, 0x40, 0x40},
 };
 
-const uint8_t gFontF[9] =
+const uint8_t gFontF[9] FW_ASSET =
 {
     0b00111110,
     0b01111111,
@@ -43,17 +44,17 @@ const uint8_t gFontF[9] =
     0b00111110
 };
 
-const uint8_t gFontS[6] =
+const uint8_t gFontS[6] FW_ASSET =
 {
     0x26, 0x49, 0x49, 0x49, 0x49, 0x32 // 'S'
 };
 
-const uint8_t gFontKeyLock[9] =
+const uint8_t gFontKeyLock[9] FW_ASSET =
 {
     0x7c, 0x46, 0x45, 0x45, 0x45, 0x45, 0x45, 0x46, 0x7c
 };
 
-const uint8_t gFontLight[9] =
+const uint8_t gFontLight[9] FW_ASSET =
 {
     0b00001100,
     0b00010010,
@@ -68,7 +69,7 @@ const uint8_t gFontLight[9] =
 
 // Same bulb outline as gFontLight with the inner filament removed,
 // used when the manual backlight is currently off
-const uint8_t gFontLightOff[9] =
+const uint8_t gFontLightOff[9] FW_ASSET =
 {
     0b00001100,
     0b00010010,
@@ -81,7 +82,7 @@ const uint8_t gFontLightOff[9] =
     0b00001100,
 };
 
-const uint8_t gFontMute[12] =
+const uint8_t gFontMute[12] FW_ASSET =
 {
     0b00011100,
     0b00011100,
@@ -97,19 +98,19 @@ const uint8_t gFontMute[12] =
     0b00100010,
 };
 
-const uint8_t gFontXB[2][6] =
+const uint8_t gFontXB[2][6] FW_ASSET =
 {   // "XB"
     {0x00, 0x63, 0x14, 0x08, 0x14, 0x63},
     {0x00, 0x7f, 0x49, 0x49, 0x49, 0x36},
 };
 
-const uint8_t gFontMO[2][6] =
+const uint8_t gFontMO[2][6] FW_ASSET =
 {   // "MO"
     {0x00, 0x7f, 0x02, 0x1c, 0x02, 0x7f},
     {0x00, 0x3e, 0x41, 0x41, 0x41, 0x3e},
 };
 
-const uint8_t gFontDWR[3][6] =
+const uint8_t gFontDWR[3][6] FW_ASSET =
 {   // "DWR"
     {0x00, 0x7f, 0x41, 0x41, 0x41, 0x3e},
     {0x00, 0x3f, 0x40, 0x38, 0x40, 0x3f},
@@ -117,7 +118,7 @@ const uint8_t gFontDWR[3][6] =
 };
 
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
-const uint8_t gFontFWR[3][6] =
+const uint8_t gFontFWR[3][6] FW_ASSET =
 {   // "FWR"
     {0x00, 0x7f, 0x09, 0x09, 0x09, 0x01},
     {0x00, 0x3f, 0x40, 0x38, 0x40, 0x3f},
@@ -126,27 +127,27 @@ const uint8_t gFontFWR[3][6] =
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-const uint8_t gFontRO[2][6] =
+const uint8_t gFontRO[2][6] FW_ASSET =
 {   // "RO"
     {0x00, 0x7f, 0x09, 0x19, 0x29, 0x46},
     {0x00, 0x3e, 0x41, 0x41, 0x41, 0x3e},
 };
 #endif
 
-const uint8_t gFontHold[2][5] =
+const uint8_t gFontHold[2][5] FW_ASSET =
 {   // "><" .. DW on hold
     {0x00, 0x41, 0x22, 0x14, 0x8},
     {0x00, 0x8, 0x14, 0x22, 0x41},
 };
 
-const uint8_t BITMAP_BatteryLevel[2] =
+const uint8_t BITMAP_BatteryLevel[2] FW_ASSET =
 {
     0b01011101,
     0b01011101
 };
 
 // Quansheng way (+ pole to the left)
-const uint8_t BITMAP_BatteryLevel1[17] =
+const uint8_t BITMAP_BatteryLevel1[17] FW_ASSET =
 {
     0b00000000,
     0b00111110,
@@ -167,7 +168,7 @@ const uint8_t BITMAP_BatteryLevel1[17] =
     0b01111111
 };
 
-const uint8_t BITMAP_USB_C[9] =
+const uint8_t BITMAP_USB_C[9] FW_ASSET =
 {
     0b00000000,
     0b00011100,
@@ -181,14 +182,14 @@ const uint8_t BITMAP_USB_C[9] =
 };
 
 #ifdef ENABLE_VOX
-const uint8_t gFontVox[2][6] =
+const uint8_t gFontVox[2][6] FW_ASSET =
 {
     {0x00, 0x1f, 0x20, 0x40, 0x20, 0x1f},
     {0x00, 0x63, 0x14, 0x08, 0x14, 0x63},
 };
 #endif
 
-const uint8_t BITMAP_VFO_Lock[7] =
+const uint8_t BITMAP_VFO_Lock[7] FW_ASSET =
 {
     0b00111100,
     0b00100110,
@@ -224,7 +225,7 @@ const uint8_t BITMAP_VFO_NotDefault[7] =
 */
 
 // Compact arrow
-const uint8_t BITMAP_VFO_Default[7] =
+const uint8_t BITMAP_VFO_Default[7] FW_ASSET =
 {
     0b00111110,
     0b00111110,
@@ -236,7 +237,7 @@ const uint8_t BITMAP_VFO_Default[7] =
 };
 
 // Compact empty arrow
-const uint8_t BITMAP_VFO_NotDefault[7] =
+const uint8_t BITMAP_VFO_NotDefault[7] FW_ASSET =
 {
     0b00100010,
     0b00100010,
@@ -247,7 +248,7 @@ const uint8_t BITMAP_VFO_NotDefault[7] =
     0b00000000
 };
 
-const uint8_t BITMAP_VFO_Empty[7] =
+const uint8_t BITMAP_VFO_Empty[7] FW_ASSET =
 {
     0b00000000,
     0b00000000,
@@ -258,7 +259,7 @@ const uint8_t BITMAP_VFO_Empty[7] =
     0b00000000
 };
 
-const uint8_t BITMAP_compand[6] =
+const uint8_t BITMAP_compand[6] FW_ASSET =
 {
     0b00000000,
     0b00111100,
@@ -292,7 +293,7 @@ const uint8_t BITMAP_NotReady[7] =
 };
 */
 
-const uint8_t BITMAP_PowerUser[3] =
+const uint8_t BITMAP_PowerUser[3] FW_ASSET =
 {   // 'arrow' symbol
     0b00111110,
     0b00011100,
@@ -300,7 +301,7 @@ const uint8_t BITMAP_PowerUser[3] =
 };
 
 #ifdef ENABLE_NOAA
-const uint8_t BITMAP_NOAA[12] =
+const uint8_t BITMAP_NOAA[12] FW_ASSET =
 {	// "WX"
     0b00000000,
     0b01111111,
@@ -318,7 +319,7 @@ const uint8_t BITMAP_NOAA[12] =
 #endif
 
 #if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
-const uint8_t BITMAP_FoxHuntSignal[10] =
+const uint8_t BITMAP_FoxHuntSignal[10] FW_ASSET =
 {   // point source + the speaker bitmap's two sound waves, oriented horizontally
     0b00001000,
     0b00011100,
@@ -332,7 +333,7 @@ const uint8_t BITMAP_FoxHuntSignal[10] =
     0b00011100
 };
 
-const uint8_t BITMAP_FoxHuntSpeaker[10] =
+const uint8_t BITMAP_FoxHuntSpeaker[10] FW_ASSET =
 {   // speaker cone + two sound waves (bit0 = top row)
     0b00011100,
     0b00011100,
@@ -346,7 +347,7 @@ const uint8_t BITMAP_FoxHuntSpeaker[10] =
     0b00011100
 };
 
-const uint8_t BITMAP_FoxHuntUp[11] =
+const uint8_t BITMAP_FoxHuntUp[11] FW_ASSET =
 {   // filled up triangle (getting nearer)
     0b00100000,
     0b00110000,
@@ -361,7 +362,7 @@ const uint8_t BITMAP_FoxHuntUp[11] =
     0b00100000
 };
 
-const uint8_t BITMAP_FoxHuntDown[11] =
+const uint8_t BITMAP_FoxHuntDown[11] FW_ASSET =
 {   // filled down triangle (getting farther)
     0b00000001,
     0b00000011,
@@ -376,7 +377,7 @@ const uint8_t BITMAP_FoxHuntDown[11] =
     0b00000001
 };
 
-const uint8_t BITMAP_FoxHuntFlat[11] =
+const uint8_t BITMAP_FoxHuntFlat[11] FW_ASSET =
 {   // equals sign (stable)
     0b00010010,
     0b00010010,
@@ -391,7 +392,7 @@ const uint8_t BITMAP_FoxHuntFlat[11] =
     0b00010010
 };
 
-const uint8_t BITMAP_FoxHuntBars[11] =
+const uint8_t BITMAP_FoxHuntBars[11] FW_ASSET =
 {   // ascending bars = S-meter (staircase) gauge mode (bit0 = top row)
     0b01000000, 
     0b01000000, 
@@ -406,7 +407,7 @@ const uint8_t BITMAP_FoxHuntBars[11] =
     0b01111111
 };
 
-const uint8_t BITMAP_FoxHuntGraph[15] =
+const uint8_t BITMAP_FoxHuntGraph[15] FW_ASSET =
 {   // sine wave = signal-history gauge mode (bit0 = top row)
     0b00001000, 
     0b00000100, 
@@ -425,7 +426,7 @@ const uint8_t BITMAP_FoxHuntGraph[15] =
     0b00100000
 };
 
-const uint8_t BITMAP_FoxHuntTx[16] =
+const uint8_t BITMAP_FoxHuntTx[16] FW_ASSET =
 { 
     0b00011100,
     0b00100010,
@@ -447,7 +448,7 @@ const uint8_t BITMAP_FoxHuntTx[16] =
 #endif
 
 #ifndef ENABLE_CUSTOM_MENU_LAYOUT
-const uint8_t BITMAP_CurrentIndicator[8] = {
+const uint8_t BITMAP_CurrentIndicator[8] FW_ASSET = {
     0xFF,
     0xFF,
     0x7E,

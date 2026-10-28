@@ -6,9 +6,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "../app_api.h"
+#include "../geonav_handoff.h"
 #include "sondem20_assets.h"
 #include "sonde_info.h"
 #include "decm20.c"
+
+GEONAV_ASSERT_SONDE_PREFIX(sonde_info_t);
+_Static_assert(offsetof(sonde_info_t, tRaw) == APP_HANDOFF_MAX,
+               "every displayed field must travel through GeoNav and back");
 
 void *memcpy(void *d, const void *s, size_t n)
 {
@@ -195,6 +200,15 @@ static int32_t m20Rh(const sonde_info_t *in)
     if (r > 1000) r = 1000;
     return (r + 5) / 10;
 }
+/* The frame's sensor fields. Out of line: inlined, each access to the frame
+ * on the sample loop's stack costs an address computation. */
+__attribute__((noinline))
+static void sensors(sonde_info_t *in)
+{
+    m20Temp(in);
+    if (in->flags & SONDE_HAS_RH)      /* rhQ11 and tuRaw are set only then */
+        in->rh = (uint8_t)m20Rh(in);   /* -1: 255, no reading */
+}
 
 static void emit(char *buf, char *end, unsigned line)
 {
@@ -242,16 +256,16 @@ static void draw(const char *s)
         emit(str, o, 2);
         if (in->flags & SONDE_HAS_VEL) {
             o = put(str, s + T_HS); o = puti(o, in->hs_ms);
-            o = put(o, s + T_HDG); o = puti(o, in->hdg);
+            o = put(o, s + T_HDG);
+            o = puti(o, in->hdg | (in->flags & SONDE_HDG_256) * (256u / SONDE_HDG_256));
             emit(str, o, 3);
         }
         o = str;
         if (in->flags & SONDE_HAS_TEMP) {
             o = put(o, s + T_TEMP); o = put1(o, in->temp_c10); o = put(o, s + T_C);
         }
-        if (in->flags & SONDE_HAS_RH) {
-            int32_t rh = m20Rh(in);
-            if (rh >= 0) { o = put(o, s + T_RH); o = puti(o, rh); *o++ = '%'; }
+        if ((in->flags & SONDE_HAS_RH) && in->rh <= 100u) {
+            o = put(o, s + T_RH); o = puti(o, in->rh); *o++ = '%';
         }
         if (o != str) emit(str, o, 4);
         g.A->print_bold(in->id, 0, 0, 0);
@@ -268,17 +282,20 @@ static void draw(const char *s)
     tiny(str, (uint8_t)(128u - (unsigned)(o - str) * 4u), 43, o);
     o = put(str, s + T_FRAME); o = puti(o, g.nOk);
     tiny(str, 0, 49, o);
+    /* Right-aligned: each label record starts with its x. */
     g.A->asset_read((uint16_t)(ATT_LBL + g.cfg.att * ATT_REC), str, ATT_REC);
-    for (o = str; *o; o++) {}
-    tiny(str, (uint8_t)(128u - (unsigned)(o - str) * 4u), 49, o);
+    g.A->print_tiny(str + 1, (uint8_t)str[0], 49, false, true);
 }
 
-/* One new key press (EXIT is handled by listen). */
-static void handleKey(uint8_t key)
+/* One new key press (EXIT and a successful GeoNav handoff leave listen). */
+static bool handleKey(uint8_t key)
 {
-    if (key == APP_KEY_F) { g.fArm = !g.fArm; return; }
+    if (key == APP_KEY_F) { g.fArm = !g.fArm; return false; }
     const bool reverse = g.fArm;
-    g.fArm = false;
+    g.fArm = false;              /* any other key disarms F, MENU included */
+    if (key == APP_KEY_MENU)
+        return (g.info.flags & SONDE_HAS_POS) != 0u &&
+               g.A->handoff(GEONAV_APP_NAME, &g.info, APP_HANDOFF_MAX);
     switch (key) {
         case APP_KEY_1: g.cfg.spk = !g.cfg.spk; rxAudio(); break;
         case APP_KEY_2: {
@@ -290,6 +307,7 @@ static void handleKey(uint8_t key)
         case APP_KEY_5: g.cfg.beep ^= 1u; break;
         default: break;
     }
+    return false;
 }
 
 __attribute__((noinline))
@@ -312,7 +330,7 @@ static void listen(const char *ui)
             sonde_info_t info;
             info.flags = 0;
             if (decm20_parse(&m20, &info)) {
-                m20Temp(&info);
+                sensors(&info);
                 g.info = info;
                 g.nOk++;
                 g.led = 3u; g.ledCnt = 0; g.A->led(true);
@@ -336,7 +354,7 @@ static void listen(const char *ui)
         g.prevKey = key;
         if (keyUi) {
             if (key == APP_KEY_EXIT) break;
-            handleKey(key);
+            if (handleKey(key)) break;
         }
         if ((uint32_t)(clk() - g.tFrame) > TRACK_CYC) g.track = false;
         if (wantUi || keyUi || (!g.track && ++refresh >= REFRESH_POLLS)) {
@@ -379,13 +397,16 @@ void app_main(const app_api_t *api)
     api->bk_write(REG_43, REG_43_M20);
     api->cfg_load(cfg, 4);
     if (cfg[0] == CFG_MAGIC) {
-        g.cfg.spk = cfg[1] == 1u;
-        g.cfg.beep = cfg[2] == 1u;
+        g.cfg.spk = cfg[1] & 1u;
+        g.cfg.beep = cfg[2] & 1u;
         if (cfg[3] < ATT_COUNT) g.cfg.att = cfg[3];
     } else g.cfg.att = 3u;
     applyAtt();
     rxAudio();
     api->delay_ms(50);
+    /* Back from GeoNav: show the last frame again. */
+    if (api->handoff_read(&g.info, APP_HANDOFF_MAX, NULL) == (int16_t)APP_HANDOFF_MAX)
+        g.nOk = 1u;
     listen(ui);
     if (g.offSteps) { g.offSteps = 0; tune(); }
     api->bk_write(BK_REG_13, r13);

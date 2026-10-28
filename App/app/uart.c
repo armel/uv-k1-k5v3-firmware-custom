@@ -55,6 +55,11 @@
     #endif
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+    #include "fw_assets.h"
+    #include "ui/multiboot.h"
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
     #include "apps/app_overlay.h"
 #endif
@@ -1106,6 +1111,150 @@ void UART_HandleCommand(uint32_t Port)
             SendReply(Port, &Reply, sizeof(Reply));
             break;
         }
+
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+        // ---- firmware assets (fonts, menu texts) of a firmware slot -------
+        // Parallels the firmware-slot family (0x072x) on the asset zones.
+        // Data[0] = firmware slot, 0xFF = the running one; replies echo the
+        // resolved slot. The running slot is checked against this exact build
+        // (MB_ERR_MISMATCH otherwise), the others for integrity only.
+        case 0x0750: // asset info: validate the zone, return its pack header
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            const uint8_t running = MB_GetRunningSlot();
+            uint8_t slot = pUART_Command->Data[0];
+            if (slot == 0xFFu)
+                slot = running;
+            fw_assets_header_t hdr;
+            memset(&hdr, 0, sizeof(hdr));
+            uint8_t status = MB_AssetValidate(slot, slot == running ? FW_ASSETS_BuildId() : NULL,
+                                              FW_ASSETS_PayloadSize(), &hdr);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+                uint8_t  RunningSlot;
+                uint8_t  Loaded;     // the running firmware draws with its assets
+                uint8_t  Hdr[sizeof(fw_assets_header_t)];
+                uint8_t  BuildId[FW_ASSETS_BUILD_ID_LEN];   // of the running firmware
+            } Reply;
+            Reply.Header.ID   = 0x0751;
+            Reply.Header.Size = 4 + sizeof(fw_assets_header_t) + FW_ASSETS_BUILD_ID_LEN;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            Reply.RunningSlot = running;
+            Reply.Loaded      = FW_ASSETS_IsValid();
+            memcpy(Reply.Hdr, &hdr, sizeof(hdr));
+            memcpy(Reply.BuildId, FW_ASSETS_BuildId(), FW_ASSETS_BUILD_ID_LEN);
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0752: // asset erase: wipe the 16 KiB asset zone of a slot
+        {
+            if (pUART_Command->Header.Size < 6u) break;   // needs Data[0] slot + Data[2..5] timestamp
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot = pUART_Command->Data[0];
+            uint32_t ts   = (uint32_t)pUART_Command->Data[2]
+                          | ((uint32_t)pUART_Command->Data[3] << 8)
+                          | ((uint32_t)pUART_Command->Data[4] << 16)
+                          | ((uint32_t)pUART_Command->Data[5] << 24);
+            if (slot == 0xFFu)
+                slot = MB_GetRunningSlot();
+            uint8_t status = MB_ERR_AUTH;
+            if (ts == mb_port_timestamp(Port))
+            {
+                // The running firmware stops drawing from a zone being rewritten.
+                if (slot == MB_GetRunningSlot())
+                    FW_ASSETS_Invalidate();
+                status = MB_AssetErase(slot);
+            }
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0753;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0754: // asset write: program bytes at zone+offset (zone pre-erased)
+        {
+            if (pUART_Command->Header.Size < 12u)
+                break;
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot   = pUART_Command->Data[0];
+            uint32_t offset = (uint32_t)pUART_Command->Data[2]
+                            | ((uint32_t)pUART_Command->Data[3] << 8)
+                            | ((uint32_t)pUART_Command->Data[4] << 16)
+                            | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint16_t len    = (uint16_t)(pUART_Command->Data[6]
+                            | ((uint16_t)pUART_Command->Data[7] << 8));
+            uint32_t ts     = (uint32_t)pUART_Command->Data[8]
+                            | ((uint32_t)pUART_Command->Data[9] << 8)
+                            | ((uint32_t)pUART_Command->Data[10] << 16)
+                            | ((uint32_t)pUART_Command->Data[11] << 24);
+            if (slot == 0xFFu)
+                slot = MB_GetRunningSlot();
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = MB_ERR_AUTH;
+            else if (len > pUART_Command->Header.Size - 12u)
+                status = MB_ERR_SIZE;
+            else
+                status = MB_AssetWrite(slot, offset, &pUART_Command->Data[12], len);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0755;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0756: // asset validate: check the zone; the running slot reloads it
+        {
+            if (pUART_Command->Header.Size < 1u) break;   // needs Data[0] (slot)
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            const uint8_t running = MB_GetRunningSlot();
+            uint8_t slot = pUART_Command->Data[0];
+            if (slot == 0xFFu)
+                slot = running;
+            uint8_t status;
+            if (slot == running)
+            {
+                // Redraw everything with the new fonts and texts.
+                FW_ASSETS_Init(slot);
+                status = FW_ASSETS_IsValid()
+                       ? MB_OK
+                       : MB_AssetValidate(slot, FW_ASSETS_BuildId(), FW_ASSETS_PayloadSize(), NULL);
+                gUpdateStatus  = true;
+                gUpdateDisplay = true;
+            }
+            else
+                status = MB_AssetValidate(slot, NULL, 0, NULL);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0757;
+            Reply.Header.Size = 2;
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_EXT_FLASH_RW
         // ---- full external-flash dump / restore (host: UV Studio) ----------

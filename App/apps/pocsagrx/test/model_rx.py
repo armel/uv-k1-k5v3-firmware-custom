@@ -165,6 +165,7 @@ class Slicer:
         self.word = -1                     # codeword of the batch being read, 16 = the next sync
         self.dirty = 0                     # codewords left before a correction is trusted again
         self.excuse = False                # samples were skipped during this sync codeword
+        self.live = False                  # a good codeword came in this batch
         self.okc = 0                       # good codewords (the app shows them per slicer)
         self.ric = -1; self.func = 0       # page being received (-1: none)
         self.acc = 0; self.na = 0; self.text = []
@@ -217,13 +218,16 @@ class Slicer:
         if self.word == pocsag.BATCH_WORDS:            # the next batch's sync, or the end
             # The app serves its keys and its screen during a sync codeword,
             # where no page is lost: a sync it could not read for that reason
-            # (excuse, set by Demod.skip) is taken as found.
-            if ones(cw ^ pocsag.SYNC) <= SYNC_ERR or self.excuse:
+            # (excuse, set by Demod.skip) is taken as found, but only after a
+            # batch with a good codeword: a false sync in noise reads none,
+            # and excused at every sync it held the slicer in a batch for
+            # good, the keys and the screen served once a batch (#736).
+            if ones(cw ^ pocsag.SYNC) <= SYNC_ERR or (self.excuse and self.live):
                 self.word = 0
             else:
                 self.close()
                 self.word = -1
-            self.excuse = False
+            self.excuse = self.live = False
             return
         # A word with 3 wrong bits or more "corrects" into another codeword
         # once in 60: a slicer that just read a bad word is reading garbage,
@@ -262,6 +266,7 @@ class Slicer:
                 self.taint = left != 0
             return
         self.okc += 1
+        self.live = True
         if cw == pocsag.IDLE:
             self.close()
         elif cw >> 31:

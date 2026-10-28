@@ -135,6 +135,12 @@ if(ENABLE_NO_HEAP)
     target_link_options(${EXE_NAME} PRIVATE "-Wl,--defsym=__min_heap_size=0")
 endif()
 
+# Firmware assets: the GNU build-id (MD5 of the linked output) ties the asset
+# pack to this exact build. The linker script keeps the note in FLASH.
+if(ENABLE_FEAT_F4HWN_FW_ASSETS)
+    target_link_options(${EXE_NAME} PRIVATE "-Wl,--build-id=md5")
+endif()
+
 # -----------------------------------
 #  Post build processing
 #
@@ -159,12 +165,30 @@ if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
 endif()
 
 # Generate .bin file
-add_custom_command(
-    TARGET ${EXE_NAME}
-    POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} -O binary ${EXE_NAME}.elf ${EXE_NAME}.bin
-    COMMENT "Generating .bin file"
-)
+if(ENABLE_FEAT_F4HWN_FW_ASSETS)
+    # The firmware image (.image.bin) leaves out the .fw_assets section, which
+    # becomes the asset pack (.assets.bin). The release .bin is the package of
+    # both, flashed by UV Studio (image through the bootloader, then the pack).
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary -R .fw_assets ${EXE_NAME}.elf ${EXE_NAME}.image.bin
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/cmake/pack_fw_assets.py"
+                --elf ${EXE_NAME}.elf
+                --image ${EXE_NAME}.image.bin
+                --pack ${EXE_NAME}.assets.bin
+                --out ${EXE_NAME}.bin
+        COMMENT "Generating .bin file (firmware image + asset pack)"
+        VERBATIM
+    )
+else()
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary ${EXE_NAME}.elf ${EXE_NAME}.bin
+        COMMENT "Generating .bin file"
+    )
+endif()
 
 if(DEV)
     add_custom_command(
@@ -181,7 +205,7 @@ endif()
 add_custom_command(
     TARGET ${EXE_NAME}
     POST_BUILD
-    COMMAND ${CMAKE_OBJCOPY} -O ihex ${EXE_NAME}.elf ${EXE_NAME}.hex
+    COMMAND ${CMAKE_OBJCOPY} -O ihex -R .fw_assets ${EXE_NAME}.elf ${EXE_NAME}.hex
     COMMENT "Generating .hex file"
 )
 

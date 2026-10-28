@@ -156,6 +156,7 @@ typedef struct {
     uint16_t step;                     /* DPLL step of its lane (65536 per bit)    */
     uint16_t dup;                      /* half a codeword of its lane, in samples  */
     uint8_t  lane;                     /* 0: 1200 bauds, 1: 512 bauds             */
+    uint8_t  live;                     /* a good codeword came in this batch      */
     char     text[MSG_MAX];
 } sl_t;
 
@@ -366,6 +367,7 @@ static void codeword(sl_t *m,uint32_t cw){
         return;
     }
     m->ok++;
+    m->live=1;
     if(cw==IDLE){ closePage(m); return; }
     if(cw>>31){
         if(!m->has) return;
@@ -416,10 +418,13 @@ static void seqBit(sl_t *m,uint32_t b){
     if(m->word==BATCH_WORDS){
         /* The keys and the screen are served during a sync codeword, where no
          * page is lost: a sync that could not be read for that reason
-         * (excuse, set by listen()) is taken as found. */
-        if(ones(cw^SYNC)<=SYNC_ERR || m->excuse) m->word=0;
+         * (excuse, set by listen()) is taken as found, but only after a batch
+         * with a good codeword. A false sync in noise reads none: excused at
+         * every sync, it held the slicer in a batch for good, and the keys and
+         * the screen were served once a batch (0.45 s, 1.06 s at 512 bauds). */
+        if(ones(cw^SYNC)<=SYNC_ERR || (m->excuse && m->live)) m->word=0;
         else { closePage(m); m->word=HUNT; }
-        m->excuse=0;
+        m->excuse=m->live=0;
         return;
     }
     codeword(m,cw);
@@ -651,9 +656,11 @@ static void listen(void){
     memset(box8,0,sizeof box8);
     for(unsigned k=0;k<NLANE*NSL;k++){
         sl_t *m=&sl[k];
-        m->num=(uint8_t)(2u+k%NSL);       /* 2/8, 3/8, 4/8 in each lane */
-        m->word=HUNT;
         m->lane=(uint8_t)(k>=NSL);
+        /* 2/8, 3/8, 4/8 in each lane; k - lane*NSL instead of k % NSL, which
+         * pulled libgcc's 266-byte unsigned division into the app */
+        m->num=(uint8_t)(2u+k-(m->lane?NSL:0u));
+        m->word=HUNT;
         m->step=(uint16_t)(m->lane?STEP_512:STEP_1200);
         m->dup=(uint16_t)(m->lane?DUP_512:DUP_1200);
     }

@@ -23,10 +23,9 @@
 #include "audio.h"     // VOICE_ID_t
 #include "settings.h"
 
-typedef struct __attribute__((packed)) {
-    const char  name[7];    // menu display area only has room for 6 characters
-    uint8_t     menu_id;
-} t_menu_item;
+// Menu list (menu_list.def): IDs in internal flash, names in the firmware
+// assets. The menu display area only has room for 6 characters.
+#define MENU_NAME_SIZE 7
 
 enum
 {
@@ -130,6 +129,9 @@ enum
     MENU_SET_LCK,
     MENU_SET_MET,
     MENU_SET_GUI,
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        MENU_SET_FNT,
+    #endif
     MENU_SET_TMR,
     #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
         MENU_SET_SCN,
@@ -186,7 +188,7 @@ enum {
 #define MENU_LEVEL_CAT   0
 #define MENU_LEVEL_ITEMS 1
 
-extern const char *const CategoryNames[];
+extern const char CategoryNames[CAT_COUNT][9];
 extern uint8_t            gMenuCategory;
 extern uint8_t            gMenuLevel;
 extern uint8_t            gCatOrder[];
@@ -198,77 +200,78 @@ uint8_t UI_MENU_CategoryItemCount(uint8_t cat);
 #endif
 
 extern const uint8_t FIRST_HIDDEN_MENU_ITEM;
-extern const t_menu_item MenuList[];
+extern const uint8_t MenuListId[];
+extern const char    MenuListName[][MENU_NAME_SIZE];
 
-extern const char* const            gSubMenu_TXP[8];
-extern const char* const            gSubMenu_SFT_D[3];
-extern const char* const            gSubMenu_W_N[2];
-extern const char* const            gSubMenu_OFF_ON[2];
+extern const char            gSubMenu_TXP[8][6];
+extern const char            gSubMenu_SFT_D[3][4];
+extern const char            gSubMenu_W_N[2][7];
+extern const char            gSubMenu_OFF_ON[2][4];
 extern const char*                  gSubMenu_NA;
 extern const char* const            gSubMenu_TOT[11];
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
-extern const char* const            gSubMenu_RXMode[6];
+extern const char            gSubMenu_RXMode[6][16];
 #else
-extern const char* const            gSubMenu_RXMode[4];
+extern const char            gSubMenu_RXMode[4][16];
 #endif
 
 #ifdef ENABLE_VOICE
-    extern const char* const        gSubMenu_VOICE[3];
+    extern const char        gSubMenu_VOICE[3][4];
 #endif
-extern const char* const            gSubMenu_MDF[4];
+extern const char            gSubMenu_MDF[4][15];
 #ifdef ENABLE_DTMF_CALLING
-extern const char* const            gSubMenu_D_RSP[4];
+extern const char            gSubMenu_D_RSP[4][11];
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
-    extern const char* const        gSubMenu_SET_PWR[7];
-    extern const char* const        gSubMenu_SET_PTT[2];
-    extern const char* const        gSubMenu_SET_TOT[4];
-    extern const char* const        gSubMenu_SET_LCK[];
-    extern const char* const        gSubMenu_SET_MET[2];
+    extern const char        gSubMenu_SET_PWR[7][6];
+    extern const char        gSubMenu_SET_PTT[2][8];
+    extern const char        gSubMenu_SET_TOT[4][7];
+    extern const char        gSubMenu_SET_LCK[][17];
+    extern const char        gSubMenu_SET_MET[2][8];
     #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
-        extern const char* const    gSubMenu_SET_SCN[2];
+        extern const char    gSubMenu_SET_SCN[2][7];
     #endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
-        extern const char* const    gSubMenu_SET_NFM[2];
+        extern const char    gSubMenu_SET_NFM[2][9];
     #endif
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        extern const char* const    gSubMenu_SET_KEY[5];
+        extern const char    gSubMenu_SET_KEY[5][9];
     #endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
-        extern const char* const    gSubMenu_SET_AUD_FM[5];
-        extern const char* const    gSubMenu_SET_AUD_AM[3];
+        extern const char    gSubMenu_SET_AUD_FM[5][6];
+        extern const char    gSubMenu_SET_AUD_AM[3][6];
     #endif
     #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
-        extern const char* const    gSubMenu_SET_SAV[];
+        extern const char    gSubMenu_SET_SAV[][7];
     #endif
 #endif
 
-extern const char* const gSubMenu_PTT_ID[5];
+extern const char gSubMenu_PTT_ID[5][15];
 #ifdef ENABLE_FEAT_F4HWN
     #ifdef ENABLE_FEAT_F4HWN_LOGO
-        extern const char* const    gSubMenu_PONMSG[6];
+        extern const char    gSubMenu_PONMSG[6][8];
     #else
-        extern const char* const    gSubMenu_PONMSG[5];
+        extern const char    gSubMenu_PONMSG[5][8];
     #endif
 #else
-    extern const char* const        gSubMenu_PONMSG[4];
+    extern const char        gSubMenu_PONMSG[4][8];
 #endif
 
-extern const char* const            gSubMenu_ROGER[3];
-extern const char* const            gSubMenu_RESET[2];
-extern const char* const            gSubMenu_F_LOCK[F_LOCK_LEN];
-extern const char* const            gSubMenu_RX_TX[4];
-extern const char* const            gSubMenu_BAT_TXT[3];
-extern const char* const            gSubMenu_BATTYP[5];
-extern const char* const            gSubMenu_SET_NAV[2];
+extern const char            gSubMenu_ROGER[3][6];
+extern const char            gSubMenu_RESET[2][4];
+extern const char            gSubMenu_F_LOCK[F_LOCK_LEN][25];
+extern const char            gSubMenu_RX_TX[4][6];
+extern const char            gSubMenu_BAT_TXT[3][8];
+extern const char            gSubMenu_BATTYP[5][11];
+extern const char            gSubMenu_SET_NAV[2][17];
 
 #ifndef ENABLE_FEAT_F4HWN
-    extern const char* const        gSubMenu_SCRAMBLER[11];
+    extern const char        gSubMenu_SCRAMBLER[11][7];
 #endif
 
 #define SIDEFUNCTION_COUNT ACTION_OPT_LEN
-extern const char *const gSubMenu_SIDEFUNCTIONS[ACTION_OPT_LEN];
+extern const char gSubMenu_SIDEFUNCTIONS[ACTION_OPT_LEN][14];
                          
 extern bool              gIsInSubMenu;
                          

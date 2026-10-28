@@ -304,6 +304,24 @@ if(ENABLE_FEAT_F4HWN_EXT_FLASH_RW AND NOT ENABLE_FEAT_F4HWN_MULTIBOOT)
     message(FATAL_ERROR "ENABLE_FEAT_F4HWN_EXT_FLASH_RW requires ENABLE_FEAT_F4HWN_MULTIBOOT (the 0x0738/0x073A/0x073C/0x073E UART commands live under multiboot).")
 endif()
 
+# Fonts, menu texts and QR codes live in a per-slot asset zone of the external
+# flash instead of the internal flash (see fw_assets.h). The running slot comes
+# from multiboot, and UV Studio writes the pack through its UART commands.
+enable_feature(ENABLE_FEAT_F4HWN_FW_ASSETS
+    fw_assets.c
+)
+if(ENABLE_FEAT_F4HWN_FW_ASSETS AND NOT (ENABLE_FEAT_F4HWN_MULTIBOOT AND (ENABLE_UART OR ENABLE_USB)))
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_FW_ASSETS requires ENABLE_FEAT_F4HWN_MULTIBOOT (running slot, asset zones) and a serial link (ENABLE_UART or ENABLE_USB) to upload the assets.")
+endif()
+
+# Optional font selector and its alternative font assets.
+enable_feature(ENABLE_FEAT_F4HWN_SET_FNT
+    font_alt.c
+)
+if(ENABLE_FEAT_F4HWN_SET_FNT AND NOT ENABLE_FEAT_F4HWN_FW_ASSETS)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_SET_FNT requires ENABLE_FEAT_F4HWN_FW_ASSETS.")
+endif()
+
 enable_feature(ENABLE_FEAT_F4HWN_QRCODE)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO)
 enable_feature(ENABLE_FEAT_F4HWN_LOGO_SAV)

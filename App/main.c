@@ -55,6 +55,9 @@
     #include "driver/mb_flash.h"
     #include "ui/multiboot.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+    #include "fw_assets.h"
+#endif
 #ifdef ENABLE_UART
     #include "driver/uart.h"
 #endif
@@ -93,6 +96,13 @@ void Main(void)
      * self-backup) when the running image isn't the slot the marker points to.
      * Calibration stays shared regardless of the selected bank. */
     PY25Q16_SetBankBase(MB_BankBase(MB_BootResolveState()));
+#endif
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+    /* Fonts and menu texts come from the asset zone of the running slot.
+     * Screens drawn before this point (multiboot backup / state error) are
+     * blank: the assets of a freshly flashed firmware are written by UV Studio
+     * once it runs. */
+    FW_ASSETS_Init(MB_GetRunningSlot());
 #endif
 
     boot_counter_10ms = 250;   // 2.5 sec

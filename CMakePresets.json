@@ -97,11 +97,13 @@
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG": false,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": false,
                 "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
+                "ENABLE_FEAT_F4HWN_FW_ASSETS": false,
+                "ENABLE_FEAT_F4HWN_SET_FNT": false,
                 "ENABLE_AGC_SHOW_DATA": false,
                 "ENABLE_UART_RW_BK_REGS": false,
                 "ENABLE_SWD": false,
                 "VERSION_STRING_1": "v0.22",
-                "VERSION_STRING_2": "v6.3.0"
+                "VERSION_STRING_2": "v7.0.0"
             }
         },
         {
@@ -128,7 +130,7 @@
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_PMR": true,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": false,
+                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_VOL": true,
                 "ENABLE_FEAT_F4HWN_AUDIO": true,
                 "ENABLE_FEAT_F4HWN_AUDIO_SCOPE": true,
@@ -151,103 +153,20 @@
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
+                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
+                "ENABLE_FEAT_F4HWN_OVERLAY_BEAM": true,
+                "ENABLE_FEAT_F4HWN_OVERLAY_INFO": true,
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": false,
+                "ENABLE_FEAT_F4HWN_FW_ASSETS": true,
+                "ENABLE_FEAT_F4HWN_SET_FNT": true,
                 "ENABLE_SWD": true,
                 "EDITION_STRING": "Fusion",
                 "TARGET": "f4hwn.fusion"
             }
         },
         {
-            "name": "FieldOps",
+            "name": "Service",
             "inherits": "Fusion",
-            "cacheVariables": {
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
-                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
-                "ENABLE_FEAT_F4HWN_BEACON": true,
-                "EDITION_STRING": "FieldOps",
-                "TARGET": "f4hwn.fieldops"
-            }
-        },
-        {
-            "name": "Transfer",
-            "inherits": "Fusion",
-            "cacheVariables": {
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_AIRCOPY_UART": true,
-                "ENABLE_AIRCOPY_FLASH": true,
-                "ENABLE_FEAT_F4HWN_BEAM": true,
-                "EDITION_STRING": "Transfer",
-                "TARGET": "f4hwn.transfer"
-            }
-        },
-        {
-            "name": "Labs",
-            "inherits": "Fusion",
-            "cacheVariables": {
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
-                "ENABLE_FEAT_F4HWN_FOXHUNT": false,
-                "ENABLE_FEAT_F4HWN_BEACON": false,
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_BEAM": false,
-                "ENABLE_FEAT_F4HWN_GAME": false,
-                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_BEAM": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_INFO": true,
-                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
-                "EDITION_STRING": "Labs",
-                "TARGET": "f4hwn.labs"
-            }
-        },
-        {
-            "name": "Fusion_",
-            "inherits": "default",
-            "cacheVariables": {
-                "ENABLE_NO_HEAP": true,
-                "ENABLE_SPECTRUM": true,
-                "ENABLE_FMRADIO": true,
-                "ENABLE_VOX": true,
-                "ENABLE_AIRCOPY": false,
-                "ENABLE_FEAT_F4HWN_FULL_WATCH": true,
-                "ENABLE_FEAT_F4HWN_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_GAME": false,
-                "ENABLE_FEAT_F4HWN_PMR": true,
-                "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": true,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
-                "ENABLE_FEAT_F4HWN_VOL": true,
-                "ENABLE_FEAT_F4HWN_AUDIO": true,
-                "ENABLE_FEAT_F4HWN_AUDIO_SCOPE": true,
-                "ENABLE_FEAT_F4HWN_SCAN_PROGRESS": true,
-                "ENABLE_FEAT_F4HWN_SCAN_FASTER": true,
-                "ENABLE_FEAT_F4HWN_SCAN_RSSI": true,
-                "ENABLE_FEAT_F4HWN_SCAN_SUBAUDIBLE": true,
-                "ENABLE_FEAT_F4HWN_BEAM": false,
-                "ENABLE_FEAT_F4HWN_FOXHUNT": false,
-                "ENABLE_FEAT_F4HWN_BEACON": false,
-                "ENABLE_FEAT_F4HWN_RXTX_LOG": true,
-                "ENABLE_FEAT_F4HWN_RXTX_LOG_WRAP": false,
-                "ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER": true,
-                "ENABLE_FEAT_F4HWN_QRCODE": true,
-                "ENABLE_FEAT_F4HWN_MEM": true,
-                "ENABLE_FEAT_F4HWN_LOGO": true,
-                "ENABLE_FEAT_F4HWN_LOGO_SAV": true,
-                "ENABLE_FEAT_F4HWN_MENU_CAT": true,
-                "ENABLE_FEAT_F4HWN_ACTION_PICKER": true,
-                "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
-                "ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG": true,
-                "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_BEAM": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_INFO": true,
-                "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": false,
-                "ENABLE_SWD": true,
-                "EDITION_STRING": "Fusion_",
-                "TARGET": "f4hwn.fusion_"
-            }
-        },
-        {
-            "name": "Service_",
-            "inherits": "Fusion_",
             "cacheVariables": {
                 "ENABLE_AIRCOPY": true,
                 "ENABLE_AIRCOPY_UART": true,
@@ -258,24 +177,8 @@
                 "ENABLE_FEAT_F4HWN_OVERLAY_BEAM": false,
                 "ENABLE_FEAT_F4HWN_OVERLAY_INFO": false,
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
-                "EDITION_STRING": "Service_",
-                "TARGET": "f4hwn.service_"
-            }
-        },
-        {
-            "name": "Max",
-            "inherits": "Fusion",
-            "cacheVariables": {
-                "ENABLE_FEAT_F4HWN_FULL_WATCH": false,
-                "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
-                "ENABLE_FEAT_F4HWN_FOXHUNT": true,
-                "ENABLE_FEAT_F4HWN_BEACON": true,
-                "ENABLE_AIRCOPY": true,
-                "ENABLE_FEAT_F4HWN_BEAM": true,
-                "ENABLE_FEAT_F4HWN_GAME": true,
-                "ENABLE_FEAT_F4HWN_OVERLAY_APPS": false,
-                "EDITION_STRING": "Max",
-                "TARGET": "f4hwn.max"
+                "EDITION_STRING": "Service",
+                "TARGET": "f4hwn.service"
             }
         }
     ],
@@ -289,28 +192,8 @@
             "configurePreset": "Fusion"
         },
         {
-            "name": "Transfer",
-            "configurePreset": "Transfer"
-        },
-        {
-            "name": "FieldOps",
-            "configurePreset": "FieldOps"
-        },
-        {
-            "name": "Labs",
-            "configurePreset": "Labs"
-        },
-        {
-            "name": "Fusion_",
-            "configurePreset": "Fusion_"
-        },
-        {
-            "name": "Service_",
-            "configurePreset": "Service_"
-        },
-        {
-            "name": "Max",
-            "configurePreset": "Max"
+            "name": "Service",
+            "configurePreset": "Service"
         }
     ]
 }

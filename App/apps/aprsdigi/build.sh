@@ -4,7 +4,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"
 APP_NAME="APRS DIGI"
-APP_VER="0.1"
+APP_VER="0.2"
 APP_API_MIN=3
 APP_VMA=${APP_VMA:-0x20000280}
 OUT="${APP_NAME// /}"
@@ -29,7 +29,7 @@ step 2 compile ; "$CC" $CFLAGS $LDFLAGS "${APP}_app.c" -lgcc -o "${APP}.elf" \
 step 3 objcopy ; "$OBJCOPY" -O binary "${APP}.elf" "${APP}.bin"
 step 4 pack    ; python3 ../pack_app.py "${APP}.bin" "${OUT}.app" \
                    --name "$APP_NAME" --ver "$APP_VER" --api-min "$APP_API_MIN" --vma "${APP_VMA}" \
-                   --shortcut none --assets "${APP}_assets.bin" >/dev/null
+                   --shortcut none --require cfgproxy --assets "${APP}_assets.bin" >/dev/null
 trap - ERR
 
 BYTES=$(wc -c < "${APP}.bin")

@@ -5,6 +5,9 @@ VFO. It is entirely contained in the 4 KiB overlay and uses API level 3;
 it has no resident firmware component. This variant uses only PTT and
 SIDE1/SIDE2. External keys and paddles connected through USB-C are handled by
 the separate `CW USB` app. Both apps compile the same shared source.
+Since version 1.6, key `7` opens [`CW Mem`](../cwmem/README.md), a message
+keyer that sends stored messages with the same settings and hands back to the
+keyer when you touch a key.
 
 ## Requirements and install
 
@@ -41,6 +44,9 @@ so copy the required settings manually, especially `XTAL`.
 - `F`, then `2`, `3`, `4` or `6`: lower the corresponding setting instead.
 - `UP` / `DOWN`: tune the app frequency by a fixed 100 Hz CW step, up to
   +/-50 kHz. Holding a direction repeats after 400 ms, then every 100 ms.
+- `7`: open `CW Mem` with the current settings and UP/DOWN offset (see
+  [CW Mem](../cwmem/README.md)); without `CW Mem` installed, nothing
+  happens and the keyer stays open.
 - `MENU`: show the help page; `MENU` or `EXIT` returns to the keyer.
 - `EXIT`: leave the app.
 
@@ -52,17 +58,20 @@ so copy the required settings manually, especially `XTAL`.
 | Crystal correction (`XTAL`) | -50 to +50 `REG_3B` steps | +14 (+2.69 ppm) |
 | Mode / order | `STRAIGHT`, `PADDLE` / `DI-DA`, `DA-DI` | `STRAIGHT` / `DI-DA` |
 
-The status bar shows the title, `RX` while the transmitter is off, `TX OFF`
-when a transmission is refused, the speaker or `F` icon and the app version.
+The status bar shows the title, replaced by `TX OFF` when a transmission is
+refused and by `HELP` on the help page, the speaker or `F` icon and the app
+version. Since version 1.5 there is no `RX` label: it only followed the TX
+session, not the marks, and the red LED now shows each mark on the air (#716).
 A transmission is refused (`TX OFF`) when the resident firmware forbids TX on
 the frequency (TX lock outside the allowed bands), when the battery is too low
 or the voltage too high, or when the VFO is not in FM. Release every keying
 control to clear it.
 
-The help page (`MENU`) lists the keys in two columns of capsules, as on
-CW Decode, with the 100 Hz tuning step at the bottom right. Opening it ends a
-semi-break-in hang and returns to RX; PTT and the paddles do not key the
-transmitter and the S-meter pauses until `MENU` or `EXIT` closes it.
+The help page (`MENU`) lists the keys in two columns of capsules over seven
+lines, as on CW Decode: the keys in order, and `UP/DN 100 Hz` for the tuning
+keys and their step. Opening it ends a semi-break-in hang and returns to RX; PTT and the paddles do
+not key the transmitter and the S-meter pauses until `MENU` or `EXIT` closes
+it.
 
 Keyer element timing is measured on the SysTick counter, so the keypad scan
 done at every poll (about 0.2 ms) does not stretch the elements. A contact
@@ -130,7 +139,8 @@ also gates the BK4829 internal PA gain while leaving the PLL locked. The
 unmodulated carrier is therefore keyed with three coordinated controls: the
 internal PA gain, `VRAMP`, and the board PA enable.
 
-Every mark uses a four-step, 4 ms rise and fall of the saved PA bias. Internal
+Every mark uses a four-step, 4 ms rise and fall of the saved PA bias (1/4,
+1/2, 3/4 and full, rounded down). Internal
 PA gain and board PA enable are asserted before the rise, then removed after
 the fall. Between marks the synthesizer remains locked, but internal PA gain,
 PA bias and the board PA are all off.
@@ -138,6 +148,19 @@ PA bias and the board PA are all off.
 normal RX. After the final mark, the configurable semi-break-in hang (300 ms
 by default) keeps the synthesizer ready across Morse element gaps, then
 automatically calls `tx_end` and restores reception without requiring `MENU`.
+
+### Red TX LED
+
+Since version 1.4 the red LED lights for each mark actually on the air and goes
+out between marks, like the LED of a normal transmission. The API only drives
+the green LED, so the app works with the BK4829 GPIO output register `0x33`,
+which also holds the board PA enable, the RX switch and the VHF/UHF LNA
+switches. The resident writes that register from a RAM shadow whose high byte
+is always `0x90`. Right after `tx_carrier(true)`, the app reads `0x33` back
+and, only if it reads `0x90xx`, writes the same value with the red bit added;
+any other reading leaves the register alone and the mark is sent without the
+LED. The next `tx_carrier(false)` rewrites the register from the shadow, where
+red was never set, so red goes off with the PA; `tx_end` clears it as well.
 The overlay then selects BK4829 AF output 5 (`BK4819_AF_BASEBAND2` in the
 driver, the upper-sideband demodulator, `AF_USB` in this app; unrelated to the
 radio's USB-C connector) and tunes below the

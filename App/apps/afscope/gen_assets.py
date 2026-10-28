@@ -72,12 +72,13 @@ def font_rows(name, width, start_at=0):
     return rows
 
 
-# The firmware's big frequency digits (the active "Terminus font" variant):
+# The firmware's big frequency digits (the default "Terminus font" set):
 # 10 columns over two pages, '0'..'9' then '-'.
-BIG = font_rows("gFontBigDigits", 20, SRC.index("// Terminus font"))
+# Terminus is the first set of gFontBigDigitsCompact.
+BIG = font_rows("gFontBigDigitsCompact", 20)[:11]
 TINY = font_rows("gFont3x5", 3)            # from ' '
 if len(BIG) != 11:
-    sys.exit("font.c: unexpected gFontBigDigits layout")
+    sys.exit("font.c: unexpected gFontBigDigitsCompact layout")
 
 
 class Lines:
