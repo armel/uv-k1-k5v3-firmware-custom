@@ -1,16 +1,30 @@
 # Scan 406: find a 406 MHz beacon, then hand it to EPIRB 406
 
 Scan 406 watches every Cospas-Sarsat 406 MHz channel a beacon can transmit
-on. When it hears a burst, it raises an alarm, and once the alarm is
-acknowledged it tunes the VFO to that channel and opens EPIRB 406, which
-decodes the next burst. A first-generation beacon repeats about every 50 s.
+on. When it hears a burst, it raises an alarm. For a first-generation burst in
+AUTO, it then tunes the VFO to that channel and opens EPIRB 406, which decodes
+the next burst. The alarm can be acknowledged immediately; it also ends after
+30 s in that case so EPIRB 406 is ready before the beacon repeats, about every
+50 s.
 
 EPIRB 406 on its own listens on one frequency: 406.031 MHz with the wide filter
 covers the 406.025 to 406.040 MHz channels. Beacons type approved since 2025
 transmit on 406.076 MHz, outside that window. Scan 406 covers both.
 
-Needs a Labs firmware v6.3.0 or later (app API level 3: `handoff`,
-`vfo_stage`), with EPIRB 406 installed for the hand-off.
+Needs a Fusion firmware with app API level 3 (`handoff`, `vfo_stage`) and the
+`APP_CAP_BEAM2` receive-profile bridge. EPIRB 406 must be installed for the
+hand-off.
+
+## Version 1.3 reliability fixes
+
+- Scan 406 now calls `beam_prepare` at launch. This selects a temporary UHF FM
+  receive profile before any direct BK4829 tuning, regardless of the selected
+  VFO's band, modulation or bandwidth. The loader restores the original radio
+  state when the overlay exits; only a successful AUTO hand-off intentionally
+  stages the detected channel in FM wide.
+- A first-generation alarm in AUTO ends automatically after 30 s and hands
+  off to EPIRB 406. WATCH and GEN2 alarms still require a key, and any key can
+  acknowledge every alarm earlier.
 
 ## Channels
 
@@ -35,22 +49,26 @@ reference) and the channels reserved "not to be assigned" (E, H, I, L, M, P, Q).
 
 ## Using it
 
-1. Launch Scan 406 from the Apps menu. Whatever VFO is set, it scans the
+1. Launch Scan 406 from the Apps menu. Whatever band, modulation or bandwidth
+   the selected VFO uses, the overlay temporarily selects UHF FM and scans the
    channels above.
 2. Each channel has a bar: its highest level above its own noise floor since
    the last frame, 1 pixel per dB. The dotted line is the trigger (10 dB). The
    channel's kHz above 406.000 MHz is written under its bar.
 3. A burst raises the alarm: a beep every second, the flashlight and the green
    LED blinking, the screen inverted. Any key acknowledges it, and that key
-   does nothing else. Nothing is received while the alarm is on.
+   does nothing else. Nothing is received while the alarm is on. For a GEN1
+   burst in AUTO, the alarm also ends by itself after 30 s.
 4. After the alarm:
    - **AUTO** (the default), first-generation burst: the VFO goes to the
      channel, FM wide, and EPIRB 406 opens and waits for the next burst. EXIT
      in EPIRB 406 goes back to the main screen, with the VFO on that channel.
-   - **WATCH**, or EPIRB 406 not installed: the scan goes on. The burst stays
-     on the screen with its age.
-   - Second-generation burst: counted and shown, the scan goes on (EPIRB 406
-     does not decode them).
+   - **WATCH**: after a key acknowledges the alarm, the scan goes on. The burst
+     stays on the screen with its age.
+   - If EPIRB 406 is not installed, AUTO cannot hand off and scanning resumes
+     after the alarm ends.
+   - Second-generation burst: counted and shown; after a key acknowledges the
+     alarm, the scan goes on (EPIRB 406 does not decode them).
 
 | Key | Action |
 |---|---|
@@ -78,6 +96,13 @@ Each channel takes about 3 ms (frequency written to REG_38/39, RX restarted,
 RSSI read), so the 11 channels take about 35 ms. Each channel keeps its own
 noise floor. It follows a fall at once and a rise slowly (1/16 per pass, about
 0.6 s). A reading 10 dB above it parks the receiver on that channel.
+
+The channels are sometimes only 3 kHz apart, closer than the inherited receive
+filter. The first channel in scan order that hears the beacon can therefore
+win: the displayed and staged frequency may be 3 kHz below the transmitter.
+Version 1.3 deliberately leaves this limitation unchanged. The BK4829 filter
+response and RSSI behaviour first need measurements on a radio before an RF
+filter or channel-selection correction can be justified.
 
 A first-generation burst starts with 160 ms of plain carrier, then 15 bits of
 bit sync and 9 bits of frame sync. A burst is detected within about 35 ms of
@@ -108,14 +133,8 @@ search at once. It gives up 300 ms after the trigger.
 | 1.3 s and more | a continuous carrier (radiosonde, interferer) | the channel's floor takes its level, no alarm |
 
 Every GEN1 (`OK`, `ERR`, `CUT`, `?`) raises the alarm and, in AUTO, is handed to
-EPIRB 406. A self-test frame is a real beacon being tested by its owner: it
-raises the alarm too, marked `TST`.
-
-The channels are 3 kHz apart, closer than the receive filter is wide, so a
-strong beacon can also be heard on the neighbouring channels. The first channel
-of the scan order that hears it wins, so the VFO can end up 3 kHz below the
-beacon. EPIRB 406's host tests decode with a ±5 kHz offset, and keys 4 / 6 there
-tune by 5 kHz. To be confirmed on the bench (receive window measurement).
+EPIRB 406 after a key or the 30 s timeout. A self-test frame is a real beacon
+being tested by its owner: it raises the alarm too, marked `TST`.
 
 ## TEST mode, on 433 MHz
 
@@ -134,19 +153,30 @@ channel S, for instance.
 
 ## On the radio
 
-UV-K1, F4HWN Labs, in TEST mode, with a LimeSDR transmitting the T.001 test
-frames on the 433 MHz channel frequencies (`txall.py --freq ...`): every test
-passes. A real beacon has not been heard yet.
+The original 1.2 implementation was tested on a UV-K1 in TEST mode with a
+LimeSDR transmitting the T.001 frames on the 433 MHz channel frequencies
+(`txall.py --freq ...`). A real beacon has not been heard yet.
+
+The 1.3 changes still need these bench checks:
+
+1. Start from 145 MHz FM, then from a 433 MHz AM VFO and a 433 MHz USB VFO;
+   verify that a TEST burst is detected and decoded in every case.
+2. Leave AUTO unattended after a GEN1 burst and verify that EPIRB 406 opens at
+   about 30 s; verify separately that WATCH and GEN2 continue alarming until a
+   key is pressed.
+3. Characterise the unresolved adjacent-channel behaviour at 433.695 MHz,
+   with strong and weak signals. Record the RSSI on 433.692, 433.695 and
+   433.698 MHz before choosing a filter or selection algorithm.
 
 ## Size
 
-2380 B of code in the 4 KiB overlay (the decoder and the checks: about 870 B,
-the help page: about 80 B), plus the read-only assets (the screen texts and
-the help page). The channels are a table of
-11 bytes (kHz above 406.000 MHz). The noise floors start at 0 (the loader
-zeroes the overlay) and fall to the first readings, so there is no first-pass
-flag. The flashlight is driven directly on PC13 (GPIOC ODR, an output from
-boot): there is no API service for it. Its state is restored after each alarm.
+The code is limited to the 4 KiB overlay; the build script reports the exact
+1.3 footprint. The decoder and BCH checks were about 870 B in 1.2, and the
+help page about 80 B, plus the read-only assets. The channels are an 11-byte
+table (kHz above 406.000 MHz). The noise floors start at 0 (the loader zeroes
+the overlay) and fall to the first readings, so there is no first-pass flag.
+The flashlight is driven directly on PC13 (GPIOC ODR, an output from boot):
+there is no API service for it. Its state is restored after each alarm.
 
 ## Tests
 
@@ -154,7 +184,10 @@ boot): there is no API service for it. Its state is restored after each alarm.
 UndefinedBehaviorSanitizer (it found the 1.1 row buffer overflow fixed in
 1.2), then runs the whole app on a stub API and a simulated radio
 (time, RSSI per tuned frequency, emitters with a level, period, duration and
-count, and the PA4 audio of a burst). Burst audio comes from EPIRB 406's
+count, and the PA4 audio of a burst). The stub records the `beam_prepare` call
+and verifies that Scan 406 starts scanning only after the simulated receiver
+has entered UHF FM. It does not model the BK4829 filter response or claim to
+predict adjacent-channel RSSI. Burst audio comes from EPIRB 406's
 `gen406.py` (biphase-L, phase modulation, noise, FM discriminator, the PA4
 chain): long, short and self-test frames, a bit flipped in PDF-1 and in PDF-2,
 inverted polarity, 3 kHz off, CNR 15 dB, a carrier lost at 300 ms and a plain
@@ -162,10 +195,12 @@ carrier, each detected 0 to 35 ms after its start. Without audio, the scenarios
 cover: a 1G-length burst on every channel, 600 Hz off its centre;
 a continuous carrier, at launch or appearing later, next to a beacon; 2G bursts;
 WATCH; EPIRB 406 not installed; 50 ms and 200 ms blips; the 10 dB threshold;
-an alarm acknowledged after 60 s; the flashlight restored whatever the blink
-count; the help page (shown, no scanning meanwhile, EXIT there only leaves it);
-the longest last-burst row after 20 minutes; TEST mode; and a wide receive
-window, where the neighbouring channel answers first.
+AUTO hand-off after 30 s without a key; WATCH still acknowledged after 60 s;
+the flashlight restored whatever the blink count; the help page (shown, no
+scanning meanwhile, EXIT there only leaves it); the longest last-burst row
+after 20 minutes; TEST mode; inherited VHF, AM and USB profiles; and the
+documented case where either the exact channel or its 3 kHz lower neighbour
+can trigger first.
 
 ## Sources
 
@@ -176,6 +211,7 @@ window, where the neighbouring channel answers first.
 - `App/apps/epirb406/dec406.c` (the decoder), `test/gen406.py` and
   `test/frame406.py` (burst audio and frames for the host test)
 - `App/apps/epirb406/` (RSSI trigger, `tune()`, hand-off to Sig Finder),
-  `App/apps/app_api.h` (`handoff`, `vfo_stage`, `beam_get`)
+  `App/apps/app_api.h` (`handoff`, `vfo_stage`, `beam_prepare`, `beam_get`)
+- `App/driver/bk4829.c` (`BK4819_PickRXFilterPathBasedOnFrequency`)
 - `App/app/spectrum.c` (`SetFScan()`: retuning without waiting),
   `App/board.c` (PC13, the flashlight, an output from boot)

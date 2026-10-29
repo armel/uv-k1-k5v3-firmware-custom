@@ -49,7 +49,8 @@ static struct {
     uint32_t win;              /* receive window, +- 10 Hz units */
     uint64_t us;
     uint32_t now, endMs, vfo, tuned, staged, stagedAt;   /* now: ms, from us */
-    uint8_t  cfgIn, cfgOut, bw, mod;
+    uint8_t  cfgIn, cfgOut, bw, mod, rxMod;
+    bool uhfPath, prepared;
     bool installed, led, ledEver, handed, alarm, torchFlashed;
     unsigned beeps, acks;
     uint32_t ackMs, alarmAt, torch0;
@@ -70,7 +71,7 @@ static void advance(uint64_t us){
 }
 static uint32_t rnd(void){ S.seed = S.seed * 1103515245u + 12345u; return S.seed >> 16; }
 
-/* The strongest emitter heard now, its time into the burst (us) */
+/* The strongest emitter heard now, its time into the burst (us). */
 static const emitter_t *heard(uint64_t *into){
     const emitter_t *best = NULL;
     for (unsigned k = 0; k < S.nEm; k++) {
@@ -162,6 +163,11 @@ static void s_beam_get(app_beam_channel_t *ch){
     memset(ch, 0x5A, sizeof *ch);
     ch->rx_frequency = S.vfo;
 }
+static void s_beam_prepare(void){
+    S.prepared = S.uhfPath = true;
+    S.rxMod = 0;
+    S.tuned = 43450000u;
+}
 static bool s_vfo_stage(const app_beam_channel_t *ch){
     S.staged = ch->rx_frequency;
     S.stagedAt = S.now;
@@ -181,7 +187,8 @@ static app_api_t api = {
     .cfg_load = s_cfg_load, .cfg_save = s_cfg_save,
     .draw_battery = s_nop, .battery_sample = s_nop, .backlight_on = s_nop,
     .backlight_update = s_nop, .status_line = status,
-    .beam_get = s_beam_get, .ticks_ms = s_ticks, .asset_read = s_asset_read,
+    .beam_prepare = s_beam_prepare, .beam_get = s_beam_get,
+    .ticks_ms = s_ticks, .asset_read = s_asset_read,
     .uidivmod = s_uidivmod, .append_u32 = s_append_u32,
     .handoff = s_handoff, .vfo_stage = s_vfo_stage,
     .bk_read = s_bk_read, .set_af = s_set_af, .cycles_48mhz = s_cycles,
@@ -197,6 +204,7 @@ static void setup(uint32_t vfo, uint8_t cfg, uint32_t endMs){
     memset(&S, 0, sizeof S);
     memset(&g, 0, sizeof g);   /* the loader zeroes the overlay */
     S.vfo = vfo; S.cfgIn = cfg; S.endMs = endMs; S.win = 150; S.installed = true;
+    S.uhfPath = vfo >= 28000000u;
     S.seed = 1; S.ackMs = 2000;
     torch_odr = S.torch0 = 0x2000u * (cfg == 1u);   /* flashlight on before WATCH runs */
 }
@@ -239,6 +247,7 @@ int main(int argc, char **argv){
     run();
     CHECK("1G 406.076 auto: hand-off", S.handed && S.staged == F(76));
     CHECK("1G 406.076 auto: FM wide", S.bw == 0 && S.mod == 0);
+    CHECK("1G 406.076 auto: RX profile", S.prepared && S.uhfPath && S.rxMod == 0);
     CHECK("1G 406.076 auto: after the ack", S.stagedAt >= 5440 + 2000 && S.stagedAt < 5700 + 2300);
     CHECK("1G 406.076 auto: alarm, one ack", S.acks == 1 && S.beeps >= 2 && S.ledEver && !S.led);
     CHECK("1G 406.076 auto: flashlight flashed, restored", S.torchFlashed && torch_odr == S.torch0);
@@ -309,13 +318,20 @@ int main(int argc, char **argv){
     run();
     CHECK("no EPIRB 406: alarm, no stage", g.n[0] == 1 && S.acks == 1 && !S.staged);
 
-    /* a slow operator: the alarm holds a minute, then the hand-off */
+    /* AUTO needs no operator: it hands off after 30 s, before the next burst */
     setup(VFO406, 0, NEVER);
     S.ackMs = 60000;
     emit(F(31), -90, 3000, 50000, 440, 10);
     run();
-    CHECK("ack after 60 s: one alarm, then hand-off", S.acks == 1 && S.handed && S.stagedAt >= 63000);
-    CHECK("ack after 60 s: a beep a second", S.beeps >= 55 && S.beeps <= 65);
+    CHECK("AUTO timeout: hand-off at 30 s", !S.acks && S.handed && S.stagedAt >= 33000 && S.stagedAt < 35000);
+    CHECK("AUTO timeout: a beep a second", S.beeps >= 29 && S.beeps <= 31);
+
+    /* WATCH still waits for an acknowledgement, even after a minute */
+    setup(VFO406, 1, 70000);
+    S.ackMs = 60000;
+    emit(F(31), -90, 3000, 50000, 440, 1);
+    run();
+    CHECK("WATCH: alarm waits 60 s", S.acks == 1 && !S.handed && S.beeps >= 59);
 
     /* MENU: the help page until a key, no scanning meanwhile, then the scan again */
     setup(VFO406, 0, NEVER);
@@ -383,14 +399,12 @@ int main(int argc, char **argv){
     run();
     CHECK("406 mode, VFO on 433: nothing", !g.n[0] && !S.handed);
 
-    /* a wide receive window (+-4 kHz): a neighbour 3 kHz away may answer first */
+    /* A wide receive window may still make a 3 kHz neighbour answer first. */
     setup(VFO406, 0, NEVER);
     S.win = 400;
     emit(F(40), -90, 3000, 50000, 440, 10);
     run();
     CHECK("wide window: within 3 kHz", S.handed && (S.staged == F(40) || S.staged == F(37)));
-    printf("wide window, beacon on 406.040: staged %u.%03u MHz\n",
-           S.staged / 100000u, S.staged / 100u % 1000u);
 
     /* frame sync and BCH, on real burst audio (gen406.py, 160 ms of carrier first) */
     static const struct { const char *clip, *shown; uint8_t kind, st; } V[] = {
@@ -415,6 +429,24 @@ int main(int argc, char **argv){
             snprintf(n, sizeof n, "%s, burst at %u ms", V[k].clip, start);
             CHECK(n, g.type == V[k].kind && g.st == V[k].st && g.n[0] == 1);
             CHECK(n, !strncmp(S.lastText[0], V[k].shown, strlen(V[k].shown)));
+        }
+        free(c.s);
+    }
+
+    /* Scan 406 must call beam_prepare before scanning from any VFO profile. */
+    {
+        static const struct { uint32_t vfo; uint8_t mod; const char *name; } P[] = {
+            { 14550000u, 0, "VHF FM wide" },
+            { VFO406,    1, "UHF AM wide" },
+            { VFO406,    2, "UHF USB narrow" },
+        };
+        const clip_t c = load(argv[2], "long");
+        for (unsigned k = 0; k < sizeof P / sizeof P[0]; k++) {
+            setup(P[k].vfo, 1, 10000);
+            S.rxMod = P[k].mod;
+            emitAudio(F(76), -95, 3000, 50000, 1, c);
+            run();
+            CHECK(P[k].name, S.prepared && S.uhfPath && S.rxMod == 0 && g.type == K_OK);
         }
         free(c.s);
     }

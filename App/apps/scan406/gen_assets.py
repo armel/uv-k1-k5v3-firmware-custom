@@ -54,7 +54,7 @@ HELP = [                             # the keys only: the rest is in README.md
     "0     406 MHZ / TEST 433 MHZ",
     "MENU  THIS HELP",
     "EXIT  QUIT",
-    "ANY   STOP THE ALARM",
+    "ANY   ACKNOWLEDGE ALARM",
     "ANY   BACK TO THE SCAN (HERE)",
 ]
 assert all(len(l) <= 32 for l in HELP)

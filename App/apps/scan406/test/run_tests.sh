@@ -3,7 +3,8 @@
 # Licensed under the Apache License, Version 2.0 (see the C sources).
 # Scan 406 host tests: the whole app on a stub API and a simulated radio
 # (host_app.c): first and second generation bursts on every channel,
-# continuous carriers, blips, the trigger threshold, WATCH mode, EPIRB 406
+# continuous carriers, blips, the trigger threshold, inherited VHF/AM/USB
+# profiles, the documented 3 kHz ambiguity, AUTO/WATCH alarm timing, EPIRB 406
 # missing and the bench mode. Needs a host C compiler and python3.
 set -euo pipefail
 cd "$(dirname "$0")"

@@ -24,9 +24,11 @@
  * the channels kept for future assignments, J .049, K .052, N .061, O .064,
  * R .073. Not scanned: A .022 (system beacons) and the reserved ones.
  *
- * Per channel: write the frequency (REG_38/39), restart RX (tones_off_rx:
- * REG_30 cycle, AF muted), wait STEP_MS, read RSSI. Each channel keeps its own
- * noise floor. A reading TRIG_DB above it parks the receiver there.
+ * At launch, beam_prepare selects a temporary UHF FM receive profile; the
+ * loader restores the user's VFO after the app exits. Per channel: write the
+ * frequency (REG_38/39), restart RX (tones_off_rx: REG_30 cycle, AF muted),
+ * wait STEP_MS, read RSSI. Each channel keeps its own noise floor. A reading
+ * TRIG_DB above it parks the receiver there.
  *
  * Verification: the RX audio is captured on PA4 at 9.6 kHz (RAW receive, as
  * in EPIRB 406) and fed to EPIRB 406's decoder (dec406.c, included). A burst
@@ -53,11 +55,12 @@
  * the channel (vfo_stage, FM wide) and opens EPIRB 406 (handoff); WATCH, or
  * EPIRB 406 not installed, goes on scanning.
  *
- * Alarm, until any key acknowledges it (that key does nothing else): a beep
- * every second, the flashlight (PC13, driven directly: no API service) and the
- * green LED blinking, the screen inverted, every ALARM_MS. The flashlight is
- * left as it was found. Nothing is received meanwhile; the next burst of a
- * first-generation beacon comes about 50 s after the one detected.
+ * Alarm: a beep every second, the flashlight (PC13, driven directly: no API
+ * service) and the green LED blinking, the screen inverted, every ALARM_MS.
+ * Any key acknowledges it (that key does nothing else). For a first-generation
+ * burst in AUTO, it also ends after AUTO_ALARM_MS so EPIRB 406 is listening
+ * before the next burst, about 50 s after the one detected. WATCH and GEN2
+ * still wait for a key. The flashlight is left as it was found.
  *
  * TEST mode (key 0, saved): the same channels on 433 MHz, 406.0xx MHz
  * becoming 433.619 + xx kHz: B 433.644, D 433.650 (the usual generator
@@ -100,6 +103,7 @@
 #define BEEP_HZ     1536u      /* 3 << 9: a cheap Thumb constant          */
 #define BEEP_MS     150u
 #define ALARM_MS    250u       /* flashlight, LED and screen toggle; a beep every 4 */
+#define AUTO_ALARM_MS 30000u   /* leave AUTO time to catch the next ~50 s burst      */
 
 /* PA4 capture, from the trigger (the cycle clock and the capture are API level 3) */
 #define CYC_PER_SAMPLE (48000000u / DEC406_FS)      /* 5000 */
@@ -181,7 +185,7 @@ static bool handOff(unsigned i){
     return true;
 }
 
-static void alarm(void);
+static void alarm(bool autoExit);
 static void draw(void);
 
 /* Decode the burst from the trigger: K_OK, K_ERR or K_CUT, 0 without a frame
@@ -235,8 +239,9 @@ __attribute__((noinline)) static void burst(unsigned i){
     g.last = (uint8_t)i;
     g.tLast = t0 + d;          /* the end of the burst */
     g.n[k == K_2G]++;
-    alarm();
-    if (k != K_2G && !(g.mode & MODE_WATCH)) handOff(i);
+    const bool autoExit = k != K_2G && !(g.mode & MODE_WATCH);
+    alarm(autoExit);
+    if (autoExit) handOff(i);
 }
 
 /* One pass over the channels. A floor follows a fall at once and a rise
@@ -286,11 +291,12 @@ static void help(void){
     while (newKey(1000) == APP_KEY_INVALID) {}
 }
 
-/* Until a key is pressed: beep, flash, invert the screen. */
-__attribute__((noinline)) static void alarm(void){
+/* Until a key is pressed, or the AUTO deadline: beep, flash, invert. */
+__attribute__((noinline)) static void alarm(bool autoExit){
     const app_api_t *A = g.A;
     const uint32_t torch = GPIOC_ODR & TORCH;
     draw();
+    const uint32_t started = A->ticks_ms();
     uint8_t key = APP_KEY_INVALID;
     for (unsigned k = 0; key == APP_KEY_INVALID; k++) {
         unsigned t = 0;
@@ -306,6 +312,7 @@ __attribute__((noinline)) static void alarm(void){
         A->blit_full();
         A->backlight_on();
         key = newKey(ALARM_MS - t);
+        if (autoExit && A->ticks_ms() - started >= AUTO_ALARM_MS) break;
     }
     A->led(false);
     GPIOC_ODR = (GPIOC_ODR & ~TORCH) | torch;
@@ -375,6 +382,7 @@ void app_main(const app_api_t *api){
     api->cfg_load(&g.mode, 1);
     if (g.mode > (MODE_WATCH | MODE_TEST)) g.mode = 0;   /* erased flash: AUTO, 406 MHz */
     band();
+    api->beam_prepare();        /* temporary UHF FM VFO; the loader restores the original */
     api->audio_path(false);
     api->af_capture_open();    /* PA4 bias and ADC channel 4, restored by close */
     /* RAW receive, as EPIRB 406: RX HPF300 / LPF3K / de-emphasis and AFC off */
