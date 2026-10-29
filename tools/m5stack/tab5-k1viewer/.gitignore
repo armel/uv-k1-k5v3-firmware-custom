@@ -1,0 +1,9 @@
+/build/
+/build-local/
+/dist/
+/managed_components/
+/sdkconfig
+/sdkconfig.old
+/sdkconfig.local
+/sdkconfig.local.old
+
