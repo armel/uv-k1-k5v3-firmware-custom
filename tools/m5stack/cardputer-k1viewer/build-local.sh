@@ -5,6 +5,8 @@ set -euo pipefail
 ARDUINO_CLI_VERSION="1.5.1"
 ESP32_CORE_VERSION="3.3.12"
 M5CARDPUTER_VERSION="1.1.1"
+M5UNIFIED_VERSION="0.2.28"
+M5GFX_VERSION="0.2.35"
 OUTPUT_NAME="cardputer-k1viewer-esp32s3.bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,7 +53,7 @@ show_help()
         'Builds the M5Stack Cardputer K1Viewer merged image.' \
         '' \
         'The first run installs the pinned Arduino CLI, ESP32 core, and' \
-        'M5Cardputer library under:' \
+        'M5Stack libraries under:' \
         '  ~/Library/Caches/cardputer-k1viewer' \
         '' \
         'Optional environment variable:' \
@@ -136,6 +138,10 @@ printf 'Preparing Arduino dependencies...\n'
 "${CLI_BIN}" core install "esp32:esp32@${ESP32_CORE_VERSION}" \
     --config-file "${ARDUINO_CONFIG}"
 "${CLI_BIN}" lib install "M5Cardputer@${M5CARDPUTER_VERSION}" \
+    --config-file "${ARDUINO_CONFIG}"
+"${CLI_BIN}" lib install "M5Unified@${M5UNIFIED_VERSION}" \
+    --config-file "${ARDUINO_CONFIG}"
+"${CLI_BIN}" lib install "M5GFX@${M5GFX_VERSION}" \
     --config-file "${ARDUINO_CONFIG}"
 
 BUILD_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cardputer-k1viewer.XXXXXX")"

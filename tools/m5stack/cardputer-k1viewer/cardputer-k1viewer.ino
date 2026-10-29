@@ -18,6 +18,8 @@
  */
 
 #include <Arduino.h>
+#include <M5UnitGLASS.h>
+#include <M5UnitGLASS2.h>
 #include <M5Cardputer.h>
 #include <USBHost.h>
 #include <USBHostSerial.h>
@@ -54,6 +56,18 @@ constexpr int16_t kStatusLedRadius = 5;
 constexpr uint32_t kKeepaliveMs = 200;
 constexpr uint32_t kFpsSampleMs = 1000;
 constexpr uint32_t kUsbTxTimeoutMs = 20;
+constexpr uint32_t kGlassI2cFrequency = 400000;
+constexpr uint32_t kGlassFallbackI2cFrequency = 100000;
+constexpr uint8_t kGlassAddress = 0x3D;
+constexpr uint8_t kGlass2Address = 0x3C;
+constexpr uint32_t kGlassBatchIntervalMs = 5;
+constexpr uint8_t kGlassTileWidth = 8;
+constexpr uint8_t kGlassTileHeight = 8;
+constexpr uint8_t kGlassTileColumns = kRadioWidth / kGlassTileWidth;
+constexpr uint8_t kGlassTileRows = kRadioHeight / kGlassTileHeight;
+constexpr uint8_t kGlassTileCount = kGlassTileColumns * kGlassTileRows;
+constexpr uint8_t kGlass2PageHeight = 8;
+constexpr uint8_t kGlass2PageCount = kRadioHeight / kGlass2PageHeight;
 
 constexpr uint8_t kTypeScreenshot = 0x01;
 constexpr uint8_t kTypeDiff = 0x02;
@@ -98,6 +112,12 @@ enum PaletteId : uint8_t {
     PaletteCount,
 };
 
+enum class GlassModel : uint8_t {
+    None,
+    Original,
+    Glass2,
+};
+
 struct Palette {
     uint32_t foreground;
     uint32_t background;
@@ -121,20 +141,31 @@ constexpr Palette kPalettes[PaletteCount] = {
 USBHostSerialClass kK1Serial;
 M5Canvas kRadioCanvas(&M5Cardputer.Display);
 M5Canvas kStatusCanvas(&M5Cardputer.Display);
+M5UnitGLASS kGlass;
+M5UnitGLASS2 kGlass2;
+M5GFX *kGlassDisplay = nullptr;
 Parser kParser;
 uint8_t kFramebuffer[kRadioFrameBytes] = {};
+uint8_t kGlassFramebuffer[kRadioFrameBytes] = {};
 
 bool kUsbHostStarted = false;
 bool kConnected = false;
 bool kFrameDirty = true;
+bool kGlassFrameDirty = false;
+bool kGlassConnected = false;
+bool kGlassNeedsFullRefresh = false;
 bool kStatusDirty = true;
+GlassModel kGlassModel = GlassModel::None;
 uint8_t kFlags = 0;
 uint8_t kPalette = PaletteGrey;
 uint32_t kFrameCount = 0;
 uint32_t kFpsWindowFrameCount = 0;
 uint32_t kFpsWindowStart = 0;
 uint32_t kNextKeepalive = 0;
+uint32_t kNextGlassBatch = 0;
 uint8_t kFps = 0;
+uint8_t kGlassTileCursor = 0;
+uint8_t kGlass2PageCursor = 0;
 
 uint16_t rgb565(uint32_t color)
 {
@@ -203,6 +234,7 @@ void applyFrame()
         kFlags = kParser.flags;
         ++kFrameCount;
         kFrameDirty = true;
+        kGlassFrameDirty = true;
         if (flagsChanged) {
             kStatusDirty = true;
         }
@@ -311,6 +343,222 @@ void renderRadio()
     }
     kRadioCanvas.pushSprite(kViewX, kViewY);
     kFrameDirty = false;
+}
+
+void writeOriginalGlassTile(uint8_t tile)
+{
+    const uint8_t tileX = tile % kGlassTileColumns;
+    const uint8_t tileY = tile / kGlassTileColumns;
+    const uint16_t left = static_cast<uint16_t>(tileX) * kGlassTileWidth;
+    const uint16_t top = static_cast<uint16_t>(tileY) * kGlassTileHeight;
+
+    kGlass.startWrite();
+    for (uint8_t row = 0; row < kGlassTileHeight; ++row) {
+        for (uint8_t column = 0; column < kGlassTileWidth; ++column) {
+            const uint16_t bitIndex =
+                (top + row) * kRadioWidth + left + column;
+            const bool pixelOn =
+                (kFramebuffer[bitIndex >> 3] &
+                 (1u << (bitIndex & 7u))) != 0;
+            kGlass.drawPixel(left + column, top + row,
+                             pixelOn ? TFT_WHITE : TFT_BLACK);
+        }
+    }
+    kGlass.endWrite();
+}
+
+bool glassTileChanged(uint8_t tile)
+{
+    const uint8_t tileX = tile % kGlassTileColumns;
+    const uint8_t tileY = tile / kGlassTileColumns;
+    for (uint8_t row = 0; row < kGlassTileHeight; ++row) {
+        const uint16_t offset =
+            (static_cast<uint16_t>(tileY) * kGlassTileHeight + row) *
+                (kRadioWidth / 8u) +
+            tileX;
+        if (kFramebuffer[offset] != kGlassFramebuffer[offset]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void rememberGlassTile(uint8_t tile)
+{
+    const uint8_t tileX = tile % kGlassTileColumns;
+    const uint8_t tileY = tile / kGlassTileColumns;
+    for (uint8_t row = 0; row < kGlassTileHeight; ++row) {
+        const uint16_t offset =
+            (static_cast<uint16_t>(tileY) * kGlassTileHeight + row) *
+                (kRadioWidth / 8u) +
+            tileX;
+        kGlassFramebuffer[offset] = kFramebuffer[offset];
+    }
+}
+
+bool glass2PageChanged(uint8_t page)
+{
+    const uint16_t firstRow =
+        static_cast<uint16_t>(page) * kGlass2PageHeight;
+    for (uint8_t row = 0; row < kGlass2PageHeight; ++row) {
+        const uint16_t offset =
+            (firstRow + row) * (kRadioWidth / 8u);
+        if (memcmp(&kFramebuffer[offset], &kGlassFramebuffer[offset],
+                   kRadioWidth / 8u) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void writeGlass2Page(uint8_t page)
+{
+    const uint16_t firstRow =
+        static_cast<uint16_t>(page) * kGlass2PageHeight;
+
+    kGlass2.startWrite(false);
+    for (uint8_t row = 0; row < kGlass2PageHeight; ++row) {
+        const uint16_t y = firstRow + row;
+        for (uint8_t byte = 0; byte < kRadioWidth / 8u; ++byte) {
+            const uint16_t offset = y * (kRadioWidth / 8u) + byte;
+            const uint8_t pixels = kFramebuffer[offset];
+            if (!kGlassNeedsFullRefresh &&
+                pixels == kGlassFramebuffer[offset]) {
+                continue;
+            }
+
+            const uint16_t left = static_cast<uint16_t>(byte) * 8u;
+            for (uint8_t bit = 0; bit < 8u; ++bit) {
+                kGlass2.drawPixel(left + bit, y,
+                                  (pixels & (1u << bit)) != 0 ? TFT_WHITE
+                                                             : TFT_BLACK);
+            }
+            kGlassFramebuffer[offset] = pixels;
+        }
+    }
+    kGlass2.endWrite();
+    kGlass2.display();
+}
+
+void renderGlass2()
+{
+    uint8_t inspectedPages = 0;
+    while (inspectedPages < kGlass2PageCount) {
+        const uint8_t page = kGlass2PageCursor;
+        kGlass2PageCursor =
+            (kGlass2PageCursor + 1u) % kGlass2PageCount;
+        ++inspectedPages;
+
+        if (!kGlassNeedsFullRefresh && !glass2PageChanged(page)) {
+            continue;
+        }
+
+        writeGlass2Page(page);
+        if (kGlassNeedsFullRefresh && kGlass2PageCursor == 0) {
+            kGlassNeedsFullRefresh = false;
+        }
+        kGlassFrameDirty = true;
+        return;
+    }
+
+    kGlassFrameDirty = false;
+}
+
+void renderOriginalGlass(uint32_t now)
+{
+    if (static_cast<int32_t>(now - kNextGlassBatch) < 0) {
+        return;
+    }
+
+    uint8_t inspectedTiles = 0;
+    while (inspectedTiles < kGlassTileCount) {
+        const uint8_t tile = kGlassTileCursor;
+        kGlassTileCursor = (kGlassTileCursor + 1u) % kGlassTileCount;
+        ++inspectedTiles;
+
+        if (!kGlassNeedsFullRefresh && !glassTileChanged(tile)) {
+            continue;
+        }
+
+        writeOriginalGlassTile(tile);
+        rememberGlassTile(tile);
+        if (kGlassNeedsFullRefresh && kGlassTileCursor == 0) {
+            kGlassNeedsFullRefresh = false;
+        }
+        kGlassFrameDirty = true;
+        kNextGlassBatch = millis() + kGlassBatchIntervalMs;
+        return;
+    }
+
+    kGlassFrameDirty = false;
+}
+
+void renderGlass(uint32_t now)
+{
+    if (!kGlassConnected || !kGlassFrameDirty) {
+        return;
+    }
+
+    if (kGlassModel == GlassModel::Glass2) {
+        renderGlass2();
+    } else if (kGlassModel == GlassModel::Original) {
+        renderOriginalGlass(now);
+    }
+}
+
+void drawGlassStartupPattern()
+{
+    if (kGlassDisplay == nullptr) {
+        return;
+    }
+
+    kGlassDisplay->startWrite();
+    kGlassDisplay->drawRect(8, 8, 112, 40, TFT_WHITE);
+    kGlassDisplay->drawLine(24, 28, 103, 28, TFT_WHITE);
+    kGlassDisplay->drawLine(64, 16, 64, 39, TFT_WHITE);
+    kGlassDisplay->endWrite();
+}
+
+bool initGlass2(uint32_t &frequency)
+{
+    frequency = kGlassI2cFrequency;
+    if (kGlass2.init(GPIO_NUM_2, GPIO_NUM_1, frequency, 0,
+                     kGlass2Address)) {
+        return true;
+    }
+
+    frequency = kGlassFallbackI2cFrequency;
+    return kGlass2.init(GPIO_NUM_2, GPIO_NUM_1, frequency, 0,
+                        kGlass2Address);
+}
+
+bool initOriginalGlass(uint32_t &frequency)
+{
+    frequency = kGlassI2cFrequency;
+    if (kGlass.init(GPIO_NUM_2, GPIO_NUM_1, frequency, 0,
+                    kGlassAddress)) {
+        return true;
+    }
+
+    frequency = kGlassFallbackI2cFrequency;
+    return kGlass.init(GPIO_NUM_2, GPIO_NUM_1, frequency, 0,
+                       kGlassAddress);
+}
+
+void detectGlass(uint32_t &frequency)
+{
+    if (initGlass2(frequency)) {
+        kGlassModel = GlassModel::Glass2;
+        kGlassDisplay = &kGlass2;
+        kGlassConnected = true;
+        return;
+    }
+
+    if (initOriginalGlass(frequency)) {
+        kGlassModel = GlassModel::Original;
+        kGlassDisplay = &kGlass;
+        kGlassConnected = true;
+    }
 }
 
 void drawLed(int16_t x, uint32_t onColor, uint32_t offColor, bool on)
@@ -545,9 +793,38 @@ void updateInput()
 void setup()
 {
     auto config = M5.config();
+    config.external_display_value = 0;
     M5Cardputer.begin(config, true);
     M5Cardputer.Display.setRotation(1);
     M5Cardputer.Display.setBrightness(128);
+    M5Cardputer.Display.fillScreen(rgb565(kUiBackground));
+
+    uint32_t glassI2cFrequency = kGlassI2cFrequency;
+    detectGlass(glassI2cFrequency);
+    char glassStatus[32];
+    if (kGlassModel == GlassModel::Glass2) {
+        snprintf(glassStatus, sizeof(glassStatus), "GLASS2 %lu KHZ",
+                 static_cast<unsigned long>(glassI2cFrequency / 1000u));
+    } else if (kGlassModel == GlassModel::Original) {
+        const uint8_t glassFirmwareVersion = kGlass.getFirmwareVersion();
+        snprintf(glassStatus, sizeof(glassStatus), "GLASS FW %u %lu KHZ",
+                 static_cast<unsigned int>(glassFirmwareVersion),
+                 static_cast<unsigned long>(glassI2cFrequency / 1000u));
+    } else {
+        snprintf(glassStatus, sizeof(glassStatus), "GLASS NOT FOUND");
+    }
+    M5Cardputer.Display.setTextColor(
+        kGlassConnected ? TFT_GREEN : TFT_RED, rgb565(kUiBackground));
+    M5Cardputer.Display.drawCentreString(
+        glassStatus, M5Cardputer.Display.width() / 2, 56, 1);
+    if (kGlassConnected) {
+        kGlassDisplay->setRotation(1);
+        drawGlassStartupPattern();
+        if (kGlassModel == GlassModel::Glass2) {
+            kGlass2.setAutoDisplay(false);
+        }
+    }
+    delay(750);
     M5Cardputer.Display.fillScreen(rgb565(kUiBackground));
 
     kRadioCanvas.setColorDepth(16);
@@ -570,6 +847,8 @@ void setup()
 
     resetParser();
     kFpsWindowStart = millis();
+    kGlassFrameDirty = kGlassConnected;
+    kGlassNeedsFullRefresh = kGlassConnected;
 }
 
 void loop()
@@ -582,6 +861,7 @@ void loop()
     if (kFrameDirty) {
         renderRadio();
     }
+    renderGlass(now);
     if (kStatusDirty) {
         renderStatus();
     }
