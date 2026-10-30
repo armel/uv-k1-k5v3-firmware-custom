@@ -817,6 +817,7 @@ SCENARIOS = {
     # The CW keyers on the 2 m CW segment, APRS TX on the APRS frequency.
     "cwkeyer": dict(shots=[("main", 3000)], freq=14405000),
     "cwusb": dict(shots=[("main", 3000)], freq=14405000),
+    "cwqsoauto": dict(shots=[("main", 1500)], freq=14405000),
     "aprstx": dict(shots=[("main", 3000)], freq=14480000),
     "spectrum3d": dict(shots=[("main", 6000)], rssi=band_rssi, freq=14550000),
     # The same APRS traffic: the digipeater relays it, the TNC hands it to the host.
