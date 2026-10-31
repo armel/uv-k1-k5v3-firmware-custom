@@ -643,3 +643,8 @@ You may obtain a copy of the License at
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
+The M5Stack companion apps in `tools/m5stack/` (Tab5 and Cardputer K1Viewer)
+are not covered by this license: they are distributed under the GNU General
+Public License version 3 or later. See the `LICENSE` file in each of their
+folders.

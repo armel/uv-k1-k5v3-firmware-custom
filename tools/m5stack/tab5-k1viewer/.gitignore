@@ -6,4 +6,4 @@
 /sdkconfig.old
 /sdkconfig.local
 /sdkconfig.local.old
-
+/scripts/__pycache__/

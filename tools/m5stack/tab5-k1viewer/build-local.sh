@@ -33,7 +33,8 @@ set_sdkconfig_value()
     local value="$2"
     local temporary_path="${SDKCONFIG_PATH}.tmp"
 
-    [[ -f "${SDKCONFIG_PATH}" ]] || return
+    # No file yet on a first build: idf.py creates it from sdkconfig.defaults.
+    [[ -f "${SDKCONFIG_PATH}" ]] || return 0
     grep -qx "${key}=${value}" "${SDKCONFIG_PATH}" && return
 
     awk -v key="${key}" -v setting="${key}=${value}" '

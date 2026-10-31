@@ -125,3 +125,14 @@ ghosting settings are saved in flash and restored after a power cycle.
 
 Cardputer Adv compatibility is not claimed until it has been validated on
 real hardware.
+
+## License
+
+Copyright 2026 Armel F4HWN
+
+This application is free software, distributed under the GNU General Public
+License version 3 or, at your option, any later version
+(`GPL-3.0-or-later`). See [LICENSE](LICENSE).
+
+The rest of this repository, including the K1 firmware, remains under the
+Apache License 2.0.
