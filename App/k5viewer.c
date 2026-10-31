@@ -29,6 +29,9 @@
 #endif
 #include "driver/keyboard.h"
 #include "driver/bk4819.h"
+#ifdef ENABLE_FLASHLIGHT
+#include "driver/gpio.h"
+#endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
 #include "app/rxtx_log.h"
 #endif
@@ -128,6 +131,7 @@ enum {
     K5VIEWER_FLAG_DEEP_SLEEP = 1 << 0,
     K5VIEWER_FLAG_LED_RED = 1 << 1,
     K5VIEWER_FLAG_LED_GREEN = 1 << 2,
+    K5VIEWER_FLAG_FLASHLIGHT = 1 << 3,
 };
 
 static uint8_t K5VIEWER_StateFlags(void)
@@ -144,6 +148,12 @@ static uint8_t K5VIEWER_StateFlags(void)
 
     if (BK4819_IsGpioOutSet(BK4819_GPIO6_PIN2_GREEN))
         flags |= K5VIEWER_FLAG_LED_GREEN;
+
+#ifdef ENABLE_FLASHLIGHT
+    // Pin state rather than the mode, so blink and SOS show on the viewer too.
+    if (GPIO_IsOutputPinSet(GPIO_PIN_FLASHLIGHT))
+        flags |= K5VIEWER_FLAG_FLASHLIGHT;
+#endif
 
     return flags;
 }
