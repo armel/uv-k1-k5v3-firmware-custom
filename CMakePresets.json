@@ -282,9 +282,9 @@
             "name": "CW",
             "inherits": "default",
             "cacheVariables": {
-                "EDITION_STRING": "F4HWN 6.2.0",
+                "EDITION_STRING": "F4HWN 6.3.0",
                 "TARGET": "nr7y.cw",
-                "VERSION_STRING_1": "v6.2.0",
+                "VERSION_STRING_1": "v6.3.0",
                 "VERSION_STRING_2": "",
                 "ENABLE_FMRADIO": true,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
