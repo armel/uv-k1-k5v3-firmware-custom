@@ -986,6 +986,19 @@ static void     app_tx_mute(bool on)     { if (on) BK4819_EnterTxMute(); else BK
 static void     app_tx_end(void)         { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false); RADIO_SetupRegisters(true); }
 static void     app_tx_carrier(bool on)  { BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, on); }
 static uint32_t app_tx_freq(void)        { return gTxVfo->pTX->Frequency; }
+/* API level 4: the PA setting of the app's transmissions; the VFO keeps its
+ * own power, from which the loader recomputes it when the app returns. */
+static uint8_t app_tx_power(uint8_t level)
+{
+    VFO_Info_t *const vfo = gTxVfo;
+    const uint8_t own = vfo->OUTPUT_POWER;
+    if (level <= OUTPUT_POWER_HIGH) {
+        vfo->OUTPUT_POWER = level;
+        RADIO_ConfigureSquelchAndOutputPower(vfo);
+        vfo->OUTPUT_POWER = own;
+    }
+    return own;
+}
 static void app_boot_callsign(char *buf, uint8_t len)
 {
     char raw[12]; uint8_t n = 0;
@@ -1412,6 +1425,7 @@ static const app_api_t app_api = {
     .vfo_stage           = app_vfo_stage,
 #endif
     .mr                  = app_mr,
+    .tx_power            = app_tx_power,
 };
 
 /* Hand-off guards: a chain of apps that hand off to each other for ever (a
@@ -1537,6 +1551,7 @@ static uint8_t app_launch(uint8_t slot)
     gRxVfo         = saved_rx;
     gTxVfo         = saved_tx;
     gCurrentVfo    = saved_current;
+    RADIO_ConfigureSquelchAndOutputPower(gTxVfo); /* drop a tx_power override */
     RADIO_SetupRegisters(true);
 
     /* The overlay held app code, not a valid config sector. */

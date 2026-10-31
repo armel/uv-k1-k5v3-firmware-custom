@@ -16,8 +16,11 @@ a.text("T_CALL", "CALL")
 a.text("T_CARR", "CARR")
 a.text("T_TONE", "TONE")
 a.text("T_TX_OFF", "TX OFF")
+a.text("T_READY", "READY")
 # Fox identifiers by foxFox (0..FOX_MO); FOX_CALL_MOE appends entry 0 to the callsign.
 a.table("FOX_ID", ["MOE", "MOI", "MOS", "MOH", "MO5", "MO"])
+# TX power labels by level (OUTPUT_POWER_USER..OUTPUT_POWER_HIGH).
+a.table("PWR_ID", ["USER", "LOW1", "LOW2", "LOW3", "LOW4", "LOW5", "MID", "HIGH"])
 # Sentinel-prefixed Morse (leading 1, then elements MSB-first: 0 dit, 1 dah):
 # A..Z, then 0..9, then '/'.
 a.u8("MORSE", [0x05,0x18,0x1A,0x0C,0x02,0x12,0x0E,0x10,0x04,0x17,0x0D,0x14,0x07,

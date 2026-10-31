@@ -782,7 +782,7 @@ SCENARIOS = {
                     keys=presses(2000, "MENU") + presses(2800, "6", "6", "8", "4", "2")),
     # The fox identifier alone (config: idle 30 s, MOE, TX 30 s, tone), read
     # once its three letters are keyed, during the gap before the repeat.
-    "beacon": dict(shots=[("main", 4000)], cfg=bytes([0xF5, 30, 0, 0, 30, 0])),
+    "beacon": dict(shots=[("main", 4000)], keys=presses(500, "MENU"), cfg=bytes([0xF6, 30, 0, 0, 30, 0, 7])),
     # Opened by CW Keyer (key 7): its settings in the hand-off (cwkeyer_app.c handoff_t).
     "cwmem": dict(shots=[("main", 1500)], freq=14405000, handoff_from="CW Keyer",
                   handoff=struct.pack("<BBBBhHHBBh", 0xCB, 18, 0, 0, 0, 700, 300, 1, 0, 0)),

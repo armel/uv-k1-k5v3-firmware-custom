@@ -53,7 +53,8 @@
  *      port, K-plug reserved; APP_CAP_SERIAL); blit_page, lcd_feed,
  *      viewer_update (the LCD without the K5Viewer side effect), vfo_stage
  *      (deferred update of the current VFO)
- *   4  mr: memory-channel query, scan-list name and deferred selection */
+ *   4  mr: memory-channel query, scan-list name and deferred selection;
+ *      tx_power (the PA setting of the app's own transmissions) */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  4u
 
@@ -485,6 +486,13 @@ typedef struct app_api {
      * main screen. Only one selection can be staged per run. */
     int      (*mr)(uint8_t op, uint16_t index, void *out);
 
+    /* ---- API level 4: TX power of the app's own transmissions ----
+     * level 0 (USER) to 7 (HIGH) recomputes the TX VFO's PA setting from the
+     * calibration tables; the next tx_set_params or tx_prepare keys it. The
+     * VFO keeps its own power, recomputed when app_main() returns. Any other
+     * level changes nothing. Returns the VFO's own power level. */
+    uint8_t  (*tx_power)(uint8_t level);
+
 } app_api_t;
 
 /* Serial ports and serial_ctl state bits (API level 3). */
@@ -506,7 +514,8 @@ _Static_assert(offsetof(app_api_t, handoff) == 356u &&
                offsetof(app_api_t, blit_page) == 380u &&
                offsetof(app_api_t, vfo_stage) == 392u &&
                offsetof(app_api_t, mr) == 396u &&
-               sizeof(app_api_t) == 400u,
+               offsetof(app_api_t, tx_power) == 400u &&
+               sizeof(app_api_t) == 404u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter
