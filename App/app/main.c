@@ -42,6 +42,7 @@
 #include "app/cpo.h"
 #endif
 #ifdef ENABLE_CW_MODULATOR
+#include "app/cwapp.h"
 #include "app/cwpopup.h"
 #include "app/cwrit.h"
 #endif
@@ -267,16 +268,15 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #elif defined(ENABLE_SPECTRUM)
                 APP_RunSpectrum();
                 gRequestDisplayScreen = DISPLAY_MAIN;
+#elif defined(ENABLE_CODE_PRACTICE)
+                CPO_Enter();
+                gRequestDisplayScreen = DISPLAY_CPO;
 #endif
             }
             else {
 
                 toggle_chan_scanlist();
             }
-#if defined(ENABLE_CODE_PRACTICE) && !defined(ENABLE_NOAA) && !defined(ENABLE_SPECTRUM)
-				CPO_Enter();
-				gRequestDisplayScreen = DISPLAY_CPO;
-#endif
             break;
 
         case KEY_6:
@@ -289,7 +289,13 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             if (!beep) {
 #if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#ifdef ENABLE_CW_MODULATOR
+                CW_OverlayEnter();
+#endif
                 APP_MenuOpen();            // overlay-apps selector
+#ifdef ENABLE_CW_MODULATOR
+                CW_OverlayExit();
+#endif
 #else
                 APP_RunBreakout();         // resident game (no overlay support)
 #endif

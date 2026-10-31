@@ -38,4 +38,11 @@ bool CW_LocalSidetoneHeld(void);
 // (macro recording state, playback indicator deadline, TX display holdoff).
 void CW_TimeSlice10ms(void);
 
+// Around a modal overlay app (or the app menu): the main loop, and with it
+// CW_AppUpdate, stops while it runs. Enter ends any CW TX (a QSK hang included),
+// playback and the local sidetone, and hands the keyer's pins (PA10, PA11/PA12,
+// PB15) back; Exit puts the keyer back as the current modulation wants it.
+void CW_OverlayEnter(void);
+void CW_OverlayExit(void);
+
 #endif // APP_CWAPP_H

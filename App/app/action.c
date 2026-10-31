@@ -59,6 +59,7 @@
 #endif
 
 #ifdef ENABLE_CW_MODULATOR
+#include "app/cwapp.h"
 #include "app/cwkeyer.h"
 #include "app/cwpopup.h"
 
@@ -641,7 +642,13 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 /* Open the overlay app holding a shortcut; double beep when none is installed. */
 static void ACTION_LaunchApp(uint8_t shortcut)
 {
+#ifdef ENABLE_CW_MODULATOR
+    CW_OverlayEnter();
+#endif
     const uint8_t rc = APP_LaunchOverlayShortcut(shortcut);
+#ifdef ENABLE_CW_MODULATOR
+    CW_OverlayExit();
+#endif
     if (rc != APP_OK && rc != APP_CHAIN_ABORTED)
         gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
 }
