@@ -152,6 +152,24 @@ void SETTINGS_InitEEPROM(void)
                     buf[i] = dBmCorrTable[i];
                 PY25Q16_WriteBuffer(0x00A0B9, buf, 7, false);
             }
+
+            // 6. 0x00A0C0 now holds SetRxG. Before v7 it held the unused
+            // alarm_mode byte (0 or 1), and another firmware may have left
+            // anything there: unless coming from v7 or later, start with the
+            // RX noise gate ON.
+            uint16_t ver_major = 0;
+            for (uint8_t i = 1; i < 4 && storedVersion[i] >= '0' && storedVersion[i] <= '9'; i++)
+                ver_major = ver_major * 10 + (storedVersion[i] - '0');
+
+            if (storedVersion[0] != 'v' || ver_major < 7)
+            {
+                uint8_t rxg = 0;
+                PY25Q16_ReadBuffer(0x00A0C0, &rxg, 1);
+                if (rxg != 1) {
+                    rxg = 1;
+                    PY25Q16_WriteBuffer(0x00A0C0, &rxg, 1, false);
+                }
+            }
         }
     }
 
@@ -307,6 +325,9 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 
     // 0EA8..0EAF
     PY25Q16_ReadBuffer(0x00A0A8 + 0x18, Data, 8);
+    #ifdef ENABLE_FEAT_F4HWN_AUDIO
+        gSetting_set_rxg = (Data[0] < 2) ? Data[0] : true;
+    #endif
     gEeprom.ROGER                          = (Data[1] <  3) ? Data[1] : ROGER_MODE_OFF;
     gEeprom.REPEATER_TAIL_TONE_ELIMINATION = (Data[2] < 11) ? Data[2] : 0;
     gEeprom.TX_VFO                         = (Data[3] <  2) ? Data[3] : 0;
@@ -1079,7 +1100,10 @@ void SETTINGS_SaveSettings(void)
 
     // 0x0EA8
     State = SecBuf + 0x18;
-    State[0] = false;
+    #ifdef ENABLE_FEAT_F4HWN_AUDIO
+        State[0] = gSetting_set_rxg;
+    #endif
+    // Without ENABLE_FEAT_F4HWN_AUDIO, State[0] (SetRxG) is kept as read from flash
     State[1] = gEeprom.ROGER;
     State[2] = gEeprom.REPEATER_TAIL_TONE_ELIMINATION;
     State[3] = gEeprom.TX_VFO;

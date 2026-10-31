@@ -118,6 +118,7 @@
     MENU_ITEM("SetGUI",      MENU_SET_GUI       )
 #ifdef ENABLE_FEAT_F4HWN_AUDIO
     MENU_ITEM("SetRxA",      MENU_SET_AUD       )
+    MENU_ITEM("SetRxG",      MENU_SET_RXG       ) // RX AF noise gate
 #endif
     MENU_ITEM("SetTmr",      MENU_SET_TMR       )
 #ifdef ENABLE_FEAT_F4HWN_SLEEP

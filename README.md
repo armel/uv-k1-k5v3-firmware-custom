@@ -393,6 +393,7 @@ the receiving radio must be restarted after a successful Flash clone.
   - `SetMet`: S-meter style,
   - `SetGUI`: VFO information style,
   - `SetRxA`: RX audio profile,
+  - `SetRxG`: RX audio noise gate (ON mutes the hiss between words, OFF keeps very weak modulation audible; always ON while the RX compander is active),
   - `SetTmr`: RX and TX timers,
   - `SetOff`: automatic deep-sleep delay,
   - `SetNFM`: narrow-FM bandwidth,
