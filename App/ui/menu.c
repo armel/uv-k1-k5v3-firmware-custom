@@ -1702,10 +1702,11 @@ void UI_DisplayMenu(void)
                 break;
 
             case MENU_SET_RXG:
-                if (RADIO_IsRxCompanderOn(gTxVfo))
-                    strcpy(String, "ON\n(Compnd)");   // forced by the RX expander
-                else
-                    FW_ASSETS_STRCPY(String, gSubMenu_OFF_ON, gSubMenuSelection);
+                FW_ASSETS_STRCPY(String, gSubMenu_OFF_ON, gSubMenuSelection);
+                if (RADIO_IsRxCompanderOn(gTxVfo)) {   // forced ON by the RX expander
+                    strcpy(top_right_badge, "COMPND");
+                    top_right_badge_line = 5;
+                }
                 break;
         #endif
 

@@ -491,8 +491,9 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
                 *pMax = ARRAY_SIZE(gSubMenu_SET_AUD_FM) - 1;
             break;
         case MENU_SET_RXG:
-            //*pMin = 0;
-            *pMax = RADIO_IsRxCompanderOn(gTxVfo) ? 0 : ARRAY_SIZE(gSubMenu_OFF_ON) - 1;
+            // forced ON by the RX expander: ON is the only choice
+            *pMin = RADIO_IsRxCompanderOn(gTxVfo) ? 1 : 0;
+            *pMax = ARRAY_SIZE(gSubMenu_OFF_ON) - 1;
             break;
         #endif
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
@@ -1343,7 +1344,7 @@ void MENU_ShowCurrentSetting(void)
                 gSubMenuSelection = gSetting_set_audio_fm;
             break;
         case MENU_SET_RXG:
-            gSubMenuSelection = RADIO_IsRxCompanderOn(gTxVfo) ? 0 : gSetting_set_rxg;
+            gSubMenuSelection = RADIO_IsRxCompanderOn(gTxVfo) ? 1 : gSetting_set_rxg;
             break;
         #endif
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
