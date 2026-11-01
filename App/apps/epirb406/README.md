@@ -10,7 +10,7 @@ Status:
 |---|---|
 | Feasibility: can an app read the demodulated signal? | **Done**: yes, on PA4 (see `../lab406/README.md`) |
 | Decoder core (`dec406.c`), host-tested on synthetic audio | **Done**: 17/17 tests pass |
-| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes; v2.9: help page and homing to Sig Finder on 121.5 / 243 MHz, tested on a UV-K1 (2026-10-22); v3.0: key 7, the position as a QR code with QR Map |
+| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes; v2.9: help page and homing to Sig Finder on 121.5 / 243 MHz, tested on a UV-K1 (2026-10-22); v3.0: key 7, the position as a QR code with QR Map; v3.1: key 2, the position to Nav 406 for homing with a GPS |
 | Bench test with the beacon generator on 433.650 MHz | **Done** (2026-09-27) |
 | Bench test with a Flipper Zero on 433.650 MHz (`test/flipper406.py`) | **Done** (2026-09-30, v1.6) |
 
@@ -26,11 +26,14 @@ Status:
    (243 MHz) takes you to Sig Finder to home on it, and back here on EXIT
    (see [Homing with Sig Finder](#homing-with-sig-finder)). Key 7 shows its
    position as a QR code for a phone's map
-   (see [Position as a QR code](#position-as-a-qr-code)).
+   (see [Position as a QR code](#position-as-a-qr-code)). Key 2 sends it to
+   Nav 406, which gives distance and direction from a GPS on USB-C
+   (see [Homing with a GPS](#homing-with-a-gps-nav-406)).
 
 Needs a Labs or Fusion_ firmware v6.3.0 or later (app API level 3). Keys 8 / 9
 also need `vfo_stage` (v6.3.0, with the BEAM bridge) and Sig Finder 1.9 or
-later installed under its own name; key 7 needs QR Map 1.0 or later.
+later installed under its own name; key 7 needs QR Map 1.0 or later; key 2
+needs Nav 406 0.6 or later and a GNSS receiver wired to USB-C.
 
 Every decoded message plays three 1536 Hz beeps (150 ms on, 150 ms off), even
 with the speaker off, so a beacon heard while the radio is in a pocket is not
@@ -62,6 +65,7 @@ Keys (UV-K5 and UV-K1):
 | 5 | Back to the VFO frequency |
 | 1 | Speaker on/off, saved on exit; off by default |
 | 0 | Clear all five messages and the counters |
+| 2 | Homing with a GPS: after MENU confirms, Nav 406 gets the selected message's position and ID (the same message as QR Map's) and gives distance and azimuth from a GNSS receiver on USB-C; EXIT there brings you back (see [Homing with a GPS](#homing-with-a-gps-nav-406)) |
 | 7 | Position as a QR code: after MENU confirms, QR Map shows the selected message's position, exactly as decoded; EXIT there brings you back (see [Position as a QR code](#position-as-a-qr-code)) |
 | 8 | Homing on 121.5 MHz: after MENU confirms, VFO on 121.500 MHz AM narrow and Sig Finder; EXIT there brings you back (see [Homing with Sig Finder](#homing-with-sig-finder)) |
 | 9 | Same on 243 MHz (military), VFO on 243.000 MHz AM wide |
@@ -172,6 +176,29 @@ off, chosen one by one on the size they give: 76 bytes. The help page merges
 keys 4, 5 and 6 into one line to add key 7: its size is the stack buffer of
 `handleKey()`, and 8 more bytes there cost 24 bytes of code. **4,080 bytes,
 16 free.**
+
+## Homing with a GPS (Nav 406)
+
+Key 2 hands the selected message's position to [Nav 406](../nav406/README.md),
+which walks you to it: distance, azimuth and the turn to make, from an NMEA
+0183 GNSS receiver wired to the USB-C connector (TX on D+, 9600 baud 8N1).
+
+1. Nothing happens without a decoded message with a position.
+2. A confirmation page (`GO TO THIS POSITION`, `THEN NAV 406 (GPS)`,
+   `MENU OK   OTHER KEY NO`) comes first, as for 7, 8 and 9.
+3. The message is the one key 7 sends to QR Map: 24 bytes from `latS`,
+   latitude and longitude in centi-arcseconds, then the 15-hex ID. Nav 406
+   saves the position (it survives a round trip to Sig Finder and a launch
+   from the Apps menu) and infers its precision from it: a position on the
+   15', 4' or 2' grid is coarse, else fine (4 s steps).
+4. EXIT in Nav 406 launches EPIRB 406 again, for a fresher decode. Nav 406 not
+   installed: the key does nothing.
+
+v3.1 space: the four confirmation pages (7 QR Map, 8 / 9 Sig Finder, 2 Nav
+406) sit one after the other in the assets at the same size, and
+`handoff()` picks page `(key - 7) & 3` instead of a chain of tests; a
+`_Static_assert` checks the order. The help line `2 / 7  NAV / QR MAP` keeps
+the help page within 184 bytes. **Still 4,080 bytes, 16 free.**
 
 ## Signal path on the radio
 
@@ -289,7 +316,8 @@ test/run_tests.sh
   12-bit around the measured 518 bias, full-scale noise when no carrier.
 - `host_dec406.c` runs the decoder over the samples and prints each message;
   `host_dec406 -x HEX` parses a frame directly, without the audio chain;
-  `host_dec406 -m HEX` prints the message key 7 hands to QR Map (QR Map's
+  `host_dec406 -m HEX` prints the message keys 7 and 2 hand to QR Map and Nav
+  406 (QR Map's
   tests decode the code of every T.001 position through it).
 
 ### Every T.001 coding option (`test/t001frames.py`)
@@ -516,4 +544,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current source: **v3.0** (key 7, the position to QR Map): 4,080 of 4,096 bytes (v2.9: 4,072; v2.6, three decode beeps: 4,092; v2.5, one beep: 4,088; v2.4: 4,072).
+Current source: **v3.1** (key 2, the position to Nav 406): 4,080 of 4,096 bytes (v3.0, key 7 to QR Map: 4,080; v2.9: 4,072; v2.6, three decode beeps: 4,092; v2.5, one beep: 4,088; v2.4: 4,072).

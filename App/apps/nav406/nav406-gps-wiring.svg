@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 490" width="960" height="490" font-family="Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="960" height="490" fill="#ffffff"/>
+  <text x="480" y="34" text-anchor="middle" font-size="20" font-weight="bold" fill="#111">Nav 406: GNSS receiver wiring on the UV-K1 USB-C connector</text>
+
+  <!-- GNSS module -->
+  <rect x="40" y="60" width="200" height="220" rx="8" fill="#f3f6fa" stroke="#333" stroke-width="2"/>
+  <text x="140" y="92" text-anchor="middle" font-size="18" font-weight="bold" fill="#111">GNSS receiver</text>
+  <text x="140" y="114" text-anchor="middle" font-size="14" fill="#333">NMEA 0183 (RMC sentence)</text>
+  <text x="140" y="134" text-anchor="middle" font-size="13" fill="#555">TTL serial 3.3 V, 9600 baud 8N1</text>
+  <text x="228" y="165" text-anchor="end" font-size="15" font-weight="bold" fill="#1f6fd1">TX</text>
+  <text x="228" y="215" text-anchor="end" font-size="15" fill="#777">RX</text>
+  <text x="90" y="268" text-anchor="middle" font-size="15" font-weight="bold" fill="#d62828">VCC</text>
+  <text x="170" y="268" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">GND</text>
+  <circle cx="240" cy="160" r="5" fill="#1f6fd1"/>
+  <circle cx="240" cy="210" r="5" fill="#999"/>
+  <circle cx="90" cy="280" r="5" fill="#d62828"/>
+  <circle cx="170" cy="280" r="5" fill="#222"/>
+
+  <!-- RX not connected -->
+  <line x1="240" y1="210" x2="300" y2="210" stroke="#999" stroke-width="3"/>
+  <text x="308" y="215" font-size="13" fill="#777">RX not connected</text>
+
+  <!-- Power -->
+  <rect x="40" y="380" width="200" height="90" rx="8" fill="#fff6e8" stroke="#333" stroke-width="2"/>
+  <text x="140" y="420" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">GNSS power supply</text>
+  <text x="140" y="442" text-anchor="middle" font-size="13" fill="#333">battery or power bank</text>
+  <text x="140" y="460" text-anchor="middle" font-size="13" fill="#333">3.3 to 5 V, per the receiver</text>
+  <text x="102" y="398" font-size="15" font-weight="bold" fill="#d62828">+</text>
+  <text x="182" y="398" font-size="15" font-weight="bold" fill="#222">−</text>
+  <circle cx="90" cy="380" r="5" fill="#d62828"/>
+  <circle cx="170" cy="380" r="5" fill="#222"/>
+
+  <!-- VCC wire -->
+  <line x1="90" y1="280" x2="90" y2="380" stroke="#d62828" stroke-width="4"/>
+  <!-- GND bus: GPS, supply, radio -->
+  <line x1="170" y1="280" x2="170" y2="380" stroke="#222" stroke-width="4"/>
+  <polyline points="170,330 450,330 450,270 620,270" fill="none" stroke="#222" stroke-width="4"/>
+  <circle cx="170" cy="330" r="6" fill="#222"/>
+  <text x="300" y="352" text-anchor="middle" font-size="13" fill="#222">common ground required</text>
+
+  <!-- TX to D+ -->
+  <line x1="240" y1="160" x2="620" y2="160" stroke="#1f6fd1" stroke-width="4"/>
+  <text x="430" y="150" text-anchor="middle" font-size="14" font-weight="bold" fill="#1f6fd1">TX → D+ (serial data, 9600 baud 8N1)</text>
+
+  <!-- Radio USB-C -->
+  <rect x="620" y="60" width="300" height="300" rx="8" fill="#eef7ee" stroke="#333" stroke-width="2"/>
+  <text x="770" y="86" text-anchor="middle" font-size="18" font-weight="bold" fill="#111">UV-K1, USB-C connector</text>
+  <circle cx="620" cy="110" r="5" fill="#d62828"/>
+  <circle cx="620" cy="160" r="5" fill="#1f6fd1"/>
+  <circle cx="620" cy="210" r="5" fill="#2a9d4b"/>
+  <circle cx="620" cy="270" r="5" fill="#222"/>
+  <circle cx="620" cy="320" r="5" fill="#999"/>
+  <text x="632" y="115" font-size="14" fill="#d62828">VBUS  A4 A9 B4 B9</text>
+  <text x="632" y="165" font-size="14" font-weight="bold" fill="#1f6fd1">D+  A6 / B6  (PA12)</text>
+  <text x="632" y="215" font-size="14" fill="#2a9d4b">D−  A7 / B7  (PA11)</text>
+  <text x="632" y="275" font-size="14" font-weight="bold" fill="#222">GND  A1 A12 B1 B12</text>
+  <text x="632" y="325" font-size="14" fill="#777">CC1 / CC2  A5 / B5</text>
+  <text x="770" y="347" text-anchor="middle" font-size="12" fill="#555">input with pull-up, software UART</text>
+
+  <!-- VBUS: do not connect -->
+  <line x1="560" y1="110" x2="620" y2="110" stroke="#d62828" stroke-width="3" stroke-dasharray="6 4"/>
+  <line x1="548" y1="98" x2="572" y2="122" stroke="#d62828" stroke-width="4"/>
+  <line x1="548" y1="122" x2="572" y2="98" stroke="#d62828" stroke-width="4"/>
+  <text x="540" y="104" text-anchor="end" font-size="14" font-weight="bold" fill="#d62828">VBUS: DO NOT CONNECT</text>
+  <text x="540" y="122" text-anchor="end" font-size="12" fill="#d62828">no transmitting while charging (manual)</text>
+
+  <!-- D- option -->
+  <line x1="560" y1="210" x2="620" y2="210" stroke="#2a9d4b" stroke-width="3" stroke-dasharray="6 4"/>
+  <text x="552" y="238" text-anchor="end" font-size="13" fill="#2a9d4b">option: TX on D−,</text>
+  <text x="552" y="254" text-anchor="end" font-size="13" fill="#2a9d4b">select D− with the app's key 2</text>
+
+  <!-- CC -->
+  <line x1="580" y1="320" x2="620" y2="320" stroke="#999" stroke-width="3"/>
+  <text x="572" y="325" text-anchor="end" font-size="13" fill="#777">not connected</text>
+
+</svg>

@@ -36,7 +36,9 @@
  *   gives that VFO back and launches EPIRB 406 again · 7: after a MENU
  *   confirmation, QR Map opens (handoff) with the selected message's position
  *   as decoded (centi-arcseconds) and its beacon ID; EXIT there launches
- *   EPIRB 406 again. Both hand-offs leave the app: the history is cleared.
+ *   EPIRB 406 again · 2: the same message to Nav 406 (homing with a GPS on
+ *   USB-C), after a MENU confirmation; EXIT there launches EPIRB 406 again.
+ *   The hand-offs leave the app: the history is cleared.
  * The loader re-runs RADIO_SetupRegisters on exit (amplifier off); the resident capture
  * (af_capture_close) restores the ADC, PA4, the DAC and its clock.
  * Screen texts and protocol names are read-only assets (gen_assets.py, API
@@ -362,21 +364,27 @@ _Static_assert(offsetof(dec406_info_t,lonS)==offsetof(dec406_info_t,latS)+4u &&
                8u+sizeof((dec406_info_t*)0)->id<=APP_HANDOFF_MAX,
                "QR Map hand-off: latS, lonS and id must follow each other");
 
+_Static_assert(T_ASK121==T_ASKQR+ASK_SIZE && T_ASK243==T_ASKQR+2u*ASK_SIZE &&
+               T_ASKNAV==T_ASKQR+3u*ASK_SIZE && APP_KEY_2==2 && APP_KEY_7==7 &&
+               APP_KEY_8==8 && APP_KEY_9==9,
+               "hand-off pages: (key - 7) & 3 must pick 7 QR, 8 121.5, 9 243, 2 Nav");
+
 /* Hand-offs, after a confirmation page that ends with the target's name.
- * Key 7: the selected position to QR Map, exactly as decoded (centi-
+ * Key 7: the selected position to QR Map (key 2: to Nav 406, same message), exactly as decoded (centi-
  * arcseconds), then the beacon ID as its label; not installed: nothing
  * happens. Keys 8 / 9: homing,
  * 121.5 MHz or 243 MHz: stage the VFO and hand off to Sig Finder. */
 __attribute__((noinline)) static void handoff(char *b,uint8_t key){
     const app_api_t *A=g.A;
     dec406_info_t *in=&g.history[g.cur]->info;
-    if(key==APP_KEY_7){ if(!g.count||!in->hasPos) return; }
+    const bool pos=key<APP_KEY_8;        /* 2 and 7: the position hand-offs */
+    if(pos){ if(!g.count||!in->hasPos) return; }
     /* vfo_stage (API level 3, appended late): absent from older firmware */
     else if(A->api_size<offsetof(app_api_t,vfo_stage)+sizeof A->vfo_stage||!A->vfo_stage) return;
     const bool mil=key==APP_KEY_9;
-    const char *name=page(b,key==APP_KEY_7?T_ASKQR:mil?T_ASK243:T_ASK121,ASK_SIZE,ASK_LINES);
+    const char *name=page(b,(uint16_t)(T_ASKQR+((key-7u)&3u)*ASK_SIZE),ASK_SIZE,ASK_LINES);
     if(nextKey()!=APP_KEY_MENU) return;
-    if(key==APP_KEY_7){ g.running=!A->handoff(name,&in->latS,8u+sizeof in->id); return; }
+    if(pos){ g.running=!A->handoff(name,&in->latS,8u+sizeof in->id); return; }
     app_beam_channel_t ch;
     A->beam_get(&ch);            /* the current VFO: other fields kept */
     /* handoff() copies the message now: Sig Finder gets the launch VFO, every
@@ -409,6 +417,7 @@ static void handleKey(uint8_t key){
         case APP_KEY_1:    g.cfg.spk^=1u; rxAudio(); break;
         case APP_KEY_STAR: g.cfg.view^=VIEW_COMPACT; g.top=0; break;
         case APP_KEY_5:    g.offSteps=0; tune(); break;
+        case APP_KEY_2:
         case APP_KEY_7:
         case APP_KEY_8:
         case APP_KEY_9:    handoff(b,key); break;

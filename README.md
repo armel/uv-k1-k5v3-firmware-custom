@@ -151,7 +151,7 @@ The current app collection includes:
   and ToneCall,
 - digital and signal apps: ACARS RX, AIS RX, ATIS RX, ATIS DSC RX, APRS RX,
   APRS TX, APRS Edit, APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW Mem,
-  CW Mem Edit, CW Trainer, CW USB, SSTV, POCSAG RX, Sonde M10, Sonde M20, Sonde RS41, GeoNav, EPIRB 406 and Scan 406,
+  CW Mem Edit, CW Trainer, CW USB, SSTV, POCSAG RX, Sonde M10, Sonde M20, Sonde RS41, GeoNav, EPIRB 406, Scan 406 and Nav 406,
 - tools and diagnostics: ChannelBook, AF Scope, AF Spectro, QR Map, Resistor,
   System Info and Flash Map,
 - games and demos: Breakout, Cube3D, Hell Maze, Minesweeper, Plasma, Rapid Roll,
@@ -164,6 +164,10 @@ APRS Edit app edits the callsign, SSID, digipeater path, position, symbol and
 89-character comment.
 GeoNav reuses that APRS position as the home QTH and shows the bearing and
 distance to a position handed off by the RS41, M10 or M20 radiosonde app.
+Nav 406 does the same for a 406 MHz beacon decoded by EPIRB 406 (key 2), from a
+live position: an NMEA 0183 GNSS receiver wired to the USB-C connector (TX on
+D+, 9600 baud 8N1). Walking, its dial turns course up and the arrow is the turn
+to make; keys 8 / 9 open Signal Finder on 121.5 / 243 MHz for the last metres.
 APRS DIGI is a deliberately limited `WIDE1-1` fill-in digipeater with
 path-independent duplicate suppression and channel-busy protection.
 KISS TNC makes the radio the TNC of APRSdroid (or any KISS client) over the
