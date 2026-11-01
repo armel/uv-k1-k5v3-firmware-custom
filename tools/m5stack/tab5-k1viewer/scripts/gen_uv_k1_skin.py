@@ -29,6 +29,9 @@ Outputs, relative to the tab5-k1viewer folder:
   assets/uv-k1-screen-skin.svg     screen-only firmware background
   assets/k1-connect-icon.svg  "connect the radio" icon, shown on black when no K1
   assets/k1-connect-text.svg  "connect the radio" message under the icon
+  assets/k1-connect-credit.svg  author and license, at the bottom of that screen
+  assets/k1-toast-*.svg       toasts after a touch on the plate: orientation lock,
+                              key beep, brightness gauge
   main/uv_k1_skin_layout.h    portrait, landscape and screen-only layouts: glass, LCD,
                               LED, torch, keys
   main/uv_k1_skin_images.cmake  images embedded by the build, with their sizes
@@ -102,6 +105,14 @@ TORCH_HALO = 24
 TORCH_BEAM_SPREAD = 1.0               # beam half-width growth per pixel of rise
 CONNECT_ICON = (160, 360, 400, 360)  # screen coordinates of the "connect" icon and message
 CONNECT_TEXT = (60, 760, 600, 130)
+# Author and license at the bottom of the screen; the viewer writes the
+# application version on one more line, 18 px tall, right under it.
+CONNECT_CREDIT = (60, 1178, 600, 56)
+PLATE = (155, 180, 410, 76)           # QUANSHENG plate, in drawing coordinates
+PLATE_HIT = 6                         # touch margin around the plate
+TOAST = (256, 150)                    # message shown after a touch on the plate
+TOAST_COLOR = '#181c20'               # exact in RGB565, like the panel drawn around it
+TOAST_BRIGHTNESS_LEVELS = 4           # backlight levels, brightest first
 CONNECT_BLUE = '#3d93e6'
 
 # ---- landscape layout (1280x720): large LCD on the left, keypad on the right ----
@@ -122,8 +133,9 @@ L_KEYPAD_SCALE = 0.855
 L_PLATES_ORIGIN = (84, 694)           # portrait point placed at (L_KEYPAD_X, plates y)
 L_KEYS_ORIGIN = (84, 782)             # portrait point placed at (L_KEYPAD_X, keys y)
 L_TORCH_RX, L_TORCH_RY = 20.0, 8.0    # torch seen from above: the whole lens shows
-L_CONNECT_ICON = (440, 110)
-L_CONNECT_TEXT = (340, 500)
+L_CONNECT_ICON = (440, 84)
+L_CONNECT_TEXT = (340, 474)
+L_CONNECT_CREDIT = (340, 630)
 
 # ---- screen-only layout (1280x720, USB-A port on the left): the LCD alone ----
 # The screen fills nearly the full height; the left band holds the torch, the
@@ -449,7 +461,8 @@ def build_svg(lcd, led_lit):
               f'dominant-baseline="central" transform="rotate(-90 54 {cy:g})">{label}</text>')
 
     # ---- QUANSHENG logo plate ----
-    o('<rect x="155" y="180" width="410" height="76" rx="6" fill="#0b0b0c" stroke="#3a3c40" stroke-width="1.5"/>')
+    px, py, pw, ph = PLATE
+    o(f'<rect x="{px}" y="{py}" width="{pw}" height="{ph}" rx="6" fill="#0b0b0c" stroke="#3a3c40" stroke-width="1.5"/>')
     o('<g fill="none" stroke="#f4f5f6" stroke-width="5" stroke-linecap="round">')
     for r in (11, 20, 29):
         a0, a1 = math.radians(195), math.radians(262)
@@ -673,6 +686,71 @@ def build_connect_text_svg():
             '</svg>\n')
 
 
+def build_connect_credit_svg():
+    _, _, w, h = CONNECT_CREDIT
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">\n'
+            f'<rect width="{w}" height="{h}" fill="#000"/>\n'
+            f'<text x="{w / 2:g}" y="21" {FONT} font-size="19" font-weight="600" text-anchor="middle" '
+            'fill="#7d828a">K1Viewer \u00b7 \u00a9 2026 Armel F4HWN</text>\n'
+            f'<text x="{w / 2:g}" y="47" {FONT} font-size="16" text-anchor="middle" fill="#5a5f66">'
+            'Free software under the GNU GPL v3 or later</text>\n'
+            '</svg>\n')
+
+
+def build_toast_svg(icon, text, text_y=128):
+    """Toast shown after a touch on the plate: an icon above a short message,
+    on the flat colour of the panel the viewer draws around it."""
+    w, h = TOAST
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">\n'
+            f'<rect width="{w}" height="{h}" fill="{TOAST_COLOR}"/>\n'
+            + icon
+            + f'<text x="{w / 2:g}" y="{text_y}" {FONT} font-size="22" font-weight="600" text-anchor="middle" '
+            f'fill="#e6e8eb">{text}</text>\n'
+            '</svg>\n')
+
+
+def toast_lock_svg(locked):
+    """Padlock, closed or with its shackle lifted out of the body."""
+    shackle = 'M114 46 V32 A14 14 0 0 1 142 32 V46' if locked else 'M142 46 V24 A14 14 0 0 0 114 24 V30'
+    icon = (f'<path d="{shackle}" fill="none" stroke="#c9cdd3" stroke-width="7" stroke-linecap="round"/>\n'
+            f'<rect x="102" y="44" width="52" height="40" rx="8" fill="{CONNECT_BLUE if locked else "#c9cdd3"}"/>\n'
+            f'<circle cx="128" cy="60" r="5" fill="{TOAST_COLOR}"/>\n'
+            f'<rect x="126" y="62" width="4" height="10" rx="2" fill="{TOAST_COLOR}"/>\n')
+    return build_toast_svg(icon, 'Orientation locked' if locked else 'Orientation unlocked', 122)
+
+
+def toast_beep_svg(on):
+    """Loudspeaker with sound waves, or crossed out."""
+    icon = (f'<path d="M104 38 H116 L132 24 V72 L116 58 H104 Z" fill="#c9cdd3" stroke="#c9cdd3" '
+            'stroke-width="2" stroke-linejoin="round"/>\n')
+    if on:
+        waves = ''.join(f'<path d="M{132 + r * math.cos(-0.7):.1f} {48 + r * math.sin(-0.7):.1f} '
+                        f'A{r} {r} 0 0 1 {132 + r * math.cos(0.7):.1f} {48 + r * math.sin(0.7):.1f}"/>'
+                        for r in (11, 21))
+        icon += (f'<g fill="none" stroke="{CONNECT_BLUE}" stroke-width="5" stroke-linecap="round">'
+                 f'{waves}</g>\n')
+    else:
+        icon += ('<g stroke="#8b9097" stroke-width="5" stroke-linecap="round">'
+                 '<line x1="142" y1="39" x2="158" y2="57"/><line x1="158" y1="39" x2="142" y2="57"/></g>\n')
+    return build_toast_svg(icon, 'Key beep on' if on else 'Key beep off', 122)
+
+
+def toast_brightness_svg(level):
+    """Sun and a gauge with one bar per backlight level; level 0 is the brightest."""
+    rays = ''.join(f'<line x1="{128 + 17 * math.cos(a):.1f}" y1="{48 + 17 * math.sin(a):.1f}" '
+                   f'x2="{128 + 25 * math.cos(a):.1f}" y2="{48 + 25 * math.sin(a):.1f}"/>'
+                   for a in (i * math.pi / 4 for i in range(8)))
+    lit = TOAST_BRIGHTNESS_LEVELS - level
+    x0 = (TOAST[0] - (TOAST_BRIGHTNESS_LEVELS * 44 - 8)) // 2
+    bars = ''.join(f'<rect x="{x0 + i * 44}" y="88" width="36" height="8" rx="4" '
+                   f'fill="{CONNECT_BLUE if i < lit else "#3a3f46"}"/>'
+                   for i in range(TOAST_BRIGHTNESS_LEVELS))
+    icon = (f'<circle cx="128" cy="48" r="11" fill="#f2c94c"/>\n'
+            f'<g stroke="#f2c94c" stroke-width="4" stroke-linecap="round">{rays}</g>\n'
+            f'{bars}\n')
+    return build_toast_svg(icon, 'Brightness', 132)
+
+
 def led_geometry(dx, dy, vertical=False):
     """RX/TX light pipe moved by (dx, dy) from its portrait drawing, with its glow
     box. A vertical pipe is turned a quarter turn counter-clockwise about its centre."""
@@ -732,9 +810,16 @@ def landscape_column():
     return pill_y, plates_y, keys_y
 
 
+def plate_hit(x, y, w, h):
+    """Touch area of the QUANSHENG plate drawn at (x, y, w, h), with its margin."""
+    x0, y0 = math.floor(x - PLATE_HIT), math.floor(y - PLATE_HIT)
+    return (x0, y0, math.ceil(x + w + PLATE_HIT) - x0, math.ceil(y + h + PLATE_HIT) - y0)
+
+
 def layout_data():
     """Screen geometry of the portrait, landscape and screen-only layouts, for the C header."""
     keys = [(label, code, x, y + DY, w, h) for label, code, x, y, w, h in key_rects()]
+    px, py, pw, ph = PLATE
     portrait = dict(
         name='portrait', size=(W, H),
         glass=(GLASS[0], GLASS[1] + DY, GLASS[2], GLASS[3]),
@@ -745,7 +830,8 @@ def layout_data():
                     SIDE_KEY_RADIUS) for label, code, y, h, hit_y, hit_h in side_key_hits()],
         led=led_geometry(0, DY),
         torch=torch_geometry(TORCH_X, TORCH_Y + DY, TORCH_RX, TORCH_RY, TORCH_TOP + DY),
-        connect_icon=CONNECT_ICON[:2], connect_text=CONNECT_TEXT[:2])
+        plate=plate_hit(px, py + DY, pw, ph),
+        connect_icon=CONNECT_ICON[:2], connect_text=CONNECT_TEXT[:2], connect_credit=CONNECT_CREDIT[:2])
 
     glass, lcd = bezel_glass(L_BEZEL, L_LCD_CELL_W, L_LCD_ROW_NUM, L_LCD_ROW_DEN, L_GLASS_MARGIN)
     vx, vy = L_KEYS_ORIGIN
@@ -754,6 +840,8 @@ def layout_data():
     s = L_KEYPAD_SCALE
     cx, top = L_TOP_BAR
     m = L_PILL_HIT
+    # The plate is placed by landscape_frame: its point (360, 180) at (lcx, ltop).
+    lcx, ltop, ls = L_LOGO
     landscape = dict(
         name='landscape', size=(LW, LH), glass=glass, lcd=lcd,
         cell_w=L_LCD_CELL_W, row=(L_LCD_ROW_NUM, L_LCD_ROW_DEN),
@@ -765,17 +853,22 @@ def layout_data():
                    for label, code, x in L_PILLS],
         led=led_geometry(cx - 75 - LED_CENTER_X, top + 12 - LED_TOP_Y),
         torch=torch_geometry(cx + 75, top + 23, L_TORCH_RX, L_TORCH_RY, LH),
-        connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT)
+        plate=plate_hit(lcx + (px - 360) * ls, ltop + (py - 180) * ls, pw * ls, ph * ls),
+        connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT, connect_credit=L_CONNECT_CREDIT)
 
     glass, lcd = bezel_glass(S_BEZEL, S_LCD_CELL_W, S_LCD_ROW_NUM, S_LCD_ROW_DEN, S_GLASS_MARGIN)
     (led_x, led_y), (torch_x, torch_y) = S_LED_POD, S_TORCH_POD
+    # The plate is turned a quarter turn counter-clockwise about its point
+    # (360, 218), placed at the centre of the band (see build_screen_svg).
+    scx, scy, ss = S_PLATE
     screen = dict(
         name='screen', size=(LW, LH), glass=glass, lcd=lcd,
         cell_w=S_LCD_CELL_W, row=(S_LCD_ROW_NUM, S_LCD_ROW_DEN),
         key_radius=0, keys=[], side_keys=[],
         led=led_geometry(led_x - LED_CENTER_X, led_y - (LED_TOP_Y + LED_BOT_Y) / 2, vertical=True),
         torch=torch_geometry(torch_x, torch_y, L_TORCH_RY, L_TORCH_RX, LH, beam=0.0),
-        connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT)
+        plate=plate_hit(scx + (py - 218) * ss, scy - (px + pw - 360) * ss, ph * ss, pw * ss),
+        connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT, connect_credit=L_CONNECT_CREDIT)
     return portrait, landscape, screen
 
 
@@ -978,10 +1071,13 @@ def c_layout(d):
           for field in ('x', 'y', 'rx', 'ry', 'top', 'halo', 'beam_spread', 'beam')],
         f'        .box = {c_rect(torch["box"])},',
         '    },',
+        f'    .plate = {c_rect(d["plate"])},',
         f'    .connect_icon_x = {d["connect_icon"][0]},',
         f'    .connect_icon_y = {d["connect_icon"][1]},',
         f'    .connect_text_x = {d["connect_text"][0]},',
         f'    .connect_text_y = {d["connect_text"][1]},',
+        f'    .connect_credit_x = {d["connect_credit"][0]},',
+        f'    .connect_credit_y = {d["connect_credit"][1]},',
         '};',
     ]
     return '\n'.join(lines) + '\n'
@@ -1049,10 +1145,13 @@ typedef struct {
     uint8_t side_key_count;
     skin_led_t led;
     skin_torch_t torch;
+    skin_rect_t plate;          /* touch area of the QUANSHENG plate */
     int16_t connect_icon_x;
     int16_t connect_icon_y;
     int16_t connect_text_x;
     int16_t connect_text_y;
+    int16_t connect_credit_x;
+    int16_t connect_credit_y;
 } skin_layout_t;
 '''
 
@@ -1081,11 +1180,22 @@ def build_layout_header():
         '#include <stddef.h>',
         '#include <stdint.h>',
         '',
-        '/* "Connect your UV-K1" icon and message, shown on black while no K1 is connected. */',
+        '/* "Connect your UV-K1" icon and message, shown on black while no K1 is connected,',
+        ' * with the author and license at the bottom. */',
         f'#define SKIN_CONNECT_ICON_W   {CONNECT_ICON[2]}',
         f'#define SKIN_CONNECT_ICON_H   {CONNECT_ICON[3]}',
         f'#define SKIN_CONNECT_TEXT_W   {CONNECT_TEXT[2]}',
         f'#define SKIN_CONNECT_TEXT_H   {CONNECT_TEXT[3]}',
+        f'#define SKIN_CONNECT_CREDIT_W {CONNECT_CREDIT[2]}',
+        f'#define SKIN_CONNECT_CREDIT_H {CONNECT_CREDIT[3]}',
+        '',
+        '/* Toasts shown after a touch on the plate (orientation lock, key beep,',
+        ' * brightness gauge with one image per backlight level), on a flat colour',
+        ' * exact in RGB565. */',
+        f'#define SKIN_TOAST_W          {TOAST[0]}',
+        f'#define SKIN_TOAST_H          {TOAST[1]}',
+        f'#define SKIN_TOAST_COLOR      0x{TOAST_COLOR[1:].upper()}u',
+        f'#define SKIN_TOAST_BRIGHTNESS_LEVELS {TOAST_BRIGHTNESS_LEVELS}',
     ]
     return '\n'.join(head) + '\n' + HEADER_TYPES + ''.join(c_layout(d) for d in layouts) + '\n#endif\n'
 
@@ -1128,6 +1238,13 @@ def main():
         assets / 'uv-k1-screen-skin.svg': (build_screen_svg(None, led_lit=False), (LW, LH)),
         assets / 'k1-connect-icon.svg': (build_connect_icon_svg(), CONNECT_ICON[2:]),
         assets / 'k1-connect-text.svg': (build_connect_text_svg(), CONNECT_TEXT[2:]),
+        assets / 'k1-connect-credit.svg': (build_connect_credit_svg(), CONNECT_CREDIT[2:]),
+        assets / 'k1-toast-locked.svg': (toast_lock_svg(True), TOAST),
+        assets / 'k1-toast-unlocked.svg': (toast_lock_svg(False), TOAST),
+        assets / 'k1-toast-beep-on.svg': (toast_beep_svg(True), TOAST),
+        assets / 'k1-toast-beep-off.svg': (toast_beep_svg(False), TOAST),
+        **{assets / f'k1-toast-brightness-{level}.svg': (toast_brightness_svg(level), TOAST)
+           for level in range(TOAST_BRIGHTNESS_LEVELS)},
     }
     for path, (text, _) in images.items():
         path.write_text(text)

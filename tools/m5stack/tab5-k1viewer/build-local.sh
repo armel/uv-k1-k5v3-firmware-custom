@@ -152,6 +152,9 @@ case "${IDF_VERSION_OUTPUT}" in
 esac
 
 set_sdkconfig_value CONFIG_LV_FONT_UNSCII_16 y
+# Display refresh in step with the 20 ms render loop, rotation by the PPA.
+set_sdkconfig_value CONFIG_LV_DEF_REFR_PERIOD 20
+set_sdkconfig_value CONFIG_LVGL_PORT_ENABLE_PPA y
 
 if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]] &&
    { ! grep -Fqx "CMAKE_PROJECT_NAME:STATIC=tab5_k1viewer" \

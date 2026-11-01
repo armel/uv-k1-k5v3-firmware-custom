@@ -14,11 +14,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* "Connect your UV-K1" icon and message, shown on black while no K1 is connected. */
+/* "Connect your UV-K1" icon and message, shown on black while no K1 is connected,
+ * with the author and license at the bottom. */
 #define SKIN_CONNECT_ICON_W   400
 #define SKIN_CONNECT_ICON_H   360
 #define SKIN_CONNECT_TEXT_W   600
 #define SKIN_CONNECT_TEXT_H   130
+#define SKIN_CONNECT_CREDIT_W 600
+#define SKIN_CONNECT_CREDIT_H 56
+
+/* Toasts shown after a touch on the plate (orientation lock, key beep,
+ * brightness gauge with one image per backlight level), on a flat colour
+ * exact in RGB565. */
+#define SKIN_TOAST_W          256
+#define SKIN_TOAST_H          150
+#define SKIN_TOAST_COLOR      0x181C20u
+#define SKIN_TOAST_BRIGHTNESS_LEVELS 4
 
 typedef struct {
     int16_t x;
@@ -81,10 +92,13 @@ typedef struct {
     uint8_t side_key_count;
     skin_led_t led;
     skin_torch_t torch;
+    skin_rect_t plate;          /* touch area of the QUANSHENG plate */
     int16_t connect_icon_x;
     int16_t connect_icon_y;
     int16_t connect_text_x;
     int16_t connect_text_y;
+    int16_t connect_credit_x;
+    int16_t connect_credit_y;
 } skin_layout_t;
 
 static const skin_key_t skin_portrait_keys[] = {
@@ -146,10 +160,13 @@ static const skin_layout_t skin_portrait = {
         .beam = 1.00f,
         .box = {187, 0, 330, 177},
     },
+    .plate = {149, 224, 422, 88},
     .connect_icon_x = 160,
     .connect_icon_y = 360,
     .connect_text_x = 60,
     .connect_text_y = 760,
+    .connect_credit_x = 60,
+    .connect_credit_y = 1178,
 };
 
 static const skin_key_t skin_landscape_keys[] = {
@@ -211,10 +228,13 @@ static const skin_layout_t skin_landscape = {
         .beam = 1.00f,
         .box = {1010, 0, 142, 81},
     },
+    .plate = {240, 12, 340, 73},
     .connect_icon_x = 440,
-    .connect_icon_y = 110,
+    .connect_icon_y = 84,
     .connect_text_x = 340,
-    .connect_text_y = 500,
+    .connect_text_y = 474,
+    .connect_credit_x = 340,
+    .connect_credit_y = 630,
 };
 
 static const skin_layout_t skin_screen = {
@@ -252,10 +272,13 @@ static const skin_layout_t skin_screen = {
         .beam = 0.00f,
         .box = {112, 26, 64, 88},
     },
+    .plate = {100, 149, 88, 422},
     .connect_icon_x = 440,
-    .connect_icon_y = 110,
+    .connect_icon_y = 84,
     .connect_text_x = 340,
-    .connect_text_y = 500,
+    .connect_text_y = 474,
+    .connect_credit_x = 340,
+    .connect_credit_y = 630,
 };
 
 #endif

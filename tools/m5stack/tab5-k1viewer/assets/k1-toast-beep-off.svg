@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="150" viewBox="0 0 256 150">
+<rect width="256" height="150" fill="#181c20"/>
+<path d="M104 38 H116 L132 24 V72 L116 58 H104 Z" fill="#c9cdd3" stroke="#c9cdd3" stroke-width="2" stroke-linejoin="round"/>
+<g stroke="#8b9097" stroke-width="5" stroke-linecap="round"><line x1="142" y1="39" x2="158" y2="57"/><line x1="158" y1="39" x2="142" y2="57"/></g>
+<text x="128" y="122" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="600" text-anchor="middle" fill="#e6e8eb">Key beep off</text>
+</svg>

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="150" viewBox="0 0 256 150">
+<rect width="256" height="150" fill="#181c20"/>
+<circle cx="128" cy="48" r="11" fill="#f2c94c"/>
+<g stroke="#f2c94c" stroke-width="4" stroke-linecap="round"><line x1="145.0" y1="48.0" x2="153.0" y2="48.0"/><line x1="140.0" y1="60.0" x2="145.7" y2="65.7"/><line x1="128.0" y1="65.0" x2="128.0" y2="73.0"/><line x1="116.0" y1="60.0" x2="110.3" y2="65.7"/><line x1="111.0" y1="48.0" x2="103.0" y2="48.0"/><line x1="116.0" y1="36.0" x2="110.3" y2="30.3"/><line x1="128.0" y1="31.0" x2="128.0" y2="23.0"/><line x1="140.0" y1="36.0" x2="145.7" y2="30.3"/></g>
+<rect x="44" y="88" width="36" height="8" rx="4" fill="#3d93e6"/><rect x="88" y="88" width="36" height="8" rx="4" fill="#3d93e6"/><rect x="132" y="88" width="36" height="8" rx="4" fill="#3a3f46"/><rect x="176" y="88" width="36" height="8" rx="4" fill="#3a3f46"/>
+<text x="128" y="132" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="600" text-anchor="middle" fill="#e6e8eb">Brightness</text>
+</svg>

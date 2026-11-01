@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="150" viewBox="0 0 256 150">
+<rect width="256" height="150" fill="#181c20"/>
+<path d="M114 46 V32 A14 14 0 0 1 142 32 V46" fill="none" stroke="#c9cdd3" stroke-width="7" stroke-linecap="round"/>
+<rect x="102" y="44" width="52" height="40" rx="8" fill="#3d93e6"/>
+<circle cx="128" cy="60" r="5" fill="#181c20"/>
+<rect x="126" y="62" width="4" height="10" rx="2" fill="#181c20"/>
+<text x="128" y="122" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="600" text-anchor="middle" fill="#e6e8eb">Orientation locked</text>
+</svg>
