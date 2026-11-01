@@ -1608,7 +1608,11 @@ void UI_DisplayMenu(void)
                 // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
                 sprintf(String, "%s\n%s", AUTHOR_STRING_2, DISPLAY_VERSION_STRING_2);
+#ifdef UPSTREAM_SHORT_STRING
+                UI_PrintStringSmallNormal(UPSTREAM_SHORT_STRING, menu_item_x1 - 1, menu_item_x2, 6);
+#else
                 UI_PrintStringSmallNormal(Edition, menu_item_x1 - 1, menu_item_x2, 6);
+#endif
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
                 /* Two 3x5 inverse-capsule labels on one line (scan-list "label"
                  * style): the running firmware slot (M = Main) and the active

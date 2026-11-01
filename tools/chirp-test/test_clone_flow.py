@@ -18,7 +18,7 @@ from chirp import directory, errors
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '..',
-    'chirp', 'nr7y.k1-k5v3.chirp.py')
+    'chirp', 'brass.k1-k5v3.chirp.py')
 
 # --- exactly what wxui/main.py load_module does ---
 directory.enable_reregistrations()

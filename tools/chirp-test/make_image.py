@@ -77,7 +77,7 @@ img[a:a + len(macro)] = macro
 radio = m.UVK5_NR7Y_Fusion(None)
 radio._mmap = memmap.MemoryMapBytes(bytes(img))
 radio.process_mmap()
-radio.metadata = {'nr7y_firmware': 'NR7Y v2.0',
+radio.metadata = {'nr7y_firmware': 'Brass v2.0',
                   'nr7y_schema': m.NR7Y_SCHEMA_CURRENT}
 radio.save_mmap(OUT)
 print("wrote %s (%d bytes)" % (OUT, os.path.getsize(OUT)))

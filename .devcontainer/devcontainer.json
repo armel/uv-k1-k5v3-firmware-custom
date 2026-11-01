@@ -6,5 +6,5 @@
 		// inside it, so this codespace just needs a Docker daemon available.
 		"ghcr.io/devcontainers/features/docker-in-docker:2": {}
 	},
-	"postCreateCommand": "chmod +x compile-with-docker.sh && ./compile-with-docker.sh CW && echo '✅ Firmware built: build/CW/nr7y.cw.uf2 (flash-ready) and build/CW/nr7y.cw.bin'"
+	"postCreateCommand": "chmod +x compile-with-docker.sh && ./compile-with-docker.sh CW && echo '✅ Firmware built: build/CW/brass.cw.uf2 (flash-ready) and build/CW/brass.cw.bin'"
 }

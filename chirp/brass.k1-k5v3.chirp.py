@@ -59,7 +59,7 @@ DEBUG_SHOW_MEMORY_ACTIONS = False
 # release workflow (.github/workflows/main.yml) so the module version always
 # matches the firmware it ships with. In an unreleased working copy it stays
 # as the literal placeholder.
-DRIVER_VERSION = "Quansheng UV-K1 / UV-K5 V3 (F4HWN + NR7Y CW) driver ver: @NR7Y_VERSION@"
+DRIVER_VERSION = "Quansheng UV-K1 / UV-K5 V3 (F4HWN + Brass CW) driver ver: @NR7Y_VERSION@"
 FIRMWARE_VERSION_UPDATE = "https://github.com/armel/uv-k1-k5v3-firmware-custom/releases"
 CHIRP_DRIVER_VERSION_UPDATE = "https://github.com/armel/uv-k1-k5v3-firmware-custom/releases"
 
@@ -1247,12 +1247,13 @@ def _check_upload_target(serport, firmware):
     """
     # 1. Right firmware family? The handshake string is AUTHOR_STRING_2 plus
     #    VERSION_STRING_2 from the firmware's version.c. Our tree sets
-    #    AUTHOR_STRING_2 to NR7Y; armel's Fusion sets it to F4HWN. Locally
-    #    built firmware reports a bare "NR7Y " because only the release
-    #    workflow injects a tag, so match on the prefix alone.
-    if not (firmware or "").startswith("NR7Y"):
+    #    AUTHOR_STRING_2 to Brass (NR7Y before v2.0); armel's Fusion sets it to
+    #    F4HWN. Locally built firmware reports a bare "Brass " because only the
+    #    release workflow injects a tag, so match on the prefix alone. NR7Y
+    #    passes here so a v1.x radio gets gate 2's "update the firmware" error.
+    if not (firmware or "").startswith(("Brass", "NR7Y")):
         raise errors.RadioError(
-            "This module only programs NR7Y CW firmware.\n"
+            "This module only programs Brass CW firmware.\n"
             "Radio reports: %s" % (firmware or "(no version string)"))
 
     # 2. Right storage layout? v2.0 firmware writes the CW block header at
@@ -1265,18 +1266,18 @@ def _check_upload_target(serport, firmware):
     # Stay on a size the firmware handles routinely.
     rep = _readmem(serport, NR7Y_CW_BLOCK_ADDR, 8)
     if not rep:
-        raise errors.RadioError("Could not read the NR7Y CW block header.")
+        raise errors.RadioError("Could not read the Brass CW block header.")
 
     version = _nr7y_cw_block_version(rep)
     if version == 0:
         raise errors.RadioError(
-            "This radio runs NR7Y firmware older than v2.0, which keeps CW "
+            "This radio runs NR7Y CW firmware older than v2.0, which keeps CW "
             "settings and macros elsewhere.\nUpdate the firmware first, or use "
             "the CHIRP module that shipped with the radio's firmware release.")
 
     if version > NR7Y_CW_BLOCK_VERSION:
         raise errors.RadioError(
-            "This radio uses NR7Y CW block layout %d, newer than this module "
+            "This radio uses Brass CW block layout %d, newer than this module "
             "understands (%d).\nUse the CHIRP module that shipped with the "
             "radio's firmware release." % (version, NR7Y_CW_BLOCK_VERSION))
 
@@ -3979,12 +3980,22 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
 # NR7Y Fusion variant – adds CW modulator support to the F4HWN Fusion driver
 # ================================================================================
 
-@directory.register
-class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
-    """Quansheng UV-K1/K5v3 with F4HWN Fusion + NR7Y CW firmware"""
+class _UVK5_NR7Y_Alias(chirp_common.Alias):
+    """The pre-v2.0 name. CHIRP matches a saved image to its driver on
+    vendor/model/variant, so images saved as NR7Y (v1.x backups among them)
+    open only through this alias."""
     VENDOR = "Quansheng"
     MODEL = "UV-K1 & UV-K5 V3 (F4HWN Fusion)"
     VARIANT = "NR7Y"
+
+
+@directory.register
+class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
+    """Quansheng UV-K1/K5v3 with F4HWN Fusion + Brass CW firmware"""
+    VENDOR = "Quansheng"
+    MODEL = "UV-K1 & UV-K5 V3 (F4HWN Fusion)"
+    VARIANT = "Brass"
+    ALIASES = [_UVK5_NR7Y_Alias]
 
     # ------------------------------------------------------------------ features
 

@@ -25,7 +25,7 @@ from chirp import errors, memmap
 
 MODULE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '..',
-    'chirp', 'nr7y.k1-k5v3.chirp.py')
+    'chirp', 'brass.k1-k5v3.chirp.py')
 spec = importlib.util.spec_from_file_location("nr7y_mod", MODULE)
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
@@ -133,10 +133,10 @@ check(raw(r, 0xD000, 16) == m._NR7Y_CW_MACRO_HDR and r._get_cw_msg(4) == "NEW",
       "macro save writes the header")
 
 # --- upload gate ------------------------------------------------------------
-def gate(reply):
+def gate(reply, firmware="Brass v2.0"):
     m._readmem = lambda port, addr, n: reply
     try:
-        m._check_upload_target(None, "NR7Y v2.0")
+        m._check_upload_target(None, firmware)
         return None
     except errors.RadioError as exc:
         return str(exc)
@@ -145,6 +145,10 @@ check(gate(b'\xFF' * 8) is not None, "upload refused: pre-v2.0 firmware")
 check(gate(b'CWX\x02\x02\xFF\xFF\xFF') is not None, "upload refused: newer CW block")
 check(gate(b'CWX\x01\x03\xFF\xFF\xFF') is not None, "upload refused: newer schema")
 check(gate(b'CWX\x01\x02\xFF\xFF\xFF') is None, "upload allowed: v2.0 firmware")
+check("Update the firmware" in (gate(b'\xFF' * 8, "NR7Y v1.4") or ""),
+      "upload refused: v1.x NR7Y firmware, pointed at a firmware update")
+check("only programs" in (gate(b'CWX\x01\x02\xFF\xFF\xFF', "F4HWN v6.3.0") or ""),
+      "upload refused: other firmware family")
 
 print()
 print("FAIL (%d)" % len(failures) if failures else "PASS")

@@ -374,7 +374,11 @@ void UI_DisplayWelcome(void)
         */
 
         //sprintf(WelcomeString3, "%s Edition", Edition);
+#ifdef UPSTREAM_STRING
+        UI_PrintStringSmallNormal(UPSTREAM_STRING, 0, 127, 6);
+#else
         UI_PrintStringSmallNormal(Edition, 0, 127, 6);
+#endif
 
 #else
         UI_PrintStringSmallNormal(Version, 0, 127, 6);

@@ -77,6 +77,15 @@ if(ENABLE_FEAT_F4HWN)
         ALERT_TOT=10
     )
 endif()
+# Upstream base shown on the boot screen in place of the edition (e.g. "F4HWN v6.3.0").
+# SysInf's narrower value area gets it without the "v" (e.g. "F4HWN 6.3.0").
+if(ENABLE_FEAT_F4HWN AND UPSTREAM_STRING)
+    string(REPLACE " v" " " UPSTREAM_SHORT_STRING "${UPSTREAM_STRING}")
+    target_compile_definitions(App INTERFACE
+        "UPSTREAM_STRING=\"${UPSTREAM_STRING}\""
+        "UPSTREAM_SHORT_STRING=\"${UPSTREAM_SHORT_STRING}\""
+    )
+endif()
 
 target_compile_definitions(App INTERFACE 
     "AUTHOR_STRING=\"${AUTHOR_STRING}\""

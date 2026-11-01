@@ -22,7 +22,7 @@ from chirp import directory
 MODULE = os.environ.get(
     'NR7Y_MODULE',
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                 '..', '..', 'chirp', 'nr7y.k1-k5v3.chirp.py'))
+                 '..', '..', 'chirp', 'brass.k1-k5v3.chirp.py'))
 
 directory.enable_reregistrations()
 spec = importlib.util.spec_from_file_location("chirp.loaded.nr7y", MODULE)

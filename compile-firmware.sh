@@ -140,7 +140,7 @@ build_preset() {
   log_file="$(mktemp)"
   bin_file=""
 
-  find "build/${preset}" -maxdepth 1 -type f \( -name 'f4hwn.*' -o -name 'nr7y.*' \) -delete 2>/dev/null || true
+  find "build/${preset}" -maxdepth 1 -type f \( -name 'f4hwn.*' -o -name 'nr7y.*' -o -name 'brass.*' \) -delete 2>/dev/null || true
 
   if (( QUIET )); then
     printf "🔨 Building %-10s ... " "$preset"
@@ -187,7 +187,7 @@ build_preset() {
   fi
 
   case "$preset" in
-    CW) bin_file="build/${preset}/nr7y.cw.bin" ;;  # TARGET in CMakePresets.json
+    CW) bin_file="build/${preset}/brass.cw.bin" ;;  # TARGET in CMakePresets.json
     *)  bin_file="build/${preset}/f4hwn.${preset_slug}.bin" ;;
   esac
   if [[ -z "$bin_file" || ! -f "$bin_file" ]]; then
