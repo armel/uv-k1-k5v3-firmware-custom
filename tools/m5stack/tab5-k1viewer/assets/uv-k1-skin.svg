@@ -195,6 +195,7 @@
 <rect x="126" y="283" width="468" height="338" rx="26" fill="none" stroke="#2c2e31" stroke-width="2"/>
 <rect x="152" y="296" width="416" height="316" rx="6" fill="#050506"/>
 <rect x="158" y="302" width="404" height="304" rx="3" fill="url(#glass)"/>
+<!-- plates -->
 <rect x="126" y="659" width="260" height="55" rx="16" fill="#18191b"/>
 <rect x="129" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
 <rect x="137" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
@@ -205,6 +206,8 @@
 <rect x="490" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
 <text x="539.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
 <text x="539.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
+<!-- /plates -->
+<!-- keypad -->
 <circle cx="539" cy="748" r="8" fill="#5a5d62"/>
 <circle cx="539" cy="747" r="6" fill="#09090a"/>
 <rect x="107" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
@@ -321,6 +324,7 @@
 <text x="530" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="42" font-weight="700" text-anchor="middle" fill="#f5f6f7">#</text>
 <g stroke="#f5f6f7" stroke-width="3" fill="none" stroke-linecap="round"><ellipse cx="584" cy="1094" rx="4.2" ry="6.2"/><path d="M579.8 1094 H562 V1087.5"/></g>
 <text x="574" y="1123" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="21" font-weight="500" text-anchor="middle" fill="#f5f6f7">F</text>
+<!-- /keypad -->
 <rect x="64" y="1170" width="592" height="36" fill="url(#chamfer)"/>
 <rect x="64" y="1170" width="592" height="2" fill="#c3c6cb" opacity=".55"/>
 <rect x="64" y="1204" width="592" height="2" fill="#000" opacity=".5"/>

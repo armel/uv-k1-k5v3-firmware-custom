@@ -23,9 +23,14 @@
 Outputs, relative to the tab5-k1viewer folder:
   assets/uv-k1-720x1280.svg   showcase render, LCD filled from a firmware screenshot
   assets/uv-k1-skin.svg       firmware background: blank glass, RX/TX LED off
+  assets/uv-k1-landscape.svg  landscape (1280x720) showcase: large LCD, keypad on the right
+  assets/uv-k1-landscape-skin.svg  landscape firmware background
+  assets/uv-k1-screen.svg     screen-only (1280x720) showcase: the LCD alone, very large
+  assets/uv-k1-screen-skin.svg     screen-only firmware background
   assets/k1-connect-icon.svg  "connect the radio" icon, shown on black when no K1
   assets/k1-connect-text.svg  "connect the radio" message under the icon
-  main/uv_k1_skin_layout.h    glass, LCD, LED, key and connect-screen geometry
+  main/uv_k1_skin_layout.h    portrait, landscape and screen-only layouts: glass, LCD,
+                              LED, torch, keys
   main/uv_k1_skin_images.cmake  images embedded by the build, with their sizes
 
 With --render, the SVGs are also rendered to PNG with headless Chrome. The
@@ -88,6 +93,7 @@ SIDE_HIT_MARGIN = 15
 LED_TOP_Y, LED_BOT_Y = 100.0, 121.0   # RX/TX light pipe at the antenna base
 LED_TOP_X = (143.0, 191.0)
 LED_BOT_X = (133.4, 200.6)
+LED_CENTER_X = (LED_TOP_X[0] + LED_TOP_X[1]) / 2
 LED_GLOW = 10
 TORCH_X, TORCH_Y = 352.0, 96.0       # white torch LED dome on top, between antenna and knob
 TORCH_RX, TORCH_RY = 17.0, 6.5
@@ -97,6 +103,49 @@ TORCH_BEAM_SPREAD = 1.0               # beam half-width growth per pixel of rise
 CONNECT_ICON = (160, 360, 400, 360)  # screen coordinates of the "connect" icon and message
 CONNECT_TEXT = (60, 760, 600, 130)
 CONNECT_BLUE = '#3d93e6'
+
+# ---- landscape layout (1280x720): large LCD on the left, keypad on the right ----
+LW, LH = 1280, 720
+L_BEZEL = (64, 92, 692, 596)          # x, y, w, h
+L_GLASS_MARGIN = (12, 10)
+L_LCD_CELL_W = 5                      # 128x64 LCD pixels at 5 x 7.5 (real 1:1.5 pixel aspect)
+L_LCD_ROW_NUM, L_LCD_ROW_DEN = 2, 15  # LCD row = screen row * 2 / 15
+L_LOGO = (410, 18, 0.8)               # centre x, top and scale of the QUANSHENG plate
+L_TOP_BAR = (1006, 26)                # centre x and top of the bar with the RX/TX LED and torch
+L_PILLS = [('F1', 0x12, 800), ('F2', 0x11, 1016)]   # side keys as pills: label, code, x
+L_PILL_W, L_PILL_H, L_PILL_RADIUS = 196, 50, 15
+L_PILL_HIT = 8                        # touch margin around the pills
+# Portrait plates and keys reused on the right, from x = L_KEYPAD_X. The right
+# column is level with the glass of the screen (see landscape_column).
+L_KEYPAD_X = 770
+L_KEYPAD_SCALE = 0.855
+L_PLATES_ORIGIN = (84, 694)           # portrait point placed at (L_KEYPAD_X, plates y)
+L_KEYS_ORIGIN = (84, 782)             # portrait point placed at (L_KEYPAD_X, keys y)
+L_TORCH_RX, L_TORCH_RY = 20.0, 8.0    # torch seen from above: the whole lens shows
+L_CONNECT_ICON = (440, 110)
+L_CONNECT_TEXT = (340, 500)
+
+# ---- screen-only layout (1280x720, USB-A port on the left): the LCD alone ----
+# The screen fills nearly the full height; the left band holds the torch, the
+# QUANSHENG plate and the RX/TX light pipe, upright. Grip, plate, bezel and grip
+# are spaced by equal gaps. Corners are concentric from the inside out: square
+# glass (the LCD canvas covers it), rounded black rim, then the bezel.
+S_GLASS_MARGIN = (10, 4)
+S_LCD_CELL_W = 7                      # 128x64 LCD pixels at 7 x 10.5 (real 1:1.5 pixel aspect)
+S_LCD_ROW_NUM, S_LCD_ROW_DEN = 2, 21
+S_RIM, S_RIM_RX = 6, 10               # black rim around the glass, its corner radius
+S_BORDER = 8                          # bezel around the rim (bezel radius = rim radius + border)
+S_GRIPS = (56, LW - 56)               # inner edges of the black grips
+S_PLATE_W = 77.5                      # upright plate width, stroke included
+_s_bezel_w = 128 * S_LCD_CELL_W + 2 * (S_GLASS_MARGIN[0] + S_RIM + S_BORDER)
+_s_bezel_h = 64 * S_LCD_ROW_DEN // S_LCD_ROW_NUM + 2 * (S_GLASS_MARGIN[1] + S_RIM + S_BORDER)
+_s_gap = (S_GRIPS[1] - S_GRIPS[0] - S_PLATE_W - _s_bezel_w) / 3
+S_BEZEL = (round(S_GRIPS[1] - _s_gap - _s_bezel_w), (LH - _s_bezel_h) // 2, _s_bezel_w, _s_bezel_h)
+S_BAND_X = round((S_GRIPS[0] + S_BEZEL[0]) / 2)  # centre of the left band
+S_PLATE = (S_BAND_X, 360, 1.0)        # centre and scale of the upright plate
+S_TORCH_POD = (S_BAND_X, 70)          # upright pods above and below the plate
+S_LED_POD = (S_BAND_X, 650)
+S_POD_W, S_POD_H = 56, 120
 CONNECT_METAL = '#c9cdd3'
 
 # Firmware key codes (App/driver/keyboard.h). On the K1, '<' and '>' sit in the
@@ -428,6 +477,7 @@ def build_svg(lcd, led_lit):
         o(f'<rect x="{gx}" y="{gy}" width="{gw}" height="{gh}" rx="3" fill="url(#gloss)"/>')
 
     # ---- "Mini Kong" and "MIC" plates ----
+    o('<!-- plates -->')
     for x, w, label in ((129, 254, 'Mini Kong'), (482, 114, 'MIC')):
         o(f'<rect x="{x - 3}" y="{PLATE_Y - 3}" width="{w + 6}" height="55" rx="16" fill="#18191b"/>')
         o(f'<rect x="{x}" y="{PLATE_Y}" width="{w}" height="49" rx="14" fill="url(#plate)"/>')
@@ -437,8 +487,10 @@ def build_svg(lcd, led_lit):
           f'fill="#55585d">{label}</text>')
         o(f'<text x="{cx}" y="{PLATE_Y + 32.5}" {FONT} font-size="25" font-weight="700" text-anchor="middle" '
           f'fill="#1b1c1e">{label}</text>')
+    o('<!-- /plates -->')
 
     # ---- microphone hole ----
+    o('<!-- keypad -->')
     o(f'<circle cx="539" cy="{MIC_Y}" r="8" fill="#5a5d62"/>')
     o(f'<circle cx="539" cy="{MIC_Y - 1}" r="6" fill="#09090a"/>')
 
@@ -524,6 +576,7 @@ def build_svg(lcd, led_lit):
             if digit == '5':
                 # Tactile nub on the 5 key.
                 o(f'<circle cx="{x + KEY_W - 17}" cy="{y + 11}" r="3.2" fill="#2c2e31" stroke="#6b6e73" stroke-width="1"/>')
+    o('<!-- /keypad -->')
 
     # ---- bottom of the face: chamfer and black housing lip (short battery) ----
     o(f'<rect x="{rl}" y="{PANEL_BOT}" width="{rr - rl}" height="{CHAMFER_BOT - PANEL_BOT}" fill="url(#chamfer)"/>')
@@ -620,134 +673,421 @@ def build_connect_text_svg():
             '</svg>\n')
 
 
-def build_layout_header():
-    gx, gy, gw, gh = GLASS
-    lx, ly, lw, lh = LCD
-    assert lw == 128 * LCD_CELL_W and lh * LCD_ROW_NUM == 64 * LCD_ROW_DEN
-    led_x0 = math.floor(min(LED_BOT_X[0], LED_TOP_X[0])) - LED_GLOW
-    led_x1 = math.ceil(max(LED_BOT_X[1], LED_TOP_X[1])) + LED_GLOW
-    led_y0 = math.floor(LED_TOP_Y) - LED_GLOW
-    led_y1 = math.ceil(LED_BOT_Y) + LED_GLOW
+def led_geometry(dx, dy, vertical=False):
+    """RX/TX light pipe moved by (dx, dy) from its portrait drawing, with its glow
+    box. A vertical pipe is turned a quarter turn counter-clockwise about its centre."""
+    top_x = (LED_TOP_X[0] + dx, LED_TOP_X[1] + dx)
+    bot_x = (LED_BOT_X[0] + dx, LED_BOT_X[1] + dx)
+    top_y, bot_y = LED_TOP_Y + dy, LED_BOT_Y + dy
+    half_w = (max(bot_x[1], top_x[1]) - min(bot_x[0], top_x[0])) / 2 + LED_GLOW
+    half_h = (bot_y - top_y) / 2 + LED_GLOW
+    if vertical:
+        half_w, half_h = half_h, half_w
+    cx = (top_x[0] + top_x[1] + bot_x[0] + bot_x[1]) / 4 if vertical else (min(bot_x[0], top_x[0]) + max(bot_x[1], top_x[1])) / 2
+    cy = (top_y + bot_y) / 2
+    x0, x1 = math.floor(cx - half_w), math.ceil(cx + half_w)
+    y0, y1 = math.floor(cy - half_h), math.ceil(cy + half_h)
+    return dict(top_y=top_y, bottom_y=bot_y, top_x0=top_x[0], top_x1=top_x[1],
+                bottom_x0=bot_x[0], bottom_x1=bot_x[1], glow=LED_GLOW, vertical=vertical,
+                box=(x0, y0, x1 - x0, y1 - y0))
 
-    # The lit area holds the halo and the beam, which is widest at the top of the screen.
-    torch_half_w = math.ceil(TORCH_RX + (TORCH_Y + DY) * TORCH_BEAM_SPREAD) + 2
-    torch_box_x = round(TORCH_X) - torch_half_w
-    torch_box_h = math.ceil(TORCH_Y + TORCH_RY + TORCH_HALO) + DY
 
-    keys = []
-    for label, code, x, y, w, h in key_rects():
-        keys.append(f'    {{{x}, {y + DY}, {w}, {h}, 0x{code:02X}}}, /* {label} */')
-    side_keys = []
-    for label, code, y, h, hit_y, hit_h in side_key_hits():
-        side_keys.append(f'    {{{SIDE_KEY_X}, {y + DY}, {SIDE_KEY_W}, {h}, 0, {hit_y + DY}, {SIDE_HIT_W}, {hit_h}, '
-                         f'0x{code:02X}}}, /* {label} */')
+def torch_geometry(x, y, rx, ry, top, beam=1.0):
+    """Torch lens and the area lit by its halo and, when beam is not 0, by its
+    beam fanning out up to the top of the screen."""
+    if beam:
+        half_w = math.ceil(rx + y * TORCH_BEAM_SPREAD) + 2
+        box = (round(x) - half_w, 0, 2 * half_w, math.ceil(y + ry + TORCH_HALO))
+    else:
+        x0, y0 = math.floor(x - rx - TORCH_HALO), math.floor(y - ry - TORCH_HALO)
+        box = (x0, y0, math.ceil(x + rx + TORCH_HALO) - x0, math.ceil(y + ry + TORCH_HALO) - y0)
+    return dict(x=x, y=y, rx=rx, ry=ry, top=top, halo=TORCH_HALO, beam_spread=TORCH_BEAM_SPREAD,
+                beam=beam, box=box)
 
-    return f'''/*
- * UV-K1 skin geometry for the Tab5 portrait viewer, in screen pixels.
- *
- * Generated by scripts/gen_uv_k1_skin.py with the SVGs in assets/.
- * Do not edit: change the script and regenerate all its outputs.
- *
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
 
-#ifndef UV_K1_SKIN_LAYOUT_H
-#define UV_K1_SKIN_LAYOUT_H
+def bezel_glass(bezel, cell_w, row_num, row_den, margin):
+    """Glass rectangle centred in a bezel, and the LCD active area relative to it."""
+    bx, by, bw, bh = bezel
+    mx, my = margin
+    lw, lh = 128 * cell_w, 64 * row_den // row_num
+    gx, gy = bx + (bw - lw) // 2 - mx, by + (bh - lh) // 2 - my
+    return (gx, gy, lw + 2 * mx, lh + 2 * my), (mx, my, lw, lh)
 
-#include <stdint.h>
 
-#define SKIN_WIDTH            {W}
-#define SKIN_HEIGHT           {H}
+def landscape_column():
+    """Landscape right column, level with the glass of the screen: the dark rim
+    of the F1/F2 pills at its top, the well of the last key row at its bottom,
+    the plates halfway between. Returns the screen y of the pills, plates and keys."""
+    s = L_KEYPAD_SCALE
+    (_, gy, _, gh), _ = bezel_glass(L_BEZEL, L_LCD_CELL_W, L_LCD_ROW_NUM, L_LCD_ROW_DEN, L_GLASS_MARGIN)
+    rim, well = 3, 5                  # dark rim of the pills, dark well around each key
+    pill_y = gy + rim
+    last_row_bottom = NUM_Y0 + 2 * NUM_PITCH + NUM_H + well + DY
+    keys_y = gy + gh - (last_row_bottom - L_KEYS_ORIGIN[1]) * s
+    menu_top = keys_y + (ROW1_Y - well + DY - L_KEYS_ORIGIN[1]) * s
+    pills_bottom = pill_y + L_PILL_H + rim
+    plates_top, plates_h = PLATE_Y - 3 + DY, 55
+    plates_y = ((pills_bottom + menu_top - plates_h * s) / 2
+                - (plates_top - L_PLATES_ORIGIN[1]) * s)
+    return pill_y, plates_y, keys_y
 
-/* LCD glass, drawn by the viewer over the skin. */
-#define SKIN_GLASS_X          {gx}
-#define SKIN_GLASS_Y          {gy + DY}
-#define SKIN_GLASS_W          {gw}
-#define SKIN_GLASS_H          {gh}
 
-/* 128x64 active area inside the glass: {LCD_CELL_W} px per column, 4.5 px per row. */
-#define SKIN_LCD_X            {lx - gx}
-#define SKIN_LCD_Y            {ly - gy}
-#define SKIN_LCD_W            {lw}
-#define SKIN_LCD_H            {lh}
-#define SKIN_LCD_CELL_W       {LCD_CELL_W}
-#define SKIN_LCD_ROW_NUM      {LCD_ROW_NUM}
-#define SKIN_LCD_ROW_DEN      {LCD_ROW_DEN}
+def layout_data():
+    """Screen geometry of the portrait, landscape and screen-only layouts, for the C header."""
+    keys = [(label, code, x, y + DY, w, h) for label, code, x, y, w, h in key_rects()]
+    portrait = dict(
+        name='portrait', size=(W, H),
+        glass=(GLASS[0], GLASS[1] + DY, GLASS[2], GLASS[3]),
+        lcd=(LCD[0] - GLASS[0], LCD[1] - GLASS[1], LCD[2], LCD[3]),
+        cell_w=LCD_CELL_W, row=(LCD_ROW_NUM, LCD_ROW_DEN),
+        key_radius=KEY_RADIUS, keys=keys,
+        side_keys=[(label, code, (SIDE_KEY_X, y + DY, SIDE_KEY_W, h), (0, hit_y + DY, SIDE_HIT_W, hit_h),
+                    SIDE_KEY_RADIUS) for label, code, y, h, hit_y, hit_h in side_key_hits()],
+        led=led_geometry(0, DY),
+        torch=torch_geometry(TORCH_X, TORCH_Y + DY, TORCH_RX, TORCH_RY, TORCH_TOP + DY),
+        connect_icon=CONNECT_ICON[:2], connect_text=CONNECT_TEXT[:2])
 
-/* RX/TX light pipe at the antenna base (trapezoid) and its glow box. */
-#define SKIN_LED_TOP_Y        {LED_TOP_Y + DY:.1f}f
-#define SKIN_LED_BOTTOM_Y     {LED_BOT_Y + DY:.1f}f
-#define SKIN_LED_TOP_X0       {LED_TOP_X[0]:.1f}f
-#define SKIN_LED_TOP_X1       {LED_TOP_X[1]:.1f}f
-#define SKIN_LED_BOTTOM_X0    {LED_BOT_X[0]:.1f}f
-#define SKIN_LED_BOTTOM_X1    {LED_BOT_X[1]:.1f}f
-#define SKIN_LED_GLOW         {LED_GLOW:.1f}f
-#define SKIN_LED_BOX_X        {led_x0}
-#define SKIN_LED_BOX_Y        {led_y0 + DY}
-#define SKIN_LED_BOX_W        {led_x1 - led_x0}
-#define SKIN_LED_BOX_H        {led_y1 - led_y0}
+    glass, lcd = bezel_glass(L_BEZEL, L_LCD_CELL_W, L_LCD_ROW_NUM, L_LCD_ROW_DEN, L_GLASS_MARGIN)
+    vx, vy = L_KEYS_ORIGIN
+    pill_y, _, ky = landscape_column()
+    kx = L_KEYPAD_X
+    s = L_KEYPAD_SCALE
+    cx, top = L_TOP_BAR
+    m = L_PILL_HIT
+    landscape = dict(
+        name='landscape', size=(LW, LH), glass=glass, lcd=lcd,
+        cell_w=L_LCD_CELL_W, row=(L_LCD_ROW_NUM, L_LCD_ROW_DEN),
+        key_radius=round(KEY_RADIUS * s),
+        keys=[(label, code, round(kx + (x - vx) * s), round(ky + (y - vy) * s), round(w * s), round(h * s))
+              for label, code, x, y, w, h in keys],
+        side_keys=[(label, code, (x, pill_y, L_PILL_W, L_PILL_H),
+                    (x - m, pill_y - m, L_PILL_W + 2 * m, L_PILL_H + 2 * m), L_PILL_RADIUS)
+                   for label, code, x in L_PILLS],
+        led=led_geometry(cx - 75 - LED_CENTER_X, top + 12 - LED_TOP_Y),
+        torch=torch_geometry(cx + 75, top + 23, L_TORCH_RX, L_TORCH_RY, LH),
+        connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT)
 
-/* White torch LED on top, lit by the viewer while the radio flashlight is on:
- * dome, halo and a beam fanning out up to the top of the screen. */
-#define SKIN_TORCH_X          {TORCH_X:.1f}f
-#define SKIN_TORCH_Y          {TORCH_Y + DY:.1f}f
-#define SKIN_TORCH_RX         {TORCH_RX:.1f}f
-#define SKIN_TORCH_RY         {TORCH_RY:.1f}f
-#define SKIN_TORCH_TOP        {TORCH_TOP + DY:.1f}f    /* housing edge hiding the lower dome */
-#define SKIN_TORCH_HALO       {TORCH_HALO:.1f}f
-#define SKIN_TORCH_BEAM_SPREAD {TORCH_BEAM_SPREAD:.2f}f   /* beam half-width growth per pixel of rise */
-#define SKIN_TORCH_BOX_X      {torch_box_x}
-#define SKIN_TORCH_BOX_Y      0
-#define SKIN_TORCH_BOX_W      {2 * torch_half_w}
-#define SKIN_TORCH_BOX_H      {torch_box_h}
+    glass, lcd = bezel_glass(S_BEZEL, S_LCD_CELL_W, S_LCD_ROW_NUM, S_LCD_ROW_DEN, S_GLASS_MARGIN)
+    (led_x, led_y), (torch_x, torch_y) = S_LED_POD, S_TORCH_POD
+    screen = dict(
+        name='screen', size=(LW, LH), glass=glass, lcd=lcd,
+        cell_w=S_LCD_CELL_W, row=(S_LCD_ROW_NUM, S_LCD_ROW_DEN),
+        key_radius=0, keys=[], side_keys=[],
+        led=led_geometry(led_x - LED_CENTER_X, led_y - (LED_TOP_Y + LED_BOT_Y) / 2, vertical=True),
+        torch=torch_geometry(torch_x, torch_y, L_TORCH_RY, L_TORCH_RX, LH, beam=0.0),
+        connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT)
+    return portrait, landscape, screen
 
-/* "Connect the radio" screen, shown on black while no K1 is connected. */
-#define SKIN_CONNECT_ICON_X   {CONNECT_ICON[0]}
-#define SKIN_CONNECT_ICON_Y   {CONNECT_ICON[1]}
-#define SKIN_CONNECT_ICON_W   {CONNECT_ICON[2]}
-#define SKIN_CONNECT_ICON_H   {CONNECT_ICON[3]}
-#define SKIN_CONNECT_TEXT_X   {CONNECT_TEXT[0]}
-#define SKIN_CONNECT_TEXT_Y   {CONNECT_TEXT[1]}
-#define SKIN_CONNECT_TEXT_W   {CONNECT_TEXT[2]}
-#define SKIN_CONNECT_TEXT_H   {CONNECT_TEXT[3]}
 
-#define SKIN_KEY_RADIUS       {KEY_RADIUS}
-#define SKIN_KEY_COUNT        {len(keys)}
+LANDSCAPE_DEFS = '''<defs>
+  <linearGradient id="pill" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3a3c41"/><stop offset=".2" stop-color="#232427"/>
+    <stop offset="1" stop-color="#121315"/>
+  </linearGradient>
+  <linearGradient id="bodyV" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#4b4e53"/><stop offset=".07" stop-color="#73767c"/>
+    <stop offset=".5" stop-color="#6c6f75"/><stop offset=".93" stop-color="#5d6065"/>
+    <stop offset="1" stop-color="#383b3f"/>
+  </linearGradient>
+</defs>'''
 
-typedef struct {{
+
+def landscape_frame(o, out, portrait, logo):
+    """Horizontal body with black grips at both ends, and the QUANSHENG plate."""
+    o(f'<rect x="8" y="8" width="{LW - 16}" height="{LH - 16}" rx="44" fill="url(#bodyV)"/>')
+    o(f'<path d="M8 52 Q8 8 52 8 H56 V{LH - 8} H52 Q8 {LH - 8} 8 {LH - 52} Z" fill="url(#railL)"/>')
+    o(f'<path d="M{LW - 8} 52 Q{LW - 8} 8 {LW - 52} 8 H{LW - 56} V{LH - 8} H{LW - 52} Q{LW - 8} {LH - 8} '
+      f'{LW - 8} {LH - 52} Z" fill="url(#railR)"/>')
+    # The plate is borrowed from the portrait drawing.
+    lines = portrait.split('\n')
+    first = next(i for i, line in enumerate(lines) if line.startswith('<rect x="155" y="180"'))
+    last = next(i for i, line in enumerate(lines) if 'SHENG</tspan></text>' in line)
+    lcx, ltop, lscale = logo
+    o(f'<g transform="translate({lcx - 360 * lscale:g} {ltop - 180 * lscale:g}) scale({lscale:g})">')
+    out.extend(lines[first:last + 1])
+    o('</g>')
+
+
+def bezel_svg(o, bezel, glass, lcd_rect, lcd, rx=40, frame=True, rim=6, rim_rx=7, glass_rx=4):
+    """Screen bezel, black rim and glass; the LCD pixels when a screenshot is given."""
+    bx, by, bw, bh = bezel
+    gx, gy, gw, gh = glass
+    lx, ly, lw, lh = lcd_rect
+    o(f'<rect x="{bx - 2}" y="{by + 3}" width="{bw + 4}" height="{bh + 4}" rx="{rx + 2}" fill="#000" opacity=".35"/>')
+    o(f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="{rx}" fill="url(#bezel)"/>')
+    if frame:
+        o(f'<rect x="{bx + 12}" y="{by + 12}" width="{bw - 24}" height="{bh - 24}" rx="30" fill="none" '
+          'stroke="#2c2e31" stroke-width="2"/>')
+    o(f'<rect x="{gx - rim}" y="{gy - rim}" width="{gw + 2 * rim}" height="{gh + 2 * rim}" rx="{rim_rx}" '
+      'fill="#050506"/>')
+    o(f'<rect x="{gx}" y="{gy}" width="{gw}" height="{gh}" rx="{glass_rx}" fill="url(#glass)"/>')
+    if lcd:
+        sx, sy = lw / 128, lh / 64
+        o(f'<path transform="translate({gx + lx + 1.5} {gy + ly + 3}) scale({sx:g} {sy:g})" d="{lcd}" '
+          'fill="#000" opacity=".13"/>')
+        o(f'<path transform="translate({gx + lx} {gy + ly}) scale({sx:g} {sy:g})" d="{lcd}" fill="#17191b"/>')
+        o(f'<rect x="{gx}" y="{gy}" width="{gw}" height="{gh}" rx="{glass_rx}" fill="url(#gloss)"/>')
+
+
+def led_svg(o, led, lit):
+    """RX/TX light pipe, lit green for the showcase or off for the firmware skin."""
+    d = (f'M{led["top_x0"]:g} {led["top_y"]:g} H{led["top_x1"]:g} L{led["bottom_x1"]:g} {led["bottom_y"]:g} '
+         f'H{led["bottom_x0"]:g} Z')
+    if led.get('vertical'):
+        cx = (led['top_x0'] + led['top_x1'] + led['bottom_x0'] + led['bottom_x1']) / 4
+        cy = (led['top_y'] + led['bottom_y']) / 2
+        o(f'<g transform="rotate(-90 {cx:g} {cy:g})">')
+    if lit:
+        o(f'<path d="{d}" fill="#35ff6b" opacity=".75" filter="url(#glow)"/>')
+        o(f'<path d="{d}" fill="url(#ledGreen)" stroke="#0f6b2a" stroke-width="1.2"/>')
+    else:
+        o(f'<path d="{d}" fill="#18231b" stroke="#0a120c" stroke-width="1.2"/>')
+    if led.get('vertical'):
+        o('</g>')
+
+
+def torch_svg(o, torch):
+    """Torch seen from above: housing and the whole lens, lying or upright."""
+    x, y = torch['x'], torch['y']
+    if torch['ry'] > torch['rx']:
+        o(f'<rect x="{x - 14:g}" y="{y - 30:g}" width="28" height="60" rx="10" fill="url(#cyl)"/>')
+    else:
+        o(f'<rect x="{x - 30:g}" y="{y - 14:g}" width="60" height="28" rx="10" fill="url(#cyl)"/>')
+    o(f'<ellipse cx="{x:g}" cy="{y:g}" rx="{torch["rx"]:g}" ry="{torch["ry"]:g}" '
+      'fill="url(#torchLens)" stroke="#6d747c" stroke-width="1.2"/>')
+    if torch['ry'] > torch['rx']:
+        o(f'<ellipse cx="{x - 3:g}" cy="{y - 5:g}" rx="1.8" ry="6" fill="#ffffff"/>')
+    else:
+        o(f'<ellipse cx="{x - 5:g}" cy="{y - 3:g}" rx="6" ry="1.8" fill="#ffffff"/>')
+
+
+def landscape_svg_start():
+    return [f'<svg xmlns="http://www.w3.org/2000/svg" width="{LW}" height="{LH}" viewBox="0 0 {LW} {LH}">',
+            '<title>Quansheng UV-K1</title>', DEFS, LANDSCAPE_DEFS,
+            f'<rect width="{LW}" height="{LH}" fill="url(#bg)"/>']
+
+
+def build_landscape_svg(lcd, led_lit):
+    """Landscape front: large LCD in its bezel, keypad of the portrait drawing on the right."""
+    portrait = build_svg(None, led_lit=False)
+    data = layout_data()[1]
+    out = landscape_svg_start()
+    o = out.append
+
+    landscape_frame(o, out, portrait, L_LOGO)
+    bezel_svg(o, L_BEZEL, data['glass'], data['lcd'], lcd)
+
+    # ---- top bar: RX/TX light pipe and torch, as on top of the radio ----
+    cx, top = L_TOP_BAR
+    o(f'<rect x="{cx - 150}" y="{top}" width="300" height="46" rx="16" fill="url(#shoulder)"/>')
+    led_svg(o, data['led'], led_lit)
+    torch_svg(o, data['torch'])
+
+    # ---- F1 / F2 pills ----
+    for label, _, (x, y, w, h), _, radius in data['side_keys']:
+        o(f'<rect x="{x - 3}" y="{y - 3}" width="{w + 6}" height="{h + 6}" rx="{radius + 2}" fill="#0c0d0e"/>')
+        o(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{radius}" fill="url(#pill)" stroke="#050506"/>')
+        o(f'<rect x="{x + 10}" y="{y + 2}" width="{w - 20}" height="2" rx="1" fill="#8a8d92" opacity=".55"/>')
+        o(f'<text x="{x + w / 2:g}" y="{y + 34}" {FONT} font-size="26" font-weight="700" text-anchor="middle" '
+          f'fill="#e6e8eb">{label}</text>')
+
+    # ---- plates and keys of the portrait drawing, scaled, without its background ----
+    s = L_KEYPAD_SCALE
+    for name, (vx, vy), y in zip(('plates', 'keypad'), (L_PLATES_ORIGIN, L_KEYS_ORIGIN), landscape_column()[1:]):
+        part = portrait[portrait.index(f'<!-- {name} -->'):portrait.index(f'<!-- /{name} -->')]
+        # The portrait drawing is in local coordinates, shifted down by DY.
+        o(f'<g transform="translate({L_KEYPAD_X - vx * s:g} {y + (DY - vy) * s:g}) scale({s:g})">{part}</g>')
+    o('</svg>')
+    return '\n'.join(out) + '\n'
+
+
+def build_screen_svg(lcd, led_lit):
+    """Screen-only front: the LCD on nearly the full height, the torch, the
+    QUANSHENG plate and the RX/TX light pipe upright in the left band."""
+    data = layout_data()[2]
+    portrait = build_svg(None, led_lit=False)
+    out = landscape_svg_start()
+    o = out.append
+
+    # Body bleeding past the top and bottom edges, black grips at both ends.
+    o(f'<rect x="8" y="-40" width="{LW - 16}" height="{LH + 80}" rx="44" fill="url(#bodyV)"/>')
+    o(f'<rect x="8" y="-40" width="48" height="{LH + 80}" rx="20" fill="url(#railL)"/>')
+    o(f'<rect x="{LW - 56}" y="-40" width="48" height="{LH + 80}" rx="20" fill="url(#railR)"/>')
+
+    # Left band: upright pods for the light pipe and the torch, upright plate.
+    for cx, cy in (S_LED_POD, S_TORCH_POD):
+        o(f'<rect x="{cx - S_POD_W / 2:g}" y="{cy - S_POD_H / 2:g}" width="{S_POD_W}" height="{S_POD_H}" '
+          'rx="18" fill="url(#shoulder)"/>')
+    led_svg(o, data['led'], led_lit)
+    torch_svg(o, data['torch'])
+    lines = portrait.split('\n')
+    first = next(i for i, line in enumerate(lines) if line.startswith('<rect x="155" y="180"'))
+    last = next(i for i, line in enumerate(lines) if 'SHENG</tspan></text>' in line)
+    px, py, scale = S_PLATE
+    o(f'<g transform="translate({px:g} {py:g}) rotate(-90) scale({scale:g}) translate(-360 -218)">')
+    out.extend(lines[first:last + 1])
+    o('</g>')
+
+    bezel_svg(o, S_BEZEL, data['glass'], data['lcd'], lcd, rx=S_RIM_RX + S_BORDER, frame=False,
+              rim=S_RIM, rim_rx=S_RIM_RX, glass_rx=0)
+    o('</svg>')
+    return '\n'.join(out) + '\n'
+
+
+def c_rect(rect):
+    return '{%d, %d, %d, %d}' % tuple(rect)
+
+
+def c_layout(d):
+    """C arrays and skin_layout_t object of one layout."""
+    name = d['name']
+    keys = '\n'.join(f'    {{{c_rect((x, y, w, h))}, 0x{code:02X}}}, /* {label} */'
+                     for label, code, x, y, w, h in d['keys'])
+    side_keys = '\n'.join(f'    {{{c_rect(key)}, {c_rect(hit)}, {radius}, 0x{code:02X}}}, /* {label} */'
+                          for label, code, key, hit, radius in d['side_keys'])
+    led, torch = d['led'], d['torch']
+    lines = ['']
+    if keys:
+        lines += [f'static const skin_key_t skin_{name}_keys[] = {{', keys, '};', '']
+    if side_keys:
+        lines += [f'static const skin_side_key_t skin_{name}_side_keys[] = {{', side_keys, '};', '']
+    lines += [
+        f'static const skin_layout_t skin_{name} = {{',
+        f'    .width = {d["size"][0]},',
+        f'    .height = {d["size"][1]},',
+        f'    .glass = {c_rect(d["glass"])},',
+        f'    .lcd = {c_rect(d["lcd"])},',
+        f'    .lcd_cell_w = {d["cell_w"]},',
+        f'    .lcd_row_num = {d["row"][0]},',
+        f'    .lcd_row_den = {d["row"][1]},',
+        f'    .key_radius = {d["key_radius"]},',
+        *([f'    .keys = skin_{name}_keys,',
+           f'    .key_count = sizeof(skin_{name}_keys) / sizeof(skin_{name}_keys[0]),']
+          if keys else ['    .keys = NULL,', '    .key_count = 0,']),
+        *([f'    .side_keys = skin_{name}_side_keys,',
+           f'    .side_key_count = sizeof(skin_{name}_side_keys) / sizeof(skin_{name}_side_keys[0]),']
+          if side_keys else ['    .side_keys = NULL,', '    .side_key_count = 0,']),
+        '    .led = {',
+        *[f'        .{field} = {led[field]:.1f}f,'
+          for field in ('top_y', 'bottom_y', 'top_x0', 'top_x1', 'bottom_x0', 'bottom_x1', 'glow')],
+        f'        .vertical = {int(led["vertical"])},',
+        f'        .box = {c_rect(led["box"])},',
+        '    },',
+        '    .torch = {',
+        *[f'        .{field} = {torch[field]:.2f}f,'
+          for field in ('x', 'y', 'rx', 'ry', 'top', 'halo', 'beam_spread', 'beam')],
+        f'        .box = {c_rect(torch["box"])},',
+        '    },',
+        f'    .connect_icon_x = {d["connect_icon"][0]},',
+        f'    .connect_icon_y = {d["connect_icon"][1]},',
+        f'    .connect_text_x = {d["connect_text"][0]},',
+        f'    .connect_text_y = {d["connect_text"][1]},',
+        '};',
+    ]
+    return '\n'.join(lines) + '\n'
+
+
+HEADER_TYPES = '''
+typedef struct {
     int16_t x;
     int16_t y;
     int16_t w;
     int16_t h;
+} skin_rect_t;
+
+typedef struct {
+    skin_rect_t key;
     uint8_t code;               /* firmware KEY_* code (App/driver/keyboard.h) */
-}} skin_key_t;
+} skin_key_t;
 
-static const skin_key_t skin_keys[SKIN_KEY_COUNT] = {{
-{chr(10).join(keys)}
-}};
-
-/* F1 and F2 on the left rail: the drawn key and its wider touch area. */
-#define SKIN_SIDE_KEY_RADIUS  {SIDE_KEY_RADIUS}
-#define SKIN_SIDE_KEY_COUNT   {len(side_keys)}
-
-typedef struct {{
-    int16_t x;                  /* drawn key */
-    int16_t y;
-    int16_t w;
-    int16_t h;
-    int16_t hit_x;              /* touch area */
-    int16_t hit_y;
-    int16_t hit_w;
-    int16_t hit_h;
+/* F1 / F2: the drawn key and a touch area that can be much wider. */
+typedef struct {
+    skin_rect_t key;
+    skin_rect_t hit;
+    int16_t radius;
     uint8_t code;
-}} skin_side_key_t;
+} skin_side_key_t;
 
-static const skin_side_key_t skin_side_keys[SKIN_SIDE_KEY_COUNT] = {{
-{chr(10).join(side_keys)}
-}};
+/* RX/TX light pipe (trapezoid) and the box holding its glow. */
+typedef struct {
+    float top_y;
+    float bottom_y;
+    float top_x0;
+    float top_x1;
+    float bottom_x0;
+    float bottom_x1;
+    float glow;
+    uint8_t vertical;           /* turned a quarter turn counter-clockwise about its centre */
+    skin_rect_t box;
+} skin_led_t;
 
-#endif
+/* White torch lens, and the box lit by its halo and its beam. */
+typedef struct {
+    float x;
+    float y;
+    float rx;
+    float ry;
+    float top;                  /* edge hiding the lower part of the lens */
+    float halo;
+    float beam_spread;          /* beam half-width growth per pixel of rise */
+    float beam;                 /* beam strength, 0 for none */
+    skin_rect_t box;
+} skin_torch_t;
+
+typedef struct {
+    int16_t width;
+    int16_t height;
+    skin_rect_t glass;          /* drawn by the viewer over the skin */
+    skin_rect_t lcd;            /* 128x64 active area, relative to the glass */
+    uint8_t lcd_cell_w;         /* screen pixels per LCD column */
+    uint8_t lcd_row_num;        /* LCD row = screen row * num / den */
+    uint8_t lcd_row_den;
+    int16_t key_radius;
+    const skin_key_t *keys;
+    uint8_t key_count;
+    const skin_side_key_t *side_keys;
+    uint8_t side_key_count;
+    skin_led_t led;
+    skin_torch_t torch;
+    int16_t connect_icon_x;
+    int16_t connect_icon_y;
+    int16_t connect_text_x;
+    int16_t connect_text_y;
+} skin_layout_t;
 '''
+
+
+def build_layout_header():
+    layouts = layout_data()
+    for d in layouts:
+        lw, lh = d['lcd'][2:]
+        num, den = d['row']
+        assert lw == 128 * d['cell_w'] and lh * num == 64 * den, d['name']
+
+    head = [
+        '/*',
+        ' * UV-K1 skin layouts for the Tab5 viewer, in screen pixels: portrait',
+        ' * (720x1280), landscape and screen only (1280x720).',
+        ' *',
+        ' * Generated by scripts/gen_uv_k1_skin.py with the SVGs in assets/.',
+        ' * Do not edit: change the script and regenerate all its outputs.',
+        ' *',
+        ' * SPDX-License-Identifier: GPL-3.0-or-later',
+        ' */',
+        '',
+        '#ifndef UV_K1_SKIN_LAYOUT_H',
+        '#define UV_K1_SKIN_LAYOUT_H',
+        '',
+        '#include <stddef.h>',
+        '#include <stdint.h>',
+        '',
+        '/* "Connect your UV-K1" icon and message, shown on black while no K1 is connected. */',
+        f'#define SKIN_CONNECT_ICON_W   {CONNECT_ICON[2]}',
+        f'#define SKIN_CONNECT_ICON_H   {CONNECT_ICON[3]}',
+        f'#define SKIN_CONNECT_TEXT_W   {CONNECT_TEXT[2]}',
+        f'#define SKIN_CONNECT_TEXT_H   {CONNECT_TEXT[3]}',
+    ]
+    return '\n'.join(head) + '\n' + HEADER_TYPES + ''.join(c_layout(d) for d in layouts) + '\n#endif\n'
 
 
 def find_chrome(explicit):
@@ -777,9 +1117,15 @@ def main():
     args = parser.parse_args()
 
     assets = PROJECT_DIR / 'assets'
+    lcd = lcd_path(args.screenshot)
+    showcases = ('uv-k1-720x1280', 'uv-k1-landscape', 'uv-k1-screen')
     images = {
-        assets / 'uv-k1-720x1280.svg': (build_svg(lcd_path(args.screenshot), led_lit=True), (W, H)),
+        assets / 'uv-k1-720x1280.svg': (build_svg(lcd, led_lit=True), (W, H)),
         assets / 'uv-k1-skin.svg': (build_svg(None, led_lit=False), (W, H)),
+        assets / 'uv-k1-landscape.svg': (build_landscape_svg(lcd, led_lit=True), (LW, LH)),
+        assets / 'uv-k1-landscape-skin.svg': (build_landscape_svg(None, led_lit=False), (LW, LH)),
+        assets / 'uv-k1-screen.svg': (build_screen_svg(lcd, led_lit=True), (LW, LH)),
+        assets / 'uv-k1-screen-skin.svg': (build_screen_svg(None, led_lit=False), (LW, LH)),
         assets / 'k1-connect-icon.svg': (build_connect_icon_svg(), CONNECT_ICON[2:]),
         assets / 'k1-connect-text.svg': (build_connect_text_svg(), CONNECT_TEXT[2:]),
     }
@@ -787,9 +1133,9 @@ def main():
         path.write_text(text)
         print(f'wrote {path.relative_to(PROJECT_DIR)}')
 
-    # Everything but the showcase render goes into the firmware.
+    # Everything but the showcase renders goes into the firmware.
     embedded = [f'embed_rgb565({svg.stem} {svg.stem.replace("-", "_")}_rgb565 {w} {h})'
-                for svg, (_, (w, h)) in images.items() if svg.stem != 'uv-k1-720x1280']
+                for svg, (_, (w, h)) in images.items() if svg.stem not in showcases]
     generated = {
         PROJECT_DIR / 'main' / 'uv_k1_skin_layout.h': build_layout_header(),
         PROJECT_DIR / 'main' / 'uv_k1_skin_images.cmake':

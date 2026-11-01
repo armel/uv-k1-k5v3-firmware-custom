@@ -1,0 +1,263 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<title>Quansheng UV-K1</title>
+<defs>
+  <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+    <stop offset="0" stop-color="#2a2d31"/><stop offset="1" stop-color="#0c0d0f"/>
+  </radialGradient>
+  <linearGradient id="cyl" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#0b0c0d"/><stop offset=".22" stop-color="#3a3c40"/>
+    <stop offset=".45" stop-color="#1c1d20"/><stop offset="1" stop-color="#08090a"/>
+  </linearGradient>
+  <linearGradient id="blueCap" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#5aa8f0"/><stop offset=".5" stop-color="#2b7fd6"/>
+    <stop offset="1" stop-color="#1655a3"/>
+  </linearGradient>
+  <linearGradient id="blueSide" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#1a5fb4"/><stop offset=".5" stop-color="#3d93e6"/>
+    <stop offset="1" stop-color="#174f96"/>
+  </linearGradient>
+  <linearGradient id="shoulder" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3a3c40"/><stop offset=".25" stop-color="#1f2023"/>
+    <stop offset="1" stop-color="#121315"/>
+  </linearGradient>
+  <linearGradient id="panelH" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#3d4044"/><stop offset=".06" stop-color="#686b71"/>
+    <stop offset=".35" stop-color="#73767c"/><stop offset=".7" stop-color="#6a6d73"/>
+    <stop offset=".94" stop-color="#5d6065"/><stop offset="1" stop-color="#383b3f"/>
+  </linearGradient>
+  <linearGradient id="panelV" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".10"/>
+    <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000000" stop-opacity=".18"/>
+  </linearGradient>
+  <linearGradient id="railL" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#0d0e0f"/><stop offset=".55" stop-color="#26282b"/>
+    <stop offset="1" stop-color="#151618"/>
+  </linearGradient>
+  <linearGradient id="railR" x1="1" x2="0" y1="0" y2="0">
+    <stop offset="0" stop-color="#0d0e0f"/><stop offset=".55" stop-color="#26282b"/>
+    <stop offset="1" stop-color="#151618"/>
+  </linearGradient>
+  <linearGradient id="bezel" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#2a2c2f"/><stop offset=".12" stop-color="#151618"/>
+    <stop offset="1" stop-color="#0b0c0d"/>
+  </linearGradient>
+  <linearGradient id="glass" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#dfe3dd"/><stop offset=".5" stop-color="#eef1ec"/>
+    <stop offset="1" stop-color="#d9ddd6"/>
+  </linearGradient>
+  <linearGradient id="gloss" x1="0" x2="1" y1="0" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".35"/>
+    <stop offset=".45" stop-color="#ffffff" stop-opacity=".06"/>
+    <stop offset=".46" stop-color="#ffffff" stop-opacity="0"/>
+    <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="plate" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3b3d41"/><stop offset="1" stop-color="#26272a"/>
+  </linearGradient>
+  <linearGradient id="key" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#34363a"/><stop offset=".18" stop-color="#1d1e21"/>
+    <stop offset=".85" stop-color="#141517"/><stop offset="1" stop-color="#0b0b0c"/>
+  </linearGradient>
+  <linearGradient id="well" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#2a2b2e"/><stop offset="1" stop-color="#4a4c51"/>
+  </linearGradient>
+  <radialGradient id="ledGreen" cx="50%" cy="40%" r="65%">
+    <stop offset="0" stop-color="#eaffef"/><stop offset=".35" stop-color="#7dff9c"/>
+    <stop offset="1" stop-color="#16c94a"/>
+  </radialGradient>
+  <radialGradient id="torchLens" cx="45%" cy="40%" r="60%">
+    <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#f2f5f8"/>
+    <stop offset="1" stop-color="#aab2bb"/>
+  </radialGradient>
+  <linearGradient id="rubber" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#0c0d0e"/><stop offset=".45" stop-color="#34373b"/>
+    <stop offset="1" stop-color="#1a1b1e"/>
+  </linearGradient>
+  <linearGradient id="chamfer" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#8d9096"/><stop offset=".25" stop-color="#5f6267"/>
+    <stop offset="1" stop-color="#3f4246"/>
+  </linearGradient>
+  <filter id="glow" x="-80%" y="-150%" width="260%" height="400%">
+    <feGaussianBlur stdDeviation="6"/>
+  </filter>
+  <filter id="drop" x="-10%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity=".55"/>
+  </filter>
+  <filter id="soft" x="-5%" y="-5%" width="110%" height="110%">
+    <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".6"/>
+  </filter>
+</defs>
+<defs>
+  <linearGradient id="pill" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3a3c41"/><stop offset=".2" stop-color="#232427"/>
+    <stop offset="1" stop-color="#121315"/>
+  </linearGradient>
+  <linearGradient id="bodyV" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#4b4e53"/><stop offset=".07" stop-color="#73767c"/>
+    <stop offset=".5" stop-color="#6c6f75"/><stop offset=".93" stop-color="#5d6065"/>
+    <stop offset="1" stop-color="#383b3f"/>
+  </linearGradient>
+</defs>
+<rect width="1280" height="720" fill="url(#bg)"/>
+<rect x="8" y="8" width="1264" height="704" rx="44" fill="url(#bodyV)"/>
+<path d="M8 52 Q8 8 52 8 H56 V712 H52 Q8 712 8 668 Z" fill="url(#railL)"/>
+<path d="M1272 52 Q1272 8 1228 8 H1224 V712 H1228 Q1272 712 1272 668 Z" fill="url(#railR)"/>
+<g transform="translate(122 -126) scale(0.8)">
+<rect x="155" y="180" width="410" height="76" rx="6" fill="#0b0b0c" stroke="#3a3c40" stroke-width="1.5"/>
+<g fill="none" stroke="#f4f5f6" stroke-width="5" stroke-linecap="round">
+<path d="M225.4 233.2 A11 11 0 0 1 234.5 225.1"/>
+<path d="M216.7 230.8 A20 20 0 0 1 233.2 216.2"/>
+<path d="M208.0 228.5 A29 29 0 0 1 232.0 207.3"/>
+</g>
+<text x="236" y="236" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="900" font-style="italic" fill="#f4f5f6" textLength="300" lengthAdjust="spacingAndGlyphs">QUAN<tspan dx="6">SHENG</tspan></text>
+</g>
+<rect x="62" y="95" width="696" height="600" rx="42" fill="#000" opacity=".35"/>
+<rect x="64" y="92" width="692" height="596" rx="40" fill="url(#bezel)"/>
+<rect x="76" y="104" width="668" height="572" rx="30" fill="none" stroke="#2c2e31" stroke-width="2"/>
+<rect x="72" y="134" width="676" height="512" rx="7" fill="#050506"/>
+<rect x="78" y="140" width="664" height="500" rx="4" fill="url(#glass)"/>
+<rect x="856" y="26" width="300" height="46" rx="16" fill="url(#shoulder)"/>
+<path d="M907 38 H955 L964.6 59 H897.4 Z" fill="#18231b" stroke="#0a120c" stroke-width="1.2"/>
+<rect x="1051" y="35" width="60" height="28" rx="10" fill="url(#cyl)"/>
+<ellipse cx="1081" cy="49" rx="20" ry="8" fill="url(#torchLens)" stroke="#6d747c" stroke-width="1.2"/>
+<ellipse cx="1076" cy="46" rx="6" ry="1.8" fill="#ffffff"/>
+<rect x="797" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
+<rect x="800" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
+<rect x="810" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="898" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F1</text>
+<rect x="1013" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
+<rect x="1016" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
+<rect x="1026" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="1114" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F2</text>
+<g transform="translate(698.18 -330.125) scale(0.855)"><!-- plates -->
+<rect x="126" y="659" width="260" height="55" rx="16" fill="#18191b"/>
+<rect x="129" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
+<rect x="137" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="256.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">Mini Kong</text>
+<text x="256.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">Mini Kong</text>
+<rect x="479" y="659" width="120" height="55" rx="16" fill="#18191b"/>
+<rect x="482" y="662" width="114" height="49" rx="14" fill="url(#plate)"/>
+<rect x="490" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="539.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
+<text x="539.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
+</g>
+<g transform="translate(698.18 -335.555) scale(0.855)"><!-- keypad -->
+<circle cx="539" cy="748" r="8" fill="#5a5d62"/>
+<circle cx="539" cy="747" r="6" fill="#09090a"/>
+<rect x="107" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="166.0" y="818.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#f5f6f7">MENU</text>
+<rect x="236" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<path d="M303.0 790.5 L286.0 808.5 L303.0 826.5" fill="none" stroke="#f5f6f7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="365" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<path d="M416.0 790.5 L433.0 808.5 L416.0 826.5" fill="none" stroke="#f5f6f7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="494" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="553.0" y="818.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#f5f6f7">EXIT</text>
+<rect x="140.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="142.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="269.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="271.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="398.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="400.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="527.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="529.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="140.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="142.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="269.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="271.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="398.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="400.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="527.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="529.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="140.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="142.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="269.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="271.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="398.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="400.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="527.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="529.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="107" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="143" y="927.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">1</text>
+<text x="166" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="#f5f6f7">Band</text>
+<text x="167" y="928" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="#f5f6f7">,.?</text>
+<rect x="236" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="272" y="927.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">2</text>
+<text x="316" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">A/B</text>
+<text x="316" y="928" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">abc</text>
+<rect x="365" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="401" y="927.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">3</text>
+<text x="445" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">V/M</text>
+<text x="445" y="928" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">def</text>
+<rect x="494" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<path d="M530.0 900.5 L530.0 926.5" stroke="#f5f6f7" stroke-width="6.5" stroke-linecap="round"/>
+<path d="M518.7 907.0 L541.3 920.0" stroke="#f5f6f7" stroke-width="6.5" stroke-linecap="round"/>
+<path d="M541.3 907.0 L518.7 920.0" stroke="#f5f6f7" stroke-width="6.5" stroke-linecap="round"/>
+<text x="575" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">Scan</text>
+<path d="M594 924 H555 L563 917" fill="none" stroke="#f5f6f7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="107" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="143" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">4</text>
+<text x="187" y="1003" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">FC</text>
+<text x="187" y="1024" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">ghi</text>
+<rect x="236" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="272" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">5</text>
+<text x="316" y="1003" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">WX</text>
+<text x="316" y="1024" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">jkl</text>
+<circle cx="332" cy="986" r="3.2" fill="#2c2e31" stroke="#6b6e73" stroke-width="1"/>
+<rect x="365" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="401" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">6</text>
+<text x="445" y="1003" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">H/L</text>
+<text x="445" y="1024" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">mno</text>
+<rect x="494" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="530" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">0</text>
+<text x="574" y="1015.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="500" text-anchor="middle" fill="#f5f6f7">FM</text>
+<rect x="107" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="143" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">7</text>
+<text x="187" y="1099" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">VOX</text>
+<text x="187" y="1120" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">pqrs</text>
+<rect x="236" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="272" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">8</text>
+<text x="316" y="1099" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">R</text>
+<text x="316" y="1120" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">tuv</text>
+<rect x="365" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="401" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">9</text>
+<text x="445" y="1099" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">Call</text>
+<text x="445" y="1120" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">wxyz</text>
+<rect x="494" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="530" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="42" font-weight="700" text-anchor="middle" fill="#f5f6f7">#</text>
+<g stroke="#f5f6f7" stroke-width="3" fill="none" stroke-linecap="round"><ellipse cx="584" cy="1094" rx="4.2" ry="6.2"/><path d="M579.8 1094 H562 V1087.5"/></g>
+<text x="574" y="1123" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="21" font-weight="500" text-anchor="middle" fill="#f5f6f7">F</text>
+</g>
+</svg>

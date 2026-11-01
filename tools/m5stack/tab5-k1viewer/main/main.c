@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "bmi270.h"
 #include "bsp/esp-bsp.h"
 #include "esp_check.h"
 #include "esp_err.h"
@@ -47,14 +48,30 @@
 #define K1VIEWER_KEEPALIVE_MS  200u
 #define USB_OPEN_TIMEOUT_MS    1000u
 #define USB_TX_TIMEOUT_MS      100u
-#define DISPLAY_ROTATION       LV_DISPLAY_ROTATION_0    /* native portrait; _180 flips it */
+#define AUTO_ROTATE            1            /* follow the Tab5 orientation with its IMU */
+#define FIXED_ROTATION         LV_DISPLAY_ROTATION_0    /* used when AUTO_ROTATE is 0 */
+/* Landscape rotation that puts the USB-A port on the left: it shows the screen
+ * alone, the other landscape rotation shows the screen with the keypad. Swap
+ * with LV_DISPLAY_ROTATION_90 if they come out the other way round. */
+#define SCREEN_ROTATION        LV_DISPLAY_ROTATION_270
+#define IMU_PERIOD_MS          100u
+#define IMU_SETTLE_SAMPLES     5u           /* same orientation for 0.5 s before turning */
+#define IMU_TILT_G             0.6f         /* gravity along an edge needed to pick a side */
+#define IMU_FLAT_G             0.8f         /* lying flat above this: keep the orientation */
+/* Accelerometer axes along the long and short edges of the screen (0 = X,
+ * 1 = Y, 2 = Z) and their sign when that edge points up. Flip a sign if the
+ * picture turns the wrong way; swap the axes if portrait and landscape are
+ * exchanged. Orientation changes are logged with the raw readings. */
+#define IMU_LONG_AXIS          1
+#define IMU_LONG_SIGN          1.0f
+#define IMU_SHORT_AXIS         0
+#define IMU_SHORT_SIGN         1.0f
 #define KEY_LONG_PRESS_MS      500u
 #define KEY_REPEAT_MS          120u
 #define KEY_QUEUE_LENGTH       16u
 #define LCD_INACTIVE_MIX       0.05f
 #define LCD_SHADOW_MIX         0.18f
-#define LCD_SHADOW_DX          1u
-#define LCD_SHADOW_DY          2u
+#define LCD_SHADOW_DY          2u           /* the shadow is also one pixel to the right */
 #define LCD_SLEEP_COLOR        0x252925u    /* glass with the backlight off */
 #define LCD_SLEEP_MIX          0.6f
 #define LED_GLOW_ALPHA         0.6f
@@ -137,12 +154,36 @@ typedef struct {
     uint32_t frame_count;
     bool usb_connected;
     bool frame_dirty;
+    lv_display_rotation_t rotation;
 } viewer_state_t;
 
 typedef struct {
     uint8_t code;
     bool long_press;
 } radio_key_t;
+
+typedef enum {
+    VIEW_PORTRAIT,
+    VIEW_LANDSCAPE,             /* large screen and keypad */
+    VIEW_SCREEN,                /* screen only */
+    VIEW_COUNT,
+} view_id_t;
+
+/* One LVGL screen per orientation, built from its skin layout. */
+typedef struct {
+    const skin_layout_t *layout;
+    const char *name;
+    const uint8_t *skin_start;
+    const uint8_t *skin_end;
+    lv_image_dsc_t skin;
+    lv_obj_t *screen;
+    lv_obj_t *lcd_canvas;
+    uint16_t *lcd_pixels;
+    uint32_t lcd_stride;        /* in pixels */
+    lv_obj_t *led_canvases[LED_COUNT];
+    lv_obj_t *torch_canvas;
+    lv_obj_t *connect_screen;
+} view_t;
 
 static const char *TAG = "tab5-k1viewer";
 static const viewer_palette_t palettes[PALETTE_COUNT] = {
@@ -159,6 +200,10 @@ static const led_colors_t led_colors[LED_COUNT] = {
 /* PNGs from assets/ as raw RGB565, linked by main/CMakeLists.txt. */
 extern const uint8_t uv_k1_skin_rgb565_start[];
 extern const uint8_t uv_k1_skin_rgb565_end[];
+extern const uint8_t uv_k1_landscape_skin_rgb565_start[];
+extern const uint8_t uv_k1_landscape_skin_rgb565_end[];
+extern const uint8_t uv_k1_screen_skin_rgb565_start[];
+extern const uint8_t uv_k1_screen_skin_rgb565_end[];
 extern const uint8_t k1_connect_icon_rgb565_start[];
 extern const uint8_t k1_connect_icon_rgb565_end[];
 extern const uint8_t k1_connect_text_rgb565_start[];
@@ -169,15 +214,29 @@ static SemaphoreHandle_t disconnected_sem;
 static QueueHandle_t key_queue;
 static viewer_parser_t parser;
 static viewer_state_t viewer;
-static lv_image_dsc_t skin_image;
+static lv_display_t *display;
 static lv_image_dsc_t connect_icon_image;
 static lv_image_dsc_t connect_text_image;
-static uint16_t *lcd_pixels;
-static uint32_t lcd_stride;
-static lv_obj_t *lcd_canvas;
-static lv_obj_t *led_canvases[LED_COUNT];
-static lv_obj_t *torch_canvas;
-static lv_obj_t *connect_screen;
+static view_t views[VIEW_COUNT] = {
+    [VIEW_PORTRAIT] = {
+        .layout = &skin_portrait,
+        .name = "portrait skin",
+        .skin_start = uv_k1_skin_rgb565_start,
+        .skin_end = uv_k1_skin_rgb565_end,
+    },
+    [VIEW_LANDSCAPE] = {
+        .layout = &skin_landscape,
+        .name = "landscape skin",
+        .skin_start = uv_k1_landscape_skin_rgb565_start,
+        .skin_end = uv_k1_landscape_skin_rgb565_end,
+    },
+    [VIEW_SCREEN] = {
+        .layout = &skin_screen,
+        .name = "screen skin",
+        .skin_start = uv_k1_screen_skin_rgb565_start,
+        .skin_end = uv_k1_screen_skin_rgb565_end,
+    },
+};
 
 static uint16_t rgb565(uint8_t red, uint8_t green, uint8_t blue)
 {
@@ -379,11 +438,17 @@ static bool radio_pixel(const uint8_t *framebuffer, uint32_t x, uint32_t y)
     return (framebuffer[bit_index >> 3] & (1u << (bit_index & 7u))) != 0;
 }
 
-/* Draw the radio LCD into the glass: 3 px per column, 4.5 px per row (the
- * K1 pixels are 1.5 times taller than wide), with a soft drop shadow. In
- * deep sleep the glass darkens, as when the radio turns its backlight off. */
-static void render_radio_frame(const uint8_t *framebuffer, uint8_t palette_id, bool asleep)
+/* Draw the radio LCD into the glass of a view: each LCD pixel is lcd_cell_w
+ * screen pixels wide and 1.5 times as tall (the real K1 aspect), with a soft
+ * drop shadow one pixel right and LCD_SHADOW_DY down. In deep sleep the glass
+ * darkens, as when the radio turns its backlight off. */
+static void render_radio_frame(const view_t *view, const uint8_t *framebuffer,
+                               uint8_t palette_id, bool asleep)
 {
+    const skin_layout_t *layout = view->layout;
+    const skin_rect_t *glass = &layout->glass;
+    const skin_rect_t *lcd = &layout->lcd;
+
     if (palette_id >= PALETTE_COUNT) {
         palette_id = PALETTE_K1;
     }
@@ -393,71 +458,77 @@ static void render_radio_frame(const uint8_t *framebuffer, uint8_t palette_id, b
         : palette->background;
     const uint32_t inactive_hex =
         mix_hex(background, palette->foreground, LCD_INACTIVE_MIX);
-    const uint16_t glass = rgb565_hex(background);
+    const uint16_t glass_color = rgb565_hex(background);
     const uint16_t inactive = rgb565_hex(inactive_hex);
     const uint16_t shadow =
         rgb565_hex(mix_hex(inactive_hex, palette->foreground, LCD_SHADOW_MIX));
     const uint16_t foreground = rgb565_hex(palette->foreground);
 
-    for (uint32_t y = 0; y < SKIN_GLASS_H; y++) {
-        uint16_t *row = &lcd_pixels[y * lcd_stride];
-        for (uint32_t x = 0; x < SKIN_GLASS_W; x++) {
-            row[x] = glass;
+    for (int32_t y = 0; y < glass->h; y++) {
+        uint16_t *row = &view->lcd_pixels[y * view->lcd_stride];
+        for (int32_t x = 0; x < glass->w; x++) {
+            row[x] = glass_color;
         }
     }
 
-    for (uint32_t sy = 0; sy < SKIN_LCD_H; sy++) {
-        const uint32_t ly = sy * SKIN_LCD_ROW_NUM / SKIN_LCD_ROW_DEN;
-        const bool shadow_row = sy >= LCD_SHADOW_DY;
-        const uint32_t shadow_ly =
-            shadow_row ? (sy - LCD_SHADOW_DY) * SKIN_LCD_ROW_NUM / SKIN_LCD_ROW_DEN : 0;
-        uint16_t *row = &lcd_pixels[(SKIN_LCD_Y + sy) * lcd_stride + SKIN_LCD_X];
+    for (int32_t sy = 0; sy < lcd->h; sy++) {
+        const uint32_t ly = (uint32_t)sy * layout->lcd_row_num / layout->lcd_row_den;
+        const bool shadow_row = sy >= (int32_t)LCD_SHADOW_DY;
+        const uint32_t shadow_ly = shadow_row
+            ? (uint32_t)(sy - LCD_SHADOW_DY) * layout->lcd_row_num / layout->lcd_row_den
+            : 0;
+        uint16_t *out = &view->lcd_pixels[(lcd->y + sy) * view->lcd_stride + lcd->x];
 
-        for (uint32_t sx = 0; sx < SKIN_LCD_W; sx++) {
-            uint16_t color = inactive;
-            if (radio_pixel(framebuffer, sx / SKIN_LCD_CELL_W, ly)) {
-                color = foreground;
-            } else if (shadow_row && sx >= LCD_SHADOW_DX &&
-                       radio_pixel(framebuffer,
-                                   (sx - LCD_SHADOW_DX) / SKIN_LCD_CELL_W,
-                                   shadow_ly)) {
-                color = shadow;
+        for (uint32_t lx = 0; lx < RADIO_WIDTH; lx++) {
+            const bool lit = radio_pixel(framebuffer, lx, ly);
+            /* The shadow of a screen pixel comes from the one on its left: in
+             * the previous LCD column for the first pixel of a cell. */
+            const bool shadow_here = shadow_row && radio_pixel(framebuffer, lx, shadow_ly);
+            const bool shadow_left = shadow_row && lx > 0 &&
+                                     radio_pixel(framebuffer, lx - 1u, shadow_ly);
+
+            for (uint32_t c = 0; c < layout->lcd_cell_w; c++) {
+                *out++ = lit ? foreground
+                       : ((c == 0 ? shadow_left : shadow_here) ? shadow : inactive);
             }
-            row[sx] = color;
         }
     }
 }
 
-/* Draw the lit RX/TX light pipe (trapezoid) with its glow, as ARGB8888. */
-static void led_render(uint32_t *pixels, uint32_t stride, const led_colors_t *colors)
+/* Draw the lit RX/TX light pipe (trapezoid) with its glow, as ARGB8888. A
+ * vertical pipe is the same trapezoid turned a quarter turn counter-clockwise
+ * about its centre. */
+static void led_render(const skin_led_t *led, uint32_t *pixels, uint32_t stride,
+                       const led_colors_t *colors)
 {
-    const float height = SKIN_LED_BOTTOM_Y - SKIN_LED_TOP_Y;
-    const float half_width = (SKIN_LED_BOTTOM_X1 - SKIN_LED_BOTTOM_X0) / 2.0f;
-    const float center_x = (SKIN_LED_TOP_X0 + SKIN_LED_TOP_X1 +
-                            SKIN_LED_BOTTOM_X0 + SKIN_LED_BOTTOM_X1) / 4.0f;
-    const float center_y = SKIN_LED_TOP_Y + height * 0.4f;
+    const float height = led->bottom_y - led->top_y;
+    const float half_width = (led->bottom_x1 - led->bottom_x0) / 2.0f;
+    const float center_x = (led->top_x0 + led->top_x1 + led->bottom_x0 + led->bottom_x1) / 4.0f;
+    const float center_y = led->top_y + height * 0.4f;
+    const float pivot_y = (led->top_y + led->bottom_y) / 2.0f;
 
-    for (uint32_t y = 0; y < SKIN_LED_BOX_H; y++) {
-        const float py = (float)(SKIN_LED_BOX_Y + (int32_t)y) + 0.5f;
-        const float t = clampf((py - SKIN_LED_TOP_Y) / height, 0.0f, 1.0f);
-        const float left = SKIN_LED_TOP_X0 + (SKIN_LED_BOTTOM_X0 - SKIN_LED_TOP_X0) * t;
-        const float right = SKIN_LED_TOP_X1 + (SKIN_LED_BOTTOM_X1 - SKIN_LED_TOP_X1) * t;
-
-        for (uint32_t x = 0; x < SKIN_LED_BOX_W; x++) {
-            const float px = (float)(SKIN_LED_BOX_X + (int32_t)x) + 0.5f;
+    for (int32_t y = 0; y < led->box.h; y++) {
+        for (int32_t x = 0; x < led->box.w; x++) {
+            /* Screen pixel, brought back into the unturned trapezoid. */
+            const float sx = (float)(led->box.x + x) + 0.5f;
+            const float sy = (float)(led->box.y + y) + 0.5f;
+            const float px = led->vertical ? center_x - (sy - pivot_y) : sx;
+            const float py = led->vertical ? pivot_y + (sx - center_x) : sy;
+            const float t = clampf((py - led->top_y) / height, 0.0f, 1.0f);
+            const float left = led->top_x0 + (led->bottom_x0 - led->top_x0) * t;
+            const float right = led->top_x1 + (led->bottom_x1 - led->top_x1) * t;
             const float dx = fmaxf(fmaxf(left - px, px - right), 0.0f);
-            const float dy = fmaxf(fmaxf(SKIN_LED_TOP_Y - py, py - SKIN_LED_BOTTOM_Y), 0.0f);
+            const float dy = fmaxf(fmaxf(led->top_y - py, py - led->bottom_y), 0.0f);
             const float inside = fminf(fminf(px - left, right - px),
-                                       fminf(py - SKIN_LED_TOP_Y, SKIN_LED_BOTTOM_Y - py));
+                                       fminf(py - led->top_y, led->bottom_y - py));
             const float coverage = clampf(inside + 0.5f, 0.0f, 1.0f);
-            const float fade = clampf(1.0f - sqrtf(dx * dx + dy * dy) / SKIN_LED_GLOW,
-                                      0.0f, 1.0f);
+            const float fade = clampf(1.0f - sqrtf(dx * dx + dy * dy) / led->glow, 0.0f, 1.0f);
             const float glow = LED_GLOW_ALPHA * fade * fade;
             const float alpha = coverage + (1.0f - coverage) * glow;
             const float distance = hypotf((px - center_x) / half_width, (py - center_y) / height);
             uint32_t core = mix_hex(colors->center, colors->core, clampf(distance, 0.0f, 1.0f));
 
-            if (py - SKIN_LED_TOP_Y > 1.5f && py - SKIN_LED_TOP_Y < 3.5f &&
+            if (py - led->top_y > 1.5f && py - led->top_y < 3.5f &&
                 px > left + 2.5f && px < right - 2.5f) {
                 core = mix_hex(core, 0xFFFFFFu, 0.6f);
             }
@@ -471,27 +542,27 @@ static void led_render(uint32_t *pixels, uint32_t stride, const led_colors_t *co
     }
 }
 
-/* Draw the lit torch as ARGB8888: the visible top of the dome, a halo, and a
- * soft beam fanning out up to the top of the screen, between the antenna and
- * the knob. */
-static void torch_render(uint32_t *pixels, uint32_t stride)
+/* Draw the lit torch as ARGB8888: the visible part of the lens, a halo, and,
+ * unless the layout turns it off, a soft beam fanning out up to the top of the
+ * screen. */
+static void torch_render(const skin_torch_t *torch, uint32_t *pixels, uint32_t stride)
 {
-    const float halo_rx = SKIN_TORCH_RX + SKIN_TORCH_HALO;
-    const float halo_ry = SKIN_TORCH_RY + SKIN_TORCH_HALO;
+    const float halo_rx = torch->rx + torch->halo;
+    const float halo_ry = torch->ry + torch->halo;
 
-    for (uint32_t y = 0; y < SKIN_TORCH_BOX_H; y++) {
-        const float py = (float)(SKIN_TORCH_BOX_Y + (int32_t)y) + 0.5f;
-        const float dy = py - SKIN_TORCH_Y;
+    for (int32_t y = 0; y < torch->box.h; y++) {
+        const float py = (float)(torch->box.y + y) + 0.5f;
+        const float dy = py - torch->y;
 
-        for (uint32_t x = 0; x < SKIN_TORCH_BOX_W; x++) {
-            const float px = (float)(SKIN_TORCH_BOX_X + (int32_t)x) + 0.5f;
-            const float dx = px - SKIN_TORCH_X;
+        for (int32_t x = 0; x < torch->box.w; x++) {
+            const float px = (float)(torch->box.x + x) + 0.5f;
+            const float dx = px - torch->x;
 
-            /* Dome, cut by the housing edge like on the skin. */
-            const float dome = sqrtf((dx * dx) / (SKIN_TORCH_RX * SKIN_TORCH_RX) +
-                                     (dy * dy) / (SKIN_TORCH_RY * SKIN_TORCH_RY));
-            const float core = clampf((1.0f - dome) * SKIN_TORCH_RY + 0.5f, 0.0f, 1.0f) *
-                               clampf(SKIN_TORCH_TOP - py + 0.5f, 0.0f, 1.0f);
+            /* Lens, cut by its housing edge when the skin hides part of it. */
+            const float lens = sqrtf((dx * dx) / (torch->rx * torch->rx) +
+                                     (dy * dy) / (torch->ry * torch->ry));
+            const float core = clampf((1.0f - lens) * fminf(torch->rx, torch->ry) + 0.5f, 0.0f, 1.0f) *
+                               clampf(torch->top - py + 0.5f, 0.0f, 1.0f);
 
             const float halo_fade = clampf(1.0f - sqrtf((dx * dx) / (halo_rx * halo_rx) +
                                                         (dy * dy) / (halo_ry * halo_ry)),
@@ -499,11 +570,11 @@ static void torch_render(uint32_t *pixels, uint32_t stride)
             const float halo = TORCH_HALO_ALPHA * halo_fade * halo_fade;
 
             float beam = 0.0f;
-            if (dy < 0.0f) {
+            if (dy < 0.0f && torch->beam > 0.0f) {
                 const float rise = -dy;
-                const float across = clampf(1.0f - fabsf(dx) / (SKIN_TORCH_RX + rise * SKIN_TORCH_BEAM_SPREAD),
+                const float across = clampf(1.0f - fabsf(dx) / (torch->rx + rise * torch->beam_spread),
                                             0.0f, 1.0f);
-                beam = TORCH_BEAM_ALPHA * (1.0f - rise / SKIN_TORCH_Y) * across * across;
+                beam = torch->beam * TORCH_BEAM_ALPHA * (1.0f - rise / torch->y) * across * across;
             }
 
             const float alpha = 1.0f - (1.0f - core) * (1.0f - halo) * (1.0f - beam);
@@ -593,7 +664,11 @@ static void connect_screen_opa_cb(void *obj, int32_t value)
 static void connect_screen_faded_out(lv_anim_t *anim)
 {
     (void)anim;
-    lv_obj_set_hidden(connect_screen, true);
+    for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+        if (lv_obj_get_style_opa(views[i].connect_screen, 0) == LV_OPA_TRANSP) {
+            lv_obj_set_hidden(views[i].connect_screen, true);
+        }
+    }
 }
 
 static void connect_icon_pulse_cb(void *obj, int32_t value)
@@ -601,26 +676,43 @@ static void connect_icon_pulse_cb(void *obj, int32_t value)
     lv_obj_set_style_image_opa(obj, (lv_opa_t)value, 0);
 }
 
-/* Fade the black "connect the radio" screen in or out over the radio. Once
- * faded out it is hidden, so it no longer catches the touches. */
+/* Fade the black "connect the radio" screens in or out over the radio, in
+ * every view. Once faded out they are hidden, so they no longer catch
+ * the touches. */
 static void connect_screen_show(bool show)
 {
-    lv_anim_t anim;
+    for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+        lv_obj_t *screen = views[i].connect_screen;
+        lv_anim_t anim;
 
-    lv_anim_delete(connect_screen, connect_screen_opa_cb);
-    lv_obj_set_hidden(connect_screen, false);
+        lv_anim_delete(screen, connect_screen_opa_cb);
+        lv_obj_set_hidden(screen, false);
 
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, connect_screen);
-    lv_anim_set_exec_cb(&anim, connect_screen_opa_cb);
-    lv_anim_set_values(&anim, lv_obj_get_style_opa(connect_screen, 0),
-                       show ? LV_OPA_COVER : LV_OPA_TRANSP);
-    lv_anim_set_duration(&anim, CONNECT_FADE_MS);
-    lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
-    if (!show) {
-        lv_anim_set_completed_cb(&anim, connect_screen_faded_out);
+        lv_anim_init(&anim);
+        lv_anim_set_var(&anim, screen);
+        lv_anim_set_exec_cb(&anim, connect_screen_opa_cb);
+        lv_anim_set_values(&anim, lv_obj_get_style_opa(screen, 0),
+                           show ? LV_OPA_COVER : LV_OPA_TRANSP);
+        lv_anim_set_duration(&anim, CONNECT_FADE_MS);
+        lv_anim_set_path_cb(&anim, lv_anim_path_ease_in_out);
+        if (!show) {
+            lv_anim_set_completed_cb(&anim, connect_screen_faded_out);
+        }
+        lv_anim_start(&anim);
     }
-    lv_anim_start(&anim);
+}
+
+/* Portrait shows the whole radio; landscape shows the screen alone with the
+ * USB-A port on the left (SCREEN_ROTATION), the screen and keypad otherwise. */
+static view_t *view_for_rotation(lv_display_rotation_t rotation)
+{
+    if (rotation == SCREEN_ROTATION) {
+        return &views[VIEW_SCREEN];
+    }
+    if (rotation == LV_DISPLAY_ROTATION_90 || rotation == LV_DISPLAY_ROTATION_270) {
+        return &views[VIEW_LANDSCAPE];
+    }
+    return &views[VIEW_PORTRAIT];
 }
 
 static void render_task(void *arg)
@@ -632,6 +724,8 @@ static void render_task(void *arg)
     bool connected = false;
     bool shown_connected = false;
     bool redraw = true;
+    lv_display_rotation_t rotation = lv_display_get_rotation(display);
+    lv_display_rotation_t shown_rotation = rotation;
 
     while (true) {
         xSemaphoreTake(state_mutex, portMAX_DELAY);
@@ -640,6 +734,7 @@ static void render_task(void *arg)
             flags = viewer.flags;
             palette = viewer.palette;
             connected = viewer.usb_connected;
+            rotation = viewer.rotation;
             viewer.frame_dirty = false;
             redraw = true;
         }
@@ -653,11 +748,19 @@ static void render_task(void *arg)
             const bool torch = connected && (flags & K1VIEWER_FLAG_FLASHLIGHT) != 0;
 
             if (bsp_display_lock(1000)) {
-                render_radio_frame(framebuffer, palette, asleep);
-                lv_obj_invalidate(lcd_canvas);
-                lv_obj_set_hidden(led_canvases[LED_RED], !led_red);
-                lv_obj_set_hidden(led_canvases[LED_GREEN], !led_green);
-                lv_obj_set_hidden(torch_canvas, !torch);
+                view_t *view = view_for_rotation(rotation);
+                if (rotation != shown_rotation) {
+                    bsp_display_rotate(display, rotation);
+                    lv_screen_load(view->screen);
+                    shown_rotation = rotation;
+                }
+                render_radio_frame(view, framebuffer, palette, asleep);
+                lv_obj_invalidate(view->lcd_canvas);
+                for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+                    lv_obj_set_hidden(views[i].led_canvases[LED_RED], !led_red);
+                    lv_obj_set_hidden(views[i].led_canvases[LED_GREEN], !led_green);
+                    lv_obj_set_hidden(views[i].torch_canvas, !torch);
+                }
                 if (connected != shown_connected) {
                     connect_screen_show(!connected);
                     shown_connected = connected;
@@ -809,24 +912,23 @@ static lv_obj_t *create_light_canvas(lv_obj_t *root, int32_t x, int32_t y,
 
 /* Black screen with the "connect your UV-K1" icon and message, shown while no
  * radio is connected. It covers the radio and swallows its touches. */
-static lv_obj_t *create_connect_screen(lv_obj_t *root)
+static lv_obj_t *create_connect_screen(const view_t *view)
 {
-    lv_obj_t *screen = lv_obj_create(root);
+    const skin_layout_t *layout = view->layout;
+    lv_obj_t *screen = lv_obj_create(view->screen);
 
     lv_obj_remove_style_all(screen);
     lv_obj_set_pos(screen, 0, 0);
-    lv_obj_set_size(screen, SKIN_WIDTH, SKIN_HEIGHT);
+    lv_obj_set_size(screen, layout->width, layout->height);
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_set_scrollable(screen, false);
     lv_obj_set_click_focusable(screen, false);
 
-    if (rgb565_image_init(&connect_icon_image, "connect icon",
-                          k1_connect_icon_rgb565_start, k1_connect_icon_rgb565_end,
-                          SKIN_CONNECT_ICON_W, SKIN_CONNECT_ICON_H)) {
+    if (connect_icon_image.data != NULL) {
         lv_obj_t *icon = lv_image_create(screen);
         lv_image_set_src(icon, &connect_icon_image);
-        lv_obj_set_pos(icon, SKIN_CONNECT_ICON_X, SKIN_CONNECT_ICON_Y);
+        lv_obj_set_pos(icon, layout->connect_icon_x, layout->connect_icon_y);
 
         /* Slow breathing while waiting for the radio. */
         lv_anim_t pulse;
@@ -841,12 +943,10 @@ static lv_obj_t *create_connect_screen(lv_obj_t *root)
         lv_anim_start(&pulse);
     }
 
-    if (rgb565_image_init(&connect_text_image, "connect text",
-                          k1_connect_text_rgb565_start, k1_connect_text_rgb565_end,
-                          SKIN_CONNECT_TEXT_W, SKIN_CONNECT_TEXT_H)) {
+    if (connect_text_image.data != NULL) {
         lv_obj_t *text = lv_image_create(screen);
         lv_image_set_src(text, &connect_text_image);
-        lv_obj_set_pos(text, SKIN_CONNECT_TEXT_X, SKIN_CONNECT_TEXT_Y);
+        lv_obj_set_pos(text, layout->connect_text_x, layout->connect_text_y);
     }
     return screen;
 }
@@ -872,26 +972,29 @@ static lv_obj_t *create_key_overlay(lv_obj_t *parent, int32_t x, int32_t y,
     return overlay;
 }
 
-static void create_key_targets(lv_obj_t *root)
+static void create_key_targets(const view_t *view)
 {
-    for (size_t i = 0; i < SKIN_KEY_COUNT; i++) {
-        const skin_key_t *key = &skin_keys[i];
-        lv_obj_t *target = create_key_overlay(root, key->x, key->y, key->w, key->h,
-                                              SKIN_KEY_RADIUS);
+    const skin_layout_t *layout = view->layout;
+
+    for (uint8_t i = 0; i < layout->key_count; i++) {
+        const skin_key_t *key = &layout->keys[i];
+        lv_obj_t *target = create_key_overlay(view->screen, key->key.x, key->key.y,
+                                              key->key.w, key->key.h, layout->key_radius);
         lv_obj_add_event_cb(target, key_event_callback, LV_EVENT_ALL,
                             (void *)(uintptr_t)key->code);
     }
 
-    /* F1 and F2 are narrow on the rail: a wider transparent touch area takes
-     * the press and passes its states to the cover of the drawn key, which
-     * also glows so the press shows around the finger. */
-    for (size_t i = 0; i < SKIN_SIDE_KEY_COUNT; i++) {
-        const skin_side_key_t *key = &skin_side_keys[i];
-        lv_obj_t *area = lv_obj_create(root);
+    /* F1 and F2 (rail keys in portrait, pills in landscape): a transparent
+     * touch area, wider than the drawn key, takes the press and passes its
+     * states to the cover of the drawn key, which also glows so the press
+     * shows around the finger. */
+    for (uint8_t i = 0; i < layout->side_key_count; i++) {
+        const skin_side_key_t *key = &layout->side_keys[i];
+        lv_obj_t *area = lv_obj_create(view->screen);
 
         lv_obj_remove_style_all(area);
-        lv_obj_set_pos(area, key->hit_x, key->hit_y);
-        lv_obj_set_size(area, key->hit_w, key->hit_h);
+        lv_obj_set_pos(area, key->hit.x, key->hit.y);
+        lv_obj_set_size(area, key->hit.w, key->hit.h);
         lv_obj_set_scrollable(area, false);
         lv_obj_set_scroll_on_focus(area, false);
         lv_obj_set_click_focusable(area, false);
@@ -900,8 +1003,9 @@ static void create_key_targets(lv_obj_t *root)
         lv_obj_add_event_cb(area, key_event_callback, LV_EVENT_ALL,
                             (void *)(uintptr_t)key->code);
 
-        lv_obj_t *overlay = create_key_overlay(area, key->x - key->hit_x, key->y - key->hit_y,
-                                               key->w, key->h, SKIN_SIDE_KEY_RADIUS);
+        lv_obj_t *overlay = create_key_overlay(area, key->key.x - key->hit.x,
+                                               key->key.y - key->hit.y,
+                                               key->key.w, key->key.h, key->radius);
         lv_obj_set_clickable(overlay, false);
         lv_obj_set_style_shadow_color(overlay, lv_color_hex(KEY_LONG_COLOR), LV_STATE_PRESSED);
         lv_obj_set_style_shadow_width(overlay, SIDE_KEY_GLOW, LV_STATE_PRESSED);
@@ -910,59 +1014,72 @@ static void create_key_targets(lv_obj_t *root)
     }
 }
 
-static void display_init(void)
+/* Build the screen of one orientation: skin, radio LCD, lights, touch keys
+ * and the "connect the radio" cover. */
+static void create_view(view_t *view)
 {
-    lv_display_t *display = bsp_display_start();
-    assert(display != NULL);
+    const skin_layout_t *layout = view->layout;
+    const skin_rect_t *glass = &layout->glass;
 
-    bsp_display_rotate(display, DISPLAY_ROTATION);
+    view->screen = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(view->screen, lv_color_hex(BACKGROUND_COLOR), 0);
+    lv_obj_set_scrollable(view->screen, false);
+
+    if (rgb565_image_init(&view->skin, view->name, view->skin_start, view->skin_end,
+                          layout->width, layout->height)) {
+        lv_obj_t *skin = lv_image_create(view->screen);
+        lv_image_set_src(skin, &view->skin);
+        lv_obj_set_pos(skin, 0, 0);
+    }
+
+    const uint32_t stride = lv_draw_buf_width_to_stride(glass->w, LV_COLOR_FORMAT_RGB565);
+    view->lcd_stride = stride / sizeof(uint16_t);
+    view->lcd_pixels = heap_caps_aligned_calloc(64, stride, glass->h,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    assert(view->lcd_pixels != NULL);
+
+    /* The radio LCD replaces the glass of the skin; tap it to change palette. */
+    view->lcd_canvas = lv_canvas_create(view->screen);
+    lv_canvas_set_buffer(view->lcd_canvas, view->lcd_pixels, glass->w, glass->h,
+                         LV_COLOR_FORMAT_RGB565);
+    lv_obj_set_pos(view->lcd_canvas, glass->x, glass->y);
+    lv_obj_set_clickable(view->lcd_canvas, true);
+    lv_obj_add_event_cb(view->lcd_canvas, palette_event_callback, LV_EVENT_CLICKED, NULL);
+
+    uint32_t *pixels;
+    uint32_t stride_px;
+    const skin_rect_t *box = &layout->led.box;
+    for (uint8_t i = 0; i < LED_COUNT; i++) {
+        view->led_canvases[i] = create_light_canvas(view->screen, box->x, box->y, box->w, box->h,
+                                                    &pixels, &stride_px);
+        led_render(&layout->led, pixels, stride_px, &led_colors[i]);
+    }
+    box = &layout->torch.box;
+    view->torch_canvas = create_light_canvas(view->screen, box->x, box->y, box->w, box->h,
+                                             &pixels, &stride_px);
+    torch_render(&layout->torch, pixels, stride_px);
+
+    create_key_targets(view);
+    view->connect_screen = create_connect_screen(view);
+}
+
+static void display_init(lv_display_rotation_t rotation)
+{
+    display = bsp_display_start();
+    assert(display != NULL);
     ESP_ERROR_CHECK(bsp_display_backlight_on());
 
-    const bool skin_ready =
-        rgb565_image_init(&skin_image, "skin", uv_k1_skin_rgb565_start,
-                          uv_k1_skin_rgb565_end, SKIN_WIDTH, SKIN_HEIGHT);
+    rgb565_image_init(&connect_icon_image, "connect icon",
+                      k1_connect_icon_rgb565_start, k1_connect_icon_rgb565_end,
+                      SKIN_CONNECT_ICON_W, SKIN_CONNECT_ICON_H);
+    rgb565_image_init(&connect_text_image, "connect text",
+                      k1_connect_text_rgb565_start, k1_connect_text_rgb565_end,
+                      SKIN_CONNECT_TEXT_W, SKIN_CONNECT_TEXT_H);
 
     if (bsp_display_lock(0)) {
-        lv_obj_t *root = lv_screen_active();
-        lv_obj_set_style_bg_color(root, lv_color_hex(BACKGROUND_COLOR), 0);
-        lv_obj_set_scrollable(root, false);
-
-        if (skin_ready) {
-            lv_obj_t *skin = lv_image_create(root);
-            lv_image_set_src(skin, &skin_image);
-            lv_obj_set_pos(skin, 0, 0);
+        for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+            create_view(&views[i]);
         }
-
-        const uint32_t stride =
-            lv_draw_buf_width_to_stride(SKIN_GLASS_W, LV_COLOR_FORMAT_RGB565);
-        lcd_stride = stride / sizeof(uint16_t);
-        lcd_pixels = heap_caps_aligned_calloc(
-            64, stride, SKIN_GLASS_H, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        assert(lcd_pixels != NULL);
-
-        /* The radio LCD replaces the glass of the skin; tap it to change palette. */
-        lcd_canvas = lv_canvas_create(root);
-        lv_canvas_set_buffer(lcd_canvas, lcd_pixels, SKIN_GLASS_W, SKIN_GLASS_H,
-                             LV_COLOR_FORMAT_RGB565);
-        lv_obj_set_pos(lcd_canvas, SKIN_GLASS_X, SKIN_GLASS_Y);
-        lv_obj_set_clickable(lcd_canvas, true);
-        lv_obj_add_event_cb(lcd_canvas, palette_event_callback, LV_EVENT_CLICKED, NULL);
-
-        uint32_t *pixels;
-        uint32_t stride_px;
-        for (uint8_t i = 0; i < LED_COUNT; i++) {
-            led_canvases[i] = create_light_canvas(root, SKIN_LED_BOX_X, SKIN_LED_BOX_Y,
-                                                  SKIN_LED_BOX_W, SKIN_LED_BOX_H,
-                                                  &pixels, &stride_px);
-            led_render(pixels, stride_px, &led_colors[i]);
-        }
-        torch_canvas = create_light_canvas(root, SKIN_TORCH_BOX_X, SKIN_TORCH_BOX_Y,
-                                           SKIN_TORCH_BOX_W, SKIN_TORCH_BOX_H,
-                                           &pixels, &stride_px);
-        torch_render(pixels, stride_px);
-
-        create_key_targets(root);
-        connect_screen = create_connect_screen(root);
 
         lv_indev_t *touch = bsp_display_get_input_dev();
         if (touch != NULL) {
@@ -970,9 +1087,95 @@ static void display_init(void)
             lv_indev_set_long_press_repeat_time(touch, KEY_REPEAT_MS);
         }
 
+        bsp_display_rotate(display, rotation);
+        lv_screen_load(view_for_rotation(rotation)->screen);
         bsp_display_unlock();
     }
 }
+
+#if AUTO_ROTATE
+/* Orientation from gravity: the edge that points up decides. Returns false
+ * when the Tab5 lies flat or is not tilted clearly enough towards an edge. */
+static bool imu_orientation(const float accel[3], lv_display_rotation_t *rotation)
+{
+    const float along_long = IMU_LONG_SIGN * accel[IMU_LONG_AXIS];
+    const float along_short = IMU_SHORT_SIGN * accel[IMU_SHORT_AXIS];
+
+    if (fabsf(accel[2]) > IMU_FLAT_G) {
+        return false;
+    }
+    if (fabsf(along_long) >= fabsf(along_short)) {
+        if (fabsf(along_long) < IMU_TILT_G) {
+            return false;
+        }
+        *rotation = along_long > 0.0f ? LV_DISPLAY_ROTATION_0 : LV_DISPLAY_ROTATION_180;
+    } else {
+        if (fabsf(along_short) < IMU_TILT_G) {
+            return false;
+        }
+        *rotation = along_short > 0.0f ? LV_DISPLAY_ROTATION_90 : LV_DISPLAY_ROTATION_270;
+    }
+    return true;
+}
+
+/* Follow the orientation of the Tab5 with its BMI270 accelerometer. A new
+ * orientation must hold for IMU_SETTLE_SAMPLES readings before the render
+ * task turns the display. */
+static void imu_task(void *arg)
+{
+    (void)arg;
+    bmi270_handle_t *imu = NULL;
+    const bmi270_config_t imu_config = {
+        .acce_odr = BMI270_ACC_ODR_25_HZ,
+        .acce_range = BMI270_ACC_RANGE_2_G,
+        .gyro_odr = BMI270_GYR_ODR_25_HZ,
+        .gyro_range = BMI270_GYR_RANGE_250_DPS,
+    };
+
+    /* The BMI270 shares the BSP I2C bus with the touch controller. */
+    const esp_err_t bus_result = bsp_i2c_init();
+    const bmi270_driver_config_t driver_config = {
+        .addr = BMI270_I2C_ADDRESS_L,
+        .interface = BMI270_USE_I2C,
+        .i2c_bus = bsp_i2c_get_handle(),
+    };
+
+    if (bus_result != ESP_OK ||
+        bmi270_create(&driver_config, &imu) != ESP_OK ||
+        bmi270_start(imu, &imu_config) != ESP_OK) {
+        ESP_LOGW(TAG, "IMU not available, the orientation stays fixed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    lv_display_rotation_t candidate = FIXED_ROTATION;
+    uint32_t stable = 0;
+
+    while (true) {
+        float accel[3];
+        lv_display_rotation_t rotation;
+
+        if (bmi270_get_acce_data(imu, &accel[0], &accel[1], &accel[2]) == ESP_OK &&
+            imu_orientation(accel, &rotation)) {
+            if (rotation != candidate) {
+                candidate = rotation;
+                stable = 0;
+            }
+            if (++stable == IMU_SETTLE_SAMPLES) {
+                xSemaphoreTake(state_mutex, portMAX_DELAY);
+                if (viewer.rotation != candidate) {
+                    viewer.rotation = candidate;
+                    viewer.frame_dirty = true;
+                    ESP_LOGI(TAG, "Orientation %d (accel x=%.2f y=%.2f z=%.2f)",
+                             (int)candidate, (double)accel[0], (double)accel[1], (double)accel[2]);
+                }
+                xSemaphoreGive(state_mutex);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(IMU_PERIOD_MS));
+    }
+}
+#endif
 
 void app_main(void)
 {
@@ -984,8 +1187,12 @@ void app_main(void)
     assert(key_queue != NULL);
 
     parser_reset();
-    display_init();
+    viewer.rotation = FIXED_ROTATION;
+    display_init(viewer.rotation);
 
     assert(xTaskCreate(render_task, "viewer-render", 8192, NULL, 5, NULL) == pdPASS);
     assert(xTaskCreate(usb_task, "viewer-usb", 6144, NULL, 8, NULL) == pdPASS);
+#if AUTO_ROTATE
+    assert(xTaskCreate(imu_task, "viewer-imu", 4096, NULL, 4, NULL) == pdPASS);
+#endif
 }
