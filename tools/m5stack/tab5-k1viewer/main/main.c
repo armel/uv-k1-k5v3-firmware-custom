@@ -23,6 +23,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -38,6 +39,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "gps.h"
 #include "lvgl.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -76,7 +78,7 @@
 #define IMU_SHORT_SIGN         1.0f
 #define KEY_LONG_PRESS_MS      500u
 #define KEY_REPEAT_MS          120u
-#define KEY_QUEUE_LENGTH       16u
+#define OUTBOUND_QUEUE_LENGTH  16u
 #define KEY_CLICK              1            /* click on the Tab5 speaker for each key sent */
 #define KEY_CLICK_VOLUME       70           /* 0 to 100: -50 dB to 0 dB */
 #define KEY_CLICK_RATE         48000u
@@ -107,6 +109,19 @@
 #define CONNECT_PULSE_MS       1400u
 #define CONNECT_PULSE_MIN_OPA  LV_OPA_40
 #define CONNECT_VERSION_COLOR  0x5A5F66u    /* as the license line above it */
+#define GPS_DEBUG_REFRESH_MS   250u
+#define GPS_DATA_TIMEOUT_MS    3000u
+#define GPS_SEARCH_BLINK_MS    500u
+#define GPS_STATUS_SIZE        10
+#define GPS_PANEL_WIDTH        390
+#define GPS_PANEL_HEIGHT       390
+#define GPS_PANEL_COLOR        SKIN_TOAST_COLOR
+#define GPS_PANEL_BORDER_COLOR TOAST_BORDER_COLOR
+#define GPS_PANEL_TEXT_COLOR   0xE8EDF2u
+#define GPS_PANEL_LABEL_COLOR  0xA7AFB8u
+#define GPS_FIX_COLOR          0x6BE585u
+#define GPS_DATA_COLOR         0x3D93E6u
+#define GPS_ERROR_COLOR        0xFF6B6Bu
 #define BACKGROUND_COLOR       0x0C0D0Fu
 #define KEY_PRESSED_COLOR      0xFFFFFFu
 #define KEY_LONG_COLOR         0x3D93E6u
@@ -117,6 +132,7 @@ enum {
     K1VIEWER_TYPE_DIFF = 0x02,
     K1VIEWER_TYPE_KEY = 0x03,
     K1VIEWER_TYPE_KEY_LONG = 0x04,
+    K1VIEWER_TYPE_GPS = 0x07,
     K1VIEWER_FLAG_DEEP_SLEEP = 1u << 0,
     K1VIEWER_FLAG_LED_RED = 1u << 1,
     K1VIEWER_FLAG_LED_GREEN = 1u << 2,
@@ -201,12 +217,30 @@ typedef struct {
     bool usb_connected;
     bool frame_dirty;
     lv_display_rotation_t rotation;
+    gps_status_t gps;
+    TickType_t gps_last_data_tick;
+    TickType_t gps_last_sentence_tick;
+    bool gps_started;
+    bool gps_error;
 } viewer_state_t;
 
 typedef struct {
     uint8_t code;
     bool long_press;
 } radio_key_t;
+
+typedef enum {
+    OUTBOUND_KEY,
+    OUTBOUND_GPS,
+} outbound_type_t;
+
+typedef struct {
+    outbound_type_t type;
+    union {
+        radio_key_t key;
+        gps_fix_t gps;
+    } data;
+} outbound_message_t;
 
 typedef enum {
     VIEW_PORTRAIT,
@@ -229,6 +263,10 @@ typedef struct {
     lv_obj_t *led_canvases[LED_COUNT];
     lv_obj_t *torch_canvas;
     lv_obj_t *connect_screen;
+    lv_obj_t *gps_button;
+    lv_obj_t *gps_status_dot;
+    lv_obj_t *gps_debug_panel;
+    lv_obj_t *gps_debug_label;
 } view_t;
 
 static const char *TAG = "tab5-k1viewer";
@@ -280,7 +318,7 @@ extern const uint8_t k1_toast_brightness_3_rgb565_end[];
 static SemaphoreHandle_t state_mutex;
 static SemaphoreHandle_t disconnected_sem;
 static SemaphoreHandle_t orientation_ready;
-static QueueHandle_t key_queue;
+static QueueHandle_t outbound_queue;
 static nvs_handle_t settings_nvs;
 static bool settings_ready;
 #if KEY_CLICK
@@ -299,6 +337,7 @@ static lv_obj_t *toast;
 static lv_obj_t *toast_image;
 static lv_timer_t *plate_tap_timer;
 static bool plate_tap_pending;          /* a first tap waits for a second one */
+static bool gps_debug_visible;
 static view_t views[VIEW_COUNT] = {
     [VIEW_PORTRAIT] = {
         .layout = &skin_portrait,
@@ -807,8 +846,11 @@ static void radio_key_send(uint8_t code, bool long_press)
         return;
     }
 
-    const radio_key_t key = {.code = code, .long_press = long_press};
-    if (xQueueSend(key_queue, &key, 0) != pdTRUE) {
+    const outbound_message_t message = {
+        .type = OUTBOUND_KEY,
+        .data.key = {.code = code, .long_press = long_press},
+    };
+    if (xQueueSend(outbound_queue, &message, 0) != pdTRUE) {
         ESP_LOGW(TAG, "Key queue full, key 0x%02X dropped", code);
         return;
     }
@@ -819,6 +861,33 @@ static void radio_key_send(uint8_t code, bool long_press)
 #else
     (void)key_click;
 #endif
+}
+
+static void gps_status_received(const gps_status_t *status, void *context)
+{
+    (void)context;
+    const TickType_t now = xTaskGetTickCount();
+
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    const bool new_fix = status->fix_count != viewer.gps.fix_count;
+    if (status->bytes_received != viewer.gps.bytes_received) {
+        viewer.gps_last_data_tick = now;
+    }
+    if (status->valid_sentences != viewer.gps.valid_sentences) {
+        viewer.gps_last_sentence_tick = now;
+    }
+    viewer.gps = *status;
+    xSemaphoreGive(state_mutex);
+
+    if (!new_fix) {
+        return;
+    }
+    const outbound_message_t message = {
+        .type = OUTBOUND_GPS,
+        .data.gps = status->fix,
+    };
+    /* A newer fix will arrive soon, so a full queue needs no retry. */
+    xQueueSend(outbound_queue, &message, 0);
 }
 
 /*
@@ -1026,6 +1095,192 @@ static void backlight_update(int *level, int on_percent, bool connected, bool as
     }
 }
 
+static void gps_coordinate_format(char *text, size_t size, int32_t coordinate)
+{
+    int64_t magnitude = coordinate;
+    const bool negative = magnitude < 0;
+    if (negative) {
+        magnitude = -magnitude;
+    }
+    const uint64_t scaled = ((uint64_t)magnitude * 100000u + 180000u) / 360000u;
+    snprintf(text, size, "%s%llu.%05llu", negative ? "-" : "",
+             (unsigned long long)(scaled / 100000u),
+             (unsigned long long)(scaled % 100000u));
+}
+
+static void gps_aprs_coordinate_format(char *text, size_t size,
+                                       int32_t coordinate, bool longitude)
+{
+    int64_t magnitude = coordinate;
+    const bool negative = magnitude < 0;
+    if (negative) {
+        magnitude = -magnitude;
+    }
+    const uint64_t units = ((uint64_t)magnitude + 30u) / 60u;
+    const uint64_t degrees = units / 6000u;
+    const uint64_t minutes = units % 6000u;
+    const char hemisphere = longitude
+        ? (negative ? 'W' : 'E')
+        : (negative ? 'S' : 'N');
+    if (longitude) {
+        snprintf(text, size, "%03llu%02llu.%02llu%c",
+                 (unsigned long long)degrees,
+                 (unsigned long long)(minutes / 100u),
+                 (unsigned long long)(minutes % 100u), hemisphere);
+    } else {
+        snprintf(text, size, "%02llu%02llu.%02llu%c",
+                 (unsigned long long)degrees,
+                 (unsigned long long)(minutes / 100u),
+                 (unsigned long long)(minutes % 100u), hemisphere);
+    }
+}
+
+static void gps_age_format(char *text, size_t size, bool known,
+                           TickType_t now, TickType_t then)
+{
+    if (!known) {
+        snprintf(text, size, "--");
+        return;
+    }
+    const uint32_t age_ms = pdTICKS_TO_MS(now - then);
+    if (age_ms < 10000u) {
+        snprintf(text, size, "%lu.%lus", (unsigned long)(age_ms / 1000u),
+                 (unsigned long)((age_ms % 1000u) / 100u));
+    } else if (age_ms < 1000000u) {
+        snprintf(text, size, "%lus", (unsigned long)(age_ms / 1000u));
+    } else {
+        snprintf(text, size, ">999s");
+    }
+}
+
+static void gps_debug_update(const gps_status_t *status, bool started, bool error,
+                             TickType_t last_data, TickType_t last_sentence,
+                             TickType_t now)
+{
+    const char *state = "START";
+    const char *receiver = "STARTING";
+    const char *stream = "NONE";
+    uint32_t color = 0xA7AFB8u;
+    const bool has_data = status->bytes_received != 0u;
+    const uint32_t data_age = has_data ? pdTICKS_TO_MS(now - last_data) : UINT32_MAX;
+    const bool has_nmea = status->valid_sentences != 0u;
+    const uint32_t nmea_age = has_nmea
+        ? pdTICKS_TO_MS(now - last_sentence)
+        : UINT32_MAX;
+    const bool module_present =
+        started && has_data && data_age <= GPS_DATA_TIMEOUT_MS;
+    const bool nmea_fresh = has_nmea && nmea_age <= GPS_DATA_TIMEOUT_MS;
+    const bool live_fix =
+        module_present && nmea_fresh && status->state == GPS_STATE_FIX;
+    const bool searching =
+        !error && module_present && nmea_fresh &&
+        status->state == GPS_STATE_SEARCHING;
+    const bool search_blink_on =
+        ((pdTICKS_TO_MS(now) / GPS_SEARCH_BLINK_MS) & 1u) == 0u;
+
+    if (error) {
+        state = "ERROR";
+        receiver = "ERROR";
+        stream = "ERROR";
+        color = GPS_ERROR_COLOR;
+    } else if (!started) {
+        state = "START";
+    } else if (!module_present) {
+        state = "NO DATA";
+        receiver = "ABSENT";
+        stream = has_nmea ? "STALE" : "NONE";
+        color = GPS_ERROR_COLOR;
+    } else if (!nmea_fresh) {
+        state = "RAW DATA";
+        receiver = "DETECTED";
+        stream = "RAW";
+        color = GPS_DATA_COLOR;
+    } else {
+        receiver = "DETECTED";
+        stream = "VALID";
+        switch (status->state) {
+        case GPS_STATE_FIX:
+            state = "FIX";
+            color = GPS_FIX_COLOR;
+            break;
+        case GPS_STATE_SEARCHING:
+            state = "SEARCH";
+            color = GPS_DATA_COLOR;
+            break;
+        case GPS_STATE_NMEA:
+            state = "NMEA";
+            color = GPS_DATA_COLOR;
+            break;
+        case GPS_STATE_DATA:
+        case GPS_STATE_NO_DATA:
+        default:
+            state = "RAW DATA";
+            color = GPS_DATA_COLOR;
+            break;
+        }
+    }
+    char age[12];
+    gps_age_format(age, sizeof(age), status->valid_sentences != 0u,
+                   now, last_sentence);
+    char satellites_used[4];
+    if (status->satellites_used_known) {
+        snprintf(satellites_used, sizeof(satellites_used), "%u",
+                 status->satellites_used);
+    } else {
+        snprintf(satellites_used, sizeof(satellites_used), "--");
+    }
+    char satellites_in_view[4];
+    if (status->satellites_in_view_known) {
+        snprintf(satellites_in_view, sizeof(satellites_in_view), "%u",
+                 status->satellites_in_view);
+    } else {
+        snprintf(satellites_in_view, sizeof(satellites_in_view), "--");
+    }
+    char strongest_snr[12];
+    if (status->strongest_snr_known) {
+        snprintf(strongest_snr, sizeof(strongest_snr), "%u dB-Hz",
+                 status->strongest_snr);
+    } else {
+        snprintf(strongest_snr, sizeof(strongest_snr), "--");
+    }
+    char latitude[16] = "--.-----";
+    char longitude[16] = "--.-----";
+    char aprs_latitude[10] = "--------";
+    char aprs_longitude[11] = "---------";
+    if (status->has_fix) {
+        gps_coordinate_format(latitude, sizeof(latitude), status->fix.lat_cas);
+        gps_coordinate_format(longitude, sizeof(longitude), status->fix.lon_cas);
+        gps_aprs_coordinate_format(aprs_latitude, sizeof(aprs_latitude),
+                                   status->fix.lat_cas, false);
+        gps_aprs_coordinate_format(aprs_longitude, sizeof(aprs_longitude),
+                                   status->fix.lon_cas, true);
+    }
+
+    for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+        lv_obj_t *status_dot = views[i].gps_status_dot;
+        if (status_dot != NULL) {
+            const bool visible =
+                (error || module_present) && (!searching || search_blink_on);
+            lv_obj_set_hidden(status_dot, !visible);
+            lv_obj_set_style_bg_color(status_dot, lv_color_hex(color), 0);
+        }
+
+        lv_obj_t *label = views[i].gps_debug_label;
+        lv_label_set_text_fmt(label,
+                              "%s\n%s\n%s\n%s\n\n"
+                              "%lu\n%lu\n%lu\n%s\n\n"
+                              "%s\n%s\n%s\n\n"
+                              "%s\n%s\n%s %s",
+                              state, receiver, stream, live_fix ? "YES" : "NO",
+                              (unsigned long)status->bytes_received,
+                              (unsigned long)status->valid_sentences,
+                              (unsigned long)status->checksum_errors,
+                              age, satellites_used, satellites_in_view,
+                              strongest_snr, latitude, longitude,
+                              aprs_latitude, aprs_longitude);
+    }
+}
+
 static void render_task(void *arg)
 {
     (void)arg;
@@ -1042,6 +1297,7 @@ static void render_task(void *arg)
     lcd_colors_t shown_colors = {0};
     int backlight = 0;
     TickType_t connected_tick = xTaskGetTickCount();
+    TickType_t gps_refresh_tick = 0;
 
 #if AUTO_ROTATE
     /* The backlight stays off until the IMU gives the orientation of the Tab5,
@@ -1051,8 +1307,18 @@ static void render_task(void *arg)
 
     while (true) {
         const TickType_t now = xTaskGetTickCount();
+        gps_status_t gps_status;
+        TickType_t gps_last_data;
+        TickType_t gps_last_sentence;
+        bool gps_started;
+        bool gps_error;
 
         xSemaphoreTake(state_mutex, portMAX_DELAY);
+        gps_status = viewer.gps;
+        gps_last_data = viewer.gps_last_data_tick;
+        gps_last_sentence = viewer.gps_last_sentence_tick;
+        gps_started = viewer.gps_started;
+        gps_error = viewer.gps_error;
         if (viewer.frame_dirty) {
             memcpy(framebuffer, viewer.framebuffer, sizeof(framebuffer));
             rows |= viewer.dirty_rows;
@@ -1067,48 +1333,56 @@ static void render_task(void *arg)
         xSemaphoreGive(state_mutex);
 
         const bool asleep = (flags & K1VIEWER_FLAG_DEEP_SLEEP) != 0;
+        const bool gps_refresh = now - gps_refresh_tick >= pdMS_TO_TICKS(GPS_DEBUG_REFRESH_MS);
 
-        if (redraw && bsp_display_lock(1000)) {
-            const bool led_red = connected && (flags & K1VIEWER_FLAG_LED_RED) != 0;
-            const bool led_green =
-                connected && !led_red && (flags & K1VIEWER_FLAG_LED_GREEN) != 0;
-            const bool torch = connected && (flags & K1VIEWER_FLAG_FLASHLIGHT) != 0;
-            const lcd_colors_t colors = lcd_colors(settings.palette, settings.invert, asleep);
-            view_t *view = view_for_rotation(rotation);
-            /* A new palette, backlight state or orientation redraws the whole
-             * LCD; otherwise only the rows the radio changed. */
-            bool full = memcmp(&colors, &shown_colors, sizeof(colors)) != 0;
+        if ((redraw || gps_refresh) && bsp_display_lock(1000)) {
+            if (redraw) {
+                const bool led_red = connected && (flags & K1VIEWER_FLAG_LED_RED) != 0;
+                const bool led_green =
+                    connected && !led_red && (flags & K1VIEWER_FLAG_LED_GREEN) != 0;
+                const bool torch = connected && (flags & K1VIEWER_FLAG_FLASHLIGHT) != 0;
+                const lcd_colors_t colors = lcd_colors(settings.palette, settings.invert, asleep);
+                view_t *view = view_for_rotation(rotation);
+                /* A new palette, backlight state or orientation redraws the whole
+                 * LCD; otherwise only the rows the radio changed. */
+                bool full = memcmp(&colors, &shown_colors, sizeof(colors)) != 0;
 
-            if (shown_view == NULL || rotation != shown_rotation) {
-                bsp_display_rotate(display, rotation);
-                shown_rotation = rotation;
-                full = true;
+                if (shown_view == NULL || rotation != shown_rotation) {
+                    bsp_display_rotate(display, rotation);
+                    shown_rotation = rotation;
+                    full = true;
+                }
+                if (view != shown_view) {
+                    lv_screen_load(view->screen);
+                    full = true;
+                }
+                if (full || rows != 0) {
+                    render_radio_frame(view, framebuffer, &colors, rows, full);
+                }
+                for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+                    lv_obj_set_hidden(views[i].led_canvases[LED_RED], !led_red);
+                    lv_obj_set_hidden(views[i].led_canvases[LED_GREEN], !led_green);
+                    lv_obj_set_hidden(views[i].torch_canvas, !torch);
+                }
+                if (connected != shown_connected) {
+                    connect_screen_show(!connected);
+                    shown_connected = connected;
+                }
+                if (shown_view == NULL) {
+                    /* First picture: on the panel before the backlight comes on. */
+                    lv_refr_now(display);
+                }
+                shown_view = view;
+                shown_colors = colors;
+                rows = 0;
+                redraw = false;
             }
-            if (view != shown_view) {
-                lv_screen_load(view->screen);
-                full = true;
+            if (gps_refresh) {
+                gps_debug_update(&gps_status, gps_started, gps_error,
+                                 gps_last_data, gps_last_sentence, now);
+                gps_refresh_tick = now;
             }
-            if (full || rows != 0) {
-                render_radio_frame(view, framebuffer, &colors, rows, full);
-            }
-            for (uint8_t i = 0; i < VIEW_COUNT; i++) {
-                lv_obj_set_hidden(views[i].led_canvases[LED_RED], !led_red);
-                lv_obj_set_hidden(views[i].led_canvases[LED_GREEN], !led_green);
-                lv_obj_set_hidden(views[i].torch_canvas, !torch);
-            }
-            if (connected != shown_connected) {
-                connect_screen_show(!connected);
-                shown_connected = connected;
-            }
-            if (shown_view == NULL) {
-                /* First picture: on the panel before the backlight comes on. */
-                lv_refr_now(display);
-            }
-            shown_view = view;
-            shown_colors = colors;
             bsp_display_unlock();
-            rows = 0;
-            redraw = false;
         }
 
         if (shown_view != NULL) {
@@ -1253,6 +1527,38 @@ static esp_err_t usb_send(cdc_acm_dev_hdl_t device, const uint8_t *packet, size_
     return result;
 }
 
+static void write_i32_le(uint8_t *destination, int32_t value)
+{
+    const uint32_t bits = (uint32_t)value;
+    destination[0] = (uint8_t)bits;
+    destination[1] = (uint8_t)(bits >> 8);
+    destination[2] = (uint8_t)(bits >> 16);
+    destination[3] = (uint8_t)(bits >> 24);
+}
+
+static void usb_send_message(cdc_acm_dev_hdl_t device,
+                             const outbound_message_t *message)
+{
+    if (message->type == OUTBOUND_KEY) {
+        const radio_key_t *key = &message->data.key;
+        const uint8_t packet[] = {
+            0xAA, 0x55,
+            key->long_press ? K1VIEWER_TYPE_KEY_LONG : K1VIEWER_TYPE_KEY,
+            key->code,
+        };
+        usb_send(device, packet, sizeof(packet));
+        return;
+    }
+
+    uint8_t packet[12] = {0xAA, 0x55, K1VIEWER_TYPE_GPS};
+    write_i32_le(packet + 3, message->data.gps.lat_cas);
+    write_i32_le(packet + 7, message->data.gps.lon_cas);
+    for (uint8_t i = 2; i < sizeof(packet) - 1u; i++) {
+        packet[sizeof(packet) - 1u] ^= packet[i];
+    }
+    usb_send(device, packet, sizeof(packet));
+}
+
 static void usb_task(void *arg)
 {
     (void)arg;
@@ -1282,7 +1588,7 @@ static void usb_task(void *arg)
 
         parser_reset();
         xSemaphoreTake(disconnected_sem, 0);
-        xQueueReset(key_queue);
+        xQueueReset(outbound_queue);
 
         const cdc_acm_line_coding_t line_coding = {
             .dwDTERate = 38400,
@@ -1302,17 +1608,13 @@ static void usb_task(void *arg)
         ESP_LOGI(TAG, "K1 connected");
         usb_send(device, keepalive, sizeof(keepalive));
 
-        /* Only this task writes to the K1: touch keys arrive through the queue,
-         * and a keepalive goes out whenever no key was sent for a while. */
+        /* Only this task writes to the K1: touch keys and GPS fixes arrive
+         * through the queue, with a keepalive whenever neither was sent. */
         while (xSemaphoreTake(disconnected_sem, 0) != pdTRUE) {
-            radio_key_t key;
-            if (xQueueReceive(key_queue, &key, pdMS_TO_TICKS(K1VIEWER_KEEPALIVE_MS)) == pdTRUE) {
-                const uint8_t packet[] = {
-                    0xAA, 0x55,
-                    key.long_press ? K1VIEWER_TYPE_KEY_LONG : K1VIEWER_TYPE_KEY,
-                    key.code,
-                };
-                usb_send(device, packet, sizeof(packet));
+            outbound_message_t message;
+            if (xQueueReceive(outbound_queue, &message,
+                              pdMS_TO_TICKS(K1VIEWER_KEEPALIVE_MS)) == pdTRUE) {
+                usb_send_message(device, &message);
             } else {
                 usb_send(device, keepalive, sizeof(keepalive));
             }
@@ -1382,6 +1684,7 @@ static lv_obj_t *create_connect_screen(const view_t *view)
     lv_obj_set_size(screen, layout->width, layout->height);
     lv_obj_set_style_bg_color(screen, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(screen, true);
     lv_obj_set_scrollable(screen, false);
     lv_obj_set_click_focusable(screen, false);
 
@@ -1426,6 +1729,162 @@ static lv_obj_t *create_connect_screen(const view_t *view)
     lv_obj_set_pos(version, layout->connect_credit_x,
                    layout->connect_credit_y + SKIN_CONNECT_CREDIT_H + 1);
     return screen;
+}
+
+static void gps_debug_set_visible(bool visible)
+{
+    gps_debug_visible = visible;
+    for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+        if (views[i].gps_debug_panel != NULL) {
+            lv_obj_set_hidden(views[i].gps_debug_panel, !visible);
+        }
+    }
+}
+
+static void gps_button_event_callback(lv_event_t *event)
+{
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_SHORT_CLICKED || code == LV_EVENT_LONG_PRESSED) {
+        gps_debug_set_visible(!gps_debug_visible);
+    }
+}
+
+static void gps_debug_event_callback(lv_event_t *event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_SHORT_CLICKED) {
+        gps_debug_set_visible(false);
+    }
+}
+
+static lv_obj_t *create_gps_button(lv_obj_t *parent, const skin_rect_t *rect,
+                                   lv_obj_t **status_out)
+{
+    lv_obj_t *button = lv_obj_create(parent);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_scrollable(button, false);
+    lv_obj_set_scroll_on_focus(button, false);
+    lv_obj_set_click_focusable(button, false);
+    lv_obj_set_clickable(button, true);
+
+    if (rect->w == 0 || rect->h == 0) {
+        /* Screen-only mode has no keypad: keep an invisible diagnostic
+         * long-press target in the top-left corner. */
+        lv_obj_set_pos(button, 5, 5);
+        lv_obj_set_size(button, 78, 40);
+        lv_obj_add_event_cb(button, gps_button_event_callback,
+                            LV_EVENT_LONG_PRESSED, NULL);
+        *status_out = NULL;
+        return button;
+    }
+
+    lv_obj_set_pos(button, rect->x, rect->y);
+    lv_obj_set_size(button, rect->w, rect->h);
+    lv_obj_set_style_radius(button, rect->h / 3, 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(KEY_PRESSED_COLOR),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button, LV_OPA_20, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(button, gps_button_event_callback,
+                        LV_EVENT_SHORT_CLICKED, NULL);
+
+    lv_obj_t *status = lv_obj_create(button);
+    lv_obj_remove_style_all(status);
+    lv_obj_set_size(status, GPS_STATUS_SIZE, GPS_STATUS_SIZE);
+    lv_obj_set_pos(status, rect->w - GPS_STATUS_SIZE - 9,
+                   (rect->h - GPS_STATUS_SIZE) / 2);
+    lv_obj_set_style_radius(status, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(status, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(status, lv_color_hex(GPS_PANEL_COLOR), 0);
+    lv_obj_set_style_border_width(status, 1, 0);
+    lv_obj_set_clickable(status, false);
+    lv_obj_set_hidden(status, true);
+    *status_out = status;
+    return button;
+}
+
+static lv_obj_t *create_gps_debug_panel(lv_obj_t *parent, lv_obj_t **label_out)
+{
+    lv_obj_t *panel = lv_obj_create(parent);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, GPS_PANEL_WIDTH, GPS_PANEL_HEIGHT);
+    lv_obj_center(panel);
+    lv_obj_set_style_radius(panel, 12, 0);
+    lv_obj_set_style_bg_color(panel, lv_color_hex(GPS_PANEL_COLOR), 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_90, 0);
+    lv_obj_set_style_border_color(panel, lv_color_hex(GPS_PANEL_BORDER_COLOR), 0);
+    lv_obj_set_style_border_width(panel, 2, 0);
+    lv_obj_set_clickable(panel, true);
+    lv_obj_set_scrollable(panel, false);
+    lv_obj_add_event_cb(panel, gps_debug_event_callback,
+                        LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_set_hidden(panel, true);
+
+    lv_obj_t *title = lv_label_create(panel);
+    lv_obj_set_pos(title, 16, 14);
+    lv_obj_set_width(title, GPS_PANEL_WIDTH - 32);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(GPS_PANEL_TEXT_COLOR), 0);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_clickable(title, false);
+    lv_label_set_text(title, "GPS DIAGNOSTICS");
+
+    lv_obj_t *divider = lv_obj_create(panel);
+    lv_obj_remove_style_all(divider);
+    lv_obj_set_pos(divider, 16, 42);
+    lv_obj_set_size(divider, GPS_PANEL_WIDTH - 32, 1);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(GPS_PANEL_BORDER_COLOR), 0);
+    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(divider, false);
+
+    lv_obj_t *names = lv_label_create(panel);
+    lv_obj_set_pos(names, 16, 52);
+    lv_obj_set_size(names, 150, 300);
+    lv_obj_set_style_text_font(names, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(names, lv_color_hex(GPS_PANEL_LABEL_COLOR), 0);
+    lv_obj_set_style_text_align(names, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_line_space(names, 1, 0);
+    lv_label_set_long_mode(names, LV_LABEL_LONG_CLIP);
+    lv_obj_set_clickable(names, false);
+    lv_label_set_text(names,
+                      "State :\n"
+                      "Module detected :\n"
+                      "NMEA stream :\n"
+                      "Fix valid :\n\n"
+                      "Bytes received :\n"
+                      "Valid sentences :\n"
+                      "Checksum errors :\n"
+                      "Last NMEA age :\n\n"
+                      "Satellites used :\n"
+                      "Satellites view :\n"
+                      "Strongest SNR :\n\n"
+                      "Last latitude :\n"
+                      "Last longitude :\n"
+                      "APRS last fix :");
+
+    lv_obj_t *values = lv_label_create(panel);
+    lv_obj_set_pos(values, 178, 52);
+    lv_obj_set_size(values, GPS_PANEL_WIDTH - 194, 300);
+    lv_obj_set_style_text_font(values, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(values, lv_color_hex(GPS_PANEL_TEXT_COLOR), 0);
+    lv_obj_set_style_text_line_space(values, 1, 0);
+    lv_label_set_long_mode(values, LV_LABEL_LONG_CLIP);
+    lv_obj_set_clickable(values, false);
+    lv_label_set_text(values,
+                      "START\nSTARTING\nNONE\nNO\n\n"
+                      "0\n0\n0\n--\n\n"
+                      "--\n--\n--\n\n"
+                      "--.-----\n--.-----\n-------- ---------");
+
+    lv_obj_t *footer = lv_label_create(panel);
+    lv_obj_set_pos(footer, 16, GPS_PANEL_HEIGHT - 28);
+    lv_obj_set_width(footer, GPS_PANEL_WIDTH - 32);
+    lv_obj_set_style_text_font(footer, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(footer, lv_color_hex(GPS_PANEL_LABEL_COLOR), 0);
+    lv_obj_set_style_text_align(footer, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_clickable(footer, false);
+    lv_label_set_text(footer, "Tap panel to close");
+
+    *label_out = values;
+    return panel;
 }
 
 /* Transparent key cover: white while pressed, blue once the long press is sent. */
@@ -1544,7 +2003,13 @@ static void create_view(view_t *view)
     torch_render(&layout->torch, pixels, stride_px);
 
     create_key_targets(view);
+    view->gps_button = create_gps_button(view->screen, &layout->gps,
+                                         &view->gps_status_dot);
     view->connect_screen = create_connect_screen(view);
+    lv_obj_add_event_cb(view->connect_screen, gps_button_event_callback,
+                        LV_EVENT_LONG_PRESSED, NULL);
+    view->gps_debug_panel = create_gps_debug_panel(view->screen,
+                                                   &view->gps_debug_label);
 }
 
 /* Hidden toast on the top layer, above every view: a rounded panel of the
@@ -1749,11 +2214,11 @@ void app_main(void)
     state_mutex = xSemaphoreCreateMutex();
     disconnected_sem = xSemaphoreCreateBinary();
     orientation_ready = xSemaphoreCreateBinary();
-    key_queue = xQueueCreate(KEY_QUEUE_LENGTH, sizeof(radio_key_t));
+    outbound_queue = xQueueCreate(OUTBOUND_QUEUE_LENGTH, sizeof(outbound_message_t));
     assert(state_mutex != NULL);
     assert(disconnected_sem != NULL);
     assert(orientation_ready != NULL);
-    assert(key_queue != NULL);
+    assert(outbound_queue != NULL);
 
     parser_reset();
     viewer.rotation = FIXED_ROTATION;
@@ -1764,6 +2229,14 @@ void app_main(void)
     /* The IMU starts while the display is set up: both use the BSP I2C bus,
      * created once here. */
     ESP_ERROR_CHECK(bsp_i2c_init());
+    const esp_err_t gps_result = gps_unit_start(gps_status_received, NULL);
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    viewer.gps_started = gps_result == ESP_OK;
+    viewer.gps_error = gps_result != ESP_OK;
+    xSemaphoreGive(state_mutex);
+    if (gps_result != ESP_OK) {
+        ESP_LOGW(TAG, "GPS input unavailable: %s", esp_err_to_name(gps_result));
+    }
 #if AUTO_ROTATE
     assert(xTaskCreate(imu_task, "viewer-imu", 4096, NULL, 4, NULL) == pdPASS);
 #endif

@@ -103,7 +103,7 @@
 <rect x="8" y="8" width="1264" height="704" rx="44" fill="url(#bodyV)"/>
 <path d="M8 52 Q8 8 52 8 H56 V712 H52 Q8 712 8 668 Z" fill="url(#railL)"/>
 <path d="M1272 52 Q1272 8 1228 8 H1224 V712 H1228 Q1272 712 1272 668 Z" fill="url(#railR)"/>
-<g transform="translate(122 -126) scale(0.8)">
+<g transform="translate(128 -126) scale(0.8)">
 <rect x="155" y="180" width="410" height="76" rx="6" fill="#0b0b0c" stroke="#3a3c40" stroke-width="1.5"/>
 <g fill="none" stroke="#f4f5f6" stroke-width="5" stroke-linecap="round">
 <path d="M225.4 233.2 A11 11 0 0 1 234.5 225.1"/>
@@ -112,37 +112,42 @@
 </g>
 <text x="236" y="236" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="900" font-style="italic" fill="#f4f5f6" textLength="300" lengthAdjust="spacingAndGlyphs">QUAN<tspan dx="6">SHENG</tspan></text>
 </g>
-<rect x="62" y="95" width="696" height="600" rx="42" fill="#000" opacity=".35"/>
-<rect x="64" y="92" width="692" height="596" rx="40" fill="url(#bezel)"/>
-<rect x="76" y="104" width="668" height="572" rx="30" fill="none" stroke="#2c2e31" stroke-width="2"/>
-<rect x="72" y="134" width="676" height="512" rx="7" fill="#050506"/>
-<rect x="78" y="140" width="664" height="500" rx="4" fill="url(#glass)"/>
-<rect x="856" y="26" width="300" height="46" rx="16" fill="url(#shoulder)"/>
-<path d="M907 38 H955 L964.6 59 H897.4 Z" fill="#18231b" stroke="#0a120c" stroke-width="1.2"/>
-<rect x="1051" y="35" width="60" height="28" rx="10" fill="url(#cyl)"/>
-<ellipse cx="1081" cy="49" rx="20" ry="8" fill="url(#torchLens)" stroke="#6d747c" stroke-width="1.2"/>
-<ellipse cx="1076" cy="46" rx="6" ry="1.8" fill="#ffffff"/>
-<rect x="797" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
-<rect x="800" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
-<rect x="810" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
-<text x="898" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F1</text>
-<rect x="1013" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
-<rect x="1016" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
-<rect x="1026" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
-<text x="1114" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F2</text>
-<g transform="translate(698.18 -330.125) scale(0.855)"><!-- plates -->
-<rect x="126" y="659" width="260" height="55" rx="16" fill="#18191b"/>
-<rect x="129" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
-<rect x="137" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
-<text x="256.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">Mini Kong</text>
-<text x="256.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">Mini Kong</text>
-<rect x="479" y="659" width="120" height="55" rx="16" fill="#18191b"/>
-<rect x="482" y="662" width="114" height="49" rx="14" fill="url(#plate)"/>
-<rect x="490" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
-<text x="539.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
-<text x="539.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
+<rect x="68" y="95" width="696" height="600" rx="42" fill="#000" opacity=".35"/>
+<rect x="70" y="92" width="692" height="596" rx="40" fill="url(#bezel)"/>
+<rect x="82" y="104" width="668" height="572" rx="30" fill="none" stroke="#2c2e31" stroke-width="2"/>
+<rect x="78" y="134" width="676" height="512" rx="7" fill="#050506"/>
+<rect x="84" y="140" width="664" height="500" rx="4" fill="url(#glass)"/>
+<rect x="844.5" y="26" width="300" height="46" rx="16" fill="url(#shoulder)"/>
+<path d="M895.5 38 H943.5 L953.1 59 H885.9 Z" fill="#18231b" stroke="#0a120c" stroke-width="1.2"/>
+<rect x="1039.5" y="35" width="60" height="28" rx="10" fill="url(#cyl)"/>
+<ellipse cx="1069.5" cy="49" rx="20" ry="8" fill="url(#torchLens)" stroke="#6d747c" stroke-width="1.2"/>
+<ellipse cx="1064.5" cy="46" rx="6" ry="1.8" fill="#ffffff"/>
+<rect x="779" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
+<rect x="782" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
+<rect x="792" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="880" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F1</text>
+<rect x="1008" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
+<rect x="1011" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
+<rect x="1021" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="1109" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F2</text>
+<g transform="translate(687.18 -330.125) scale(0.855)"><!-- plates -->
+<rect x="109" y="659" width="260" height="55" rx="16" fill="#18191b"/>
+<rect x="112" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
+<rect x="120" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="239.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">Mini Kong</text>
+<text x="239.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">Mini Kong</text>
+<rect x="375" y="659" width="109" height="55" rx="16" fill="#18191b"/>
+<rect x="378" y="662" width="103" height="49" rx="14" fill="url(#plate)"/>
+<rect x="386" y="663.5" width="87" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="429.5" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">GPS</text>
+<text x="429.5" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">GPS</text>
+<rect x="490" y="659" width="120" height="55" rx="16" fill="#18191b"/>
+<rect x="493" y="662" width="114" height="49" rx="14" fill="url(#plate)"/>
+<rect x="501" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="550.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
+<text x="550.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
 </g>
-<g transform="translate(698.18 -335.555) scale(0.855)"><!-- keypad -->
+<g transform="translate(687.18 -335.555) scale(0.855)"><!-- keypad -->
 <circle cx="539" cy="748" r="8" fill="#5a5d62"/>
 <circle cx="539" cy="747" r="6" fill="#09090a"/>
 <rect x="107" y="764" width="118" height="89" rx="17" fill="url(#well)"/>

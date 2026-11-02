@@ -77,6 +77,9 @@ LCD = (168, 310, 384, 288)            # 128x64 LCD pixels at 3 x 4.5 (real 1:1.5
 LCD_CELL_W = 3
 LCD_ROW_NUM, LCD_ROW_DEN = 2, 9       # LCD row = screen row * 2 / 9 (4.5 screen rows each)
 PLATE_Y = 662
+MINI_KONG_PLATE = (112, PLATE_Y, 254, 49)  # aligned with the left keypad edge
+GPS_PLATE = (378, PLATE_Y, 103, 49)        # centred in the gap between the outer plates
+MIC_PLATE = (493, PLATE_Y, 114, 49)        # aligned with the right keypad edge
 MIC_Y = 748
 KEY_X0, KEY_PITCH, KEY_W = 112, 129, 108
 ROW1_Y, ROW1_H = 769, 79
@@ -117,21 +120,29 @@ CONNECT_BLUE = '#3d93e6'
 
 # ---- landscape layout (1280x720): large LCD on the left, keypad on the right ----
 LW, LH = 1280, 720
-L_BEZEL = (64, 92, 692, 596)          # x, y, w, h
+L_OUTER_MARGIN = 70                   # same visible margin at both outer edges
+L_BEZEL = (L_OUTER_MARGIN, 92, 692, 596)
 L_GLASS_MARGIN = (12, 10)
 L_LCD_CELL_W = 5                      # 128x64 LCD pixels at 5 x 7.5 (real 1:1.5 pixel aspect)
 L_LCD_ROW_NUM, L_LCD_ROW_DEN = 2, 15  # LCD row = screen row * 2 / 15
-L_LOGO = (410, 18, 0.8)               # centre x, top and scale of the QUANSHENG plate
-L_TOP_BAR = (1006, 26)                # centre x and top of the bar with the RX/TX LED and torch
-L_PILLS = [('F1', 0x12, 800), ('F2', 0x11, 1016)]   # side keys as pills: label, code, x
-L_PILL_W, L_PILL_H, L_PILL_RADIUS = 196, 50, 15
-L_PILL_HIT = 8                        # touch margin around the pills
+L_LOGO = (L_BEZEL[0] + L_BEZEL[2] / 2, 18, 0.8)  # centred above the display
 # Portrait plates and keys reused on the right, from x = L_KEYPAD_X. The right
 # column is level with the glass of the screen (see landscape_column).
-L_KEYPAD_X = 770
+L_KEYPAD_X = 759
 L_KEYPAD_SCALE = 0.855
 L_PLATES_ORIGIN = (84, 694)           # portrait point placed at (L_KEYPAD_X, plates y)
 L_KEYS_ORIGIN = (84, 782)             # portrait point placed at (L_KEYPAD_X, keys y)
+L_KEY_WELL = 5                        # dark well around every keypad key
+L_PILL_RIM = 3                        # dark rim around the F1/F2 pills
+L_KEYPAD_LEFT = round(L_KEYPAD_X + (KEY_X0 - L_KEY_WELL - L_KEYS_ORIGIN[0]) * L_KEYPAD_SCALE)
+L_KEYPAD_RIGHT = round(L_KEYPAD_X +
+                       (KEY_X0 + 3 * KEY_PITCH + KEY_W + L_KEY_WELL - L_KEYS_ORIGIN[0]) *
+                       L_KEYPAD_SCALE)
+L_TOP_BAR = ((L_KEYPAD_LEFT + L_KEYPAD_RIGHT) / 2, 26)
+L_PILL_W, L_PILL_H, L_PILL_RADIUS = 196, 50, 15
+L_PILL_HIT = 8                        # touch margin around the pills
+L_PILLS = [('F1', 0x12, L_KEYPAD_LEFT + L_PILL_RIM),
+           ('F2', 0x11, L_KEYPAD_RIGHT - L_PILL_RIM - L_PILL_W)]
 L_TORCH_RX, L_TORCH_RY = 20.0, 8.0    # torch seen from above: the whole lens shows
 L_CONNECT_ICON = (440, 84)
 L_CONNECT_TEXT = (340, 474)
@@ -489,9 +500,11 @@ def build_svg(lcd, led_lit):
         o(f'<path transform="translate({lx} {ly}) scale({sx:g} {sy:g})" d="{lcd}" fill="#17191b"/>')
         o(f'<rect x="{gx}" y="{gy}" width="{gw}" height="{gh}" rx="3" fill="url(#gloss)"/>')
 
-    # ---- "Mini Kong" and "MIC" plates ----
+    # ---- "Mini Kong", "GPS" and "MIC" plates ----
     o('<!-- plates -->')
-    for x, w, label in ((129, 254, 'Mini Kong'), (482, 114, 'MIC')):
+    for x, w, label in ((MINI_KONG_PLATE[0], MINI_KONG_PLATE[2], 'Mini Kong'),
+                        (GPS_PLATE[0], GPS_PLATE[2], 'GPS'),
+                        (MIC_PLATE[0], MIC_PLATE[2], 'MIC')):
         o(f'<rect x="{x - 3}" y="{PLATE_Y - 3}" width="{w + 6}" height="55" rx="16" fill="#18191b"/>')
         o(f'<rect x="{x}" y="{PLATE_Y}" width="{w}" height="49" rx="14" fill="url(#plate)"/>')
         o(f'<rect x="{x + 8}" y="{PLATE_Y + 1.5}" width="{w - 16}" height="2" rx="1" fill="#6a6d72" opacity=".6"/>')
@@ -798,7 +811,7 @@ def landscape_column():
     the plates halfway between. Returns the screen y of the pills, plates and keys."""
     s = L_KEYPAD_SCALE
     (_, gy, _, gh), _ = bezel_glass(L_BEZEL, L_LCD_CELL_W, L_LCD_ROW_NUM, L_LCD_ROW_DEN, L_GLASS_MARGIN)
-    rim, well = 3, 5                  # dark rim of the pills, dark well around each key
+    rim, well = L_PILL_RIM, L_KEY_WELL
     pill_y = gy + rim
     last_row_bottom = NUM_Y0 + 2 * NUM_PITCH + NUM_H + well + DY
     keys_y = gy + gh - (last_row_bottom - L_KEYS_ORIGIN[1]) * s
@@ -816,10 +829,17 @@ def plate_hit(x, y, w, h):
     return (x0, y0, math.ceil(x + w + PLATE_HIT) - x0, math.ceil(y + h + PLATE_HIT) - y0)
 
 
+def gps_button_rect():
+    """Touch rectangle covering the GPS plate and its dark rim."""
+    x, y, w, _ = GPS_PLATE
+    return x - 3, y - 3, w + 6, 55
+
+
 def layout_data():
     """Screen geometry of the portrait, landscape and screen-only layouts, for the C header."""
     keys = [(label, code, x, y + DY, w, h) for label, code, x, y, w, h in key_rects()]
     px, py, pw, ph = PLATE
+    gpx, gpy, gpw, gph = gps_button_rect()
     portrait = dict(
         name='portrait', size=(W, H),
         glass=(GLASS[0], GLASS[1] + DY, GLASS[2], GLASS[3]),
@@ -831,11 +851,12 @@ def layout_data():
         led=led_geometry(0, DY),
         torch=torch_geometry(TORCH_X, TORCH_Y + DY, TORCH_RX, TORCH_RY, TORCH_TOP + DY),
         plate=plate_hit(px, py + DY, pw, ph),
+        gps=(gpx, gpy + DY, gpw, gph),
         connect_icon=CONNECT_ICON[:2], connect_text=CONNECT_TEXT[:2], connect_credit=CONNECT_CREDIT[:2])
 
     glass, lcd = bezel_glass(L_BEZEL, L_LCD_CELL_W, L_LCD_ROW_NUM, L_LCD_ROW_DEN, L_GLASS_MARGIN)
     vx, vy = L_KEYS_ORIGIN
-    pill_y, _, ky = landscape_column()
+    pill_y, plates_y, ky = landscape_column()
     kx = L_KEYPAD_X
     s = L_KEYPAD_SCALE
     cx, top = L_TOP_BAR
@@ -854,6 +875,9 @@ def layout_data():
         led=led_geometry(cx - 75 - LED_CENTER_X, top + 12 - LED_TOP_Y),
         torch=torch_geometry(cx + 75, top + 23, L_TORCH_RX, L_TORCH_RY, LH),
         plate=plate_hit(lcx + (px - 360) * ls, ltop + (py - 180) * ls, pw * ls, ph * ls),
+        gps=(round(kx + (gpx - L_PLATES_ORIGIN[0]) * s),
+             round(plates_y + (gpy + DY - L_PLATES_ORIGIN[1]) * s),
+             round(gpw * s), round(gph * s)),
         connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT, connect_credit=L_CONNECT_CREDIT)
 
     glass, lcd = bezel_glass(S_BEZEL, S_LCD_CELL_W, S_LCD_ROW_NUM, S_LCD_ROW_DEN, S_GLASS_MARGIN)
@@ -868,6 +892,7 @@ def layout_data():
         led=led_geometry(led_x - LED_CENTER_X, led_y - (LED_TOP_Y + LED_BOT_Y) / 2, vertical=True),
         torch=torch_geometry(torch_x, torch_y, L_TORCH_RY, L_TORCH_RX, LH, beam=0.0),
         plate=plate_hit(scx + (py - 218) * ss, scy - (px + pw - 360) * ss, ph * ss, pw * ss),
+        gps=(0, 0, 0, 0),
         connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT, connect_credit=L_CONNECT_CREDIT)
     return portrait, landscape, screen
 
@@ -1072,6 +1097,7 @@ def c_layout(d):
         f'        .box = {c_rect(torch["box"])},',
         '    },',
         f'    .plate = {c_rect(d["plate"])},',
+        f'    .gps = {c_rect(d["gps"])},',
         f'    .connect_icon_x = {d["connect_icon"][0]},',
         f'    .connect_icon_y = {d["connect_icon"][1]},',
         f'    .connect_text_x = {d["connect_text"][0]},',
@@ -1146,6 +1172,7 @@ typedef struct {
     skin_led_t led;
     skin_torch_t torch;
     skin_rect_t plate;          /* touch area of the QUANSHENG plate */
+    skin_rect_t gps;            /* GPS plate; empty in screen-only layout */
     int16_t connect_icon_x;
     int16_t connect_icon_y;
     int16_t connect_text_x;

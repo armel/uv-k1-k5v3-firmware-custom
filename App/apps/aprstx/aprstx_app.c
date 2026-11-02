@@ -228,10 +228,43 @@ static bool posOk(const uint8_t *d){
     return true;
 }
 
+static void coordDigits(uint8_t *d,uint32_t cas,bool longitude){
+    uint32_t units=(cas+30u)/60u;         /* one unit is 0.01 arc-minute */
+    uint32_t degrees=units/6000u, minutes=units%6000u;
+    if(longitude){
+        d[0]=(uint8_t)(degrees/100u);
+        d[1]=(uint8_t)((degrees/10u)%10u);
+        d[2]=(uint8_t)(degrees%10u);
+        d+=3;
+    }else{
+        d[0]=(uint8_t)(degrees/10u);
+        d[1]=(uint8_t)(degrees%10u);
+        d+=2;
+    }
+    d[0]=(uint8_t)(minutes/1000u);
+    d[1]=(uint8_t)((minutes/100u)%10u);
+    d[2]=(uint8_t)((minutes/10u)%10u);
+    d[3]=(uint8_t)(minutes%10u);
+}
+
+/* A live fix replaces only the stored position; every other profile field and
+ * the stored position itself remain unchanged. */
+static void applyLivePosition(void){
+    const app_api_t *A=g.A;
+    app_gps_position_t p;
+    if(A->api_level<APP_API_GPS || !A->gps_position || !A->gps_position(&p)) return;
+    uint32_t lat=p.lat_cas<0?(uint32_t)-p.lat_cas:(uint32_t)p.lat_cas;
+    uint32_t lon=p.lon_cas<0?(uint32_t)-p.lon_cas:(uint32_t)p.lon_cas;
+    coordDigits(g.pos,lat,false);
+    coordDigits(g.pos+LAT_DIGITS,lon,true);
+    g.hemi=(uint8_t)((p.lat_cas<0?1u:0u)|(p.lon_cas<0?2u:0u));
+}
+
 /* ---- the frame: dest, source (profile/boot callsign + SSID), path, UI, info, FCS ---- */
 static void build(void){
     const app_api_t *A=g.A;
     uint8_t *f=g.frm;
+    g.flen=0;
     char call[12];
     uint8_t n=g.callLen;
     if(n) memcpy(call,g.call,n);
@@ -422,10 +455,14 @@ static void draw(void){
 /* The next beacon frame is one whole interval from now. */
 static void arm(void){ g.due=g.A->ticks_ms()+(uint32_t)IV_MIN[g.iv]*60000u; }
 
+static bool loadProfile(void);
+
 /* ---- one frame on the air ---- */
 static void send(void){
     const app_api_t *A=g.A;
     arm();                               /* also when refused: no retry at each loop */
+    if(loadProfile()){ applyLivePosition(); build(); }
+    else g.flen=0;
     if(!g.flen){ g.status=ST_NOCALL; return; }
     if(A->tx_state()){ g.status=ST_DENIED; return; }
     g.status=ST_TX;
@@ -530,7 +567,7 @@ void app_main(const app_api_t *api){
         if(c[c[0]==CFG_A8?11u:3u]==CW_COMPACT) g.cw=CW_COMPACT;
         if(c[0]==CFG_MAGIC && c[4]<IV_COUNT) g.iv=c[4];
     }
-    if(profileOk) build();
+    if(profileOk){ applyLivePosition(); build(); }
     if(!g.flen) g.status=ST_NOCALL;
     api->backlight_on();
     arm();                       /* a saved interval counts down from now */

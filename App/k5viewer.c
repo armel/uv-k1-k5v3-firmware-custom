@@ -21,6 +21,7 @@
 #include "driver/st7565.h"
 #include "k5viewer.h"
 #include "misc.h"
+#include "scheduler.h"
 #ifdef ENABLE_UART
 #include "driver/uart.h"
 #endif
@@ -55,6 +56,10 @@ static uint8_t forcedBlock = 0;
 static uint8_t keepAlive = 3;
 static bool hasConnectionPing = false;
 static bool wasConnected = false;
+static int32_t gpsLatitudeCas;
+static int32_t gpsLongitudeCas;
+static uint32_t gpsUpdated10ms;
+static bool gpsValid;
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
 static uint32_t previousRfLogSignature = 0;
 static bool rfLogSent = false;
@@ -62,6 +67,36 @@ static bool rfLogSent = false;
 // value remain to be sent; HISTORY_START arms a new dump, 0 means done.
 static uint32_t rfLogHistoryBefore = RXTX_LOG_K5VIEWER_HISTORY_START;
 #endif
+
+#define K5VIEWER_GPS_LAT_MAX_CAS 32400000L
+#define K5VIEWER_GPS_LON_MAX_CAS 64800000L
+#define K5VIEWER_GPS_MAX_AGE_10MS 1500u
+
+bool K5VIEWER_SetGps(int32_t lat_cas, int32_t lon_cas)
+{
+    if (lat_cas < -K5VIEWER_GPS_LAT_MAX_CAS || lat_cas > K5VIEWER_GPS_LAT_MAX_CAS ||
+        lon_cas < -K5VIEWER_GPS_LON_MAX_CAS || lon_cas > K5VIEWER_GPS_LON_MAX_CAS)
+        return false;
+
+    gpsLatitudeCas = lat_cas;
+    gpsLongitudeCas = lon_cas;
+    gpsUpdated10ms = SCHEDULER_GetTick10ms();
+    gpsValid = true;
+    return true;
+}
+
+bool K5VIEWER_GetGps(int32_t *lat_cas, int32_t *lon_cas)
+{
+    if (!gpsValid ||
+        SCHEDULER_GetTick10ms() - gpsUpdated10ms > K5VIEWER_GPS_MAX_AGE_10MS)
+        return false;
+
+    if (lat_cas != NULL)
+        *lat_cas = gpsLatitudeCas;
+    if (lon_cas != NULL)
+        *lon_cas = gpsLongitudeCas;
+    return true;
+}
 
 // FNV-1a over one 8-byte chunk, folded to 16 bits
 static uint16_t K5VIEWER_Hash(const uint8_t *data)

@@ -183,7 +183,7 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     bool UART_IsCableConnected(void) {
         static uint8_t     read_ptr = 0;
-        static ParseState_t state   = STATE_IDLE;
+        static ParseState_t state;
 
         bool connected = false;
 

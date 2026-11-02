@@ -54,7 +54,8 @@
  *      viewer_update (the LCD without the K5Viewer side effect), vfo_stage
  *      (deferred update of the current VFO)
  *   4  mr: memory-channel query, scan-list name and deferred selection;
- *      tx_power (the PA setting of the app's own transmissions) */
+ *      tx_power (the PA setting of the app's own transmissions);
+ *      gps_position: fresh position supplied by a connected K5Viewer host */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  4u
 
@@ -73,6 +74,8 @@
 #define APP_API_ASSETS 2u
 /* Minimum API level for the memory-channel service. */
 #define APP_API_MEMORY 4u
+/* Minimum API level for the live K5Viewer GPS service. */
+#define APP_API_GPS    4u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -104,6 +107,15 @@ enum {
 /* The framebuffer is the resident gFrameBuffer[FRAME_LINES][128]; the app draws
  * into it and calls a blit_* to push it to the LCD. */
 typedef uint8_t (*app_fb_t)[128];
+
+/* Signed centi-arcseconds: 360000 units per degree. */
+typedef struct {
+    int32_t lat_cas;
+    int32_t lon_cas;
+} app_gps_position_t;
+
+_Static_assert(sizeof(app_gps_position_t) == 8u,
+               "app GPS position layout must stay stable");
 
 /* Broadcast FM shared state (mirrors gEeprom.FM_*), read/written via fm_state. */
 #define APP_FM_CH_MAX 48
@@ -510,6 +522,11 @@ typedef struct app_api {
      * level changes nothing. Returns the VFO's own power level. */
     uint8_t  (*tx_power)(uint8_t level);
 
+    /* ---- API level 4: live position from a connected K5Viewer host ----
+     * Returns false when no valid fix was received recently. Nothing is
+     * persisted: applications keep their own stored position as fallback. */
+    bool     (*gps_position)(app_gps_position_t *out);
+
 } app_api_t;
 
 /* Serial ports and serial_ctl state bits (API level 3). */
@@ -532,7 +549,8 @@ _Static_assert(offsetof(app_api_t, handoff) == 356u &&
                offsetof(app_api_t, vfo_stage) == 392u &&
                offsetof(app_api_t, mr) == 396u &&
                offsetof(app_api_t, tx_power) == 400u &&
-               sizeof(app_api_t) == 404u,
+               offsetof(app_api_t, gps_position) == 404u &&
+               sizeof(app_api_t) == 408u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter

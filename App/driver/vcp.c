@@ -44,14 +44,14 @@ void VCP_Init()
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 static uint8_t      k5v_read_ptr = 0;
-static ParseState_t k5v_state    = STATE_IDLE;
+static ParseState_t k5v_state;
 
 /* Skip what arrived while an overlay app owned the port (its serial data is
  * no K5Viewer traffic) and restart the parser from a clean state. */
 void VCP_K5ViewerSync(void)
 {
     k5v_read_ptr = (uint8_t)VCP_RxBufPointer;
-    k5v_state    = STATE_IDLE;
+    KEYBOARD_ResetProtocolParser(&k5v_state);
 }
 
 bool VCP_K5ViewerPing(void)
@@ -65,6 +65,7 @@ bool VCP_K5ViewerPing(void)
     //                    flags bit 7 = restart RF log synchronization
     //   Short key press: 0xAA 0x55 0x03 <key>   → inject short press
     //   Long key press:  0xAA 0x55 0x04 <key>   → inject long press
+    //   GPS position:    0xAA 0x55 0x07 <lat:i32 LE> <lon:i32 LE> <XOR>
     //
     // State transitions:
     //   IDLE  → 0x55 → KA_1
@@ -77,6 +78,7 @@ bool VCP_K5ViewerPing(void)
     //   KEY_1  → 0x55 → KEY_2     (else IDLE)
     //   KEY_2  → 0x03 → KEY_3     (short press, else check long)
     //   KEY_2  → 0x04 → KEY_3L    (long press, else IDLE)
+    //   KEY_2  → 0x07 → GPS       (8 position bytes and XOR, then IDLE)
     //   KEY_3  → <b>  → KEYBOARD_InjectKey(b, false), IDLE
     //   KEY_3L → <b>  → KEYBOARD_InjectKey(b, true), IDLE
 

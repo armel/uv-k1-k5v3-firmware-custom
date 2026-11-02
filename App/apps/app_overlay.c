@@ -1094,6 +1094,19 @@ static uint8_t app_tx_power(uint8_t level)
     }
     return own;
 }
+
+/* API level 4: RAM-only position supplied by the active K5Viewer link. */
+static bool app_gps_position(app_gps_position_t *out)
+{
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    if (out != NULL)
+        return K5VIEWER_GetGps(&out->lat_cas, &out->lon_cas);
+#else
+    (void)out;
+#endif
+    return false;
+}
+
 static void app_boot_callsign(char *buf, uint8_t len)
 {
     char raw[12]; uint8_t n = 0;
@@ -1521,6 +1534,7 @@ static const app_api_t app_api = {
 #endif
     .mr                  = app_mr,
     .tx_power            = app_tx_power,
+    .gps_position        = app_gps_position,
 };
 
 /* Hand-off guards: a chain of apps that hand off to each other for ever (a

@@ -7,7 +7,7 @@ which is also the test receiver.
 | Step | State |
 |---|---|
 | Frame and bit stream model (`test/tx_model.py`) | **Done**: identical to the RX app's AX.25 reference, decoded by the RX model |
-| Radio app (`aprstx_app.c`) | **v0.1 works on the radio** (2026-09-30); v0.2-v0.7 add and refine the original editor and display; v0.8 introduces APRS Edit; v0.9 moves the complete beacon-profile editor into APRS Edit; v1.0-v1.2 extend comments to five editor lines and 89 characters; v1.3 adds the editable source callsign; v1.4 changes the default comment; v1.5 adds the beacon timer (key 3), **works on the radio** (2026-10-13); v1.7 adds the round trip to APRS Edit |
+| Radio app (`aprstx_app.c`) | **v0.1 works on the radio** (2026-09-30); v0.2-v0.7 add and refine the original editor and display; v0.8 introduces APRS Edit; v0.9 moves the complete beacon-profile editor into APRS Edit; v1.0-v1.2 extend comments to five editor lines and 89 characters; v1.3 adds the editable source callsign; v1.4 changes the default comment; v1.5 adds the beacon timer (key 3), **works on the radio** (2026-10-13); v1.7 adds the round trip to APRS Edit; v1.9 uses a live K5Viewer GPS fix when available |
 | On-air test: APRS RX on a second radio, FT3D | **Done** (2026-09-30, v0.1: frames received by a UV-K1 running APRS RX and by the FT3D, first try, default level 66 and twist 0) |
 
 ## Station settings (`gen_assets.py`, then rebuild)
@@ -29,6 +29,11 @@ alphanumeric callsign, the app shows `No callsign` and does not transmit.
 APRS Edit changes the callsign, SSID, position, path, symbol and comment without
 duplicating the transmitter. APRS TX 1.3 and later store them in one versioned 117-byte
 profile asset. Reinstalling APRS TX restores the bundled defaults.
+
+With API level 4 firmware, each transmission first asks K5Viewer for a recent
+GPS fix. A fix forwarded by the Tab5 replaces `LAT` and `LON` in that frame
+only. If no fix was received in the last 15 seconds, APRS TX uses the position
+stored by APRS Edit. The profile is never modified by GPS reception.
 
 APRS TX 1.4 and later require Labs firmware v6.2.0 or later, the first one whose
 configuration proxy lets APRS Edit change this profile: earlier firmware

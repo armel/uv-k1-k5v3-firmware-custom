@@ -18,6 +18,7 @@ not flash this image on ESP32-P4 revision 3.x hardware.
 - USB-C data cable for flashing
 - USB-A to USB-C data cable for connecting the Tab5 to the K1
 - Fusion firmware from the `feature_update_v7` branch installed on the K1
+- Optional: M5Stack Mini GPS/BDS Unit (U032) on the Tab5 Grove port
 
 ## Build
 
@@ -83,6 +84,59 @@ When the flashlight of the radio is on, the torch between the antenna and the
 knob lights up and casts a beam upwards. It follows the real LED, so the blink
 and SOS modes show too. This needs a K1 firmware that reports the flashlight in
 the viewer stream (bit 3 of the frame flags, `feature_update_v7` branch).
+
+## GPS position
+
+Plug the M5Stack Mini GPS/BDS Unit directly into the Tab5 Grove Port.A. The
+Tab5 powers the port, reads the unit at 9600 baud and accepts valid RMC NMEA
+sentences (`GNRMC`, `GPRMC`, and other talker prefixes). No GPS setting is
+needed in K1Viewer.
+
+While the K1 is connected over USB, every valid fix is forwarded to the radio.
+The Fusion firmware keeps it in RAM for 15 seconds: **APRS TX** uses the latest
+fix for each manual or timed transmission, and **GeoNav** uses it as its home
+position when opened. If reception is lost, both applications automatically
+fall back to the position saved in **APRS Edit**. Live fixes never overwrite
+that stored profile.
+
+The module may need a clear view of the sky for its first fix. K1Viewer and the
+touch controls continue to work normally when the module is absent or has no
+valid fix.
+
+In portrait and keypad landscape modes, the `Mini Kong` and `MIC` plates align
+with the outer keypad edges, with a wider `GPS` plate centred between them. It
+uses the same shape, finish and pressed effect as the other controls. A small
+status light to the right of the `GPS` label is green after a fix, flashes blue
+while the receiver searches, stays blue while only raw or incomplete NMEA data
+is present, and turns red if GPS initialization fails. The light stays off when
+no receiver is detected and turns off 3 seconds after the receiver is
+unplugged.
+
+Tap the `GPS` plate to open the diagnostic panel, then tap the panel to close
+it. Screen-only mode has no GPS plate: hold the top-left corner to open the
+panel. The same top-left long press works on the radio connection screen, so a
+silent or disconnected unit can still be diagnosed.
+
+The centred panel uses the regular interface font and two aligned columns of
+explicit fields. Its `State` field shows:
+
+- `NO DATA`: the UART receives nothing, or reception stopped for 3 seconds;
+- `RAW DATA`: bytes arrive but no checksum-valid NMEA sentence is decoded;
+- `NMEA`: valid NMEA is present, but no usable RMC status was seen yet;
+- `SEARCH`: the receiver is running but has no position fix;
+- `FIX`: an active RMC position is being forwarded to the K1;
+- `ERROR`: the Grove power or GPS UART could not be initialized.
+
+The remaining fields report module detection, NMEA stream quality, fix
+validity, received bytes, valid sentences, checksum errors, age of the latest
+valid NMEA sentence, satellites used and visible, and the strongest GSV
+carrier-to-noise value in dB-Hz. The final section keeps the latest decimal
+latitude and longitude and shows the same position in APRS
+`DDMM.hhN DDDMM.hhE` format. Increasing byte and valid-sentence counters with
+`SEARCH` confirms that the wiring and UART work. A non-zero visible-satellite
+count or SNR also confirms that the antenna receives satellites, even before a
+fix; zero visible satellites and no SNR outdoors point instead to the antenna
+or its sky view.
 
 ## Orientation
 

@@ -77,6 +77,15 @@ static uint16_t bearing(int32_t east, int32_t north)
 
 static bool home_position(int32_t *lat, int32_t *lon)
 {
+    if (A->api_level >= APP_API_GPS && A->gps_position != NULL) {
+        app_gps_position_t position;
+        if (A->gps_position(&position)) {
+            *lat = position.lat_cas;
+            *lon = position.lon_cas;
+            return true;
+        }
+    }
+
     uint8_t profile[APRS_PROFILE_COMMENT];
     for (uint8_t i = 0u; i < sizeof(profile); i++) profile[i] = 0u;
     A->cfg_load(profile, sizeof(profile));

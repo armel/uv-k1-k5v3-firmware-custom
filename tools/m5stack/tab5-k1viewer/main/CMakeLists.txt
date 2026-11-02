@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.c"
+idf_component_register(SRCS "main.c" "gps.c"
                        INCLUDE_DIRS ".")
 
 # PNGs from assets/ converted to raw RGB565 at build time and linked into

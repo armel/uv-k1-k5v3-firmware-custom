@@ -196,16 +196,21 @@
 <rect x="152" y="296" width="416" height="316" rx="6" fill="#050506"/>
 <rect x="158" y="302" width="404" height="304" rx="3" fill="url(#glass)"/>
 <!-- plates -->
-<rect x="126" y="659" width="260" height="55" rx="16" fill="#18191b"/>
-<rect x="129" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
-<rect x="137" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
-<text x="256.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">Mini Kong</text>
-<text x="256.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">Mini Kong</text>
-<rect x="479" y="659" width="120" height="55" rx="16" fill="#18191b"/>
-<rect x="482" y="662" width="114" height="49" rx="14" fill="url(#plate)"/>
-<rect x="490" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
-<text x="539.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
-<text x="539.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
+<rect x="109" y="659" width="260" height="55" rx="16" fill="#18191b"/>
+<rect x="112" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
+<rect x="120" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="239.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">Mini Kong</text>
+<text x="239.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">Mini Kong</text>
+<rect x="375" y="659" width="109" height="55" rx="16" fill="#18191b"/>
+<rect x="378" y="662" width="103" height="49" rx="14" fill="url(#plate)"/>
+<rect x="386" y="663.5" width="87" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="429.5" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">GPS</text>
+<text x="429.5" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">GPS</text>
+<rect x="490" y="659" width="120" height="55" rx="16" fill="#18191b"/>
+<rect x="493" y="662" width="114" height="49" rx="14" fill="url(#plate)"/>
+<rect x="501" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="550.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
+<text x="550.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
 <!-- /plates -->
 <!-- keypad -->
 <circle cx="539" cy="748" r="8" fill="#5a5d62"/>

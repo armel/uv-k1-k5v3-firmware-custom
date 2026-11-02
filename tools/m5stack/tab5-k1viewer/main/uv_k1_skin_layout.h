@@ -93,6 +93,7 @@ typedef struct {
     skin_led_t led;
     skin_torch_t torch;
     skin_rect_t plate;          /* touch area of the QUANSHENG plate */
+    skin_rect_t gps;            /* GPS plate; empty in screen-only layout */
     int16_t connect_icon_x;
     int16_t connect_icon_y;
     int16_t connect_text_x;
@@ -161,6 +162,7 @@ static const skin_layout_t skin_portrait = {
         .box = {187, 0, 330, 177},
     },
     .plate = {149, 224, 422, 88},
+    .gps = {375, 709, 109, 55},
     .connect_icon_x = 160,
     .connect_icon_y = 360,
     .connect_text_x = 60,
@@ -170,33 +172,33 @@ static const skin_layout_t skin_portrait = {
 };
 
 static const skin_key_t skin_landscape_keys[] = {
-    {{794, 322, 92, 68}, 0x0A}, /* MENU */
-    {{904, 322, 92, 68}, 0x0B}, /* < */
-    {{1015, 322, 92, 68}, 0x0C}, /* > */
-    {{1125, 322, 92, 68}, 0x0D}, /* EXIT */
-    {{794, 416, 92, 56}, 0x01}, /* 1 */
-    {{904, 416, 92, 56}, 0x02}, /* 2 */
-    {{1015, 416, 92, 56}, 0x03}, /* 3 */
-    {{1125, 416, 92, 56}, 0x0E}, /* * */
-    {{794, 498, 92, 56}, 0x04}, /* 4 */
-    {{904, 498, 92, 56}, 0x05}, /* 5 */
-    {{1015, 498, 92, 56}, 0x06}, /* 6 */
-    {{1125, 498, 92, 56}, 0x00}, /* 0 */
-    {{794, 580, 92, 56}, 0x07}, /* 7 */
-    {{904, 580, 92, 56}, 0x08}, /* 8 */
-    {{1015, 580, 92, 56}, 0x09}, /* 9 */
-    {{1125, 580, 92, 56}, 0x0F}, /* F */
+    {{783, 322, 92, 68}, 0x0A}, /* MENU */
+    {{893, 322, 92, 68}, 0x0B}, /* < */
+    {{1004, 322, 92, 68}, 0x0C}, /* > */
+    {{1114, 322, 92, 68}, 0x0D}, /* EXIT */
+    {{783, 416, 92, 56}, 0x01}, /* 1 */
+    {{893, 416, 92, 56}, 0x02}, /* 2 */
+    {{1004, 416, 92, 56}, 0x03}, /* 3 */
+    {{1114, 416, 92, 56}, 0x0E}, /* * */
+    {{783, 498, 92, 56}, 0x04}, /* 4 */
+    {{893, 498, 92, 56}, 0x05}, /* 5 */
+    {{1004, 498, 92, 56}, 0x06}, /* 6 */
+    {{1114, 498, 92, 56}, 0x00}, /* 0 */
+    {{783, 580, 92, 56}, 0x07}, /* 7 */
+    {{893, 580, 92, 56}, 0x08}, /* 8 */
+    {{1004, 580, 92, 56}, 0x09}, /* 9 */
+    {{1114, 580, 92, 56}, 0x0F}, /* F */
 };
 
 static const skin_side_key_t skin_landscape_side_keys[] = {
-    {{800, 143, 196, 50}, {792, 135, 212, 66}, 15, 0x12}, /* F1 */
-    {{1016, 143, 196, 50}, {1008, 135, 212, 66}, 15, 0x11}, /* F2 */
+    {{782, 143, 196, 50}, {774, 135, 212, 66}, 15, 0x12}, /* F1 */
+    {{1011, 143, 196, 50}, {1003, 135, 212, 66}, 15, 0x11}, /* F2 */
 };
 
 static const skin_layout_t skin_landscape = {
     .width = 1280,
     .height = 720,
-    .glass = {78, 140, 664, 500},
+    .glass = {84, 140, 664, 500},
     .lcd = {12, 10, 640, 480},
     .lcd_cell_w = 5,
     .lcd_row_num = 2,
@@ -209,16 +211,16 @@ static const skin_layout_t skin_landscape = {
     .led = {
         .top_y = 38.0f,
         .bottom_y = 59.0f,
-        .top_x0 = 907.0f,
-        .top_x1 = 955.0f,
-        .bottom_x0 = 897.4f,
-        .bottom_x1 = 964.6f,
+        .top_x0 = 895.5f,
+        .top_x1 = 943.5f,
+        .bottom_x0 = 885.9f,
+        .bottom_x1 = 953.1f,
         .glow = 10.0f,
         .vertical = 0,
-        .box = {887, 28, 88, 41},
+        .box = {875, 28, 89, 41},
     },
     .torch = {
-        .x = 1081.00f,
+        .x = 1069.50f,
         .y = 49.00f,
         .rx = 20.00f,
         .ry = 8.00f,
@@ -226,9 +228,10 @@ static const skin_layout_t skin_landscape = {
         .halo = 24.00f,
         .beam_spread = 1.00f,
         .beam = 1.00f,
-        .box = {1010, 0, 142, 81},
+        .box = {999, 0, 142, 81},
     },
-    .plate = {240, 12, 340, 73},
+    .plate = {246, 12, 340, 73},
+    .gps = {1008, 233, 93, 47},
     .connect_icon_x = 440,
     .connect_icon_y = 84,
     .connect_text_x = 340,
@@ -273,6 +276,7 @@ static const skin_layout_t skin_screen = {
         .box = {112, 26, 64, 88},
     },
     .plate = {100, 149, 88, 422},
+    .gps = {0, 0, 0, 0},
     .connect_icon_x = 440,
     .connect_icon_y = 84,
     .connect_text_x = 340,
