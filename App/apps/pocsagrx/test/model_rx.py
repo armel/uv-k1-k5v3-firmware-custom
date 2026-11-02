@@ -168,7 +168,10 @@ class Slicer:
         self.live = False                  # a good codeword came in this batch
         self.okc = 0                       # good codewords (the app shows them per slicer)
         self.ric = -1; self.func = 0       # page being received (-1: none)
+        self.alpha = False
         self.acc = 0; self.na = 0; self.text = []
+        self.aacc = 0; self.ana = 0; self.atext = []
+        self.ataint = False; self.actrl = 0 # alternate 7-bit view of function 0
         self.taint = False                 # the character being assembled lost bits
         self.badrun = 0                    # bad codewords in a row inside the page
 
@@ -264,6 +267,14 @@ class Slicer:
                 self.na = left
                 self.acc = 0
                 self.taint = left != 0
+                if self.func == pocsag.FUNC_NUMERIC:
+                    left = self.ana + 20
+                    while left >= 7:
+                        self.puta(GAP)
+                        left -= 7
+                    self.ana = left
+                    self.aacc = 0
+                    self.ataint = left != 0
             return
         self.okc += 1
         self.live = True
@@ -274,7 +285,8 @@ class Slicer:
                 self.badrun = 0
                 n = 4 if self.func == pocsag.FUNC_NUMERIC else 7
                 for i in range(30, 10, -1):
-                    self.acc |= ((cw >> i) & 1) << self.na
+                    bit = (cw >> i) & 1
+                    self.acc |= bit << self.na
                     self.na += 1
                     if self.na == n:
                         ch = ord(pocsag.NUMERIC[self.acc]) if n == 4 else self.acc
@@ -284,23 +296,49 @@ class Slicer:
                             self.put(ch)
                         self.taint = False
                         self.acc = self.na = 0
+                    if self.func == pocsag.FUNC_NUMERIC:
+                        self.aacc |= bit << self.ana
+                        self.ana += 1
+                        if self.ana == 7:
+                            if self.ataint:
+                                self.puta(GAP)
+                            elif 32 <= self.aacc < 127:
+                                self.puta(self.aacc)
+                            else:
+                                self.actrl += 1
+                            self.ataint = False
+                            self.aacc = self.ana = 0
         else:
             self.close()
             self.at = self.dm.n
             self.ric = ((cw >> 13) & 0x3FFFF) << 3 | (self.word >> 1)
             self.func = (cw >> 11) & 3
+            self.alpha = False
             self.acc = self.na = 0
+            self.aacc = self.ana = self.actrl = 0
             self.taint = False
+            self.ataint = False
             self.badrun = 0
             self.text = []
+            self.atext = []
 
     def put(self, ch):
         if len(self.text) < self.dm.TEXT_MAX:
             self.text.append(ch)
 
+    def puta(self, ch):
+        if len(self.atext) < self.dm.TEXT_MAX:
+            self.atext.append(ch)
+
     def close(self):
         if self.ric >= 0:
             t = self.text
+            nn = len(t)
+            while nn and t[nn - 1] == 32:
+                nn -= 1
+            self.alpha = prefer_alpha(t[:nn], self.atext, self.actrl)
+            if self.alpha:
+                t = self.atext
             lost = False
             # the marks of bad words after the last character were the end of
             # the page itself; so is the padding of a numeric page. Nothing
@@ -315,12 +353,56 @@ class Slicer:
             # read is always dropped; one with nothing read at all is a page
             # without text ("Text Lost").
             if (t or self.dm.tones) and 2 * t.count(GAP) <= len(t):
-                self.dm.found(self.ric, self.func, t, self.at, self.lane.dup, lost)
+                self.dm.found(self.ric, self.func, t, self.at, self.lane.dup,
+                              lost, self.alpha)
         self.ric = -1
 
 
 GAP = 127               # a character lost with a bad codeword; shown as '?'
 BAD_RUN = 3             # bad codewords in a row that end a page
+AUTO_MIN_ALPHA = 6
+AUTO_MIN_LETTERS = 4
+AUTO_MARGIN = 9
+
+
+def prefer_alpha(numeric, alpha, controls=0):
+    """The firmware's conservative function-0 format heuristic."""
+    if len(alpha) < AUTO_MIN_ALPHA:
+        return False
+    score = -controls * 8
+    letters = 0
+    spaces = 0
+    words = 0
+    run = 0
+    for ch in alpha:
+        if ch == GAP:
+            continue
+        if ord("A") <= ch <= ord("Z") or ord("a") <= ch <= ord("z"):
+            score += 3
+            letters += 1
+            run += 1
+            continue
+        if run >= 2:
+            words += 1
+        run = 0
+        if ch == 32:
+            score += 1
+            spaces += 1
+        else:
+            return False
+    if run >= 2:
+        words += 1
+    for ch in numeric:
+        if ch == GAP:
+            continue
+        if ord("0") <= ch <= ord("9"):
+            score -= 2
+        elif ch in (32, ord("-")):
+            score -= 1
+        else:
+            score += 4
+    return (letters >= AUTO_MIN_LETTERS and spaces >= 2 and words >= 3 and
+            letters * 3 >= len(alpha) * 2 and score >= AUTO_MARGIN)
 
 
 class Lane:
@@ -398,10 +480,11 @@ class Demod:
         self.sl = [s for ln in self.lanes for s in ln.sl]
         self.rf = RateFinder()
         self.pages = []; self.when = []            # pages, the sample the address of each came at
+        self.formats = []                           # auto-selected alpha for function 0
         self.lost = []                             # per page without text: "Text Lost", not "Tone Only"
         self.n = 0                                 # sample count
 
-    def found(self, ric, func, text, at, dup, lost=False):
+    def found(self, ric, func, text, at, dup, lost=False, alpha=False):
         # The slicers read the same transmission: each gives the same
         # page. What tells the same page from another one is not its text (two
         # pages may share theirs, or its beginning) but where it sits: its
@@ -413,6 +496,12 @@ class Demod:
             old = self.pages[j]
             if old[0] != ric or old[1] != func or abs(at - self.when[j]) >= dup:
                 continue
+            if self.formats[j] != alpha:
+                if not alpha:
+                    return
+                old[2][:] = text
+                self.formats[j] = True
+                return
             t = old[2]
             for i in range(min(len(t), len(text))):
                 if t[i] == GAP:
@@ -421,6 +510,7 @@ class Demod:
             return
         self.pages.append((ric, func, list(text)))
         self.when.append(at)
+        self.formats.append(alpha)
         self.lost.append(lost and not text)
 
     def skip(self, n):
@@ -488,6 +578,8 @@ def main():
         print("%d bauds: other cases, the app's three slicers, 3 noise seeds" % baud)
         for name, hp, noise, off, ppm, dev in (
                 ("two", 30, 1500, 0, 0, FLIPPER_DEV), ("numeric", 1000, 1500, 0, 0, FLIPPER_DEV),
+                ("func0alpha", 1000, 1500, 0, 0, FLIPPER_DEV),
+                ("func0numeric", 1000, 1500, 0, 0, FLIPPER_DEV),
                 ("same", 30, 1500, 0, 0, FLIPPER_DEV), ("same", 1000, 1500, 0, 0, FLIPPER_DEV),
                 ("alpha", 30, 1500, 4000, 0, FLIPPER_DEV), ("alpha", 1000, 1500, -4000, 0, FLIPPER_DEV),
                 ("long", 30, 1500, 0, 10000, FLIPPER_DEV), ("long", 1000, 1500, 0, -10000, FLIPPER_DEV),
