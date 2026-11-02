@@ -73,6 +73,9 @@ void usbd_add_endpoint(struct usbd_endpoint *ep);
 
 bool usb_device_is_configured(void);
 void usbd_configure_done_callback(void);
+/* Optional: build string descriptor @index into @buf (@buf_len bytes) on request
+ * and set @len. Return false to fall back to the registered descriptor table. */
+bool usbd_string_descriptor_callback(uint8_t index, uint8_t *buf, uint32_t buf_len, uint32_t *len);
 int usbd_initialize(void);
 int usbd_deinitialize(void);
 

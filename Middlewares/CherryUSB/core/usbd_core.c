@@ -123,6 +123,12 @@ static bool usbd_reset_endpoint(const struct usb_endpoint_descriptor *ep_desc)
     return usbd_ep_close(ep_cfg.ep_addr) == 0 ? true : false;
 }
 
+/* Default: no string is built on request, every string comes from the table. */
+__WEAK bool usbd_string_descriptor_callback(uint8_t index, uint8_t *buf, uint32_t buf_len, uint32_t *len)
+{
+    return false;
+}
+
 /**
  * @brief get specified USB descriptor
  *
@@ -179,6 +185,12 @@ static bool usbd_get_descriptor(uint16_t type_index, uint8_t **data, uint32_t *l
              (type > USB_DESCRIPTOR_TYPE_OTHER_SPEED)) {
 #endif
         return false;
+    }
+
+    if ((type == USB_DESCRIPTOR_TYPE_STRING) &&
+        usbd_string_descriptor_callback(index, usbd_core_cfg.req_data, sizeof(usbd_core_cfg.req_data), len)) {
+        *data = usbd_core_cfg.req_data;
+        return true;
     }
 
     p = (uint8_t *)usbd_core_cfg.descriptors;

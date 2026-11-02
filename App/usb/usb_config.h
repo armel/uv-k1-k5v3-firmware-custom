@@ -30,8 +30,14 @@
 
 /* ================= USB Device Stack Configuration ================ */
 
-/* Ep0 max transfer buffer, specially for receiving data from ep0 out */
-#define CONFIG_USBDEV_REQUEST_BUFFER_LEN 256
+/* Ep0 max transfer buffer, specially for receiving data from ep0 out.
+ * CDC ACM's largest control transfer is 7 bytes (line coding); the biggest user
+ * is the serial number string built into it on request (50 bytes). */
+#define CONFIG_USBDEV_REQUEST_BUFFER_LEN 64
+
+/* The PY32 port moves FIFO data a byte at a time, so ep0 data needs no aligned
+ * copy into the request buffer (descriptors are sent straight from flash). */
+#define CONFIG_USBDEV_ALIGN_CHECK_DISABLE
 
 /* Setup packet log for debug */
 // #define CONFIG_USBDEV_SETUP_LOG_PRINT
