@@ -726,12 +726,13 @@ static void handle_key(void)
     if (key == APP_KEY_EXIT) g.running = false;
     else if (key == APP_KEY_1) g.spk = !g.spk;
     else if (key == APP_KEY_MENU) g.hold = !g.hold;
-    else if (key == APP_KEY_STAR) { g.cw = !g.cw; g.top = 0; }   /* saved on exit */
+    else if (key == APP_KEY_STAR) { g.cw = !g.cw; g.top = 0; }
     else if (key == APP_KEY_2) {        /* g.lim: 0 at the redraw that follows */
         g.count = g.cur = 0;
         g.top = 0;
         g.sync = g.ok = 0;
     }
+    g.A->cfg_save(&g.spk, 2);   /* staged after each key: kept across a switch-off */
 }
 
 static void house(void)
@@ -818,5 +819,4 @@ void app_main(const app_api_t *api)
     api->set_af(APP_AF_MUTE);
     for (unsigned i = REGS; i--; ) api->bk_write((uint8_t)rs[3u * i], saved[i]);
     api->af_capture_close();
-    api->cfg_save(&g.spk, 2);
 }

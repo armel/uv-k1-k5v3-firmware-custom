@@ -52,6 +52,11 @@ Yaesu bitmap set is stored in the app assets; the editor keeps the full width.
 | * | Scroll view / compact view (saved): compact shows the source in bold, then the path, the position `48 50.90N 002 16.25E`, the symbol and the comment in the tiny 3x5 font, 32 characters a row, without scroll |
 | EXIT | Quit (level, twist, view and beacon interval are saved); the beacon only runs while the app is open |
 
+The settings are saved within 2 s of a change. A radio switched off in APRS TX
+comes back in it at the next power-on, like any app, so a beacon interval that
+was set counts down again from there: hold `EXIT` while switching on to start on
+the main screen instead.
+
 Paths: `DIRECT` (heard only by the stations and iGates in range), `WIDE1-1` (one
 repeat by a nearby digipeater), `WIDE1-1,2-1` (`WIDE1-1,WIDE2-1`: the usual
 mobile / portable path, two repeats), `ARISS` (the ISS digipeater RS0ISS, which

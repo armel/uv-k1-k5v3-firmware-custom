@@ -38,7 +38,8 @@
  * Keys: UP/DOWN centre up / down one point (the landscape slides; held, they
  *       repeat) · 1 / F+1 centre up / down 6.25 kHz ·
  *       3 / F+3 wider / narrower span · 4/6 rotate · 2/8 tilt ·
- *       5 reset view · 0 listen to the strongest peak (FM, speaker icon; the
+ *       5 all the defaults (span, speed, view), centred on the VFO again ·
+ *       0 listen to the strongest peak (FM, speaker icon; the
  *       landscape goes on with that station alone) · STAR speed · MENU hold ·
  *       EXIT quit. Behind the screen saver the spectrum stops (no sweep, no
  *       audio) until a key wakes it.
@@ -125,9 +126,11 @@ typedef struct {
 
 /* All the state in one struct: Thumb-1 code then reaches every field from a
  * single base address (one literal per function, instead of one per global),
- * byte fields first so their offsets fit ldrb's 0..31 immediate. */
+ * byte fields first so their offsets fit ldrb's 0..31 immediate (after the
+ * saved shift, the one word of the saved settings). */
 struct globals {
     /* saved settings, in CFG_DEFAULT's order: loaded and saved whole */
+    int32_t shift;                          /* centre - VFO, 10 Hz units */
     uint8_t magic, span, speed;
     int8_t yaw;
     uint8_t pitch;
@@ -158,7 +161,7 @@ static struct globals g;
 #define A (g.api)
 #define S (g.st)
 
-_Static_assert(offsetof(struct globals, pitch) + 1u - offsetof(struct globals, magic)
+_Static_assert(offsetof(struct globals, pitch) + 1u - offsetof(struct globals, shift)
                == CFG_DEFAULT_LEN, "saved settings do not match CFG_DEFAULT");
 _Static_assert(offsetof(struct globals, label) + SPAN_LABEL_LEN + 1u
                - offsetof(struct globals, step) == SPAN_REC_SIZE,
@@ -738,11 +741,16 @@ static void key_press(uint8_t key)
     } else if (key == APP_KEY_3 && (uint8_t)(g.span + dir) < SPAN_COUNT) {
         g.span = (uint8_t)(g.span + dir);
         restart();                          /* keeps the centre */
-    } else if (key == APP_KEY_5) {
-        g.yaw = 0;
-        g.pitch = PITCH_DEF;
+    } else if (key == APP_KEY_5) {          /* all the defaults, on the VFO */
+        asset(CFG_DEFAULT, &g.shift, CFG_DEFAULT_LEN);
+        g.centre = A->rx_freq();
+        restart();
         view();
     }
+    /* Each key: kept across a switch-off. The VFO stays as it was (the app
+       tunes the BK4829 only), so the centre is saved as a shift from it. */
+    g.shift = (int32_t)(g.centre - A->rx_freq());
+    A->cfg_save((const uint8_t *)&g.shift, CFG_DEFAULT_LEN);
 }
 
 static void poll_keys(void)
@@ -893,11 +901,11 @@ void app_main(const app_api_t *api)
 
     /* The setup calls go through the parameter, which stays in a register:
        through A, each call would reload the table pointer first. */
-    api->cfg_load(&g.magic, CFG_DEFAULT_LEN);
+    api->cfg_load((uint8_t *)&g.shift, CFG_DEFAULT_LEN);
     if (g.magic != CFG_MAGIC || g.span >= SPAN_COUNT || g.speed >= SPEED_COUNT ||
         (uint8_t)(g.yaw + YAW_MAX) > 2u * YAW_MAX ||
         (uint8_t)(g.pitch - PITCH_MIN) > PITCH_MAX - PITCH_MIN)
-        asset(CFG_DEFAULT, &g.magic, CFG_DEFAULT_LEN);
+        asset(CFG_DEFAULT, &g.shift, CFG_DEFAULT_LEN);
     g.running = true;                       /* the rest of g starts zeroed (.bss) */
     view();
     g.prev_key = api->get_key();
@@ -907,8 +915,12 @@ void app_main(const app_api_t *api)
     api->set_agc(false);                    /* fixed gain: no pumping by a strong signal */
     g.saved_bw = api->bk_read(REG_RX_BW);
     g.scan_ctrl = api->bk_read(REG_CTRL) & ~CTRL_AF_DAC;
-    g.centre = api->rx_freq();
+    g.centre = api->rx_freq() + (uint32_t)g.shift;   /* the saved shift from the VFO */
     restart();
+    if (!g.last_ok) {                       /* in no RX range (junk shift): on the VFO */
+        g.centre = api->rx_freq();
+        restart();
+    }
 
     while (g.running) {
         if (g.saver) {
@@ -980,5 +992,4 @@ void app_main(const app_api_t *api)
        gain in place: restore automatic gain explicitly. */
     A->set_agc(true);
     A->bk_write(REG_RX_BW, g.saved_bw);     /* the VFO's own RX filter */
-    A->cfg_save(&g.magic, CFG_DEFAULT_LEN); /* magic set: loaded or default */
 }

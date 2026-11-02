@@ -41,10 +41,10 @@ samples per chip. The decoder DPLL tracks this small difference.
 | Key | Action |
 |---|---|
 | `1` | Speaker on/off |
-| `2` / `F`+`2` | Tune +5 / -5 kHz, up to +/-50 kHz |
+| `2` / `F`+`2` | Tune +5 / -5 kHz, up to +/-50 kHz, saved |
 | `3` / `F`+`3` | Cycle attenuation forward / backward |
 | `4` | Restore the VFO frequency |
-| `5` | Decode beep on/off, saved on exit |
+| `5` | Decode beep on/off, saved |
 | `MENU` | Open GeoNav (bearing, distance from the APRS position) once a position is decoded; its `EXIT` comes back here with the last frame |
 | `EXIT` | Quit |
 

@@ -11,7 +11,7 @@ a.table("T_ZONE", [
     "CONFIG 1", "CONFIG 2", "CONFIG 3", "CONFIG 4",
     "STATE A", "STATE B", "APP RESERVE",
     "FW0 ASSETS", "FW1 ASSETS", "FW2 ASSETS", "FW3 ASSETS", "FW4 ASSETS",
-    "SONIC 4K",
+    "SONIC 4K", "SECURITY 1", "SECURITY 2", "SECURITY 3",
 ])
 a.table("T_DESC", [
     "Main channels + settings",
@@ -26,10 +26,11 @@ a.table("T_DESC", [
     "Reserve for 36 app slots",
     "Firmware fonts + UI data",
     "Sonic 4K interop area",
+    "Blank, all bytes FF",
 ])
 a.table("T_HEADER_STATE", ["EMPTY", "BAD HEADER", "UNNAMED"])
 a.table("T_TYPE", ["CONF", "CAL", "LOGO", "FREE", "LOG", "FW", "MB", "APP", "4K",
-                   "ASSET", "LIVE"])
+                   "ASSET", "LIVE", "SEC", "LOCK"])
 
 # Multiboot state sector verdicts, indexed by MARK_* in flashmap_app.c.
 a.table("T_STATE", ["Erased", "Corrupt record", "Legacy", "Gen "])
@@ -40,6 +41,10 @@ a.const("LIVE_PAIR_CFG", pair.index("CONFIG ") + 7)
 
 a.text("T_FW_MAX", "/118 KB")
 a.table("T_UNIT", [" code", " assets"])
+a.text("T_SEC_USED", " bytes written")
+# The break before them; the note is the longer: its length sizes the buffer.
+a.text("T_BREAK_TITLE", "SECURITY REGISTERS")
+a.text("T_BREAK_NOTE", "OWN 3 KB SPACE, NOT IN THE MAP")
 
 a.table("T_DUMP_MODE", ["HEX", "TEXT"])
 a.u8("BMP_F", [0x3e, 0x7f, 0x41, 0x75, 0x75, 0x75, 0x7d, 0x7f, 0x3e])

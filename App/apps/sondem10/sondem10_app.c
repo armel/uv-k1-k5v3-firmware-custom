@@ -47,7 +47,7 @@ void *memcpy(void *d, const void *s, size_t n)
 #define GUARD_LO (780u * 48000u)
 #define GUARD_W (80u * 48000u)
 #define LED_STEP (FS / 10u)
-#define CFG_MAGIC 0x10u
+#define CFG_MAGIC 0x11u   /* 0x10: saved without the offset, back to the defaults */
 #define BEEP_X 47u
 #define SPK_X 59u
 #define BEEP_HZ 1536u
@@ -55,19 +55,20 @@ void *memcpy(void *d, const void *s, size_t n)
 #define BK_REG_13 0x13
 #define ATT_SETTLE 40
 
-typedef struct { bool spk; uint8_t att, beep; } app_cfg_t;
+/* As saved: cfg_save takes it from g after each key. offSteps is a word:
+ * Thumb-1 has no ldrsb with an immediate offset. */
+typedef struct { uint8_t magic, spk, beep, att; int32_t offSteps; } app_cfg_t;
 
 /* Words, then bytes, then halfwords, the frame last: every byte field stays
- * within ldrb's 0..31 immediate offsets. offSteps is a word: Thumb-1 has no
- * ldrsb with an immediate offset. */
+ * within ldrb's 0..31 immediate offsets; the config, with its word, sits
+ * among the words. */
 static struct {
     const app_api_t *A;
     uint32_t vfoFreq;
-    int32_t offSteps;
     uint32_t tFrame;          /* cycles_48mhz at the last decoded frame */
+    app_cfg_t cfg;            /* settings and offset, as saved */
     uint8_t prevKey, led;
     bool fArm, track;
-    app_cfg_t cfg;
     int16_t rssi;
     uint16_t nOk, ledCnt;
     sonde_info_t info;
@@ -130,7 +131,7 @@ static void rxAudio(void)
 }
 static void tune(void)
 {
-    uint32_t f = (uint32_t)((int32_t)g.vfoFreq + g.offSteps * STEP_10HZ);
+    uint32_t f = (uint32_t)((int32_t)g.vfoFreq + g.cfg.offSteps * STEP_10HZ);
     g.A->bk_write(REG_38, (uint16_t)(f & 0xFFFFu));
     g.A->bk_write(REG_39, (uint16_t)(f >> 16));
     g.A->tones_off_rx();         /* REG_30 to 0 then RX: VCO recalibration, relock */
@@ -251,10 +252,10 @@ static void draw(const char *s)
     }
     for (unsigned x = 0; x < 128u; x += 2u) g.A->fb[5][x] = 0x01u;   /* row 5 still blank */
 
-    o = putFreq(str, g.vfoFreq + (uint32_t)(g.offSteps * STEP_10HZ));
-    if (g.offSteps) {
-        *o++ = ' '; if (g.offSteps > 0) *o++ = '+';
-        o = puti(o, g.offSteps * 5); o = put(o, s + T_KHZ);
+    o = putFreq(str, g.vfoFreq + (uint32_t)(g.cfg.offSteps * STEP_10HZ));
+    if (g.cfg.offSteps) {
+        *o++ = ' '; if (g.cfg.offSteps > 0) *o++ = '+';
+        o = puti(o, g.cfg.offSteps * 5); o = put(o, s + T_KHZ);
     }
     tiny(str, 0, 43, o);
     o = puti(str, g.rssi); o = put(o, s + T_DBM);
@@ -278,14 +279,15 @@ static bool handleKey(uint8_t key)
     switch (key) {
         case APP_KEY_1: g.cfg.spk = !g.cfg.spk; rxAudio(); break;
         case APP_KEY_2: {
-            int32_t n = g.offSteps + (reverse ? -1 : 1);
-            if (n >= -OFF_MAX && n <= OFF_MAX) { g.offSteps = n; tune(); }
+            int32_t n = g.cfg.offSteps + (reverse ? -1 : 1);
+            if (n >= -OFF_MAX && n <= OFF_MAX) { g.cfg.offSteps = n; tune(); }
             break; }
         case APP_KEY_3: attCycle(reverse ? -1 : 1); break;
-        case APP_KEY_4: g.offSteps = 0; tune(); break;
+        case APP_KEY_4: g.cfg.offSteps = 0; tune(); break;
         case APP_KEY_5: g.cfg.beep ^= 1u; break;
         default: break;
     }
+    g.A->cfg_save(&g.cfg.magic, sizeof g.cfg);   /* each key: kept across a switch-off */
     return false;
 }
 
@@ -361,7 +363,6 @@ static void listen(const char *ui)
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
-    uint8_t cfg[4];
     char ui[UI_SIZE] __attribute__((aligned(4)));
     g.A = api; g.prevKey = APP_KEY_INVALID; api->led(false);
     api->asset_read(0, ui, UI_SIZE);
@@ -374,20 +375,22 @@ void app_main(const app_api_t *api)
     uint16_t r13 = api->bk_read(BK_REG_13);
     uint16_t r43 = api->bk_read(REG_43);
     api->bk_write(REG_43, REG_43_M10);
-    api->cfg_load(cfg, 4);
-    if (cfg[0] == CFG_MAGIC) {
-        g.cfg.spk = cfg[1] & 1u;
-        g.cfg.beep = cfg[2] & 1u;
-        if (cfg[3] < ATT_COUNT) g.cfg.att = cfg[3];
-    } else g.cfg.att = 3u;
+    api->cfg_load(&g.cfg.magic, sizeof g.cfg);   /* straight into g, as saved */
+    if (g.cfg.magic != CFG_MAGIC || g.cfg.att >= ATT_COUNT ||   /* erased or junk */
+        (uint32_t)(g.cfg.offSteps + OFF_MAX) > 2u * OFF_MAX) {
+        g.cfg.magic = CFG_MAGIC;
+        g.cfg.spk = g.cfg.beep = 0;
+        g.cfg.att = 3u;
+        g.cfg.offSteps = 0;
+    }
     applyAtt();
-    rxAudio();
+    tune();                      /* on the saved offset; sets the audio path too */
     api->delay_ms(50);
     /* Back from GeoNav: show the last frame again. */
     if (api->handoff_read(&g.info, APP_HANDOFF_MAX, NULL) == (int16_t)APP_HANDOFF_MAX)
         g.nOk = 1u;
     listen(ui);
-    if (g.offSteps) { g.offSteps = 0; tune(); }
+    if (g.cfg.offSteps) { g.cfg.offSteps = 0; tune(); }
     api->bk_write(BK_REG_13, r13);
     api->set_agc(true);
     api->bk_write(REG_43, r43);
@@ -395,6 +398,4 @@ void app_main(const app_api_t *api)
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
     api->led(false);
-    cfg[0] = CFG_MAGIC; cfg[1] = g.cfg.spk; cfg[2] = g.cfg.beep; cfg[3] = g.cfg.att;
-    api->cfg_save(cfg, 4);
 }

@@ -67,6 +67,19 @@ void PY25Q16_InvalidateCache(void);
 /* The 4 KiB sector cache, reused as the overlay-app execution workspace. */
 uint8_t *PY25Q16_OverlayBuffer(void);
 void PY25Q16_OverlayWriteSector(uint32_t Address);
+
+/* The three 1 KiB security registers, outside the main array (no bank mapping,
+ * no sector cache): register n (1..3) starts at PY25Q16_SECURITY_ADDR(n).
+ * PY25Q16_Security sends one of the commands below; an erase (Size 0) clears
+ * the whole register, a program only turns bits from 1 to 0. A register whose
+ * OTP lock bit is set ignores both. */
+#define PY25Q16_SECURITY_ADDR(n) ((uint32_t)(n) << 12)
+#define PY25Q16_SECURITY_SIZE    0x400u
+#define PY25Q16_SEC_READ         0x48u
+#define PY25Q16_SEC_PROGRAM      0x42u
+#define PY25Q16_SEC_ERASE        0x44u
+void PY25Q16_Security(uint8_t Cmd, uint32_t Address, void *pBuffer, uint32_t Size);
+bool PY25Q16_SecurityLocked(uint8_t Register);
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT

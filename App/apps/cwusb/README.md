@@ -42,9 +42,10 @@ Configure CW USB once: use the same `XTAL` correction as CW Keyer and
 CW Decode, then set its WPM, tone, break-in, mode, keyer, contact order and
 speaker preference.
 
-Settings are written to flash when you leave the app with `EXIT`. Switching
-the radio off or restarting it while CW USB is open loses the changes made in
-that session.
+Settings are saved within 2 s of each key. Switching the radio off while CW USB is
+open keeps them: the radio comes back in CW USB at the next power-on (hold
+`EXIT` while switching on to start on the main screen). CW USB starts
+disarmed then, as after any launch.
 
 ## Arming the transmitter
 
@@ -81,7 +82,8 @@ help page (`MENU`) cancels an arming in progress.
 - `5`: swap the dit and dah contacts.
 - `6`: raise the crystal correction by one BK4829 `REG_3B` step.
 - `F`, then `2`, `3`, `4` or `6`: lower the corresponding setting.
-- `UP` / `DOWN`: tune locally in 100 Hz steps, up to +/-50 kHz.
+- `UP` / `DOWN`: tune locally in 100 Hz steps, up to +/-50 kHz (saved; the
+  resident VFO is never modified).
 - `7`: once armed, open `CW Mem` with the current settings and UP/DOWN
   offset (see [CW Mem](../cwmem/README.md)); CW USB comes back armed.
   Before arming, or without `CW Mem` installed, nothing happens.
@@ -195,18 +197,22 @@ keyer, CW receive, display, settings and RF keying are shared with CW Keyer.
   layout plus the USB-C port code): it reuses the receive, TX keying and
   display functions and brings its own screen and `app_main`. Keyer screens,
   settings and paddle code sit under `#if !CW_KEYER_MEM`. `handoff_t` (the
-  saved `config_t` and the UP/DOWN offset) is the hand-off message in both
-  directions; CW USB hands over only once armed, so a message back means
-  armed; build `cwmem` too after a shared change.
-- `config_t` is shared. Its last byte, `reservedPort`, now holds the CW USB
-  keyer mode (0 `AUTO`, 1 `IAMB A`, 2 `IAMB B`; CW Keyer always saves 0), so
-  no spare byte is left. Changing the `config_t` layout or `CFG_MAGIC` resets
+  saved `config_t`, the UP/DOWN offset in it) is the hand-off message in both
+  directions, in the 1.6 layout (12 bytes of settings, then the offset as is),
+  so 1.6 keyers and CW Mem 1.0 still pair with 1.7; CW USB hands over only once
+  armed, so a message back means armed; build `cwmem` too after a shared
+  change.
+- `config_t` is shared. Byte 11, `reservedPort`, now holds the CW USB
+  keyer mode (0 `AUTO`, 1 `IAMB A`, 2 `IAMB B`; CW Keyer always saves 0), and
+  bytes 12-13, `tune`, the UP/DOWN offset (1.7; 0xFFFF, as left by an older
+  config, reads as no offset). Changing the `config_t` layout or `CFG_MAGIC` resets
   the settings of both apps.
 - Each app has its own `APP_VER` in its `build.sh`: a USB-only change bumps
   CW USB, a shared change bumps both.
 - Build all three apps after every change to the shared source:
   `./compile-app.sh cwkeyer cwusb cwmem`. Each build fails if its binary exceeds
-  the 4 KiB overlay. CW USB has 4 bytes left since 1.6.
+  the 4 KiB overlay. CW USB is within a few bytes of it
+  since 1.7.
 
 ## Credits
 

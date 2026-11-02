@@ -66,8 +66,8 @@ Keys (UV-K5 and UV-K1):
 |---|---|
 | UP/DOWN (held) | Scroll the body of the frame shown 1 px per 50 ms slot, according to `SET_NAV` (UV-K1: LEFT/RIGHT), down to its last row |
 | UP/DOWN (pressed again at the first / last row) | Show the newer / older frame, from its first row |
-| * | Normal / compact view, saved on exit, returns to the first row of the frame shown. The callsign stays large and bold on line 0. Body rows use the normal font (18 characters) or 3x5 font (32 characters), continuous 1 px scrolling |
-| 1 | Speaker on/off, saved on exit (v0.8; off by default), gated by the squelch (v0.11); FoxHunt's speaker icon in the status bar while on |
+| * | Normal / compact view, saved, returns to the first row of the frame shown. The callsign stays large and bold on line 0. Body rows use the normal font (18 characters) or 3x5 font (32 characters), continuous 1 px scrolling |
+| 1 | Speaker on/off, saved (v0.8; off by default), gated by the squelch (v0.11); FoxHunt's speaker icon in the status bar while on |
 | 2 | Clear all five frames and the counters |
 | EXIT | Quit |
 

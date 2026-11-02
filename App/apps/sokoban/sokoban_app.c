@@ -100,8 +100,8 @@ void app_main(const app_api_t *api){
   if(g.title && now-g.title_at>=500){g.title_at=now;g.title_on=!g.title_on;changed=true;}
   if(now-last_battery>=5000){A->battery_sample();last_battery=now;changed=true;}
   g.previous=key;A->backlight_update();if(changed)draw();
+  if(g.level!=original)A->cfg_save(&g.level,1);  /* each pass, a change only: kept across a switch-off */
  }
  A->audio_path(false);
  for(unsigned released=0;released<3;){released=A->get_key()==APP_KEY_INVALID?released+1:0;A->backlight_update();A->delay_ms(10);}
- if(g.level!=original)A->cfg_save(&g.level,1);
 }

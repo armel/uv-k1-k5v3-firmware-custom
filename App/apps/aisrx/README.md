@@ -52,7 +52,7 @@ The screen follows ATIS RX and APRS RX:
 |---|---|
 | UP / DOWN (held) | Scroll the body 1 px per 50 ms (UV-K1: LEFT / RIGHT), down to its last row |
 | UP / DOWN (pressed again at the first / last row) | The newer / older vessel, from its first row, up to eight kept; holding a key never leaves the vessel |
-| * | Normal / compact view, saved on exit |
+| * | Normal / compact view, saved |
 | 1 | Speaker on / off (saved, off by default: the decoder does not need it). Not gated by the squelch, as POCSAG RX, EPIRB 406 and the sonde apps on the same RAW path: the hiss is heard between bursts, and each burst as a short buzz |
 | MENU | Hold / resume the vessel list. Reception and the valid-CRC counter continue, but no vessel is added, updated or reordered while held |
 | 2 | Clear the list and the counters |

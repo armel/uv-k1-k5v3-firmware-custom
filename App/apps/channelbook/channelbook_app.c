@@ -875,6 +875,7 @@ void app_main(const app_api_t *api)
         if (dirty && key != APP_KEY_SAVER) {
             draw();
             dirty = false;
+            save_position();   /* after each move: kept across a switch-off */
         }
         A->delay_ms(INPUT_TICK_MS);
         if (++battery_ticks >= 200u) {
@@ -885,6 +886,4 @@ void app_main(const app_api_t *api)
         }
         A->backlight_update();
     }
-
-    save_position();
 }

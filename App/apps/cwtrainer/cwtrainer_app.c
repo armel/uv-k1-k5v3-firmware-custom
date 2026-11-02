@@ -511,6 +511,8 @@ void app_main(const app_api_t *api)
             }
         }
         ui(key, now);
+        /* Each pass, written on a change only: kept across a switch-off. */
+        A->cfg_save((const uint8_t *)&g.cfg, sizeof(g.cfg));
         if (g.redraw && !g.element && !g.mark) draw();
         if (now - g.serviceAt >= 100u * CYC_MS) {
             g.serviceAt = now;
@@ -525,5 +527,4 @@ void app_main(const app_api_t *api)
     A->set_af(APP_AF_MUTE);
     A->tones_off_rx();
     port(false);
-    A->cfg_save((const uint8_t *)&g.cfg, sizeof(g.cfg));
 }

@@ -46,7 +46,7 @@ ToneCall declares a shortcut, like FM, Fox Hunt, Beacon and BEAM: any assignable
 | `MENU` | Keep the preset, back to the list |
 | `EXIT` | Discard the changes |
 
-An empty code makes the preset empty. The presets are written to flash when the app exits, and only if something changed.
+An empty code makes the preset empty. The presets are saved within 2 s of each change, and only if something changed, even if the radio is then switched off in the app.
 
 ## Storage: 4 presets in 16 bytes
 

@@ -563,6 +563,7 @@ static void house(bool bz){
         else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }
         else if(key==APP_KEY_2) sendTest();
         else if(key==APP_KEY_3) g.rxOnly=!g.rxOnly;
+        A->cfg_save(&g.spk,1);   /* staged after each key: kept across a switch-off */
     }
     g.prevKey=key;
     if(g.quit) return;
@@ -653,5 +654,4 @@ void app_main(const app_api_t *api){
     DAC_CR=savedDac; DAC_DHR12R1=savedDhr; RCC_APBENR1=savedRcc; GPIOA_MODER=savedModer;
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
-    api->cfg_save(&g.spk,1);
 }

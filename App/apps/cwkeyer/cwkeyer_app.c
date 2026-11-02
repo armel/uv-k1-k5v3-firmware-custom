@@ -201,21 +201,26 @@ typedef struct {
     int16_t calSteps;
     uint16_t rxPitchHz, breakInMs;
     uint8_t speaker, reservedPort; /* USB: AUTO/A/B = 0/1/2; SIDE: zero. */
+    int16_t tune;   /* UP/DOWN offset, 10 Hz units, in 100 Hz steps: erased
+                       flash (0xFFFF = -1, as left by a config saved before it)
+                       is not a step and reads as no offset */
 } config_t;
 
 _Static_assert(sizeof(config_t) <= 16u, "CW Keyer config exceeds overlay slot");
 
-/* Hand-off between a keyer and CW Mem (key 7), both ways: the settings and
- * the UP/DOWN offset. CW USB hands over only once armed, so a message back
- * from CW Mem also means armed. */
+/* Hand-off between a keyer and CW Mem (key 7), both ways: the settings,
+ * the UP/DOWN offset among them. Same 14 bytes as 1.6 (the 12-byte settings,
+ * then the offset): CW Keyer / CW USB 1.6 and CW Mem 1.0 still pair with this
+ * version. CW USB hands over only once armed, so a message back from CW Mem
+ * also means armed. */
 #define MEM_APP_NAME "CW Mem"
 typedef struct {
     config_t cfg;
-    int16_t tune;
 } handoff_t;
 _Static_assert(sizeof(handoff_t) <= APP_HANDOFF_MAX, "CW Mem hand-off too long");
 #if IAMBIC_ENGINE
-_Static_assert(sizeof(config_t) == 12u && __builtin_offsetof(config_t, reservedPort) == 11u,
+_Static_assert(sizeof(config_t) == 14u && __builtin_offsetof(config_t, reservedPort) == 11u &&
+               __builtin_offsetof(config_t, tune) == 12u,
                "CW USB legacy config layout must stay compatible");
 #endif
 
@@ -230,7 +235,7 @@ static struct {
     bool uiHandled, help;
     bool reverse, speaker, toMem;
 #if CW_PORT
-    bool portOpen;
+    bool portOpen; /* CW Mem only; CW USB keeps the byte for the layout */
 #endif
 #if CW_KEYER_USB
     uint8_t armState; /* 0/1 release, 2/3 hold, 4/5 final release, 6 armed */
@@ -353,6 +358,16 @@ static char *putCalibration(char *out)
 static uint32_t tunedFrequency(uint32_t frequency)
 {
     return frequency + (uint32_t)(int32_t)g.tuneOffset10Hz;
+}
+
+/* An offset read back (saved config, hand-off message) is held to that range
+ * too: TX uses it, and tx_state only checks the VFO. Damaged, or -1 (erased
+ * flash, never a 100 Hz step): no offset. One constant: t + MAX and MAX - t
+ * are both non-negative only within [-MAX, MAX]. */
+static inline void setTune(int16_t t)
+{
+    g.tuneOffset10Hz =
+        ((t + TUNE_MAX_10HZ) | (TUNE_MAX_10HZ - t)) < 0 || t == -1 ? 0 : t;
 }
 
 static void setAudioGain(uint16_t base, uint8_t gain)
@@ -755,8 +770,10 @@ static void irqRestore(uint32_t primask)
  * named bits only, IRQs masked. */
 static void portSet(bool open)
 {
-    if (open == g.portOpen)
+#if CW_KEYER_MEM
+    if (open == g.portOpen)    /* CW Mem opens it for CW USB only */
         return;
+#endif
     const uint32_t irq = irqSave();
     /* The bits to write: open = pull-up, input, clock off; close = saved. */
     uint32_t pu = USB_PULLUP, mode = 0u, clock = 0u;
@@ -773,7 +790,9 @@ static void portSet(bool open)
     GPIOA_MODER = (GPIOA_MODER & ~USB_PINS) | mode;
     RCC_APBENR1 = (RCC_APBENR1 & ~USBEN) | clock;
     irqRestore(irq);
+#if CW_KEYER_MEM
     g.portOpen = open;
+#endif
 }
 #endif
 
@@ -1218,6 +1237,8 @@ static void adjustSetting(uint8_t key, int8_t direction)
     g.redraw = true;
 }
 
+static void saveConfig(void);
+
 #if CW_KEYER_USB
 static void handleUiKeyDirection(uint8_t key, int8_t direction)
 #else
@@ -1243,10 +1264,7 @@ static void handleUiKey(uint8_t key)
     if (direction != 0) {
         if (adjustFrequency(direction))
             g.redraw = true;
-        return;
-    }
-
-    switch (key) {
+    } else switch (key) {
 #if IAMBIC_ENGINE
         case APP_KEY_8:
             setIambicMode(g.iambic < IAMBIC_B ? g.iambic + 16u : IAMBIC_AUTO);
@@ -1281,6 +1299,9 @@ static void handleUiKey(uint8_t key)
             g.fArm = key == APP_KEY_F ? !f : f;
             break;
     }
+    /* Staged after each key, written on a change only: kept across a
+     * switch-off. Key 7 also stages the CW Mem hand-off here. */
+    saveConfig();
 }
 
 #if CW_KEYER_USB
@@ -1333,9 +1354,12 @@ static void handleUiInput(uint8_t key)
 #endif
 }
 
-static void loadConfig(void)
+/* Returns the saved UP/DOWN offset (see setTune): none from a config that
+ * starts from the defaults. */
+static int16_t loadConfig(void)
 {
     config_t cfg;
+    int16_t tune = 0;
     A->cfg_load((uint8_t *)&cfg, sizeof(cfg));
     /* Any other magic, including a 0.2 config (0xCA), starts from the
      * defaults. */
@@ -1347,10 +1371,10 @@ static void loadConfig(void)
         g.reverse = cfg.reverse;
         g.calSteps = cfg.calSteps >= CAL_MIN && cfg.calSteps <= CAL_MAX
             ? cfg.calSteps : CAL_DEFAULT;
+        tune = cfg.tune;
     } else {
+        /* Straight mode, not reversed: the overlay starts zeroed. */
         g.wpm = WPM_DEFAULT;
-        g.mode = MODE_STRAIGHT;
-        g.reverse = false;
         g.calSteps = CAL_DEFAULT;
     }
     g.rxPitchHz = cfg.magic == CFG_MAGIC &&
@@ -1367,6 +1391,7 @@ static void loadConfig(void)
     g.iambic = cfg.magic == CFG_MAGIC && cfg.reservedPort <= 2u
         ? (uint8_t)(cfg.reservedPort << 4) : IAMBIC_AUTO;
 #endif
+    return tune;
 }
 
 static void saveConfig(void)
@@ -1376,12 +1401,12 @@ static void saveConfig(void)
         { CFG_MAGIC, g.wpm, g.mode, (uint8_t)g.reverse, g.calSteps,
           g.rxPitchHz, g.breakInMs, (uint8_t)g.speaker,
 #if IAMBIC_ENGINE
-          (uint8_t)(g.iambic >> 4)
+          (uint8_t)(g.iambic >> 4),
 #else
-          0u
+          0u,
 #endif
-        },
-        g.tuneOffset10Hz
+          g.tuneOffset10Hz
+        }
     };
     A->cfg_save((const uint8_t *)&h.cfg, sizeof(h.cfg));
     if (g.toMem)
@@ -1395,29 +1420,26 @@ void app_main(const app_api_t *api)
     g.running = true;   /* the first draw() below repaints everything */
     g.smDbm = SMETER_DBM_START;
     resetUiInput();
-    loadConfig();
     {
         /* Back from CW Mem, the only app handing a message of this size
          * to a keyer: same UP/DOWN offset, and CW USB armed again, since
          * it only hands over once armed (key 7). Any other launch starts
-         * disarmed, whatever the RAM held. */
+         * disarmed: the loader zeroes the overlay (.bss). */
         handoff_t h;
-        uint8_t armState = 0u;
+        int16_t tune = loadConfig();
         if (A->handoff_read(&h, sizeof(h), 0) == (int16_t)sizeof(h)) {
-            g.tuneOffset10Hz = h.tune;
-            armState = 6u;
-        }
+            tune = h.cfg.tune;
 #if CW_KEYER_USB
-        g.armState = armState;
-#else
-        (void)armState;
+            g.armState = 6u;
 #endif
+        }
+        setTune(tune);
     }
 #if CW_KEYER_USB
     portSet(true);
 #endif
     g.ticksPerMs = (uint32_t)A->uidivmod(SYST_LOAD + 1u, 10u);
-    A->backlight_on();
+    /* No backlight_on(): the loader turns the backlight on before app_main. */
     g.xtalBase = A->bk_read(REG_XTAL);
     A->bk_write(REG_XTAL, (uint16_t)(g.xtalBase + g.calSteps));
     configureCwRx(true);
@@ -1515,8 +1537,6 @@ void app_main(const app_api_t *api)
 #if CW_KEYER_USB
     portSet(false);
 #endif
-    saveConfig();   /* also stages the CW Mem hand-off (key 7) */
-    A->set_af(APP_AF_MUTE);
-    A->audio_path(false);
+    A->set_af(APP_AF_MUTE);   /* the loader's RADIO_SetupRegisters turns the amplifier off */
 }
 #endif /* !CW_KEYER_MEM */

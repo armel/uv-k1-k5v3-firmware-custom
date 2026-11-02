@@ -5,7 +5,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"
 APP_NAME="ToneCall"
-APP_VER="0.5"
+APP_VER="0.6"
 APP_API_MIN=2
 APP_VMA=${APP_VMA:-0x20000280}      # pinned overlay VMA (Core/py32f071xb.ld)
 OUT="${APP_NAME// /}"
@@ -36,5 +36,5 @@ BYTES=$(wc -c < "${APP}.bin")
 if [ "$BYTES" -gt 4096 ]; then
   printf '\r  🚨 %-13s OVERFLOWS 4 KiB (%d B)     \n' "$APP_NAME" "$BYTES"; exit 1
 fi
-printf '\r  ✅ %-13s %4d B  (%d%% of 4 KiB)  ->  %s.app   \n' \
+printf '\r  ✅ %-13s %4d B  (%3d%% of 4 KiB)  ->  %s.app   \n' \
        "$APP_NAME" "$BYTES" "$(( BYTES * 100 / 4096 ))" "$OUT"

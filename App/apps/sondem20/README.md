@@ -40,13 +40,13 @@ Keys (UV-K5 and UV-K1):
 
 | Key | Action |
 |---|---|
-| 1 | Speaker on/off, saved on exit |
-| 2 / `F`+2 | Tune +5 / −5 kHz from the VFO, up to ±50 kHz |
+| 1 | Speaker on/off, saved |
+| 2 / `F`+2 | Tune +5 / −5 kHz from the VFO, up to ±50 kHz, saved |
 | 3 / `F`+3 | Cycle front-end attenuator forward / backward (0 / 6 / 15 / 27 dB / BYP / BYP+) |
 | 4 | Back to the VFO frequency |
-| 5 | Decode beep on/off, saved on exit |
+| 5 | Decode beep on/off, saved |
 | MENU | Open GeoNav (bearing, distance from the APRS position) once a position is decoded; its `EXIT` comes back here with the last frame |
-| EXIT | Quit (frequency offset restored) |
+| EXIT | Quit (the VFO is untouched; the offset is saved and applied again at the next launch) |
 
 `F` is a latched modifier: press and release `F`, then press the number key;
 the two keys do not need to be held together.

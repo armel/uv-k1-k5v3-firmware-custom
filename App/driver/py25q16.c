@@ -251,10 +251,16 @@ static void WriteAddr(uint32_t Addr);
 static uint8_t ReadStatusReg(uint32_t Which);
 static void WaitWIP();
 static void WriteEnable();
-static void SectorErase(uint32_t Addr);
-static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
-static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size);
-static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size);
+static void SectorErase(uint32_t Addr, uint8_t Cmd);
+static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size, uint8_t Cmd);
+static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size, uint8_t Cmd);
+static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size, uint8_t Cmd);
+
+// Main-array opcodes. The same functions send the security-register ones
+// (PY25Q16_SEC_*), which take the same address and data phases.
+#define CMD_READ    0x03
+#define CMD_PROGRAM 0x02
+#define CMD_ERASE   0x20      // 4 KiB sector
 
 void PY25Q16_Init()
 {
@@ -262,14 +268,18 @@ void PY25Q16_Init()
     SPI_Init();
 }
 
-static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size)
+static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size, uint8_t Cmd)
 {
     MBMARK("RD cmd");          // about to assert CS + send read command
     CS_Assert();
 
-    SPI_WriteByte(0x03);      // Send read command
+    SPI_WriteByte(Cmd);        // Send read command
     MBMARK("RD addr");         // command sent, about to send address
     WriteAddr(Address);        // Send address (3 bytes)
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    if (Cmd == PY25Q16_SEC_READ)
+        SPI_WriteByte(0xff);   // the security read has a dummy byte
+#endif
 
     MBMARK("RD flush");        // address sent, about to flush RX FIFO
     // CRITICAL: Flush RX FIFO before DMA to remove residual data
@@ -294,7 +304,7 @@ static void ReadBufferRaw(uint32_t Address, void *pBuffer, uint32_t Size)
 
 void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
 {
-    ReadBufferRaw(BankMap(Address), pBuffer, Size);
+    ReadBufferRaw(BankMap(Address), pBuffer, Size, CMD_READ);
 }
 
 #if defined(ENABLE_FEAT_F4HWN_EXT_FLASH_RW) || defined(ENABLE_FEAT_F4HWN_MULTIBOOT)
@@ -302,7 +312,7 @@ void PY25Q16_ReadBuffer(uint32_t Address, void *pBuffer, uint32_t Size)
 void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size)
 {
     WaitWIP();
-    ReadBufferRaw(Address, pBuffer, Size);
+    ReadBufferRaw(Address, pBuffer, Size, CMD_READ);
 }
 #endif
 
@@ -312,14 +322,14 @@ void PY25Q16_ReadBufferPhysical(uint32_t Address, void *pBuffer, uint32_t Size)
 // never trust stale data afterwards.
 void PY25Q16_SectorErasePhysical(uint32_t Address)
 {
-    SectorErase(Address);                 // caller supplies a 4 KiB-aligned address
+    SectorErase(Address, CMD_ERASE);      // caller supplies a 4 KiB-aligned address
     PY25Q16_InvalidateCache();
 }
 
 void PY25Q16_WriteBufferPhysical(uint32_t Address, const void *pBuffer, uint32_t Size)
 {
     // Program across page boundaries; the caller must have erased the sector(s).
-    SectorProgram(Address, (const uint8_t *)pBuffer, Size);
+    SectorProgram(Address, (const uint8_t *)pBuffer, Size, CMD_PROGRAM);
     PY25Q16_InvalidateCache();
 }
 #endif
@@ -367,7 +377,7 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
         {
             /* SecAddr is already in mapped space (Address was mapped above), so
              * read raw to avoid mapping a second time. */
-            ReadBufferRaw(SecAddr, SectorCache, SECTOR_SIZE);
+            ReadBufferRaw(SecAddr, SectorCache, SECTOR_SIZE, CMD_READ);
             SectorCacheAddr = SecAddr;
         }
 
@@ -391,24 +401,24 @@ void PY25Q16_WriteBuffer(uint32_t Address, const void *pBuffer, uint32_t Size, b
 
             if (Erase)
             {
-                SectorErase(SecAddr);
+                SectorErase(SecAddr, CMD_ERASE);
 
                 // CRITICAL FIX #2: Erase takes ~300ms, must complete before program starts
                 WaitWIP();
 
                 if (Append)
                 {
-                    SectorProgram(SecAddr, SectorCache, SecOffset + SecSize);
+                    SectorProgram(SecAddr, SectorCache, SecOffset + SecSize, CMD_PROGRAM);
                     memset(SectorCache + SecOffset + SecSize, 0xff, SECTOR_SIZE - SecOffset - SecSize);
                 }
                 else
                 {
-                    SectorProgram(SecAddr, SectorCache, SECTOR_SIZE);
+                    SectorProgram(SecAddr, SectorCache, SECTOR_SIZE, CMD_PROGRAM);
                 }
             }
             else
             {
-                SectorProgram(Address, pBuffer, SecSize);
+                SectorProgram(Address, pBuffer, SecSize, CMD_PROGRAM);
             }
         }
 
@@ -429,7 +439,7 @@ void PY25Q16_SectorErase(uint32_t Address)
 {
     Address = BankMap(Address);
     Address -= (Address % SECTOR_SIZE);
-    SectorErase(Address);
+    SectorErase(Address, CMD_ERASE);
     if (SectorCacheAddr == Address)
     {
         memset(SectorCache, 0xff, SECTOR_SIZE);
@@ -460,11 +470,33 @@ void PY25Q16_OverlayWriteSector(uint32_t Address)
 {
     Address = BankMap(Address);
     WaitWIP();
-    SectorErase(Address);
+    SectorErase(Address, CMD_ERASE);
     WaitWIP();
-    SectorProgram(Address, SectorCache, SECTOR_SIZE);
+    SectorProgram(Address, SectorCache, SECTOR_SIZE, CMD_PROGRAM);
     WaitWIP();
     PY25Q16_InvalidateCache();
+}
+
+/* Security registers: the main-array erase, page program (split at 256-byte
+ * pages, inside which a program wraps) and read, with their opcodes. They work
+ * in place, without the sector cache, so they are safe while an overlay app
+ * runs from it. The OTP lock bits, which a Write Status Register would set,
+ * are never written. */
+void PY25Q16_Security(uint8_t Cmd, uint32_t Address, void *pBuffer, uint32_t Size)
+{
+    WaitWIP();
+    if (Cmd == PY25Q16_SEC_ERASE)
+        SectorErase(Address, Cmd);
+    else if (Cmd == PY25Q16_SEC_PROGRAM)
+        SectorProgram(Address, (const uint8_t *)pBuffer, Size, Cmd);
+    else
+        ReadBufferRaw(Address, pBuffer, Size, Cmd);
+}
+
+bool PY25Q16_SecurityLocked(uint8_t Register)
+{
+    // The status register reads fine even while a program or erase runs.
+    return (ReadStatusReg(1) >> (Register + 2u)) & 1u;   // LB1..LB3 = S11..S13
 }
 #endif
 
@@ -522,7 +554,7 @@ static void WriteEnable()
     CS_Release();
 }
 
-static void SectorErase(uint32_t Addr)
+static void SectorErase(uint32_t Addr, uint8_t Cmd)
 {
 #ifdef DEBUG
     printf("spi flash sector erase: %06x\n", Addr);
@@ -531,14 +563,14 @@ static void SectorErase(uint32_t Addr)
     WaitWIP();
 
     CS_Assert();
-    SPI_WriteByte(0x20);
+    SPI_WriteByte(Cmd);
     WriteAddr(Addr);
     CS_Release();
 
     WaitWIP();
 }
 
-static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size)
+static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size, uint8_t Cmd)
 {
     uint32_t Size1 = PAGE_SIZE - (Addr % PAGE_SIZE);
 
@@ -549,7 +581,7 @@ static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size)
             Size1 = Size;
         }
 
-        PageProgram(Addr, Buf, Size1);
+        PageProgram(Addr, Buf, Size1, Cmd);
 
         Addr += Size1;
         Buf += Size1;
@@ -559,7 +591,7 @@ static void SectorProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size)
     }
 }
 
-static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size)
+static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size, uint8_t Cmd)
 {
 #ifdef DEBUG
     printf("spi flash page program: %06x %ld\n", Addr, Size);
@@ -570,7 +602,7 @@ static void PageProgram(uint32_t Addr, const uint8_t *Buf, uint32_t Size)
 
     CS_Assert();
 
-    SPI_WriteByte(0x2);
+    SPI_WriteByte(Cmd);
     WriteAddr(Addr);
 
     if (Size >= 16)

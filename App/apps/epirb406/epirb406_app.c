@@ -88,9 +88,11 @@ typedef struct {
 
 typedef struct {
     uint8_t spk, view;                  /* persistent byte order */
+    uint8_t offInv;                     /* ~offSteps: erased flash (0xFF), as left by
+                                           a config saved before the offset, is 0 */
 } app_cfg_t;
-_Static_assert(sizeof(app_cfg_t)==2u && offsetof(app_cfg_t,view)==1u,
-               "EPIRB config layout changed");
+_Static_assert(sizeof(app_cfg_t)==3u && offsetof(app_cfg_t,view)==1u &&
+               offsetof(app_cfg_t,offInv)==2u, "EPIRB config layout changed");
 
 /* The app state in one struct: a function loads one base address instead of one
  * literal-pool word per global. Frequently used fields stay close to that base
@@ -102,9 +104,10 @@ static struct {
     uint32_t vfoFreq;                  /* VFO RX frequency at launch, 10 Hz units  */
     int32_t  floorQ;                   /* noise floor, dBm x64                     */
     uint32_t coolUntil;                /* wall-clock deadline for RSSI rearming    */
-    uint8_t  count, cur, prevKey, lastErr;
+    int32_t  offSteps;                 /* tuning offset from the VFO, 5 kHz steps:
+                                          a word, signed bytes have no ldrsb #imm */
+    uint8_t  count, cur, prevKey, lastErr; /* bytes up to offset 31: ldrb #imm */
     app_cfg_t cfg;
-    int8_t   offSteps;                 /* tuning offset from the VFO, 5 kHz steps  */
     bool     running;
     int16_t  rssi;                     /* current RSSI                             */
     uint16_t vrow, top, lim, nSync, nFail; /* UI and counters */
@@ -149,7 +152,8 @@ static void tune(void){
      * the AF DAC output, a loud click if amplified. The two frequency writes
      * give it a head start; rxAudio() turns it back on if the speaker is on. */
     g.A->audio_path(false);
-    uint32_t f=(uint32_t)((int32_t)g.vfoFreq+(int32_t)g.offSteps*STEP_10HZ);
+    g.cfg.offInv=(uint8_t)~g.offSteps;   /* saved with the config at the next key */
+    uint32_t f=g.vfoFreq+(uint32_t)(g.offSteps*STEP_10HZ);
     g.A->bk_write(REG_38,(uint16_t)(f&0xFFFFu));
     g.A->bk_write(REG_39,(uint16_t)(f>>16));
     g.A->tones_off_rx();         /* REG_30 to 0 then RX: VCO recalibration, relock */
@@ -318,8 +322,8 @@ static void draw(void){
     for(unsigned x=0;x<128u;x+=2u) g.A->fb[5][x]|=0x01u;
 
     o=put(str,s+T_RX);
-    o=putFreq(o,g.vfoFreq+(uint32_t)((int32_t)g.offSteps*STEP_10HZ));
-    if(g.offSteps){ *o++=' '; if(g.offSteps>0) *o++='+'; o=puti(o,(int32_t)g.offSteps*5); o=put(o,s+T_KHZ); }
+    o=putFreq(o,g.vfoFreq+(uint32_t)(g.offSteps*STEP_10HZ));
+    if(g.offSteps){ *o++=' '; if(g.offSteps>0) *o++='+'; o=puti(o,g.offSteps*5); o=put(o,s+T_KHZ); }
     tiny(str,0,43,o);
 
     o=puti(str,g.rssi); o=put(o,s+T_SEP); o=puti(o,g.floorQ/64); o=put(o,s+T_DBM);
@@ -408,19 +412,22 @@ static void handleKey(uint8_t key){
         case APP_KEY_EXIT: g.running=false; break;
         case APP_KEY_1:    g.cfg.spk^=1u; rxAudio(); break;
         case APP_KEY_STAR: g.cfg.view^=VIEW_COMPACT; g.top=0; break;
-        case APP_KEY_5:    g.offSteps=0; tune(); break;
         case APP_KEY_7:
         case APP_KEY_8:
         case APP_KEY_9:    handoff(b,key); break;
         case APP_KEY_MENU: page(b,T_HELP,HELP_SIZE,HELP_LINES); nextKey(); break;
         case APP_KEY_0:    g.count=g.cur=0; g.top=g.lim=0; g.nSync=g.nFail=0; g.lastErr=0; break;
+        case APP_KEY_5:    g.offSteps=0;
+            /* fall through */
         case APP_KEY_4:
         case APP_KEY_6: {
-            int8_t n=(int8_t)(g.offSteps+(key==APP_KEY_4?-1:1));
-            if(n>=-OFF_MAX && n<=OFF_MAX){ g.offSteps=n; tune(); }
+            /* 4: one step down, 6: one step up, 5: back on the VFO */
+            const int32_t n=g.offSteps+(int32_t)key-APP_KEY_5;
+            if((uint32_t)(n+OFF_MAX)<=2u*OFF_MAX){ g.offSteps=n; tune(); }
             break; }
         default: break;
     }
+    g.A->cfg_save(&g.cfg.spk,sizeof g.cfg);   /* each key: kept across a switch-off */
 }
 
 __attribute__((section(".text.entry"),used))
@@ -440,7 +447,9 @@ void app_main(const app_api_t *api){
     g.A->cfg_load(&g.cfg.spk,sizeof g.cfg);
     g.cfg.spk=(uint8_t)(g.cfg.spk==1u);         /* erased flash or junk: speaker off */
     if(g.cfg.view!=VIEW_COMPACT) g.cfg.view=0;  /* normal view by default */
-    rxAudio();                                  /* PA4 is before the speaker amplifier */
+    g.offSteps=(int8_t)~g.cfg.offInv;           /* the saved offset, in range */
+    if((uint32_t)(g.offSteps+OFF_MAX)>2u*OFF_MAX) g.offSteps=0;
+    tune();                                     /* PA4 is before the speaker amplifier */
     g.A->delay_ms(50);
 
     int32_t f=0;
@@ -480,5 +489,4 @@ void app_main(const app_api_t *api){
 
     g.A->af_capture_close();
     g.A->set_af(APP_AF_MUTE);    /* the loader's RADIO_SetupRegisters turns the amplifier off */
-    g.A->cfg_save(&g.cfg.spk,sizeof g.cfg);
 }

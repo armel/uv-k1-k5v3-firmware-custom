@@ -126,7 +126,7 @@ refused during active audio/keying. RX TRAIN KEY/SWAP/CLEAR are hidden and
 inert even while receiving; WPM, tone, length, GAP, NEW, REPLAY and reveal remain.
 
 Set **TX** speed/tone in TX FREE before entering RX>TX; set **RX** speed/tone
-in either RX mode. GAP is shared by both RX modes and retained on exit. A minus
+in either RX mode. GAP is shared by both RX modes and retained. A minus
 sign after WPM indicates the F prefix. Defaults: 18 WPM, TX 700 Hz, RX 600 Hz,
 length 5, GAP 1×. Configuration uses 12 of the app's 16-byte settings area; older 10-byte settings
 retain their RX/TX values, with erased GAP migrated to 1×.

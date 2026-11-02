@@ -57,10 +57,10 @@ Keys (UV-K5 and UV-K1):
 |---|---|
 | UP / DOWN (held) | Scroll the selected message one pixel per 50 ms slot, according to `SET_NAV` (UV-K1: LEFT/RIGHT) |
 | UP / DOWN (pressed again at an end) | Select the newer / older message, from its first detail row |
-| * | Normal / compact view, saved on exit; returns to the first detail row. Normal view is the default |
-| 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz |
+| * | Normal / compact view, saved; returns to the first detail row. Normal view is the default |
+| 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz, saved |
 | 5 | Back to the VFO frequency |
-| 1 | Speaker on/off, saved on exit; off by default |
+| 1 | Speaker on/off, saved; off by default |
 | 0 | Clear all five messages and the counters |
 | 7 | Position as a QR code: after MENU confirms, QR Map shows the selected message's position, exactly as decoded; EXIT there brings you back (see [Position as a QR code](#position-as-a-qr-code)) |
 | 8 | Homing on 121.5 MHz: after MENU confirms, VFO on 121.500 MHz AM narrow and Sig Finder; EXIT there brings you back (see [Homing with Sig Finder](#homing-with-sig-finder)) |

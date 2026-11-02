@@ -48,10 +48,12 @@ RECORDS = [struct.pack(f"<HHBB{LABEL_LEN + 1}s", step, bw, shift, close, label.e
 # chip covers 18..630 and 840..1300 MHz (App/frequencies.c, RX_freq_check).
 REGIONS = [(1800000, 27999999), (28000000, 62999999), (84000000, 130000000)]
 
-# Saved settings, in the order of the app's struct globals: magic, span,
-# speed, yaw (signed), pitch. The defaults: ±200 kHz, a line per sweep, front
-# view tilted 25 degrees. 0x3E configs stored yaw + 9: the new magic resets them.
-CFG_MAGIC = 0x3F
+# Saved settings, in the order of the app's struct globals: the centre's shift
+# from the VFO (int32, 10 Hz units, little endian), magic, span, speed, yaw
+# (signed), pitch. The defaults: on the VFO, ±200 kHz, a line per sweep, front
+# view tilted 25 degrees. 0x3E configs stored yaw + 9 and 0x3F ones had no
+# shift: the new magic resets them.
+CFG_MAGIC = 0x40
 SPAN_DEF = [s[0] for s in SPANS].index(PM + "200K")
 PITCH_DEF = 5          # 25 degrees
 SPEED_COUNT = 3        # 1 << speed sweeps per landscape line: 1, 2, 4 (peak-held)
@@ -65,7 +67,7 @@ a.const("SPAN_LABEL_LEN", LABEL_LEN)
 a.const("SPAN_COUNT", len(SPANS))
 a.u32("REGION", [edge for region in REGIONS for edge in region])
 a.const("REGION_COUNT", len(REGIONS))
-a.u8("CFG_DEFAULT", [CFG_MAGIC, SPAN_DEF, 0, 0, PITCH_DEF])
+a.u8("CFG_DEFAULT", [0, 0, 0, 0, CFG_MAGIC, SPAN_DEF, 0, 0, PITCH_DEF])
 a.const("CFG_MAGIC", CFG_MAGIC)
 a.const("PITCH_DEF", PITCH_DEF)
 a.const("SPEED_COUNT", SPEED_COUNT)

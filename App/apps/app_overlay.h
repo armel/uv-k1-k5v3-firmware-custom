@@ -169,6 +169,12 @@ uint8_t APP_ValidateSlot(uint8_t slot, app_header_t *out_header);
  * internal flash is never touched while an overlay is executing. */
 uint8_t APP_LaunchOverlay(uint8_t slot);
 
+/* Once at power-on: read the resume journal (security register 1) and, when
+ * the radio was switched off inside an app, commit the config that app last
+ * staged and return its slot, for the boot to launch it again; else 0xFF.
+ * Until it has run, launches are not logged. */
+uint8_t APP_ResumeOverlay(void);
+
 /* Set when an app staged a VFO or memory selection: the Apps menu then hands
  * back to the main screen and clears it. */
 extern bool gAppVfoExit;

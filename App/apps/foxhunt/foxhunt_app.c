@@ -361,6 +361,7 @@ void app_main(const app_api_t *api){
     g.running=true;
     while(g.running){
         handleKeys();
+        saveConfig();   /* each tick, a change only: kept across a switch-off */
         if(!g.running) break;
 
         g.curDbm=A->rssi_dbm();
@@ -383,6 +384,5 @@ void app_main(const app_api_t *api){
         tickDelay();
     }
 
-    saveConfig();
     A->audio_path(false);
 }

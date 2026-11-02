@@ -483,6 +483,9 @@ static void handleKeys(void){
         default: break;
     } }
     g.fArm=false;
+    /* After a key, not at each tick: the automatic attenuation steps often.
+     * Kept across a switch-off; EXIT saves its last step too. */
+    saveConfig();
 }
 
 /* The tick's pause: two sweep windows sampled from PA4 (50 ms), the backlight

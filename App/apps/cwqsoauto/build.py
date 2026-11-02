@@ -29,6 +29,6 @@ if size <= 4096:
  step(4,"pack")
  run([sys.executable,"../pack_app.py","cwqsoauto.bin","CWQSOAuto.app","--name","CW QSO Auto","--ver","0.4","--api-min","3","--vma",vma,"--shortcut","none","--assets","cwqsoauto_assets.bin"],quiet_output=quiet)
  if quiet:
-  print(f"\r  ✅ {'CW QSO Auto':<13} {size:4d} B  ({size * 100 // 4096}% of 4 KiB)  ->  CWQSOAuto.app")
+  print(f"\r  ✅ {'CW QSO Auto':<13} {size:4d} B  ({size * 100 // 4096:3d}% of 4 KiB)  ->  CWQSOAuto.app")
 else:
  raise SystemExit("Overlay exceeds 4096 bytes; no APP produced")

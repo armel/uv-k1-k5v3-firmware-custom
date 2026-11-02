@@ -95,7 +95,8 @@ The Foxhunt speaker icon shows that receive audio is enabled; the `F` icon
 temporarily replaces it while reverse adjustment is armed.
 
 The speed, mode, paddle assignment, calibration, receive pitch, break-in delay
-and speaker state are saved when the app exits. A configuration saved
+and speaker state are saved within 2 s of each key, even if the radio is then
+switched off in the app. A configuration saved
 by 0.4 or later is kept on upgrade; one from 0.2 (crystal correction in
 hundredths of a ppm) is no longer converted and starts from the defaults.
 The crystal correction is
@@ -106,8 +107,9 @@ high at 433.225 MHz; a positive step lowers the carrier (checked on an SDR,
 0 vs +14 steps at 433.650 MHz). The
 PTT always remains a straight key, so it is usable in the paddle mode.
 The frequency offset selected with `UP` / `DOWN` is local to the overlay. It is
-applied equally to CW RX, TX and the displayed frequency, and resets to zero
-when the app exits; the resident VFO is never modified.
+applied equally to CW RX, TX and the displayed frequency, and saved with the
+other settings, so the next launch starts on it; the resident VFO is never
+modified.
 Interface keys are accepted only after a stable 20 ms reading, so
 keypad-matrix transients cannot change a setting. This includes `EXIT` while
 the paddle keyer runs: a bouncing SIDE contact can make the keypad scan report

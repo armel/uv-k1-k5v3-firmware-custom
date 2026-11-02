@@ -210,7 +210,7 @@ static void handleKey(uint8_t key)
         case APP_KEY_0:
             /* CW Mem Edit hands back here; the keyer is remembered in the
              * configuration. Without the editor, say so and stay. */
-            m.h.tune = g.tuneOffset10Hz;
+            m.h.cfg.tune = g.tuneOffset10Hz;
             if (A->handoff(CW_MEM_EDIT_APP_NAME, &m.h, sizeof(m.h))) {
                 m.toEdit = true;
                 g.running = false;
@@ -357,7 +357,7 @@ void app_main(const app_api_t *api)
     g.rxPitchHz = m.h.cfg.rxPitchHz;
     g.breakInMs = m.h.cfg.breakInMs;
     g.speaker = m.h.cfg.speaker;
-    g.tuneOffset10Hz = m.h.tune;
+    setTune(m.h.cfg.tune);
     loadCall();
 
     g.running = true;
@@ -389,6 +389,8 @@ void app_main(const app_api_t *api)
             m.handled = true;
             A->backlight_on();
             handleKey(key);
+            /* The serial number, staged at once: kept across a switch-off. */
+            A->cfg_save((const uint8_t *)&m.c, sizeof(m.c));
         }
 
         if (g.redraw && !g.keyDown) {
@@ -404,8 +406,7 @@ void app_main(const app_api_t *api)
     disarm();
     A->bk_write(REG_XTAL, g.xtalBase);
     portSet(false);
-    A->cfg_save((const uint8_t *)&m.c, sizeof(m.c));
-    m.h.tune = g.tuneOffset10Hz;
+    m.h.cfg.tune = g.tuneOffset10Hz;
     if (!m.toEdit)
         A->handoff(m.from, &m.h, sizeof(m.h));
     A->set_af(APP_AF_MUTE);

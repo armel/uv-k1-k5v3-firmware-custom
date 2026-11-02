@@ -67,7 +67,7 @@ range, with vertical speed within 0.1 m/s on its test grid.
 | Key | Action |
 |---|---|
 | `1` | Toggle the speaker |
-| `2` | Tune +5 kHz; `F` then `2` tunes -5 kHz, up to +/-50 kHz |
+| `2` | Tune +5 kHz; `F` then `2` tunes -5 kHz, up to +/-50 kHz, saved |
 | `3` | Cycle 0/6/15/27 dB and the two bypass gains; `F` then `3` cycles backwards |
 | `4` | Reset the frequency offset |
 | `5` | Toggle the valid-frame beep |
@@ -75,9 +75,9 @@ range, with vertical speed within 0.1 m/s on its test grid.
 | `MENU` | Open GeoNav once a position is decoded; `EXIT` in GeoNav returns here |
 | `EXIT` | Quit |
 
-The footer recalls the tuned frequency, any temporary offset, RSSI, frame
-count, and front-end attenuation. Speaker, beep, and attenuation settings are
-saved per application; the default attenuation is 27 dB. The ECEF conversion,
+The footer recalls the tuned frequency, any offset, RSSI, frame count, and
+front-end attenuation. Speaker, beep, attenuation and offset are saved per
+application; the default attenuation is 27 dB. The ECEF conversion,
 radio setup, DPLL decoder, UI, and controls all remain self-contained in the
 4 KiB overlay.
 

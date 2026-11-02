@@ -140,6 +140,18 @@ unchanged. Even if slot `01` is empty, `1` then `2` can still select `12`.
 A successful pair completes the number; a non-digit key or a one-second pause
 starts a new number. `*` toggles app size / version, and `EXIT` closes the menu.
 
+If the radio is switched off while an app is running, it starts again in that
+app at the next power-on, with the settings the app had saved, as if launched
+from the Apps menu: `EXIT` then comes back to the menu. A setting reaches the
+flash at most 2 seconds after its key, so one changed just before switching
+off can be lost. Each run of an app has room for at least 25 of these saves
+(4 in APRS Edit and CW Mem Edit, which write the large settings of another
+app); past that, the run's later changes are kept only when
+leaving with `EXIT`, and switching off resumes on the last one saved. To start on the
+main screen instead, hold `EXIT` while switching the radio on. A newly flashed
+firmware always starts on the main screen, so that UV Studio can write its
+assets.
+
 Fusion can store up to 64 applications from the current collection of 44 in
 external Flash. Each app is loaded into a dedicated 4 KiB RAM overlay only
 while it is running, while larger read-only assets such as text, fonts, bitmaps

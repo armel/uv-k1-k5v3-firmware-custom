@@ -584,6 +584,7 @@ void app_main(const app_api_t *api){
         for (unsigned b = BLOCKS_9K6 << g.fsi; b; b--) { capture(); if (!g.held) analyze(); }
         if (!g.held) frame();
         keys();
+        api->cfg_save(g.set, CFG_LEN);           /* each pass, a change only: kept across a switch-off */
         /* the speaker follows key 2 and the squelch, which also gates the
          * next sonogram row; in RAW the squelch bit stays closed on a strong
          * signal (APRS heard on PA4, the speaker silent): taken as open, as
@@ -601,5 +602,4 @@ void app_main(const app_api_t *api){
     api->af_capture_close();
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
-    api->cfg_save(g.set, CFG_LEN);
 }

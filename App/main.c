@@ -58,6 +58,10 @@
 #ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
     #include "fw_assets.h"
 #endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_menu.h"
+    #include "apps/app_overlay.h"
+#endif
 #ifdef ENABLE_UART
     #include "driver/uart.h"
 #endif
@@ -154,6 +158,15 @@ void Main(void)
     BATTERY_GetReadings(false);
 
     BOOT_Mode_t  BootMode = BOOT_GetMode();
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    /* Settle a run cut by switching the radio off inside an app now, before a
+     * boot mode or the multiboot selector: its config is committed, and the
+     * app starts again at the end of the boot, unless a key or PTT is held
+     * (EXIT, or a boot mode). */
+    const bool    AppKeyHeld    = KEYBOARD_Poll() != KEY_INVALID || GPIO_IsPttPressed();
+    const uint8_t AppResumeSlot = APP_ResumeOverlay();
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     /* Run before the welcome screen and the normal application UI. EXIT from
@@ -347,7 +360,25 @@ void Main(void)
                 break;
         }
     #endif
-        
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    // Back into the overlay app the radio was switched off in. Not on a new
+    // firmware whose assets are not written yet: UV Studio, which writes them
+    // right after the flash, waits for the main loop to answer it, and the
+    // app would draw blank text.
+    if (AppResumeSlot < APP_SLOT_COUNT && !AppKeyHeld && !gReducedService
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+        && FW_ASSETS_IsValid()
+#endif
+       )
+    {
+        // From the Apps menu, as if launched there: its EXIT comes back to it
+        APP_MenuOpen(AppResumeSlot);
+        gUpdateStatus  = true;
+        gUpdateDisplay = true;
+    }
+#endif
+
     while (true) {
         APP_Update();
 

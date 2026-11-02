@@ -602,7 +602,8 @@ static void handleKeys(void){
     else if(key==APP_KEY_3) g.dbg^=1u;   /* bottom line: the page's level and age / the counters */
     else if(key==APP_KEY_4) g.tones^=1u;   /* keep the pages without text (saved) */
     else if(key==APP_KEY_1) g.spk^=1u;   /* speaker: listen() switches it at the next slot */
-    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view (saved on exit) */
+    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view */
+    g.A->cfg_save(&g.cw,3);      /* staged after each key: kept across a switch-off */
 }
 
 /* ---- keys and screen, between batches ---- */
@@ -769,5 +770,4 @@ void app_main(const app_api_t *api){
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
     api->led(false);             /* not left on in the middle of a blink */
-    api->cfg_save(&g.cw,3);      /* staged: flash is written only after a change */
 }

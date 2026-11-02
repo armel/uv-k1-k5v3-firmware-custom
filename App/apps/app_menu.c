@@ -255,7 +255,7 @@ static uint8_t app_find_slot(const uint8_t slots[APP_MENU_SLOT_COUNT],
     return count;
 }
 
-void APP_MenuOpen(void)
+void APP_MenuOpen(uint8_t run_slot)
 {
     APP_ModalScreenSaverExit();
     BACKLIGHT_TurnOn();
@@ -278,7 +278,10 @@ void APP_MenuOpen(void)
 
     /* Remember the physical slot across menu openings, even when gaps exist. */
     static uint8_t selected_slot = 0u;
+    if (run_slot < APP_SLOT_COUNT)
+        selected_slot = run_slot;
     uint8_t sel = app_find_slot(installed_slots, installed_count, selected_slot);
+    bool run = sel < installed_count && selected_slot == run_slot;
     if (sel >= installed_count)
         sel = 0u;
     uint8_t top = sel >= APP_MENU_ROWS ? (uint8_t)(sel - APP_MENU_ROWS + 1u) : 0u;
@@ -319,6 +322,13 @@ void APP_MenuOpen(void)
             }
             slot_revision = current_revision;
         }
+
+        uint32_t key_tick = 0u;
+        KEY_Code_t key = KEY_MENU;
+        /* Power-on resume: straight into the app, as MENU would; the menu is
+         * only drawn once the app has returned. */
+        if (run)
+            goto run_app;
 
         UI_DisplayClear();
         app_status_bar();   /* also wipes the VFO status line (DW, battery, ...) */
@@ -381,8 +391,9 @@ void APP_MenuOpen(void)
         K5VIEWER_Update(false);
 #endif
 
-        uint32_t key_tick = 0u;
-        const KEY_Code_t key = app_get_key(&key_tick);
+        key = app_get_key(&key_tick);
+run_app:
+        run = false;
         if (key > KEY_9)
             digit = KEY_INVALID;
         if (key == KEY_EXIT)

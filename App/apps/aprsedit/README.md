@@ -32,7 +32,8 @@ in the font used to edit it.
 `MENU` locks the selected entry in the left pane and edits its draft directly
 in the right pane. `MENU` then validates that field and returns to navigation;
 `EXIT` discards that field's draft. The comment and preset selector use the
-same right pane. A changed profile is saved when the app exits. APRS TX 1.7
+same right pane. Each confirmed field is saved within 2 s, even if the radio is
+switched off in the app afterwards. APRS TX 1.7
 opens APRS Edit 1.2 with a one-byte hand-off request; after the save, the loader
 commits the proxy update and relaunches TX, which rebuilds its frame from the
 updated profile.

@@ -102,7 +102,9 @@ Identical on the UV-K5 and the UV-K1.
 
 While the keypad is locked, only UP / DOWN and MENU work; hold F to unlock
 before quitting. Mode, audio mode, attenuator step, automatic attenuator,
-decay rate and backlight setting are saved when you quit.
+decay rate and backlight setting are saved within 2 s of each key, even if the
+radio is then switched off in the app; the step the automatic attenuator reached is saved
+when you quit.
 
 The backlight hold (key 6) re-arms the backlight once a second, which also
 keeps the radio's sleep timer from running out during a long search. It has no

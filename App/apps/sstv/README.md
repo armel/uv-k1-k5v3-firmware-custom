@@ -50,7 +50,7 @@ fails there (919 wrong pixels), v0.2 matches the model.
 | F | Arm the next key's backward direction (1), as APRS TX; F icon in the status bar (x = 70) while armed; F again disarms |
 | 2 | Rendering: **1-bit** (threshold, sharp for the logo; default) / **dither** (4x4 Bayer, for photos), from the next row on; right capsule; saved |
 | 3 | Speaker on / off (off by default: the decoder does not need it); saved |
-| EXIT | Leaves a picture being received, then the picture view, then the app. On quitting, the last picture (even a partial one) is saved and is back under key 4 at the next launch, with its mode on the status line |
+| EXIT | Leaves a picture being received, then the picture view, then the app. On quitting, the last picture (even a partial one) is saved and is back under key 4 at the next launch, with its mode on the status line. The settings are saved within 2 s of each key, even if the radio is then switched off in the app; the picture only on quitting |
 | 4 | Picture / info screen, once a picture came (before: `No picture yet`) |
 | EXIT | From the info screen: quit. During a TX or while a picture is being received: abort it and return to the info screen. From the picture view: return to the info screen |
 

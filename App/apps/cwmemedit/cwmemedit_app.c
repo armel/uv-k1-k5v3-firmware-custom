@@ -47,7 +47,7 @@ static struct {
     uint8_t pendingKey, pendingPos, cycle, heldKey;
     uint16_t pendingTicks, heldTicks;
     int16_t handoffLen;
-    bool pending, longFired, dirty, changed, running, missing;
+    bool pending, longFired, dirty, running, missing;
 } g;
 
 #define A (g.api)
@@ -175,8 +175,6 @@ static void indexKey(uint8_t key)
     } else if (key == APP_KEY_MENU && !g.missing) {
         openEditor();
     } else if (key == APP_KEY_EXIT) {
-        if (g.changed)
-            A->cfg_save(g.block, MEMU_LEN);
         g.running = false;
     }
 }
@@ -195,8 +193,10 @@ static void editKey(uint8_t key)
         eraseBeforeCursor();
     } else if (key == APP_KEY_MENU) {
         commitPending();
-        g.changed = true;
         g.screen = SCREEN_INDEX;
+        /* Each message confirmed is staged: kept across a switch-off, and
+         * an EXIT after none saves nothing. */
+        A->cfg_save(g.block, MEMU_LEN);
     } else if (key == APP_KEY_EXIT) {
         copy(g.block, g.backup, MEMU_LEN);
         g.screen = SCREEN_INDEX;

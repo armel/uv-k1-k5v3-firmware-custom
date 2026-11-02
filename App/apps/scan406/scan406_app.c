@@ -403,6 +403,7 @@ void app_main(const app_api_t *api){
             if (key == APP_KEY_STAR) g.mode ^= MODE_WATCH;
             if (key == APP_KEY_0) { g.mode ^= MODE_TEST; band(); }
             if (key == APP_KEY_MENU) { help(); frame = DRAW_SWEEPS; }   /* redraw now */
+            api->cfg_save(&g.mode, 1);   /* each key: kept across a switch-off */
         }
         if (g.running && ++frame >= DRAW_SWEEPS) {
             frame = 0;
@@ -413,5 +414,4 @@ void app_main(const app_api_t *api){
     }
 
     api->af_capture_close();
-    api->cfg_save(&g.mode, 1);
 }

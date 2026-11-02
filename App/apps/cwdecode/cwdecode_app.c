@@ -824,6 +824,7 @@ void app_main(const app_api_t *api)
         if (now - g.lastKey >= KEY_MS) {
             g.lastKey = now;
             handleKey(a->get_key());
+            saveConfig();   /* a change only: kept across a switch-off */
         }
         if (!g.running)
             break;
@@ -849,7 +850,6 @@ void app_main(const app_api_t *api)
         a->delay_ms(SAMPLE_MS);
     }
 
-    saveConfig();
     a->bk_write(REG_XTAL, g.xtalBase);
     /* The loader's retune may keep its cached AGC setting, so restore the
      * receiver's normal automatic gain explicitly before returning. */

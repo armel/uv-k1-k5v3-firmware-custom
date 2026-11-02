@@ -194,6 +194,7 @@ void app_main(const app_api_t *api){
             }
             else if (key >= APP_KEY_1 && key <= N_FMT) g.fmt = (uint8_t)(key - APP_KEY_1);
             if (key != APP_KEY_INVALID && key != APP_KEY_SAVER) draw();
+            api->cfg_save(&g.fmt, 1);   /* each key: kept across a switch-off */
         }
         /* held lit while the code is shown, for the phone camera */
         if (tick >= SLOW_TICKS) {
@@ -206,6 +207,5 @@ void app_main(const app_api_t *api){
         api->delay_ms(TICK_MS);
     }
 
-    api->cfg_save(&g.fmt, 1);
     if (g.from[0]) api->handoff(g.from, NULL, 0);
 }

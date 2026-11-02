@@ -174,10 +174,26 @@ enum {
 /* CRITICAL PERSISTENCE RULE
  *
  * The app executes from the RAM buffer also used as PY25Q16's sector cache.
- * Therefore no API callback may erase or write external flash while app_main()
- * is running: a read-modify-write would overwrite the executing app.  Services
- * such as cfg_save, fm_commit and beam_save must only stage resident RAM state;
- * APP_LaunchOverlay commits it after app_main() returns. */
+ * Therefore no API callback may erase or write the main array of the external
+ * flash while app_main() is running: a read-modify-write would overwrite the
+ * executing app.  Services such as cfg_save, fm_commit and beam_save must only
+ * stage resident RAM state; APP_LaunchOverlay commits it after app_main()
+ * returns.
+ *
+ * RESUME: the radio has no soft power-off, so it may be switched off while an
+ * app runs. The loader logs the running app and each config cfg_save stages
+ * in a PY25Q16 security register, which is written without the sector cache;
+ * at the next power-on the app's last config is committed and the app is
+ * started again (any key held at power-on skips the restart). Only what
+ * cfg_save staged survives: call it whenever a setting changes, not only on
+ * EXIT. Identical bytes cost nothing, and changes are logged at most every
+ * 2 s (the last one is held until the app next polls get_key), so a change
+ * made less than 2 s before the switch-off can be lost. The register is never
+ * erased under a running app: a launch leaves at least 512 bytes for the run,
+ * 25 logs of a 16-byte config, 4 of the largest proxy config (117 bytes).
+ * Past that, the run's later changes are kept on EXIT only, and a switch-off
+ * resumes on the last one logged. An app started by a hand-off reads the same
+ * message again (handoff_read) after a resume. */
 
 typedef struct app_api {
     /* Fixed four-byte prefix; services remain naturally pointer-aligned. */
@@ -229,7 +245,8 @@ typedef struct app_api {
 
     /* ---- config persistence (deferred: staged now, committed on exit) ---- */
     void (*cfg_load)(uint8_t *buf, uint8_t len); /* read the app's saved config bytes      */
-    void (*cfg_save)(const uint8_t *buf, uint8_t len); /* stage bytes; resident commits after the app returns */
+    void (*cfg_save)(const uint8_t *buf, uint8_t len); /* stage bytes; resident commits after the app returns,
+                                                          or at power-on after a switch-off (see RESUME) */
 
     /* ---- battery + backlight ---- */
     void (*draw_battery)(void);      /* UI_DrawStatusBattery into the status line */

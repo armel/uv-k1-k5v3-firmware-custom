@@ -423,6 +423,7 @@ void app_main(const app_api_t *api){
             continue;
         }
         idleKeys();
+        saveConfig();   /* each tick, a change only: kept across a switch-off */
         if(!g.running) break;
         if(g.phaseTx) continue;   /* started from READY: no idle frame first */
         beaconDraw(false,g.idleLeft); blit();
@@ -431,7 +432,7 @@ void app_main(const app_api_t *api){
         tickDelay();
     }
 
-    saveConfig();
+    saveConfig();         /* a change keyed during the last TX */
     A->tx_end();          /* safety: PA off + RX restored */
     A->audio_path(false);
 }

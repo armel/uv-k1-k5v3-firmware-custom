@@ -511,6 +511,17 @@ static void new_game(void)
     spawn_piece();
 }
 
+/* A record beaten since launch, staged: the resident writes it on a change
+ * only. At GAME OVER, so that it survives a switch-off, and on EXIT. */
+static void save_best(void)
+{
+    update_best();
+    if (!g.bestDirty)
+        return;
+    const config_t cfg = { CFG_MAGIC, 1u, g.best };
+    A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
+}
+
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
@@ -530,6 +541,8 @@ void app_main(const app_api_t *api)
         poll_key();
         if (!g.running)
             break;
+        if (g.gameOver)
+            save_best();
 
         if (!g.saverActive) {   /* the saver freezes the game */
             if (!g.title && !g.paused && !g.gameOver) {
@@ -550,12 +563,6 @@ void app_main(const app_api_t *api)
         A->delay_ms(TICK_MS);
     }
 
-    update_best();
-    if (g.bestDirty) {
-        cfg.magic = CFG_MAGIC;
-        cfg.version = 1u;
-        cfg.best = g.best;
-        A->cfg_save((const uint8_t *)&cfg, sizeof(cfg));
-    }
+    save_best();
     A->led(false);
 }

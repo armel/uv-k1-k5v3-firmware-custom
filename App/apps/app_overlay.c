@@ -143,9 +143,13 @@ static struct {
      * none); the message, its length and the sender's slot; whether the
      * running app was launched by a hand-off it has not read yet. */
     uint8_t handoff_next;
-    uint8_t handoff_from;
     uint8_t handoff_len;   /* never above APP_HANDOFF_MAX */
     bool    handoff_unread;
+    /* Resume journal: read at power-on (off until then, or for good when its
+     * register is locked); a staged config not logged yet. Kept below offset
+     * 32, where a byte field costs one load. */
+    bool    journal_ready;
+    bool    journal_pending;
 #ifdef APP_SERIAL
     /* USB serial port: the receive total at the app's read position, the
      * events serial_ctl has not reported yet, the host configuration count it
@@ -155,9 +159,17 @@ static struct {
     uint8_t  serial_enum;
     bool     serial_used;
 #endif
+    uint16_t journal_off;  /* next free byte of the journal */
+    uint32_t journal_tick; /* when the last config was logged */
+    uint8_t handoff_resume; /* slot + 1 whose next launch gets the message back */
     uint8_t cfg_buf[APP_CONFIG_PROXY_MAX];
+    /* The sender then the message: one block for the resume journal. */
+    uint8_t handoff_from;
     uint8_t handoff_buf[APP_HANDOFF_MAX];
 } app_state;
+_Static_assert(offsetof(__typeof__(app_state), handoff_buf) ==
+               offsetof(__typeof__(app_state), handoff_from) + 1u,
+               "the journal logs the hand-off sender and message as one block");
 
 /* A staged VFO or memory makes the Apps menu return to main (app_menu.c). */
 bool gAppVfoExit;
@@ -175,6 +187,8 @@ static void app_backlight_update(void)
     APP_ModalBacklightTick(app_state.allow_screen_saver);
 }
 
+static void app_journal_config(void);
+
 static uint8_t app_get_key(void)
 {
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -182,6 +196,8 @@ static uint8_t app_get_key(void)
      * injection alive while an app owns the foreground loop. */
     K5VIEWER_ParseInput();
 #endif
+    /* Every app polls keys: log a config cfg_save held back (see below). */
+    app_journal_config();
     const KEY_Code_t key = KEYBOARD_GetKey();
 
     if (app_state.screen_saver_wake) {
@@ -676,10 +692,11 @@ static uint32_t app_rx_freq(void)      { return gRxVfo->pRX->Frequency; }
  * reads flash at launch (ReadBuffer bypasses the overlay cache). cfg_save only stages
  * into RAM - the app runs from the sector cache, so it cannot write flash itself; the
  * loader commits the staged bytes to flash after the app returns (RMW preserves the
- * slot header), tagged with the app's name. Updating an app erases its slot: the
- * tagged config is kept across that erase and handed back to the app of that name
- * only, so an update keeps the app's settings while another app installed in the
- * slot starts from its own defaults. */
+ * slot header), tagged with the app's name. A change is also logged in the resume
+ * journal (below), which survives the radio being switched off in the app.
+ * Updating an app erases its slot: the tagged config is kept across that erase and
+ * handed back to the app of that name only, so an update keeps the app's settings
+ * while another app installed in the slot starts from its own defaults. */
 #define APP_CFG_OFFSET  0x40u    /* config area within the header sector */
 #define APP_CFG_OWNER   0x50u    /* name of the app the config belongs to */
 
@@ -723,13 +740,91 @@ static void app_cfg_save(const uint8_t *buf, uint8_t len)
     } else if (len > APP_CONFIG_LOCAL_MAX) {
         len = APP_CONFIG_LOCAL_MAX;
     }
+    if (len == app_state.cfg_len && !memcmp(app_state.cfg_buf, buf, len))
+        return;                /* already staged as is */
     memcpy(app_state.cfg_buf, buf, len);
     app_state.cfg_len = len;   /* mark dirty; the loader commits after the app returns */
+    app_state.journal_pending = true;
+    app_journal_config();
 }
 
 _Static_assert(APP_CFG_OFFSET + APP_CONFIG_LOCAL_MAX <= APP_CFG_OWNER &&
                APP_CFG_OWNER + APP_NAME_LEN <= APP_ASSET_OFFSET,
                "config area overlaps its owner tag or the assets");
+
+/* ---- resume journal ----
+ * Security register 1 of the PY25Q16 logs the state of the apps, so that a
+ * radio switched off inside an app (the power switch cuts the supply) comes
+ * back in it with its settings. Erasing and programming that register bypass
+ * the sector cache, so they are allowed while the app runs from it.
+ * The register starts with APP_JOURNAL_MAGIC; one that is neither blank nor
+ * signed holds data that is not ours (the datasheet meant these registers for
+ * security information) and is never erased or written.
+ * A record is the state: slot of the running app (APP_JOURNAL_IDLE: none),
+ * length and bytes of the config it staged (0: none yet), 16-bit CRC of all
+ * that. One is written at a launch, after each config change, and once the
+ * loader has committed after the app; APP_ResumeOverlay reads the last one.
+ * A launch by a hand-off logs the slot with APP_JOURNAL_HANDOFF and, instead
+ * of a config, the sender's slot and the message, given back on a resume.
+ * The log only grows. It is never erased while an app runs: a power loss
+ * during the erase (40-300 ms) or before the next record would lose the run's
+ * state. A launch erases it first when less than APP_JOURNAL_RESERVE bytes
+ * would be left; a run that fills it anyway logs no more configs (they are
+ * still committed on exit). Configs are logged at least
+ * APP_JOURNAL_GAP_10MS apart: a later change waits in RAM for app_get_key. */
+#define APP_JOURNAL_BASE     PY25Q16_SECURITY_ADDR(1)
+#define APP_JOURNAL_MAGIC    0x314A5352u   /* "RSJ1", little endian */
+#define APP_JOURNAL_IDLE     0xFEu
+#define APP_JOURNAL_HANDOFF  0x40u         /* slot 0..63 | this: a hand-off launch */
+_Static_assert(APP_SLOT_COUNT <= APP_JOURNAL_HANDOFF, "a slot must fit below the hand-off flag");
+#define APP_JOURNAL_RESERVE  512u    /* 25 configs of 16 B, 4 of 117 B */
+#define APP_JOURNAL_GAP_10MS 200u    /* 2 s */
+
+/* Append a record with len bytes of data, erasing the register first when it
+ * would leave less than reserve bytes, and signing a blank register. */
+static void app_journal_write(uint8_t slot, const uint8_t *data, uint8_t len, uint16_t reserve)
+{
+    if (!app_state.journal_ready)
+        return;
+
+    uint8_t rec[4u + APP_CONFIG_PROXY_MAX];
+    const uint16_t size = 4u + len;
+    if (app_state.journal_off + size + reserve > PY25Q16_SECURITY_SIZE) {
+        PY25Q16_Security(PY25Q16_SEC_ERASE, APP_JOURNAL_BASE, NULL, 0u);
+        app_state.journal_off = 0;
+    }
+    if (!app_state.journal_off) {
+        uint32_t magic = APP_JOURNAL_MAGIC;
+        PY25Q16_Security(PY25Q16_SEC_PROGRAM, APP_JOURNAL_BASE, &magic, sizeof(magic));
+        app_state.journal_off = sizeof(magic);
+    }
+
+    rec[0] = slot;
+    rec[1] = len;
+    memcpy(rec + 2u, data, len);
+    const uint16_t crc = (uint16_t)MB_Crc32Bytes(rec, 2u + len);
+    memcpy(rec + 2u + len, &crc, sizeof(crc));
+    PY25Q16_Security(PY25Q16_SEC_PROGRAM, APP_JOURNAL_BASE + app_state.journal_off, rec, size);
+    app_state.journal_off += size;
+}
+
+/* Log the staged config unless the last one logged is too recent. Called by
+ * every get_key: nothing else runs while no config waits. Never while the PA
+ * is on: a program (1-2 ms) or an erase would stall a transmission that polls
+ * keys (an SSTV picture, an APRS frame); it waits for the end. */
+static void app_journal_config(void)
+{
+    if (!app_state.journal_pending || BK4819_IsGpioOutSet(BK4819_GPIO1_PIN29_PA_ENABLE))
+        return;
+    const uint32_t now = SCHEDULER_GetTick10ms();
+    if (now - app_state.journal_tick < APP_JOURNAL_GAP_10MS)
+        return;
+    app_state.journal_pending = false;
+    if (app_state.journal_off + 4u + app_state.cfg_len > PY25Q16_SECURITY_SIZE)
+        return;   /* full: never erased under an app, the rest is kept on EXIT */
+    app_state.journal_tick = now;
+    app_journal_write(app_state.run_slot, app_state.cfg_buf, app_state.cfg_len, 0u);
+}
 
 /* ---- API level 2: time, randomness, read-only assets ---- */
 static uint32_t app_rng_state = 0x2545F491u;
@@ -1437,6 +1532,46 @@ static const app_api_t app_api = {
 #define APP_HANDOFF_FAST_10MS 30u   /* 300 ms */
 #define APP_HANDOFF_FAST_HOPS 8u
 
+/* Commit the staged config of the app in slot, named name: to its own config
+ * area, or to the bounded target asset selected by a validated proxy
+ * descriptor. Never while an app runs: the sector cache is its code, and the
+ * proxy path also uses it as a workspace. */
+static void app_cfg_commit(uint8_t slot, const char *name)
+{
+    if (!app_state.cfg_len)
+        return;
+
+    if (app_state.cfg_proxy && app_state.cfg_target_slot < APP_SLOT_COUNT) {
+        app_header_t target;
+        uint32_t magic;
+        uint8_t *const ws = PY25Q16_OverlayBuffer();
+        const uint8_t target_slot = app_state.cfg_target_slot;
+        const uint32_t base = APP_SLOT_BASE(target_slot);
+        if (app_read_validated_header(target_slot, &target) == APP_OK &&
+            app_state.cfg_target_offset <= target.asset_size &&
+            app_state.cfg_len <= target.asset_size - app_state.cfg_target_offset) {
+            PY25Q16_ReadBuffer(base + APP_ASSET_OFFSET + app_state.cfg_target_offset,
+                               &magic, sizeof(magic));
+            if (magic == app_state.cfg_target_magic) {
+                PY25Q16_ReadBuffer(base + APP_ASSET_OFFSET, ws, target.asset_size);
+                memcpy(ws + app_state.cfg_target_offset,
+                       app_state.cfg_buf, app_state.cfg_len);
+                const uint16_t crc = (uint16_t)MB_Crc32Bytes(ws, target.asset_size);
+                PY25Q16_WriteBuffer(base + APP_ASSET_OFFSET + app_state.cfg_target_offset,
+                                   app_state.cfg_buf, app_state.cfg_len, false);
+                PY25Q16_WriteBuffer(base + offsetof(app_header_t, asset_crc),
+                                   &crc, sizeof(crc), false);
+            }
+        }
+    } else if (!app_state.cfg_proxy) {
+        const uint32_t base = APP_SLOT_BASE(slot);
+        PY25Q16_WriteBuffer(base + APP_CFG_OFFSET,
+                           app_state.cfg_buf, app_state.cfg_len, false);
+        PY25Q16_WriteBuffer(base + APP_CFG_OWNER, name, APP_NAME_LEN, false);
+    }
+    PY25Q16_InvalidateCache();
+}
+
 static uint8_t app_launch(uint8_t slot)
 {
     app_header_t h;
@@ -1495,6 +1630,13 @@ static uint8_t app_launch(uint8_t slot)
     app_state.fm_dirty = false;
 #endif
     app_state.pending_kind = 0u;
+
+    /* Log the launch, after making room for the run if little is left; a
+     * hand-off launch with its sender and message, for a resume. */
+    app_state.journal_pending = false;
+    const uint8_t sent = app_state.handoff_unread ? (uint8_t)(1u + app_state.handoff_len) : 0u;
+    app_journal_write(sent ? (uint8_t)(slot | APP_JOURNAL_HANDOFF) : slot,
+                      &app_state.handoff_from, sent, APP_JOURNAL_RESERVE);
 
     app_state.allow_screen_saver = (h.flags & APP_FLAG_SCREEN_SAVER) != 0;
     app_state.screen_saver_wake = false;
@@ -1562,38 +1704,7 @@ static uint8_t app_launch(uint8_t slot)
 #endif
     app_mr_commit();
 
-    /* Commit ordinary per-app config, or the bounded target asset selected by
-     * a validated proxy descriptor.  Both paths run only after app_main exits. */
-    if (app_state.cfg_len) {
-        if (app_state.cfg_proxy && app_state.cfg_target_slot < APP_SLOT_COUNT) {
-            app_header_t target;
-            uint32_t magic;
-            const uint8_t target_slot = app_state.cfg_target_slot;
-            const uint32_t base = APP_SLOT_BASE(target_slot);
-            if (app_read_validated_header(target_slot, &target) == APP_OK &&
-                app_state.cfg_target_offset <= target.asset_size &&
-                app_state.cfg_len <= target.asset_size - app_state.cfg_target_offset) {
-                PY25Q16_ReadBuffer(base + APP_ASSET_OFFSET + app_state.cfg_target_offset,
-                                   &magic, sizeof(magic));
-                if (magic == app_state.cfg_target_magic) {
-                    PY25Q16_ReadBuffer(base + APP_ASSET_OFFSET, ws, target.asset_size);
-                    memcpy(ws + app_state.cfg_target_offset,
-                           app_state.cfg_buf, app_state.cfg_len);
-                    const uint16_t crc = (uint16_t)MB_Crc32Bytes(ws, target.asset_size);
-                    PY25Q16_WriteBuffer(base + APP_ASSET_OFFSET + app_state.cfg_target_offset,
-                                       app_state.cfg_buf, app_state.cfg_len, false);
-                    PY25Q16_WriteBuffer(base + offsetof(app_header_t, asset_crc),
-                                       &crc, sizeof(crc), false);
-                }
-            }
-        } else if (!app_state.cfg_proxy) {
-            const uint32_t base = APP_SLOT_BASE(slot);
-            PY25Q16_WriteBuffer(base + APP_CFG_OFFSET,
-                               app_state.cfg_buf, app_state.cfg_len, false);
-            PY25Q16_WriteBuffer(base + APP_CFG_OWNER, h.name, APP_NAME_LEN, false);
-        }
-        PY25Q16_InvalidateCache();
-    }
+    app_cfg_commit(slot, h.name);
 #ifdef ENABLE_FMRADIO
     /* Commit the FM config + 48 channels the app edited (shared with resident FM). */
     if (app_state.fm_dirty) {
@@ -1602,6 +1713,8 @@ static uint8_t app_launch(uint8_t slot)
         PY25Q16_InvalidateCache();
     }
 #endif
+    /* Everything is committed: nothing left to resume. */
+    app_journal_write(APP_JOURNAL_IDLE, app_state.cfg_buf, 0u, 0u);
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     RXTX_LOG_Resume();
 #endif
@@ -1636,7 +1749,10 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
 {
     gAppVfoExit = false;   /* result belongs only to this top-level launch */
     uint8_t fast_hops = 0;
-    app_state.handoff_unread = false;   /* a menu or shortcut launch carries no message */
+    /* A menu or shortcut launch carries no message; a power-on resume gives
+     * its app back the one it was launched with (APP_ResumeOverlay). */
+    app_state.handoff_unread = app_state.handoff_resume == slot + 1u;
+    app_state.handoff_resume = 0u;
     for (;;) {
         gAppLastSlot = slot;
         app_state.handoff_next = 0;
@@ -1651,6 +1767,98 @@ uint8_t APP_LaunchOverlay(uint8_t slot)
             return APP_CHAIN_ABORTED;
         app_state.handoff_unread = true;   /* until read, or the target's own handoff() */
     }
+}
+
+uint8_t APP_ResumeOverlay(void)
+{
+    /* A locked register cannot take the IDLE record any more: its last app
+     * would be started again at every power-on. Leave the journal off. */
+    if (PY25Q16_SecurityLocked(1))
+        return 0xFFu;
+
+    /* Ours only when signed, or else wholly blank (signed at the first
+     * write). Anything else is not ours: never touch it, journal off. A
+     * signature cut by a power loss right after an erase is not told apart
+     * from someone else's data either: it leaves the journal off too. */
+    uint8_t rec[4u + APP_CONFIG_PROXY_MAX];
+    uint32_t magic;
+    uint16_t off = sizeof(magic);
+    PY25Q16_Security(PY25Q16_SEC_READ, APP_JOURNAL_BASE, &magic, sizeof(magic));
+    if (magic != APP_JOURNAL_MAGIC) {
+        if (magic != 0xFFFFFFFFu)
+            return 0xFFu;
+        for (; off < PY25Q16_SECURITY_SIZE; off += sizeof(rec)) {
+            const uint16_t left = PY25Q16_SECURITY_SIZE - off;
+            const uint8_t n = left < sizeof(rec) ? (uint8_t)left : (uint8_t)sizeof(rec);
+            PY25Q16_Security(PY25Q16_SEC_READ, APP_JOURNAL_BASE + off, rec, n);
+            for (uint8_t i = 0; i < n; i++)
+                if (rec[i] != 0xFFu)
+                    return 0xFFu;
+        }
+        off = 0;
+    }
+
+    /* Find the last record. A torn one (power cut while it was programmed)
+     * ends the log: the one before still counts, and the next write erases
+     * first. */
+    uint8_t slot = APP_JOURNAL_IDLE;
+    uint8_t hand = 0;                           /* slot + 1 of a hand-off launch */
+    while (off + 4u <= PY25Q16_SECURITY_SIZE) {
+        const uint16_t left = PY25Q16_SECURITY_SIZE - off;
+        PY25Q16_Security(PY25Q16_SEC_READ, APP_JOURNAL_BASE + off, rec,
+                         left < sizeof(rec) ? left : sizeof(rec));
+        const uint8_t len = rec[1];
+        if (rec[0] == 0xFFu && len == 0xFFu)
+            break;                                  /* end of the log */
+        bool torn = len > APP_CONFIG_PROXY_MAX || 4u + len > left;
+        if (!torn) {
+            uint16_t crc;
+            memcpy(&crc, rec + 2u + len, sizeof(crc));
+            torn = crc != (uint16_t)MB_Crc32Bytes(rec, 2u + len);
+        }
+        if (torn) {
+            off = PY25Q16_SECURITY_SIZE;
+            break;
+        }
+        off += 4u + len;
+        if ((rec[0] & 0xC0u) == APP_JOURNAL_HANDOFF) {   /* a hand-off launch */
+            const uint8_t n = len <= 1u + APP_HANDOFF_MAX ? len : 1u + APP_HANDOFF_MAX;
+            slot = rec[0] & 0x3Fu;
+            hand = (uint8_t)(slot + 1u);
+            app_state.cfg_len = 0;
+            memcpy(&app_state.handoff_from, rec + 2u, n);    /* sender, message */
+            app_state.handoff_len = n ? (uint8_t)(n - 1u) : 0u;
+            continue;
+        }
+        if (rec[0] != slot)
+            hand = 0;                           /* another run: no message */
+        slot = rec[0];
+        app_state.cfg_len = len;
+        memcpy(app_state.cfg_buf, rec + 2u, len);
+    }
+    app_state.journal_off   = off;
+    app_state.journal_ready = true;
+
+    if (slot >= APP_SLOT_COUNT)
+        return 0xFFu;
+
+    /* The radio went off inside that app: commit as the loader would have
+     * after app_main (unless the slot no longer holds a valid app), and log
+     * that it is done, so that this happens once. */
+    app_header_t h;
+    const bool valid = app_read_validated_header(slot, &h) == APP_OK;
+    if (valid) {
+        app_state.run_slot   = slot;
+        app_state.asset_size = h.asset_size;
+        app_config_proxy_resolve();
+        PY25Q16_InvalidateCache();
+        app_cfg_commit(slot, h.name);
+    }
+    app_journal_write(APP_JOURNAL_IDLE, app_state.cfg_buf, 0u, 0u);
+    if (!valid)
+        return 0xFFu;
+    app_state.handoff_resume = hand;
+    return slot;
 }
 
 uint8_t APP_SlotErase(uint8_t slot)

@@ -16,7 +16,7 @@ Needs a Labs or Fusion_ firmware v6.3.0 or later (app API level 3:
 2. QR Map opens with the code on the left and, on the right, the format, the
    latitude and longitude it holds, and the label sent with it (the beacon ID).
 3. UP / DOWN (UV-K1: LEFT / RIGHT) change the format, or 1 to 5 choose one
-   directly. The choice is saved on exit; the first time it is GOOGLE.
+   directly. The choice is saved; the first time it is GOOGLE.
 4. Scan the code with the phone's camera or a QR code reader.
 5. EXIT goes back to the app that sent the position. A long EXIT goes to the
    main screen.

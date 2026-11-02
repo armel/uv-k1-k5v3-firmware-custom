@@ -539,6 +539,9 @@ void app_main(const app_api_t *api){
     g.redraw=true;
     while(g.running){
         handleKeys();
+        /* Staged at each loop, written on a change only: kept across a switch-off. */
+        c[0]=CFG_MAGIC; c[1]=g.lvl; c[2]=(uint8_t)g.tw; c[3]=g.cw; c[4]=g.iv;
+        api->cfg_save(c,CFG_LEN);
         if(!g.running) break;
         /* The screen only changes on a key (or a send it starts): redraw then,
          * and every 5 s for the battery, not at each loop. The state stays in g:
@@ -552,7 +555,4 @@ void app_main(const app_api_t *api){
         api->delay_ms(LOOP_MS);
         api->backlight_update();     /* normal BLTime timeout; keys re-arm it */
     }
-
-    c[0]=CFG_MAGIC; c[1]=g.lvl; c[2]=(uint8_t)g.tw; c[3]=g.cw; c[4]=g.iv;
-    api->cfg_save(c,CFG_LEN);
 }

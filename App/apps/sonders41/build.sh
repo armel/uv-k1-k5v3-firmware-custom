@@ -4,7 +4,7 @@ set -euo pipefail
 
 APP="$(basename "$PWD")"
 APP_NAME="Sonde RS41"
-APP_VER="0.6"
+APP_VER="0.7"
 APP_API_MIN=3
 APP_VMA=${APP_VMA:-0x20000280}
 OUT="${APP_NAME// /}"
@@ -35,5 +35,5 @@ BYTES=$(wc -c < "${APP}.bin")
 if [ "$BYTES" -gt 4096 ]; then
     printf '\r  🚨 %-13s OVERFLOWS 4 KiB (%d B)     \n' "$APP_NAME" "$BYTES"; exit 1
 fi
-printf '\r  ✅ %-13s %4d B  (%d%% of 4 KiB)  ->  %s.app   \n' \
+printf '\r  ✅ %-13s %4d B  (%3d%% of 4 KiB)  ->  %s.app   \n' \
        "$APP_NAME" "$BYTES" "$(( BYTES * 100 / 4096 ))" "$OUT"
