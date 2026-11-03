@@ -648,6 +648,14 @@ static void handle_ep0(void)
     {
       read_count = USB->EP0_COUNT;
 
+      /* More data than the setup packet's wLength would run past the request buffer:
+         stall the transfer and drop the packet */
+      if (read_count > g_pyusb_udc.out_ep[0].xfer_len - g_pyusb_udc.out_ep[0].actual_xfer_len)
+      {
+        usbd_ep_set_stall(USB_CONTROL_OUT_EP0);
+        break;
+      }
+
       pyusb_read_packet(0, g_pyusb_udc.out_ep[0].xfer_buf, read_count);
       g_pyusb_udc.out_ep[0].xfer_buf += read_count;
       g_pyusb_udc.out_ep[0].actual_xfer_len += read_count;
