@@ -477,13 +477,13 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 	PY25Q16_ReadBuffer(CW_SETTINGS_ADDR, Data, 8);
 	gEeprom.CW_TONE_FREQUENCY = Data[0] == 0xff ? 60 : 45 + (Data[0] & 0xf) * 5;  // Same as gMenuSelection: 50 Hz steps from 450, default 600
 	gEeprom.CW_SIDETONE_LEVEL = Data[0] == 0xff ? CW_SIDETONE_LEVEL_DEFAULT : s_cw_sidetone_code_to_level[Data[0] >> 4];  // menu level 0-15 (0=off), stored as a code in bits 4-7; see CW_ApplySidetoneGain for the applied gain curve
-	gEeprom.CW_KEY_WPM        = ((Data[1] & 0x7f) <= 45 && (Data[1] & 0x7f) >= 10) ? Data[1] & 0x7f : 18;  // bits 0-6, valid range 10-45, default 18 WPM
+	gEeprom.CW_KEY_WPM        = ((Data[1] & 0x7f) <= CW_KEY_WPM_MAX && (Data[1] & 0x7f) >= CW_KEY_WPM_MIN) ? Data[1] & 0x7f : CW_KEY_WPM_DEFAULT;  // bits 0-6
 	// Data[4]: keyer mode in bits 0-1, copy practice effective speed in bits 2-7 (0 = off).
 	// 0xFF = not yet written (old layout packed mode into bit 7 of Data[1]). Carry-over:
 	// read legacy bit if Data[1] is valid, then always write the new byte on next save.
 	// Blank EEPROM (Data[1]==0xFF) defaults to mode B.
 	const uint8_t farnsworth_wpm = Data[4] >> 2;
-	if (farnsworth_wpm == 0 || (farnsworth_wpm >= CW_FARNSWORTH_WPM_MIN && farnsworth_wpm < 45)) {
+	if (farnsworth_wpm == 0 || (farnsworth_wpm >= CW_FARNSWORTH_WPM_MIN && farnsworth_wpm < CW_KEY_WPM_MAX)) {
 		gEeprom.CW_KEYER_MODE = (CW_IambicMode_t)(Data[4] & 0x03);
 		gEeprom.CW_FARNSWORTH_WPM = farnsworth_wpm;
 	} else {

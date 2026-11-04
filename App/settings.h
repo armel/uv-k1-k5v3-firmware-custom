@@ -107,8 +107,14 @@ typedef enum CW_IambicMode_t CW_IambicMode_t;
 #define CW_HANG_10MS_MAX          200
 #define CW_HANG_10MS_DEFAULT      30
 
+// Keyer speed. Stored in 7 bits (CW settings byte 1), so up to 127 would fit.
+#define CW_KEY_WPM_MIN            10
+#define CW_KEY_WPM_MAX            60
+#define CW_KEY_WPM_DEFAULT        18
+
 // Copy practice effective speed (Farnsworth): the slowest the gaps between
-// characters can stretch to. It always stays below the keyer speed (max 45).
+// characters can stretch to. It always stays below the keyer speed, and is
+// stored in 6 bits (max 63).
 #define CW_FARNSWORTH_WPM_MIN     5
 
 #endif

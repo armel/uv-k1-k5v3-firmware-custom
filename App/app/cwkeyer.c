@@ -267,14 +267,20 @@ static void CW_UpdatePlaybackGaps(void)
 void CW_UpdateWPM()
 {
     const uint32_t wpm = gEeprom.CW_KEY_WPM;
-    const uint32_t dit_ticks = TICKS_PER_MINUTE / (wpm * DITS_PER_WORD);
 
-    s_dit_count = dit_ticks;
-    s_dah_count = 3U * dit_ticks;
-    s_gap_count = dit_ticks; // inter-element gap = 1 dit
-    s_ext_gap_count = 3U * dit_ticks / 2U; // after 1.5 dits, hold char gap if key pressed
-    s_char_gap_count = 3U * dit_ticks; // inter-char gap = 3 dits
-    s_word_gap_count = 7U * dit_ticks; // inter-word gap = 7 dits
+    // Each length is rounded from the exact dit (1200 / wpm ms), not built up
+    // from a truncated dit: that made a 45 WPM dah 78 ms instead of 80.
+    #define CW_HALF_DITS_TO_TICKS(h) \
+        (((h) * TICKS_PER_MINUTE + wpm * DITS_PER_WORD) / (2U * wpm * DITS_PER_WORD))
+
+    s_dit_count = CW_HALF_DITS_TO_TICKS(2U);
+    s_dah_count = CW_HALF_DITS_TO_TICKS(6U);
+    s_gap_count = s_dit_count; // inter-element gap = 1 dit
+    s_ext_gap_count = CW_HALF_DITS_TO_TICKS(3U); // after 1.5 dits, hold char gap if key pressed
+    s_char_gap_count = CW_HALF_DITS_TO_TICKS(6U); // inter-char gap = 3 dits
+    s_word_gap_count = CW_HALF_DITS_TO_TICKS(14U); // inter-word gap = 7 dits
+
+    #undef CW_HALF_DITS_TO_TICKS
     CW_UpdatePlaybackGaps();
 
 #if CW_KEYER_DEBUG
