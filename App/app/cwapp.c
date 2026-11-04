@@ -111,6 +111,13 @@ void CW_OverlayExit(void)
 {
 	RADIO_SelectVfos();
 	RADIO_SetupRegisters(true);
+
+	// RADIO_SetupRegisters mutes AF (or closes the audio path) but leaves
+	// gCurrentFunction at FUNCTION_MONITOR, so nothing would reopen it and
+	// we'd show MONI with no audio. Reopen it the way CW_EndTxNow does.
+	FUNCTION_Select(FUNCTION_FOREGROUND);
+	if (gMonitor)
+		APP_StartListening(FUNCTION_MONITOR);
 }
 
 // ---------------------------------------------------------------------------
