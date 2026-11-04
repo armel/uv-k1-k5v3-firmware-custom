@@ -27,7 +27,7 @@ decode. Reproduced on the bench (03/11/2026) with a 70 cm test transmitter
   away, so the first channel swept could trigger. Its own channel still reads
   more than 20 dB above the leak. After a trigger, 1.5 reads all 11 channels
   once more (about 35 ms) and keeps the one furthest above its own floor.
-  Above the floor, not the highest RSSI, so a radiosonde on another channel
+  Above the floor, not the highest RSSI, so an interferer on another channel
   does not take the burst.
 - That transmitter sent its frame sync 365 to 385 ms after its carrier start,
   against 220 ms for T.001, and its frame ended 665 to 685 ms after it
@@ -158,7 +158,7 @@ search at once. It gives up 400 ms after the localisation.
 | under 0.3 s | a blip | ignored |
 | 0.3 to 0.75 s | `GEN1 ?` | alarm, then hand-off in AUTO |
 | 0.75 to 1.3 s | `GEN2` | alarm, counted |
-| 1.3 s and more | a continuous carrier (radiosonde, interferer) | the channel's floor takes its level, no alarm |
+| 1.3 s and more | a continuous carrier (interferer, stuck transmitter) | the channel's floor takes its level, no alarm |
 
 Every GEN1 (`OK`, `ERR`, `CUT`, `?`) raises the alarm and, in AUTO, is handed to
 EPIRB 406 after a key or the 30 s timeout. A self-test frame is a real beacon

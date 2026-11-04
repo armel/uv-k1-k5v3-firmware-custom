@@ -52,7 +52,7 @@
  * timed until RSSI falls back under floor + REARM_DB:
  *   MIN_1G_MS .. MIN_2G_MS   GEN1 ?: a first-generation length, not verified;
  *   MIN_2G_MS .. LONG_MS     GEN2: second generation (1 s, not decodable here);
- *   LONG_MS and more         a continuous carrier (sonde, interferer): the
+ *   LONG_MS and more         a continuous carrier (interferer): the
  *                            channel's floor takes its level, so it does not
  *                            trigger again; no alarm;
  *   shorter than MIN_1G_MS   ignored.
@@ -230,8 +230,8 @@ __attribute__((noinline)) static unsigned verify(int16_t lim){
 
 /* A reading above the trigger on channel i: the channel furthest above its
  * floor (a strong burst leaks into all of them), then verify the burst, time
- * it. Above the floor, not the highest RSSI: a sonde on another channel has
- * its floor at its own level. */
+ * it. Above the floor, not the highest RSSI: an interferer on another channel
+ * has its floor at its own level. */
 __attribute__((noinline)) static void burst(unsigned i){
     const app_api_t *A = g.A;
     const uint32_t t0 = A->ticks_ms();

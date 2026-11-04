@@ -277,7 +277,7 @@ int main(int argc, char **argv){
         CHECK(n, S.handed && S.staged == F(chans[k]));
     }
 
-    /* a continuous carrier on K (a sonde) must not trigger; a beacon on G does */
+    /* a continuous carrier on K (an interferer) must not trigger; a beacon on G does */
     setup(VFO406, 0, NEVER);
     emit(F(52), -70, 2000, NEVER, NEVER, 1);
     emit(F(40), -95, 9000, 50000, 440, 10);
