@@ -15,6 +15,31 @@ Needs a Fusion firmware with app API level 3 (`handoff`, `vfo_stage`) and the
 `APP_CAP_BEAM2` receive-profile bridge. EPIRB 406 must be installed for the
 hand-off.
 
+## Version 1.5: strong beacons close by
+
+Reported from the field: a beacon close to the radio was detected, but Scan
+406 did not switch to it, or handed EPIRB 406 a frequency too far away to
+decode. Reproduced on the bench (03/11/2026) with a 70 cm test transmitter
+(a UV-K1 sending T.001 frames with the BK4829 FSK modem, LOW, 433.695 MHz,
+1.5 m away):
+
+- A strong burst leaks into every channel: up to 11 dB above the floor 48 kHz
+  away, so the first channel swept could trigger. Its own channel still reads
+  more than 20 dB above the leak. After a trigger, 1.5 reads all 11 channels
+  once more (about 35 ms) and keeps the one furthest above its own floor.
+  Above the floor, not the highest RSSI, so an interferer on another channel
+  does not take the burst.
+- That transmitter sent its frame sync 365 to 385 ms after its carrier start,
+  against 220 ms for T.001, and its frame ended 665 to 685 ms after it
+  (BK4829 modem preamble and set-up). The 300 ms search gave up first, then
+  the CW ID on the same carrier made the burst a continuous carrier: no alarm.
+  The frame sync search now lasts 400 ms and the capture 750 ms, so such a
+  late frame sync is still found. The transmitter has since been fixed
+  (frame sync at 224 or 244 ms, CW ID on its own key-up).
+- A carrier still there after the alarm (the rest of that CW ID) gives the
+  channel's floor its level, as a continuous carrier, instead of being timed
+  as a new burst.
+
 ## Version 1.3 reliability fixes
 
 - Scan 406 now calls `beam_prepare` at launch. This selects a temporary UHF FM
@@ -98,15 +123,18 @@ noise floor. It follows a fall at once and a rise slowly (1/16 per pass, about
 0.6 s). A reading 10 dB above it parks the receiver on that channel.
 
 The channels are sometimes only 3 kHz apart, closer than the inherited receive
-filter. The first channel in scan order that hears the beacon can therefore
-win: the displayed and staged frequency may be 3 kHz below the transmitter.
-Version 1.3 deliberately leaves this limitation unchanged. The BK4829 filter
-response and RSSI behaviour first need measurements on a radio before an RF
-filter or channel-selection correction can be justified.
+filter. A trigger starts a localisation pass over the 11 channels, which keeps
+the one furthest above its floor; between two channels 3 kHz apart, the
+displayed and staged frequency may still be the neighbour of the transmitter.
+Both decode (bench, LimeSDR at -53 dBm on 433.695 MHz). The RSSI read 3 ms
+after a retune saturates near -85 dBm on a UV-K1 (the main screen shows -53
+dBm for the same signal), which does not matter for the localisation: the
+beacon's channel stays more than 20 dB above the leak.
 
 A first-generation burst starts with 160 ms of plain carrier, then 15 bits of
 bit sync and 9 bits of frame sync. A burst is detected within about 35 ms of
-its start, so the app has time to switch to listening. It captures the RX audio
+its start and localised within about 75 ms, so the app has time to switch to
+listening. It captures the RX audio
 on PA4 at 9.6 kHz (RAW receive, as EPIRB 406) and feeds EPIRB 406's own decoder
 (`../epirb406/dec406.c`, included: one decoder for both apps). Then it checks
 the BCH codes of C/S T.001:
@@ -115,7 +143,7 @@ the BCH codes of C/S T.001:
 |---|---|
 | `GEN1 OK` | frame sync found, BCH-1 (bits 25 to 106) correct and, on a long message, BCH-2 (bits 107 to 144) too: a genuine first-generation frame |
 | `GEN1 ERR` | frame sync found, a BCH check fails: a weak signal, a carrier lost in the middle of the frame, or a badly coded beacon |
-| `GEN1 CUT` | frame sync found, the frame outlasts the 600 ms capture |
+| `GEN1 CUT` | frame sync found, the frame outlasts the 750 ms capture |
 | `TST` after it | the frame sync is the self-test one (011010000 instead of 000101111) |
 | `GEN1 ?` | no frame sync, but a first-generation length (0.3 to 0.75 s): not verified |
 | `GEN2` | no frame sync, 0.75 to 1.3 s: second generation (1 s), not decodable here |
@@ -123,14 +151,14 @@ the BCH codes of C/S T.001:
 Without a frame sync, the burst is timed until RSSI falls back 5 dB above the
 floor. While it searches for the frame sync, the app reads RSSI every 10 ms
 between two samples, as EPIRB 406 reads the keys, so a short blip ends the
-search at once. It gives up 300 ms after the trigger.
+search at once. It gives up 400 ms after the localisation.
 
 | Duration, no frame sync | Meaning | Action |
 |---|---|---|
 | under 0.3 s | a blip | ignored |
 | 0.3 to 0.75 s | `GEN1 ?` | alarm, then hand-off in AUTO |
 | 0.75 to 1.3 s | `GEN2` | alarm, counted |
-| 1.3 s and more | a continuous carrier (radiosonde, interferer) | the channel's floor takes its level, no alarm |
+| 1.3 s and more | a continuous carrier (interferer, stuck transmitter) | the channel's floor takes its level, no alarm |
 
 Every GEN1 (`OK`, `ERR`, `CUT`, `?`) raises the alarm and, in AUTO, is handed to
 EPIRB 406 after a key or the 30 s timeout. A self-test frame is a real beacon
@@ -171,7 +199,7 @@ The 1.3 changes still need these bench checks:
 ## Size
 
 The code is limited to the 4 KiB overlay; the build script reports the exact
-1.3 footprint. The decoder and BCH checks were about 870 B in 1.2, and the
+1.5 footprint (2528 B of code, 324 B of assets). The decoder and BCH checks were about 870 B in 1.2, and the
 help page about 80 B, plus the read-only assets. The channels are an 11-byte
 table (kHz above 406.000 MHz). The noise floors start at 0 (the loader zeroes
 the overlay) and fall to the first readings, so there is no first-pass flag.
@@ -200,7 +228,12 @@ the flashlight restored whatever the blink count; the help page (shown, no
 scanning meanwhile, EXIT there only leaves it); the longest last-burst row
 after 20 minutes; TEST mode; inherited VHF, AM and USB profiles; and the
 documented case where either the exact channel or its 3 kHz lower neighbour
-can trigger first.
+can be kept. Since 1.5: a strong beacon heard 25 dB lower on every channel up
+to 60 kHz away (without its audio there), which must be localised on its own
+channel in WATCH and AUTO; and the late test transmitter timing (184 or 204 ms of
+carrier, 48 more bit sync ones, then 3.5 s of CW ID on the same carrier),
+which must decode with a single alarm. With the 1.4 logic, these 18 checks
+fail.
 
 ## Sources
 
@@ -208,6 +241,9 @@ can trigger first.
   Table H.2 (channel assignment table) and section 1.4
 - C/S T.001 (first-generation burst: 160 ms of carrier, bit and frame sync,
   0.44 / 0.52 s; BCH-1 (82,61) and BCH-2 (38,26) generators)
+- Bench of 03/11/2026 (UV-K1, 70 cm test transmitter at 1.5 m, LimeSDR) and
+  RTL-SDR captures of that transmitter (15/10/2026): the leak, the RSSI
+  saturation and the timing above
 - `App/apps/epirb406/dec406.c` (the decoder), `test/gen406.py` and
   `test/frame406.py` (burst audio and frames for the host test)
 - `App/apps/epirb406/` (RSSI trigger, `tune()`, hand-off to Sig Finder),

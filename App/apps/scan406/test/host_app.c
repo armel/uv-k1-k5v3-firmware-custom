@@ -22,7 +22,9 @@
  * -120 dBm floor with +-1 dB of noise, plus the strongest emitter active
  * within the receive window of the frequency written to REG_38/39. The PA4
  * samples are that emitter's audio (gen406.py output, from its carrier start)
- * when it has some, else discriminator noise. Each
+ * when it has some, else discriminator noise. An emitter with a leak is also
+ * heard leak dB lower up to 60 kHz away, outside the window, without its
+ * audio (a strong beacon close by, as on the bench of 03/11/2026). Each
  * scenario runs app_main until it returns: a hand-off, or EXIT pressed
  * from a given time. An alarm is acknowledged ackMs after its first beep
  * (key 1); the flashlight register is a variable. */
@@ -41,6 +43,7 @@ static volatile uint32_t torch_odr;
 typedef struct {
     uint32_t f; int dbm; uint32_t start, period, dur, count;   /* ms */
     const uint16_t *audio; uint32_t n;                           /* PA4 samples at 9.6 kHz */
+    int leak;                  /* dB below dbm on every frequency up to 60 kHz away, 0 none */
 } emitter_t;
 
 static struct {
@@ -71,29 +74,39 @@ static void advance(uint64_t us){
 }
 static uint32_t rnd(void){ S.seed = S.seed * 1103515245u + 12345u; return S.seed >> 16; }
 
-/* The strongest emitter heard now, its time into the burst (us). */
-static const emitter_t *heard(uint64_t *into){
+/* The strongest emitter heard now, its level, its time into the burst (us),
+ * and whether only its leak is heard. */
+static const emitter_t *heard(uint64_t *into, int *lvl, bool *leaky){
     const emitter_t *best = NULL;
     for (unsigned k = 0; k < S.nEm; k++) {
         const emitter_t *e = &S.em[k];
         const uint32_t df = S.tuned > e->f ? S.tuned - e->f : e->f - S.tuned;
-        if (df > S.win || S.now < e->start) continue;
+        int l = e->dbm;
+        if (S.now < e->start) continue;
+        if (df > S.win) {
+            if (!e->leak || df > 6000u) continue;
+            l -= e->leak;
+        }
         const uint64_t t = S.us - (uint64_t)e->start * 1000u, per = (uint64_t)e->period * 1000u;
         if (t / per >= e->count || t % per >= (uint64_t)e->dur * 1000u) continue;
-        if (!best || e->dbm > best->dbm) { best = e; *into = t % per; }
+        if (!best || l > *lvl) { best = e; *lvl = l; *into = t % per; *leaky = df > S.win; }
     }
     return best;
 }
 static int16_t s_rssi(void){
     uint64_t t;
-    const emitter_t *e = heard(&t);
+    int l = 0;
+    bool leaky;
+    const emitter_t *e = heard(&t, &l, &leaky);
     const int noise = -120 + (int)(rnd() % 3u) - 1;
-    return (int16_t)(e && e->dbm > noise ? e->dbm : noise);
+    return (int16_t)(e && l > noise ? l : noise);
 }
 static uint16_t s_sample(void){
     uint64_t t;
-    const emitter_t *e = heard(&t);
-    if (e && e->audio) {
+    int l;
+    bool leaky = false;
+    const emitter_t *e = heard(&t, &l, &leaky);
+    if (e && e->audio && !leaky) {
         const uint64_t i = t * 9600u / 1000000u;
         if (i < e->n) return e->audio[i];
     }
@@ -209,12 +222,12 @@ static void setup(uint32_t vfo, uint8_t cfg, uint32_t endMs){
     torch_odr = S.torch0 = 0x2000u * (cfg == 1u);   /* flashlight on before WATCH runs */
 }
 static void emit(uint32_t f, int dbm, uint32_t start, uint32_t period, uint32_t dur, uint32_t count){
-    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, dur, count, NULL, 0 };
+    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, dur, count, NULL, 0, 0 };
 }
 /* A burst with its audio (gen406.py, from the carrier start): its length is the file's */
 typedef struct { uint16_t *s; uint32_t n; } clip_t;
 static void emitAudio(uint32_t f, int dbm, uint32_t start, uint32_t period, uint32_t count, clip_t c){
-    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, (uint32_t)(c.n * 1000u / 9600u), count, c.s, c.n };
+    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, (uint32_t)(c.n * 1000u / 9600u), count, c.s, c.n, 0 };
 }
 static clip_t load(const char *dir, const char *name){
     char path[512];
@@ -264,7 +277,7 @@ int main(int argc, char **argv){
         CHECK(n, S.handed && S.staged == F(chans[k]));
     }
 
-    /* a continuous carrier on K (a sonde) must not trigger; a beacon on G does */
+    /* a continuous carrier on K (an interferer) must not trigger; a beacon on G does */
     setup(VFO406, 0, NEVER);
     emit(F(52), -70, 2000, NEVER, NEVER, 1);
     emit(F(40), -95, 9000, 50000, 440, 10);
@@ -331,7 +344,8 @@ int main(int argc, char **argv){
     S.ackMs = 60000;
     emit(F(31), -90, 3000, 50000, 440, 1);
     run();
-    CHECK("WATCH: alarm waits 60 s", S.acks == 1 && !S.handed && S.beeps >= 59);
+    /* a beep every 4 blinks of 250 ms plus the LCD transfer: 57 to 58 in 60 s */
+    CHECK("WATCH: alarm waits 60 s", S.acks == 1 && !S.handed && S.beeps >= 57);
 
     /* MENU: the help page until a key, no scanning meanwhile, then the scan again */
     setup(VFO406, 0, NEVER);
@@ -458,6 +472,45 @@ int main(int argc, char **argv){
         run();
         CHECK("row width: age capped at 999 s", !strcmp(S.lastText[0], "GEN1 ERR 406.076 999S AGO"));
         CHECK("row width: fits 32 columns", strlen(S.lastText[0]) <= 32u);
+        free(c.s);
+    }
+
+    /* A strong beacon close by leaks 10 dB above the floor of every channel:
+     * the first channel swept triggers, the localisation finds the beacon's. */
+    {
+        const clip_t c = load(argv[2], "long");
+        for (uint32_t start = 3000; start < 3040; start += 7) {
+            setup(VFO406, 1, start + 3000);
+            emitAudio(F(76), -85, start, 50000, 1, c);
+            S.em[0].leak = 25;
+            run();
+            char n[48];
+            snprintf(n, sizeof n, "strong leak, burst at %u ms", start);
+            CHECK(n, g.type == K_OK && g.last == 10u && g.n[0] == 1);
+        }
+        setup(VFO406, 0, NEVER);
+        emitAudio(F(49), -85, 3000, 50000, 10, c);
+        S.em[0].leak = 25;
+        run();
+        CHECK("strong leak, AUTO: beacon's channel", g.type == K_OK && S.handed && S.staged == F(49));
+        free(c.s);
+    }
+
+    /* A late 70 cm test transmitter (BK4829 FSK): 184 or 204 ms of carrier, 120 ms of
+     * modem preamble (48 more bit sync ones) before the frame, then the CW ID
+     * on the same carrier, 3.5 s. Its frame sync ends 365 to 385 ms in. */
+    static const char *const ETX[] = { "etx184", "etx204" };
+    for (unsigned k = 0; k < 2u; k++) {
+        const clip_t c = load(argv[2], ETX[k]);
+        for (uint32_t start = 3000; start < 3040; start += 7) {
+            setup(VFO406, 1, start + 6000);
+            emitAudio(F(76), -95, start, 50000, 1, c);
+            S.em[0].dur += 3500u;
+            run();
+            char n[48];
+            snprintf(n, sizeof n, "%s + CW, burst at %u ms", ETX[k], start);
+            CHECK(n, g.type == K_OK && g.n[0] == 1 && S.acks == 1);
+        }
         free(c.s);
     }
 

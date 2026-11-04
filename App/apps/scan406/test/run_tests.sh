@@ -5,7 +5,8 @@
 # (host_app.c): first and second generation bursts on every channel,
 # continuous carriers, blips, the trigger threshold, inherited VHF/AM/USB
 # profiles, the documented 3 kHz ambiguity, AUTO/WATCH alarm timing, EPIRB 406
-# missing and the bench mode. Needs a host C compiler and python3.
+# missing, a strong beacon leaking into every channel, a late 70 cm test
+# transmitter and the bench mode. Needs a host C compiler and python3.
 set -euo pipefail
 cd "$(dirname "$0")"
 CC=${HOSTCC:-clang}
@@ -39,6 +40,10 @@ gen inv    "$LONG" --invert
 gen foff   "$LONG" --foff 3000
 gen weak   "$LONG" --cnr 15
 gen cut    "$LONG"
+# Late 70 cm test transmitter (BK4829 FSK): 120 ms of modem preamble (48 ones) ahead of the frame,
+# after 184 ms of carrier, 204 ms on every other burst (FIFO word)
+gen etx184 "FFFFFFFFFFFF$LONG" --lead-ms 184
+gen etx204 "FFFFFFFFFFFF$LONG" --lead-ms 204
 python3 - "$A/cut.u16" <<'PY'
 import sys
 p = sys.argv[1]; d = open(p, "rb").read()

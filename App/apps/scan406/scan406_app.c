@@ -28,12 +28,17 @@
  * loader restores the user's VFO after the app exits. Per channel: write the
  * frequency (REG_38/39), restart RX (tones_off_rx: REG_30 cycle, AF muted),
  * wait STEP_MS, read RSSI. Each channel keeps its own noise floor. A reading
- * TRIG_DB above it parks the receiver there.
+ * TRIG_DB above it starts a localisation pass: a beacon close by leaks into
+ * every channel (bench, 03/11/2026: up to 11 dB above the floor 48 kHz away,
+ * while its own channel reads more than 20 dB above the leak), so the trigger
+ * can come from the wrong one. The pass reads all channels once more (about
+ * 35 ms) and parks the receiver on the one furthest above its floor.
  *
  * Verification: the RX audio is captured on PA4 at 9.6 kHz (RAW receive, as
  * in EPIRB 406) and fed to EPIRB 406's decoder (dec406.c, included). A burst
- * is detected within about 35 ms of its start, inside its 160 ms of carrier,
- * so the bit sync and the frame sync that follow are captured:
+ * is detected within about 35 ms of its start and localised within about 75
+ * ms, inside its 160 ms of carrier, so the bit sync and the frame sync that
+ * follow are captured:
  *   GEN1 OK  frame sync, then BCH-1 (bits 25-106) and, on a long message,
  *            BCH-2 (bits 107-144) correct: a genuine first-generation frame;
  *   GEN1 ERR frame sync, a BCH check fails (weak signal, or a badly coded
@@ -43,17 +48,18 @@
  * A carrier lost in the middle of the frame leaves the decoder on noise: BCH
  * fails, GEN1 ERR. While searching for the frame sync, RSSI is read every
  * POLL_CYC (between two samples, as EPIRB 406 reads the keys): without a frame
- * sync once the carrier is gone, or 300 ms after the trigger, the burst is
+ * sync once the carrier is gone, or 400 ms into the capture, the burst is
  * timed until RSSI falls back under floor + REARM_DB:
  *   MIN_1G_MS .. MIN_2G_MS   GEN1 ?: a first-generation length, not verified;
  *   MIN_2G_MS .. LONG_MS     GEN2: second generation (1 s, not decodable here);
- *   LONG_MS and more         a continuous carrier (sonde, interferer): the
+ *   LONG_MS and more         a continuous carrier (interferer): the
  *                            channel's floor takes its level, so it does not
  *                            trigger again; no alarm;
  *   shorter than MIN_1G_MS   ignored.
  * Every other case raises the alarm. Then, for any 1G, AUTO puts the VFO on
  * the channel (vfo_stage, FM wide) and opens EPIRB 406 (handoff); WATCH, or
- * EPIRB 406 not installed, goes on scanning.
+ * EPIRB 406 not installed, goes on scanning. A carrier still there after the
+ * alarm gives the channel's floor its level, as a continuous one.
  *
  * Alarm: a beep every second, the flashlight (PC13, driven directly: no API
  * service) and the green LED blinking, the screen inverted, every ALARM_MS.
@@ -105,11 +111,16 @@
 #define ALARM_MS    250u       /* flashlight, LED and screen toggle; a beep every 4 */
 #define AUTO_ALARM_MS 30000u   /* leave AUTO time to catch the next ~50 s burst      */
 
-/* PA4 capture, from the trigger (the cycle clock and the capture are API level 3) */
+/* PA4 capture, from the localisation (the cycle clock and the capture are API
+ * level 3). It starts 40 to 75 ms after the carrier. A T.001 frame sync ends
+ * 220 ms after the carrier start and a long frame 520 ms after it; a 70 cm
+ * test transmitter (BK4829 FSK modem) measured on 15/10/2026 sent its frame
+ * sync 365 to 385 ms and ended its frame 665 to 685 ms after it. The windows
+ * take both. */
 #define CYC_PER_SAMPLE (48000000u / DEC406_FS)      /* 5000 */
-#define SYNC_CYC    (48000000u / 1000u * 300u)      /* no frame sync by then: not a 1G frame */
+#define SYNC_CYC    (48000000u / 1000u * 400u)      /* no frame sync by then: not a 1G frame */
 #define POLL_CYC    (48000000u / 1000u * 10u)       /* RSSI while searching: the burst ended? */
-#define CAP_CYC     (48000000u / 1000u * 600u)      /* a long frame ends 520 ms after its start */
+#define CAP_CYC     (48000000u / 1000u * 750u)      /* the end of the frame */
 #define REG_2B      0x2B
 #define REG_73      0x73
 
@@ -217,11 +228,21 @@ __attribute__((noinline)) static unsigned verify(int16_t lim){
            (bit(b, 25) && syndrome(b, 107, 144, BCH2_GEN, 12)) ? K_ERR : K_OK;
 }
 
-/* A reading above the trigger on channel i: verify the burst, time it. */
+/* A reading above the trigger on channel i: the channel furthest above its
+ * floor (a strong burst leaks into all of them), then verify the burst, time
+ * it. Above the floor, not the highest RSSI: an interferer on another channel
+ * has its floor at its own level. */
 __attribute__((noinline)) static void burst(unsigned i){
     const app_api_t *A = g.A;
-    const int16_t lim = (int16_t)((g.floorQ[i] >> 4) + REARM_DB);
     const uint32_t t0 = A->ticks_ms();
+    int32_t top = INT32_MIN;
+    for (unsigned j = 0; j < N_CH; j++) {
+        tune(j);
+        const int32_t d = A->rssi_dbm() * 16 - g.floorQ[j];
+        if (d > top) { top = d; i = j; }
+    }
+    tune(i);
+    const int16_t lim = (int16_t)((g.floorQ[i] >> 4) + REARM_DB);
     unsigned k = verify(lim);
     uint32_t d;
     int16_t r;
@@ -241,7 +262,13 @@ __attribute__((noinline)) static void burst(unsigned i){
     g.n[k == K_2G]++;
     const bool autoExit = k != K_2G && !(g.mode & MODE_WATCH);
     alarm(autoExit);
-    if (autoExit) handOff(i);
+    if (autoExit && handOff(i)) return;
+    /* Still a carrier after the acknowledgement (a test transmitter keeping
+     * its CW ID on the frame's carrier): its rest would time as a new burst. The
+     * floor takes its level and falls back at once when it ends. */
+    tune(i);
+    r = A->rssi_dbm();
+    if (r >= lim) g.floorQ[i] = (int16_t)(r * 16);
 }
 
 /* One pass over the channels. A floor follows a fall at once and a rise
