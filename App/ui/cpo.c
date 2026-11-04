@@ -33,8 +33,9 @@ void UI_DisplayCPO(void)
 	char String[24];
 	const bool drill = gCW_CpoCallMode != CPO_CALL_MODE_OFF;
 	// Drills use the frequency-sized font, which a callsign and its copy fit in easily;
-	// plain practice keeps the narrower one so more free-form sending stays in view
-	const uint8_t tx_len = CW_GetTxDisplayTail(String, drill ? UI_CW_LARGE_MAX_LEN + 1 : 17);
+	// plain practice keeps the narrower one so more free-form sending stays in view.
+	// Drill lines start one cell in, so one character fewer fits.
+	const uint8_t tx_len = CW_GetTxDisplayTail(String, drill ? UI_CW_LARGE_MAX_LEN : 17);
 
 	static const char *const titles[] = {"Code Practice", "Send Callsigns", "Copy Callsigns"};
 
@@ -42,15 +43,16 @@ void UI_DisplayCPO(void)
 	UI_PrintStringSmallNormal(titles[gCW_CpoCallMode], 0, 127, 0);
 	if (tx_len > 0) {
 		if (drill)
-			UI_PrintStringCWLarge(String, 0, 3);
+			UI_PrintStringCWLarge(String, UI_CW_LARGE_PITCH, 3);
 		else
 			UI_PrintStringCW(String, 0, 0, 3);
 	}
 	if (drill) {
-		// Left-aligned like the keyed line so each character sits above its copy
+		// One cell in from the left edge like the keyed line, so each character sits
+		// above its copy
 		char call_line[CPO_CALL_LINE_SIZE];
 		CPO_Call_GetCallLine(call_line);
-		UI_PrintStringCWLarge(call_line, 0, 1);
+		UI_PrintStringCWLarge(call_line, UI_CW_LARGE_PITCH, 1);
 		char notice[CPO_CALL_NOTICE_SIZE];
 		if (CPO_Call_GetNotice(notice)) {
 			UI_PrintStringSmallNormal(notice, 0, 127, 5);
