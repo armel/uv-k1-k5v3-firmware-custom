@@ -80,7 +80,10 @@ static void VFO_RestoreBackup(void) {
         // Save and apply
         SETTINGS_SaveVfoIndices();
         RADIO_ConfigureSquelchAndOutputPower(gTxVfo);
-        RADIO_SetupRegisters(true);
+        // Reconfigure rather than a bare RADIO_SetupRegisters: that path also
+        // reasserts gMonitor and reopens CW/USB monitor, which the register
+        // reset (and the EXIT long-press monitor toggle) would leave closed.
+        gFlagReconfigureVfos = true;
 
         gHasVfoBackup = false;
     }
