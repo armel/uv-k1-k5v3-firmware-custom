@@ -82,7 +82,7 @@ void CW_ErrorBeep(void);
 bool CW_PlaybackIsCue(void);
 
 // True when the paddle/bug keyer has no character or word in progress, i.e. the
-// operator has paused for at least a word gap
+// operator has paused for at least a word gap, and no straight key is held
 bool CW_KeyerIsIdle(void);
 
 // The playback element just keyed lost setup_ms to TX/sidetone setup before it was

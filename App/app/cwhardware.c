@@ -529,9 +529,15 @@ void CW_ReadKeys(CW_Input *in)
         n_dah = false;
     }
 
-    if (CW_KeyInputLockedOut(n_dit || n_dah)) {
+    // USB port paddle modes: PTT is a straight key next to the paddle. cwkeyer.c
+    // keys it; it's read here so playback stops on it too, behind the same lockout.
+    bool n_ptt = (gEeprom.CW_KEY_INPUT & (CW_KEY_FLAG_USB_PORT | CW_KEY_FLAG_NO_KEYER)) == CW_KEY_FLAG_USB_PORT
+        && GPIO_IsPttPressed();
+
+    if (CW_KeyInputLockedOut(n_dit || n_dah || n_ptt)) {
         n_dit = false;
         n_dah = false;
+        n_ptt = false;
     }
 
     bool deb_dit = s_last_dit;
@@ -568,6 +574,7 @@ void CW_ReadKeys(CW_Input *in)
     in->dah_rise = (!s_last_dah && deb_dah);
     in->dit = deb_dit;
     in->dah = deb_dah;
+    in->ptt = n_ptt;
 
     // Track which paddle was pressed most recently (a fresh press is exactly
     // a rising edge), for Ultimatic mode's "both held -> last one wins" rule.

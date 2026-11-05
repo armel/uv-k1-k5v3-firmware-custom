@@ -98,6 +98,13 @@ typedef enum CW_IambicMode_t CW_IambicMode_t;
 #define CW_ROGER_DAH_DITS_MAX     20
 #define CW_ROGER_DAH_DITS_DEFAULT 9
 
+// Proper roger type (CWrtyp menu), the last CW settings byte. Every type leaves
+// 3 dits of space before its long dah (CW_ROGER_EXTRA_GAP_DITS).
+#define CW_ROGER_TYPE_NORMAL      0  // di-daaaah-dit (R)
+#define CW_ROGER_TYPE_SKIPPING    1  // dit dididit di-daaaah-dit (E S R)
+#define CW_ROGER_TYPE_STUTTERING  2  // dit dit di-daaaah-dit (E E R)
+#define CW_ROGER_TYPE_COUNT       3
+
 // Sidetone level (CWvol menu): 0 = off; see CW_ApplySidetoneGain for the gain curve
 #define CW_SIDETONE_LEVEL_MAX     15
 #define CW_SIDETONE_LEVEL_DEFAULT 7
@@ -119,7 +126,7 @@ typedef enum CW_IambicMode_t CW_IambicMode_t;
 #define CW_KEY_WPM_DEFAULT        18
 
 // Number of CW settings bytes (EEPROM_Config_t CW_SETTINGS)
-#define CW_SETTINGS_SIZE          11
+#define CW_SETTINGS_SIZE          12
 
 // Copy practice effective speed (Farnsworth): the slowest the gaps between
 // characters can stretch to. It always stays below the keyer speed.
@@ -449,6 +456,7 @@ typedef struct {
 			uint8_t CW_HANG_10MS;             // break-in hang time in 10 ms units
 			uint8_t CW_FARNSWORTH_WPM;        // copy practice effective speed, 0 = keyer spacing
 			uint8_t CW_FARNSWORTH_AUTO;       // copy practice narrows and widens the spacing on its own
+			uint8_t CW_ROGER_TYPE;            // proper roger type, CW_ROGER_TYPE_*
 		};
 		uint8_t CW_SETTINGS[CW_SETTINGS_SIZE];
 	};
@@ -538,7 +546,7 @@ void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep)
 //   +4  EEPROM schema (EEPROM_SCHEMA_*)
 //   +5  reserved (3)
 //   +8  CW settings, CW_SETTINGS_SIZE bytes (v1.x packed them into 8 at 0xA140)
-//   +19 reserved for new gEeprom values (45)
+//   +20 reserved for new gEeprom values (44)
 #define CW_BLOCK_ADDR          0x00A200
 #define CW_BLOCK_SIZE          0x40
 #define CW_BLOCK_HDR_SIZE      8

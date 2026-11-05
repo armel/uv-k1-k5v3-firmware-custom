@@ -996,6 +996,9 @@ _NR7Y_CW_ROGER_DITS_MIN = 3
 _NR7Y_CW_ROGER_DITS_MAX = 20
 _NR7Y_CW_ROGER_DITS_DEFAULT = 9
 
+# Proper roger type, indexed like CW_ROGER_TYPE_* in App/settings.h
+_NR7Y_CW_ROGER_TYPES = ["Normal", "Skipping", "Stuttering"]
+
 # Break-in hang time in 10 ms units, mirrors CW_HANG_10MS_* in App/settings.h
 _NR7Y_CW_HANG_10MS_MIN = 1
 _NR7Y_CW_HANG_10MS_MAX = 200
@@ -1018,8 +1021,9 @@ _NR7Y_CW_FIELDS = {
                         _NR7Y_CW_HANG_10MS_DEFAULT),
     "farnsworth_wpm":  (9, 0, _NR7Y_CW_FARNSWORTH_WPM_MAX, 0),
     "farnsworth_auto": (10, 0, 1, 0),
+    "roger_type":      (11, 0, len(_NR7Y_CW_ROGER_TYPES) - 1, 0),
 }
-_NR7Y_CW_SETTINGS_SIZE = 11
+_NR7Y_CW_SETTINGS_SIZE = 12
 
 
 def _nr7y_unpack_v1_cw_settings(old):
@@ -4365,6 +4369,21 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         except Exception as e:
             LOG.error("CW roger dits: %s", e)
 
+        # Proper Roger type
+        try:
+            rt = self._cw_get("roger_type")
+            rs_rt = RadioSetting("cw_roger_type", "Proper Roger Type (CWrtyp)",
+                                 RadioSettingValueList(_NR7Y_CW_ROGER_TYPES,
+                                                       _NR7Y_CW_ROGER_TYPES[rt]))
+            rs_rt.set_doc("What the PROPER ROGER key action sends. Normal: "
+                          "di-daaaah-dit (R). Skipping: dit dididit di-daaaah-dit "
+                          "(E S R). Stuttering: dit dit di-daaaah-dit (E E R). Each "
+                          "holds the dah for Proper Roger Dah dits, with 3 dits "
+                          "of space before it.")
+            cw.append(rs_rt)
+        except Exception as e:
+            LOG.error("CW roger type: %s", e)
+
         # Copy practice spacing (Farnsworth)
         try:
             eff = self._cw_get("farnsworth_wpm")
@@ -4492,6 +4511,9 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
                 self._cw_set("repeat_delay", element.value)
             elif name == "cw_roger_dits":
                 self._cw_set("roger_dits", element.value)
+            elif name == "cw_roger_type":
+                self._cw_set("roger_type",
+                             _NR7Y_CW_ROGER_TYPES.index(str(element.value)))
             elif name == "cw_hang_ms":
                 self._cw_set("hang_10ms", int(element.value) // 10)
             elif name == "cw_farnsworth_wpm":

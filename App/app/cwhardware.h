@@ -34,6 +34,7 @@ typedef struct {
     bool dit_rise;
     bool dah_rise;
     bool last_is_dah;  // true if dah was the most recently pressed paddle (for Ultimatic mode's tie-break)
+    bool ptt;          // USB port paddle modes: PTT, a straight key next to the paddle (keyed in cwkeyer.c)
 } CW_Input;
 
 // Read raw inputs for a specific mode

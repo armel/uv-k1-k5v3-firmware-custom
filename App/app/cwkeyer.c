@@ -108,6 +108,7 @@ static uint32_t       s_handkey_release_pending_since_ms = 0; // millis() timest
 #define CW_HANDKEY_RELEASE_DEBOUNCE_MS 10
 
 // Macro playback state
+#define CW_ROGER_EXTRA_GAP_DITS 2 // proper roger: extra space before its long dah, in dits
 static char s_playback_buf[CW_MACRO_MAX_LEN * 2 + 1]; // decoded with spaces inserted
 static uint16_t s_playback_buf_len = 0; // strlen of the buffer
 static uint16_t s_playback_pos = 0; // index into playback buffer
@@ -390,12 +391,17 @@ void CW_StartMacroPlayback(uint8_t macroIndex, bool repeat)
 #endif
 }
 
-// Proper roger: R with the dah held for CWrgr dits (default 9), di-daaaaaaaaah-dit
+// Proper roger: R with the dah held for CWrgr dits (default 9) and 3 dits of space
+// before it, di---daaaaaaaaah-dit. CWrtyp picks what leads into it: nothing, E S
+// (skipping: dit dididit di---daaaaaaaaah-dit) or E E (stuttering: dit dit
+// di---daaaaaaaaah-dit).
 void CW_StartProperRoger(void)
 {
+    static const char *const roger_text[CW_ROGER_TYPE_COUNT] = { "R", "ESR", "EER" };
+
     if (gCW_Recording || gCW_PlaybackActive) return;
 
-    strcpy(s_playback_buf, "R");
+    strcpy(s_playback_buf, roger_text[gEeprom.CW_ROGER_TYPE]);
     s_play_long_dah = true;
     CW_BeginPlayback(false, 0);
 
@@ -451,8 +457,10 @@ bool CW_PlaybackIsCue(void)
 
 bool CW_KeyerIsIdle(void)
 {
+    // A held straight key (the handkey modes, or PTT in the USB paddle modes) is
+    // keying too, though the paddle FSMs sit idle under it
     return (s_KeyerFSMState == CWK_STATE_IDLE || s_KeyerFSMState == CWK_STATE_EMIT_NONE)
-        && s_bug_state == BUG_STATE_IDLE;
+        && s_bug_state == BUG_STATE_IDLE && !s_last_handkey_ptt;
 }
 
 void CW_PlaybackExtendElement(uint32_t setup_ms)
@@ -479,9 +487,10 @@ CW_Action_t CW_PlaybackHandleState(void)
     const uint32_t cur_count = millis();
     CW_Input in = {0};
 
-    // If user hits a paddle during playback, stop playback entirely
+    // If user hits a paddle during playback (or PTT, in the USB paddle modes), stop
+    // playback entirely
     CW_ReadKeys(&in);
-    if (in.dit || in.dah) {
+    if (in.dit || in.dah || in.ptt) {
         CW_StopPlayback();
         return CW_ACTION_NONE;
     }
@@ -507,7 +516,12 @@ CW_Action_t CW_PlaybackHandleState(void)
 
     case PB_STATE_INTER_ELEMENT_GAP: {
         const uint32_t elapsed = millis_since(s_elem_start_count);
-        if (elapsed >= s_gap_count) {
+        // A roger leaves extra space before its long dah
+        const uint8_t next = s_play_elem_index + 1;
+        const bool long_dah_next = s_play_long_dah && next < s_play_char_len
+                                && ((s_play_char_pattern >> next) & 1);
+        if (elapsed >= s_gap_count
+                       + (long_dah_next ? CW_ROGER_EXTRA_GAP_DITS * (uint32_t)s_dit_count : 0)) {
             // Advance to next element in current char
             s_play_elem_index++;
             if (s_play_elem_index < s_play_char_len) {
@@ -559,11 +573,12 @@ CW_Action_t CW_PlaybackHandleState(void)
             s_pb_state = PB_STATE_INTER_WORD_GAP;
             return CW_ACTION_NONE;
         }
-        // Update TX centerline display with the next char (respect pending space)
-        if (!s_play_hidden) {
+        // Update TX centerline display with the next char (respect pending space).
+        // A roger shows only its R, so the letters leading into it read as part of it.
+        if (!s_play_hidden && !(s_play_long_dah && ch != 'R')) {
             CW_AddToTxDisplay(ch, s_play_space_pending);
+            s_play_space_pending = false;
         }
-        s_play_space_pending = false;
 
         // Get morse pattern for char 
         uint8_t patt = 0, len = 0;
@@ -752,10 +767,13 @@ CW_Action_t ptt_action(void)
     bool ptt;
 
     if (gEeprom.CW_KEY_INPUT & CW_KEY_FLAG_USB_PORT) {
-        // USB Port Handkey: either pin acts as a straight key
+        // USB port: PTT is a straight key next to the USB key, for a proper roger
+        // sent by hand. In USB Port Handkey either pin is one too; the paddle modes
+        // leave the pins to the keyer (see CW_HandleState).
         bool tip = false, ring = false;
-        CW_ReadUSBPaddleRaw(&tip, &ring);
-        ptt = tip || ring;
+        if (gEeprom.CW_KEY_INPUT & CW_KEY_FLAG_NO_KEYER)
+            CW_ReadUSBPaddleRaw(&tip, &ring);
+        ptt = tip || ring || GPIO_IsPttPressed();
         if (CW_KeyInputLockedOut(ptt))
             ptt = false;
     } else if (gEeprom.CW_KEY_INPUT & CW_KEY_FLAG_PORT_GROUND) {
@@ -990,6 +1008,22 @@ CW_Action_t CW_HandleState(void)
     // Check if keyer is disabled (handkey modes have NO_KEYER flag set)
     if (gEeprom.CW_KEY_INPUT & CW_KEY_FLAG_NO_KEYER) {
         return ptt_action();
+    }
+
+    // USB port paddle modes: PTT is a straight key next to the paddle, so a proper
+    // roger can be sent by hand. It takes over whenever the paddle isn't keying an
+    // element and keeps the carrier until it's released; the paddle FSMs wait under
+    // it and pick up where they were. Its elements aren't decoded, the same as the
+    // handkey modes.
+    if ((gEeprom.CW_KEY_INPUT & CW_KEY_FLAG_USB_PORT)
+        && (s_last_handkey_ptt
+            || (GPIO_IsPttPressed() && s_KeyerFSMState != CWK_STATE_ACTIVE_ELEMENT
+                && s_bug_state != BUG_STATE_DIT_ELEMENT && s_bug_state != BUG_STATE_DAH_HOLD))) {
+        action = ptt_action();
+        // The release debounce is shared with the bug's dah: don't hand it a stale one
+        if (!s_last_handkey_ptt)
+            s_handkey_release_pending = false;
+        return action;
     }
 
     // Semi-automatic bug keyer runs its own FSM

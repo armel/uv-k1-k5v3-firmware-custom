@@ -192,6 +192,7 @@ const t_menu_item MenuList[] =
 	{"CWmsg4",      MENU_CW_MSG4       },
 	{"CWmrpt",      MENU_CW_MSG_REPEAT },
 	{"CWrgr",       MENU_CW_ROGER_DITS },
+	{"CWrtyp",      MENU_CW_ROGER_TYPE },
 	{"CWbkin",      MENU_CW_BKIN       },
 	{"CWhang",      MENU_CW_HANG       },
 #endif
@@ -608,6 +609,14 @@ const char* gSubMenu_CW_KEYER_MODE[] =
 	"Bug"
 };
 
+// indexed by CW_ROGER_TYPE_*; 9 characters fit
+const char* gSubMenu_CW_ROGER_TYPE[] =
+{
+	"Normal",
+	"Skipping",
+	"Stutter"
+};
+
 const char* gSubMenu_CW_KEY_INPUT[] =
 {
 	"PTT\nHandKey",
@@ -697,6 +706,7 @@ static const uint8_t CatCw[] = {
     MENU_CW_FREQ, MENU_CW_SIDETONE_LEVEL, MENU_CW_KEYER_MODE, MENU_CW_KEY_WPM,
     MENU_CW_KEY_INPUT, MENU_CW_BKIN, MENU_CW_HANG, MENU_CW_MSG1, MENU_CW_MSG2,
     MENU_CW_MSG3, MENU_CW_MSG4, MENU_CW_MSG_REPEAT, MENU_CW_ROGER_DITS,
+    MENU_CW_ROGER_TYPE,
 };
 #endif
 static const uint8_t CatChannels[] = {
@@ -1830,6 +1840,10 @@ void UI_DisplayMenu(void)
 
 		case MENU_CW_ROGER_DITS:
 			sprintf(String, "Dah\n%d dits", gSubMenuSelection);
+			break;
+
+		case MENU_CW_ROGER_TYPE:
+			strcpy(String, gSubMenu_CW_ROGER_TYPE[gSubMenuSelection]);
 			break;
 
 		case MENU_CW_MSG1:
