@@ -221,7 +221,7 @@ void CW_KeyerReconfigure(bool enable)
 //   1-7:   DAC 0, tuning gain halves per step     -72 to -36 dB, 6 dB/step
 //   8-10:  full tuning gain, DAC 0/3/6            -30, -24, -18 dB
 //   11-15: full tuning gain, DAC 8/11/13/14/15    -14, -8, -4, -2, 0 dB
-// Levels 6 and 11-15 are the old levels 1-6 (see s_cw_sidetone_code_to_level).
+// Levels 6 and 11-15 are v1.x's levels 1-6 (CHIRP's v1.x image conversion maps them).
 // RX audio gets its own DAC gain back after the hang time (RADIO_SetModulation, RADIO_SetupRegisters).
 // Retune by editing the table and rebuilding.
 typedef struct {
