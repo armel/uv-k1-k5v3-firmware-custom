@@ -287,7 +287,7 @@
                 "VERSION_STRING_1": "v6.3.0",
                 "VERSION_STRING_2": "",
                 "UPSTREAM_STRING": "F4HWN v6.3.0",
-                "ENABLE_FMRADIO": false,
+                "ENABLE_FMRADIO": true,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
                 "ENABLE_FEAT_NR7Y_CW": true,
                 "ENABLE_FEAT_NR7Y_CPO": true,
