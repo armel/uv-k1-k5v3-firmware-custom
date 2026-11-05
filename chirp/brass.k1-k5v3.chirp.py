@@ -1488,6 +1488,16 @@ def do_upload(radio):
     return True
 
 
+def _dtmf_code(raw, charset, min_len, default):
+    """A DTMF code as the firmware loads it: blank (erased flash), too short, or
+    holding a character it can't send reads as its default (SETTINGS_LoadEepromDtmf
+    in App/settings.c). Otherwise CHIRP rejects the value and can't save settings."""
+    code = str(raw).upper().strip("\x00\xff\x20")
+    if len(code) < min_len or any(c not in charset for c in code):
+        return default
+    return code
+
+
 def min_max_def(value, min_val, max_val, default):
     """returns value if in bounds or default otherwise"""
     if min_val is not None and value < min_val:
@@ -2648,13 +2658,7 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
                                         "Code Interval Time (ms)", val)
         code_int_setting.set_doc('Code interval time: How long to wait between each code sent (in milliseconds)')
 
-        tmpval = str(_mem.dtmf.local_code).upper().strip(
-                "\x00\xff\x20")
-        for i in tmpval:
-            if i in DTMF_CHARS_ID:
-                continue
-            tmpval = "103"
-            break
+        tmpval = _dtmf_code(_mem.dtmf.local_code, DTMF_CHARS_ID, 3, "123")
         val = RadioSettingValueString(3, 3, tmpval)
         val.set_charset(DTMF_CHARS_ID)
         ani_id_setting = \
@@ -2662,14 +2666,7 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
                          "Local Code (3 chars 0-9 ABCD) (ANI ID)", val)
         ani_id_setting.set_doc('ANI ID: DTMF communication radio ID')
 
-        tmpval = str(_mem.dtmf.up_code).upper().strip(
-                "\x00\xff\x20")
-        for i in tmpval:
-            if i in DTMF_CHARS_UPDOWN or i == "":
-                continue
-            else:
-                tmpval = "123"
-                break
+        tmpval = _dtmf_code(_mem.dtmf.up_code, DTMF_CHARS_UPDOWN, 1, "12345")
         val = RadioSettingValueString(1, 16, tmpval)
         val.set_charset(DTMF_CHARS_UPDOWN)
         up_code_setting = \
@@ -2677,14 +2674,7 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
                          "Up Code (1-16 chars 0-9 ABCD*#) (UPCode)", val)
         up_code_setting.set_doc('UPCode: DTMF code sent at the beginning of transmission')
 
-        tmpval = str(_mem.dtmf.down_code).upper().strip(
-                "\x00\xff\x20")
-        for i in tmpval:
-            if i in DTMF_CHARS_UPDOWN:
-                continue
-            else:
-                tmpval = "456"
-                break
+        tmpval = _dtmf_code(_mem.dtmf.down_code, DTMF_CHARS_UPDOWN, 1, "54321")
         val = RadioSettingValueString(1, 16, tmpval)
         val.set_charset(DTMF_CHARS_UPDOWN)
         dw_code_setting = \
