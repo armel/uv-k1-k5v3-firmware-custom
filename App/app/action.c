@@ -336,8 +336,10 @@ void ACTION_Scan(bool bRestart)
 #ifdef ENABLE_DTMF_CALLING
     DTMF_clear_RX();
 #endif
+#ifdef ENABLE_DTMF
     gDTMF_RX_live_timeout = 0;
     DTMF_clear_input_box_memory();
+#endif
 
     RADIO_SelectVfos();
 
@@ -574,6 +576,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     HideFKeyIcon();
 
+#ifdef ENABLE_DTMF
     if (gScreenToDisplay == DISPLAY_MAIN && gDTMF_InputMode){
          // entering DTMF code
 
@@ -602,6 +605,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 #endif
         return;
     }
+#endif
 
     enum ACTION_OPT_t func = ACTION_OPT_NONE;
     switch(Key) {

@@ -1204,6 +1204,7 @@ static void CheckRadioInterrupts(void)
 //      if (ctcss_shift > 0)
 //          g_CTCSS_Lost = true;
 
+#ifdef ENABLE_DTMF
         if (interrupts.dtmf5ToneFound) {    
             const char c = DTMF_GetCharacter(BK4819_GetDTMF_5TONE_Code()); // save the RX'ed DTMF character
             if (c != 0xff) {
@@ -1238,6 +1239,7 @@ static void CheckRadioInterrupts(void)
                 }
             }
         }
+#endif
 
         if (interrupts.cssTailFound)
             g_CxCSS_TAIL_Found = true;
@@ -2208,6 +2210,7 @@ void APP_TimeSlice500ms(void)
         }
     }
 
+#ifdef ENABLE_DTMF
     if (gDTMF_RX_live_timeout > 0)
     {
         #ifdef ENABLE_RSSI_BAR
@@ -2225,6 +2228,7 @@ void APP_TimeSlice500ms(void)
             }
         }
     }
+#endif
 
     if (gMenuCountdown > 0) {
 #ifdef ENABLE_CW_MODULATOR
@@ -2673,12 +2677,14 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             && gActionPickerKey == 0
 #endif
         ) { // exit key held pressed
+#ifdef ENABLE_DTMF
             // clear the live DTMF decoder
             if (gDTMF_RX_live[0] != 0) {
                 DTMF_clear_input_box_memory();
                 gDTMF_RX_live_timeout = 0;
                 gUpdateDisplay        = true;
             }
+#endif
 
             // cancel user input
             cancelUserInputModes();
@@ -2826,7 +2832,9 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         if (!gTx1750Active)
 #endif
         {
+#ifdef ENABLE_DTMF
             char Code;
+#endif
 
             if (Key == KEY_PTT) {
                 GENERIC_Key_PTT(bKeyPressed);
@@ -2838,6 +2846,7 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             goto Skip;
         }
 #endif
+#ifdef ENABLE_DTMF
             if (Key == KEY_SIDE2) { // transmit 1750Hz tone
                 Code = 0xFE;
             }
@@ -2847,6 +2856,10 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                     goto Skip;
                 // transmit DTMF keys
             }
+#else
+            if (Key != KEY_SIDE2)   // no DTMF keys on TX, only SIDE2's 1750Hz tone
+                goto Skip;
+#endif
 
             if (!bKeyPressed || bKeyHeld) {
                 if (!bKeyPressed) {
@@ -2867,17 +2880,24 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
                 }
             }
             else {
-                if (gEeprom.DTMF_SIDE_TONE) { // user will here the DTMF tones in speaker
+#ifdef ENABLE_DTMF
+                const bool side_tone = gEeprom.DTMF_SIDE_TONE;
+#else
+                const bool side_tone = true;  // the DTMF side tone's default
+#endif
+                if (side_tone) { // user will here the DTMF tones in speaker
                     AUDIO_AudioPathOn();
                     gEnableSpeaker = true;
                 }
 
                 BK4819_DisableScramble();
 
-                if (Code == 0xFE)
-                    BK4819_TransmitTone(gEeprom.DTMF_SIDE_TONE, 1750);
+#ifdef ENABLE_DTMF
+                if (Code != 0xFE)
+                    BK4819_PlayDTMFEx(side_tone, Code);
                 else
-                    BK4819_PlayDTMFEx(gEeprom.DTMF_SIDE_TONE, Code);
+#endif
+                    BK4819_TransmitTone(side_tone, 1750);
             }
         }
 #ifdef ENABLE_TX1750

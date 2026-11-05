@@ -36,6 +36,7 @@
 
 EEPROM_Config_t gEeprom = { 0 };
 
+#ifdef ENABLE_DTMF
 // Load a DTMF code from EEPROM, falling back to default_val if invalid.
 static void SETTINGS_LoadEepromDtmf(uint32_t addr, char *dest, size_t size, const char *default_val)
 {
@@ -52,6 +53,7 @@ static void SETTINGS_LoadEepromDtmf(uint32_t addr, char *dest, size_t size, cons
         strcpy(dest, default_val);
     }
 }
+#endif
 
 #ifdef ENABLE_CW_MODULATOR
 // Valid range and default of each CW settings byte, in EEPROM_Config_t order.
@@ -406,6 +408,7 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     gEeprom.TX_VFO                         = (Data[3] <  2) ? Data[3] : 0;
     gEeprom.BATTERY_TYPE                   = (Data[4] < BATTERY_TYPE_UNKNOWN) ? Data[4] : BATTERY_TYPE_1600_MAH;
 
+#ifdef ENABLE_DTMF
     // 0ED0..0ED7
     PY25Q16_ReadBuffer(0x00A0A8 + 0x40, Data, 8);
     gEeprom.DTMF_SIDE_TONE               = (Data[0] <   2) ? Data[0] : true;
@@ -443,6 +446,7 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 
     // 0F08..0F17
     SETTINGS_LoadEepromDtmf(0x00A0F8 + 0x28, gEeprom.DTMF_DOWN_CODE, sizeof(gEeprom.DTMF_DOWN_CODE), "54321");
+#endif // ENABLE_DTMF
 
     // 0F18..0F1F
     PY25Q16_ReadBuffer(0x00A130, Data, 8);
@@ -511,7 +515,9 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 #endif
 
     //gSetting_TX_EN             = (Data[7] & (1u << 0)) ? true : false;
+#ifdef ENABLE_DTMF
     gSetting_live_DTMF_decoder = !!(Data[7] & (1u << 1));
+#endif
     gSetting_battery_text      = (((Data[7] >> 2) & 3u) <= 2) ? (Data[7] >> 2) & 3 : 2;
     #ifdef ENABLE_AUDIO_BAR
         gSetting_mic_bar       = !!(Data[7] & (1u << 4));
@@ -828,6 +834,7 @@ bool SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDis
             break;
     }
 
+#ifdef ENABLE_DTMF
     if (raw.data[5] == 0xFF)
     {
 #ifdef ENABLE_DTMF_CALLING
@@ -843,6 +850,7 @@ bool SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDis
         const uint8_t pttId = (raw.data[5] >> 1) & 7u;
         info->dtmfPttIdTxMode = pttId < ARRAY_SIZE(gSubMenu_PTT_ID) ? pttId : PTT_ID_OFF;
     }
+#endif
 
     return true;
 }
@@ -866,7 +874,9 @@ void SETTINGS_ApplyChannelScanDisplayInfo(VFO_Info_t *vfo, uint16_t channel, con
 #ifdef ENABLE_DTMF_CALLING
     vfo->DTMF_DECODING_ENABLE = info->dtmfDecodingEnable;
 #endif
+#ifdef ENABLE_DTMF
     vfo->DTMF_PTT_ID_TX_MODE = info->dtmfPttIdTxMode;
+#endif
 
     if (!vfo->FrequencyReverse)
     {
@@ -1186,6 +1196,7 @@ void SETTINGS_SaveSettings(void)
     State[3] = gEeprom.TX_VFO;
     State[4] = gEeprom.BATTERY_TYPE;
 
+#ifdef ENABLE_DTMF
     // 0x0ED0
     State = SecBuf + 0x40;
     State[0] = gEeprom.DTMF_SIDE_TONE;
@@ -1206,6 +1217,7 @@ void SETTINGS_SaveSettings(void)
 #ifdef ENABLE_DTMF_CALLING
     State[2] = gEeprom.PERMIT_REMOTE_KILL;
 #endif
+#endif // ENABLE_DTMF: without it, the DTMF bytes go back as read
 
     PY25Q16_WriteBuffer(0x00A0A8, SecBuf, 0x50, false);
 
@@ -1260,7 +1272,9 @@ void SETTINGS_SaveSettings(void)
 #endif
 
     //if (!gSetting_TX_EN)             State[7] &= ~(1u << 0);
+#ifdef ENABLE_DTMF
     if (!gSetting_live_DTMF_decoder) State[7] &= ~(1u << 1);
+#endif
     State[7] = (State[7] & ~(3u << 2)) | ((gSetting_battery_text & 3u) << 2);
     #ifdef ENABLE_AUDIO_BAR
         if (!gSetting_mic_bar)           State[7] &= ~(1u << 4);
@@ -1382,11 +1396,15 @@ void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO,
             | (pVFO->OUTPUT_POWER      << 2)
             | ((pVFO->CHANNEL_BANDWIDTH & 1u) << 1)
             | (pVFO->FrequencyReverse  << 0);
+#ifdef ENABLE_DTMF
         State -> _8[5] = ((pVFO->DTMF_PTT_ID_TX_MODE & 7u) << 1)
 #ifdef ENABLE_DTMF_CALLING
             | ((pVFO->DTMF_DECODING_ENABLE & 1u) << 0)
 #endif
         ;
+#else
+        State -> _8[5] = 0;  // PTT ID off
+#endif
         State -> _8[6] =  pVFO->STEP_SETTING;
 #ifdef ENABLE_FEAT_F4HWN
         State -> _8[7] =  0;

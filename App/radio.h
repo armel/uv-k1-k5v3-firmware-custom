@@ -128,7 +128,9 @@ typedef struct VFO_Info_t
 #ifdef ENABLE_DTMF_CALLING
     uint8_t        DTMF_DECODING_ENABLE;
 #endif
+#ifdef ENABLE_DTMF
     PTT_ID_t       DTMF_PTT_ID_TX_MODE;
+#endif
 
     uint8_t        BUSY_CHANNEL_LOCK;
 

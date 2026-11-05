@@ -119,8 +119,10 @@ void Main(void)
 
     // Not implementing authentic device checks
 
+#ifdef ENABLE_DTMF
     memset(gDTMF_String, '-', sizeof(gDTMF_String));
     gDTMF_String[sizeof(gDTMF_String) - 1] = 0;
+#endif
 
     BK4819_Init();
 

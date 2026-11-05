@@ -381,6 +381,7 @@ typedef struct {
     char                  KILL_CODE[8];
     char                  REVIVE_CODE[8];
 #endif
+#ifdef ENABLE_DTMF
     char                  DTMF_UP_CODE[16];
 
     uint8_t               field57_0x6c;
@@ -406,6 +407,7 @@ typedef struct {
 #ifdef ENABLE_DTMF_CALLING
     bool                  PERMIT_REMOTE_KILL;
 #endif
+#endif // ENABLE_DTMF
     int16_t               BK4819_XTAL_FREQ_LOW;
 #ifdef ENABLE_NOAA
     bool              NOAA_AUTO_SCAN;
@@ -475,7 +477,9 @@ typedef struct {
 #ifdef ENABLE_DTMF_CALLING
     uint8_t          dtmfDecodingEnable;
 #endif
+#ifdef ENABLE_DTMF
     PTT_ID_t         dtmfPttIdTxMode;
+#endif
 } ChannelScanDisplayInfo_t;
 
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG

@@ -76,6 +76,7 @@ enum
     MENU_S_PRI,
     MENU_S_PRI_CH_1,
     MENU_S_PRI_CH_2,    
+#ifdef ENABLE_DTMF
 #ifdef ENABLE_DTMF_CALLING
     MENU_ANI_ID,
 #endif
@@ -93,6 +94,7 @@ enum
     MENU_D_LIST,
 #endif
     MENU_D_LIVE_DEC,
+#endif // ENABLE_DTMF
     MENU_PONMSG,
     MENU_ROGER,
     MENU_VOL,
@@ -195,7 +197,9 @@ enum {
     CAT_TIMERS,
     CAT_AUDIO,
     CAT_RADIO,
+#ifdef ENABLE_DTMF
     CAT_DTMF,
+#endif
     CAT_SERVICE,   // menu cache : n'apparait que si gF_LOCK
     CAT_ALL,       // liste plate complete, ordre et numeros d'origine
     CAT_COUNT
@@ -266,7 +270,9 @@ extern const char* const            gSubMenu_D_RSP[4];
     #endif
 #endif
 
+#ifdef ENABLE_DTMF
 extern const char* const gSubMenu_PTT_ID[5];
+#endif
 #ifdef ENABLE_FEAT_F4HWN
     #ifdef ENABLE_FEAT_F4HWN_LOGO
         extern const char* const    gSubMenu_PONMSG[6];

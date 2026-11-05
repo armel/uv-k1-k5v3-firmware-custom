@@ -116,6 +116,7 @@ const t_menu_item MenuList[] =
     {"STE",         MENU_STE           },
     {"RP STE",      MENU_RP_STE        },
     {"1 Call",      MENU_1_CALL        },
+#ifdef ENABLE_DTMF
 #ifdef ENABLE_DTMF_CALLING
     {"ANI ID",      MENU_ANI_ID        },
 #endif
@@ -133,6 +134,7 @@ const t_menu_item MenuList[] =
     {"D List",      MENU_D_LIST        },
 #endif
     {"D Live",      MENU_D_LIVE_DEC    }, // live DTMF decoder
+#endif // ENABLE_DTMF
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SysInf",      MENU_VOL           }, // was "VOL"
@@ -314,6 +316,7 @@ const char* const gSubMenu_D_RSP[] =
 };
 #endif
 
+#ifdef ENABLE_DTMF
 const char* const gSubMenu_PTT_ID[] =
 {
     "OFF",
@@ -322,6 +325,7 @@ const char* const gSubMenu_PTT_ID[] =
     "UP+DOWN\nCODE",
     "APOLLO\nQUINDAR"
 };
+#endif
 
 const char* const gSubMenu_PONMSG[] =
 {
@@ -683,7 +687,9 @@ const char *const CategoryNames[CAT_COUNT] = {
     [CAT_TIMERS]   = "Timers",
     [CAT_AUDIO]    = "Audio",
     [CAT_RADIO]    = "Radio",
+#ifdef ENABLE_DTMF
     [CAT_DTMF]     = "DTMF",
+#endif
     [CAT_SERVICE]  = "Service",
     [CAT_ALL]      = "All",
 };
@@ -705,7 +711,11 @@ static const uint8_t CatChannels[] = {
 #ifdef ENABLE_FEAT_F4HWN_NARROWER
     MENU_SET_NFM,
 #endif
-    MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK, MENU_PTT_ID, MENU_LIST_CH,
+    MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK,
+#ifdef ENABLE_DTMF
+    MENU_PTT_ID,
+#endif
+    MENU_LIST_CH,
     MENU_MEM_CH, MENU_DEL_CH, MENU_MEM_NAME,
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
     MENU_SET_CFG,
@@ -745,7 +755,9 @@ static const uint8_t CatAudio[]   = {
 #endif
 };
 static const uint8_t CatRadio[]   = { MENU_SQL, MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR };
+#ifdef ENABLE_DTMF
 static const uint8_t CatDtmf[]    = { MENU_UPCODE, MENU_DWCODE, MENU_D_ST, MENU_D_PRE, MENU_D_LIVE_DEC };
+#endif
 static const uint8_t CatService[] = {
     MENU_F_LOCK, MENU_350EN,
 #ifdef ENABLE_F_CAL_MENU
@@ -768,7 +780,9 @@ static const cat_list_t CategoryLists[CAT_COUNT] = {
     [CAT_TIMERS]   = { CatTimers,   ARRAY_SIZE(CatTimers)   },
     [CAT_AUDIO]    = { CatAudio,    ARRAY_SIZE(CatAudio)    },
     [CAT_RADIO]    = { CatRadio,    ARRAY_SIZE(CatRadio)    },
+#ifdef ENABLE_DTMF
     [CAT_DTMF]     = { CatDtmf,     ARRAY_SIZE(CatDtmf)     },
+#endif
     [CAT_SERVICE]  = { CatService,  ARRAY_SIZE(CatService)  },
     [CAT_ALL]      = { NULL, 0 },
 };
@@ -1346,11 +1360,13 @@ void UI_DisplayMenu(void)
         case MENU_BCL:
         case MENU_BEEP:
         case MENU_STE:
+#ifdef ENABLE_DTMF
         case MENU_D_ST:
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
 #endif
         case MENU_D_LIVE_DEC:
+#endif
         #ifdef ENABLE_NOAA
             case MENU_NOAA_S:
         #endif
@@ -1536,6 +1552,7 @@ void UI_DisplayMenu(void)
             }
             break;
             
+#ifdef ENABLE_DTMF
 #ifdef ENABLE_DTMF_CALLING
         case MENU_ANI_ID:
             strcpy(String, gEeprom.ANI_DTMF_ID);
@@ -1569,6 +1586,7 @@ void UI_DisplayMenu(void)
         case MENU_PTT_ID:
             choiceTable = gSubMenu_PTT_ID;
             goto copy_menu_choice;
+#endif // ENABLE_DTMF
 
         case MENU_BAT_TXT:
             choiceTable = gSubMenu_BAT_TXT;

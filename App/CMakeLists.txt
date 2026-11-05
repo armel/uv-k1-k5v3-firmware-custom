@@ -22,7 +22,6 @@ target_sources(App INTERFACE
     app/app.c
     app/chFrScanner.c
     app/common.c
-    app/dtmf.c
     app/generic.c
     app/main.c
     app/menu.c
@@ -159,6 +158,13 @@ enable_feature(ENABLE_VOX)
 enable_feature(ENABLE_TX1750)
 enable_feature(ENABLE_PWRON_PASSWORD
     ui/lock.c
+)
+# All DTMF: PTT ID, keypad DTMF on TX, the live decoder, the DTMF menus
+if(ENABLE_DTMF_CALLING AND NOT ENABLE_DTMF)
+    message(FATAL_ERROR "ENABLE_DTMF_CALLING needs ENABLE_DTMF")
+endif()
+enable_feature(ENABLE_DTMF
+    app/dtmf.c
 )
 enable_feature(ENABLE_DTMF_CALLING)
 enable_feature(ENABLE_FLASHLIGHT

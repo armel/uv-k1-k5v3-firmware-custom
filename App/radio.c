@@ -468,6 +468,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             pVfo->TX_LOCK           = !!((d4 >> 6) & 1u);
         }
 
+#ifdef ENABLE_DTMF
         if (data[5] == 0xFF)
         {
 #ifdef ENABLE_DTMF_CALLING
@@ -483,6 +484,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
             uint8_t pttId = ((data[5] >> 1) & 7u);
             pVfo->DTMF_PTT_ID_TX_MODE  = pttId < ARRAY_SIZE(gSubMenu_PTT_ID) ? pttId : PTT_ID_OFF;
         }
+#endif
 
 		#ifdef ENABLE_CW_MODULATOR
 			// CW memory channels do not use these features; ignore stored values.
@@ -498,7 +500,9 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
 				pVfo->SCRAMBLING_TYPE = 0;
 
 				// No PTT ID or DTMF decode in CW
-				pVfo->DTMF_PTT_ID_TX_MODE = PTT_ID_OFF;
+				#ifdef ENABLE_DTMF
+					pVfo->DTMF_PTT_ID_TX_MODE = PTT_ID_OFF;
+				#endif
 				#ifdef ENABLE_DTMF_CALLING
 					pVfo->DTMF_DECODING_ENABLE = false;
 				#endif
@@ -512,7 +516,9 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
 				pVfo->SCRAMBLING_TYPE = 0;
 
 				// No PTT ID in SSB
-				pVfo->DTMF_PTT_ID_TX_MODE = PTT_ID_OFF;
+				#ifdef ENABLE_DTMF
+					pVfo->DTMF_PTT_ID_TX_MODE = PTT_ID_OFF;
+				#endif
 			}
 		#endif
 
@@ -1075,8 +1081,10 @@ void RADIO_SetupRegisters(bool switchToForeground)
     // RX expander
     BK4819_SetCompander((gRxVfo->Modulation == MODULATION_FM && gRxVfo->Compander >= 2) ? gRxVfo->Compander : 0);
 
+#ifdef ENABLE_DTMF
     BK4819_EnableDTMF();
     InterruptMask |= BK4819_REG_3F_DTMF_5TONE_FOUND;
+#endif
 
     RADIO_SetupAGC(gRxVfo->Modulation == MODULATION_AM, false);
     //RADIO_SetupAGC(false, false);
@@ -1541,7 +1549,9 @@ void RADIO_SendEndOfTransmission(void)
 	if (gTxVfo->Modulation != MODULATION_USB) {
 #endif
     BK4819_PlayRoger(Bandwidth);
+#ifdef ENABLE_DTMF
     DTMF_SendEndOfTransmission();
+#endif
 
     // send the CTCSS/DCS tail tone - allows the receivers to mute the usual FM squelch tail/crash
     RADIO_SendCssTail();

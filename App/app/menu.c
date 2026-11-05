@@ -370,7 +370,9 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
 #endif
+#ifdef ENABLE_DTMF
         case MENU_D_LIVE_DEC:
+#endif
         #ifdef ENABLE_NOAA
             case MENU_NOAA_S:
         #endif
@@ -435,6 +437,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = SCAN_LIST_MODE_ALL;
             break;
 
+#ifdef ENABLE_DTMF
         case MENU_PTT_ID:
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_PTT_ID) - 1;
@@ -444,6 +447,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMin = 3;
             *pMax = 99;
             break;
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -853,6 +857,7 @@ void MENU_AcceptSetting(void)
             gEeprom.SCAN_LIST_ENABLED = gSubMenuSelection;
             break;
 
+#ifdef ENABLE_DTMF
         case MENU_D_PRE:
             gEeprom.DTMF_PRELOAD_TIME = gSubMenuSelection * 10;
             break;
@@ -879,6 +884,7 @@ void MENU_AcceptSetting(void)
             gFlagReconfigureVfos     = true;
             gUpdateStatus            = true;
             break;
+#endif // ENABLE_DTMF
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -1393,6 +1399,7 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gEeprom.SCANLIST_PRIORITY_CH[1];
             break;
 
+#ifdef ENABLE_DTMF
         case MENU_D_PRE:
             gSubMenuSelection = gEeprom.DTMF_PRELOAD_TIME / 10;
             break;
@@ -1400,6 +1407,7 @@ void MENU_ShowCurrentSetting(void)
         case MENU_PTT_ID:
             gSubMenuSelection = gTxVfo->DTMF_PTT_ID_TX_MODE;
             break;
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
@@ -1410,9 +1418,11 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gDTMF_chosen_contact + 1;
             break;
 #endif
+#ifdef ENABLE_DTMF
         case MENU_D_LIVE_DEC:
             gSubMenuSelection = gSetting_live_DTMF_decoder;
             break;
+#endif
 
         case MENU_PONMSG:
             gSubMenuSelection = gEeprom.POWER_ON_DISPLAY_MODE;
@@ -2086,6 +2096,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
             if (m != MENU_SCR)
                 gAnotherVoiceID = MenuList[gMenuIndices[gMenuCursor]].voice_id;
         #endif
+#ifdef ENABLE_DTMF
         if (m == MENU_UPCODE 
             || m == MENU_DWCODE 
 #ifdef ENABLE_DTMF_CALLING 
@@ -2093,6 +2104,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 #endif
             )
             return;
+#endif
         #if 1
             if (m == MENU_DEL_CH || m == MENU_MEM_NAME)
                 if (!RADIO_CheckValidChannel(gSubMenuSelection, false, 0))

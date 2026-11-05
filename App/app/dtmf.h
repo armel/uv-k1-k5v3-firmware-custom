@@ -20,6 +20,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef ENABLE_DTMF
+
 #define    MAX_DTMF_CONTACTS   16
 
 enum DTMF_State_t {
@@ -116,5 +118,16 @@ bool DTMF_FindContact(const char *pContact, char *pResult);
 void DTMF_HandleRequest(void);
 
 #endif
+
+#else  // !ENABLE_DTMF
+
+// No DTMF: the main screen's DTMF entry is never open, so code that only checks
+// for it folds away without a guard of its own
+#define gDTMF_InputMode       false
+#define gDTMF_InputBox_Index  0
+static inline void DTMF_clear_input_box(void) {}
+static inline void DTMF_clear_input_box_memory(void) {}
+
+#endif // ENABLE_DTMF
 
 #endif

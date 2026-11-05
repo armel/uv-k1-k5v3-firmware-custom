@@ -458,7 +458,9 @@ static void app_beam_get(app_beam_channel_t *out)
     out->tx_codetype         = vfo->freq_config_TX.CodeType;
     out->modulation          = vfo->Modulation;
     out->frequency_reverse   = vfo->FrequencyReverse;
-    out->dtmf_ptt_id_mode    = vfo->DTMF_PTT_ID_TX_MODE;
+#ifdef ENABLE_DTMF
+    out->dtmf_ptt_id_mode    = vfo->DTMF_PTT_ID_TX_MODE;  /* else left 0: PTT ID off */
+#endif
     out->step_setting        = vfo->STEP_SETTING;
     out->band                = vfo->Band;
     if (IS_MR_CHANNEL(vfo->CHANNEL_SAVE))
@@ -526,7 +528,9 @@ static void app_beam_commit(void)
     app_beam_vfo.freq_config_TX.CodeType = app_beam_pending.tx_codetype;
     app_beam_vfo.Modulation              = app_beam_pending.modulation;
     app_beam_vfo.FrequencyReverse        = app_beam_pending.frequency_reverse;
+#ifdef ENABLE_DTMF
     app_beam_vfo.DTMF_PTT_ID_TX_MODE     = app_beam_pending.dtmf_ptt_id_mode;
+#endif
     app_beam_vfo.STEP_SETTING = app_beam_pending.step_setting < STEP_N_ELEM
                               ? app_beam_pending.step_setting : STEP_12_5kHz;
     app_beam_vfo.StepFrequency = gStepFrequencyTable[app_beam_vfo.STEP_SETTING];

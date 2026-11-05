@@ -157,6 +157,7 @@ void GENERIC_Key_PTT(bool bKeyPressed)
         gRequestDisplayScreen = DISPLAY_MAIN;
 
 
+#ifdef ENABLE_DTMF
     if (!gDTMF_InputMode && gDTMF_InputBox_Index == 0)
         goto start_tx;  // wasn't entering a DTMF code .. start TX'ing (maybe)
 
@@ -186,8 +187,9 @@ void GENERIC_Key_PTT(bool bKeyPressed)
     }
 
     DTMF_clear_input_box();
+#endif
 
-start_tx:
+start_tx: __attribute__((unused));  // only DTMF and the embedded FM radio jump here
     // request start TX
     gFlagPrepareTX = true;
     goto done;
