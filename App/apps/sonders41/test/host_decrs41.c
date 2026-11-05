@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "../decrs41.h"
+#include "rs41_y2642669.h"
 
 static const uint8_t MASK[64] = {
     0x96,0x83,0x3E,0x51,0xB1,0x49,0x08,0x98,
@@ -69,8 +70,8 @@ static void finishBlock(uint8_t *f, uint16_t pos)
     f[pos + 3u + len] = (uint8_t)(crc >> 8);
 }
 
-/* Sync and the STATUS block shared by both layouts. */
-static void startFrame(uint8_t *clear, const char *serial, uint8_t battery)
+/* Sync and the STATUS block: at 0x39 classic, 0x47 multi-GNSS. */
+static void startFrame(uint8_t *clear, const char *serial, uint8_t battery, uint16_t pos)
 {
     static const uint8_t sync[8] =
         { 0x86,0x35,0xF4,0x40,0x93,0xDF,0x1A,0x60 };
@@ -78,15 +79,15 @@ static void startFrame(uint8_t *clear, const char *serial, uint8_t battery)
     memset(clear, 0, RS41_FRAME_LEN);
     memcpy(clear, sync, sizeof sync);
 
-    status = clear + 0x39;
+    status = clear + pos;
     status[0] = 0x79;
     status[1] = 40;
     status[2] = 0x34;
     status[3] = 0x12;
     memcpy(status + 4, serial, 8);
-    status[12] = battery;              /* 0x45: battery, 0.1 V */
+    status[12] = battery;              /* battery, 0.1 V */
     status[25] = 0;
-    finishBlock(clear, 0x39);
+    finishBlock(clear, pos);
 }
 
 static void whiten(const uint8_t *clear, uint8_t *wire)
@@ -137,23 +138,24 @@ static void putGnss(uint8_t *clear)
 
 static void makeFrame(uint8_t *clear, uint8_t *wire)
 {
-    startFrame(clear, "S1234567", 29);
+    startFrame(clear, "S1234567", 29, 0x39);
     putGps(clear);
     whiten(clear, wire);
 }
 
-/* Multi-GNSS layout: PTU 0x7A, 0x96 (likely an authentication tag), 0x82
- * position, 0x83 satellites, 0x76 padding to the end; no classic GPS block. */
+/* Multi-GNSS layout, as received from Y2642669: 0x96 (likely an
+ * authentication tag), STATUS at 0x47, PTU 0x7A, 0x82 position, 0x83
+ * satellites, 0x76 padding to the end; no classic GPS block. */
 static void makeGnssFrame(uint8_t *clear, uint8_t *wire)
 {
-    static const uint8_t blocks[][3] = {
-        { 0x65, 0x7A, 42 }, { 0x93, 0x96, 10 }, { 0xCB, 0x83, 41 },
+    static const uint16_t blocks[][3] = {
+        { 0x39, 0x96, 10 }, { 0x73, 0x7A, 42 }, { 0xCB, 0x83, 41 },
         { 0xF8, 0x76, RS41_FRAME_LEN - 0xF8 - 4 }
     };
-    startFrame(clear, "X7654321", 31);
+    startFrame(clear, "X7654321", 31, 0x47);
     for (unsigned i = 0; i < sizeof blocks / sizeof blocks[0]; i++) {
-        clear[blocks[i][0]] = blocks[i][1];
-        clear[blocks[i][0] + 1u] = blocks[i][2];
+        clear[blocks[i][0]] = (uint8_t)blocks[i][1];
+        clear[blocks[i][0] + 1u] = (uint8_t)blocks[i][2];
         finishBlock(clear, blocks[i][0]);
     }
     putGnss(clear);
@@ -214,7 +216,7 @@ static void checkParse(void)
     assert(info.flags == SONDE_HAS_ID);
 
     /* Both position blocks valid: the classic one is read, as before. */
-    startFrame(clear, "S1234567", 29);
+    startFrame(clear, "S1234567", 29, 0x39);
     putGps(clear);
     putGnss(clear);
     whiten(clear, wire);
@@ -255,11 +257,54 @@ static void checkGnss(void)
     memset(&info, 0, sizeof info);
     assert(decrs41_parse(&d, &info));
     assert(info.flags == SONDE_HAS_ID);
+
+    /* A broken STATUS at 0x47: rejected. */
+    makeGnssFrame(clear, wire);
+    initDec(&d);
+    wire[0x47 + 4] ^= 1u;
+    loadWire(&d, wire);
+    assert(!decrs41_parse(&d, &info));
 }
 
-/* Key polls only between the parsed blocks, 3 bytes of margin each side:
- * after STATUS (0x39..0x65), around the 0x82 block (0xA1..0xCB), before the
- * classic GPS block (0x112). */
+/* Frames received from Y2642669 (fw 0x50dd); expected values from an exact
+ * floating-point conversion of their ECEF blocks. The vertical speed is the
+ * velocity along the geocentric radius, as the app reads it (5.28 and 3.88
+ * m/s; on the ellipsoid normal, 5.34 and 3.96). */
+static void checkReal(void)
+{
+    static const struct {
+        int32_t latS, lonS, alt;
+        int16_t vs;
+        uint16_t hs, hdg;
+        uint8_t batt;
+    } want[2] = {
+        { 15398413, 8379760, 9440, 53, 17, 354, 28 },   /* 42.77337 N 23.27711 E */
+        { 15403362, 8380209, 9936, 39, 24, 15, 27 },    /* 42.78712 N 23.27836 E */
+    };
+    for (unsigned n = 0; n < 2u; n++) {
+        uint8_t wire[RS41_FRAME_LEN];
+        decrs41_t d;
+        sonde_info_t info = {0};
+        whiten(Y2642669[n], wire);
+        initDec(&d);
+        loadWire(&d, wire);
+        assert(decrs41_parse(&d, &info));
+        assert(!strcmp(info.id, "Y2642669"));
+        assert(info.batt_dv == want[n].batt);
+        assert(info.flags & SONDE_HAS_POS);
+        assert(info.latS > want[n].latS - 100 && info.latS < want[n].latS + 100);
+        assert(info.lonS > want[n].lonS - 100 && info.lonS < want[n].lonS + 100);
+        assert(info.alt_m >= want[n].alt - 5 && info.alt_m <= want[n].alt + 5);
+        assert(info.vs_dm >= want[n].vs - 1 && info.vs_dm <= want[n].vs + 1);
+        assert(info.hs_ms >= want[n].hs - 1u && info.hs_ms <= want[n].hs + 1u);
+        assert(info.hdg >= want[n].hdg - 1u && info.hdg <= want[n].hdg + 1u);
+    }
+}
+
+/* Key polls only outside the parsed blocks of both layouts, 3 bytes of
+ * margin each side: before STATUS (0x39 classic), after STATUS (0x47..0x72
+ * multi-GNSS), around the 0x82 block (0xA1..0xCA), before the classic GPS
+ * block (0x112). */
 static void checkHold(void)
 {
     decrs41_t d;
@@ -267,7 +312,7 @@ static void checkHold(void)
     assert(decrs41_holdOk(&d));        /* both slicers searching */
     d.sl[0].state = 1u;                /* ST_DATA */
     for (uint16_t b = 8; b < RS41_FRAME_LEN; b++) {
-        bool in = (b >= 0x68u && b < 0x9Eu) || (b >= 0xCEu && b < 0x10Fu);
+        bool in = b < 0x36u || (b >= 0x76u && b < 0x9Eu) || (b >= 0xCEu && b < 0x10Fu);
         d.sl[0].nbit = (uint16_t)(b * 8u);
         assert(decrs41_holdOk(&d) == in);
         d.sl[0].nbit = (uint16_t)(b * 8u + 7u);
@@ -286,7 +331,7 @@ static void checkDemod(bool inverted, bool gnss)
     uint8_t clear[RS41_FRAME_LEN], wire[RS41_FRAME_LEN];
     decrs41_t d;
     sonde_info_t info = {0};
-    if (gnss) makeGnssFrame(clear, wire);
+    if (gnss) whiten(Y2642669[0], wire);
     else makeFrame(clear, wire);
     initDec(&d);
     for (uint16_t i = 0; i < 320u; i++) feedBit(&d, i & 1u, inverted);
@@ -298,7 +343,7 @@ static void checkDemod(bool inverted, bool gnss)
     for (uint8_t i = 0; i < 8u; i++) done |= decrs41_push(&d, inverted ? 800u : 3200u);
     assert(done);
     assert(decrs41_parse(&d, &info));
-    assert(!strcmp(info.id, gnss ? "X7654321" : "S1234567"));
+    assert(!strcmp(info.id, gnss ? "Y2642669" : "S1234567"));
     assert(info.flags & SONDE_HAS_POS);
 }
 
@@ -331,6 +376,7 @@ int main(void)
 {
     checkParse();
     checkGnss();
+    checkReal();
     checkHold();
     checkDemod(false, false);
     checkDemod(true, false);

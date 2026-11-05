@@ -283,22 +283,23 @@ def wire_of(frame):
 
 
 STATUS = range(0x39, 0x39 + 44)
+STATUS_GNSS = range(F.GNSS_STATUS, F.GNSS_STATUS + 44)
 
 
-def frames(adc, ref, dm):
+def frames(adc, ref, dm, status=STATUS):
     """Bursts whose STATUS block came out exact (what the app counts)."""
     good = 0
     for x in adc:
         if not dm.push(x):
             continue
         if isinstance(dm, OldDemod):
-            good += all(dm.frm[i] == ref[i] for i in STATUS)
+            good += all(dm.frm[i] == ref[i] for i in status)
             dm.rearm()
             continue
         for s in dm.sl:
             if s.state != 2:
                 continue
-            if all(s.frm[i] == ref[i] for i in STATUS):
+            if all(s.frm[i] == ref[i] for i in status):
                 good += 1
                 dm.rearm()
                 break
@@ -316,9 +317,9 @@ def main():
     for name in ("valid", "inverted", "badcrc", "badpos",
                  "gnss_valid", "gnss_inverted", "gnss_badpos"):
         w = sub_wave(os.path.join(here, "flipper", "rs41_%s.sub" % name))
-        r = ref_gnss if name.startswith("gnss") else ref
+        r, st = (ref_gnss, STATUS_GNSS) if name.startswith("gnss") else (ref, STATUS)
         for label, mk in (("new", Demod), ("old", OldDemod)):
-            row = [frames(channel(w, hp=hp, seed=hp), r, mk()) for hp in hps]
+            row = [frames(channel(w, hp=hp, seed=hp), r, mk(), st) for hp in hps]
             print("%-13s %-5s %s" % (name, label, "  ".join("%-7d" % v for v in row)))
     print()
     print("noise and clock sweep, new demod: per corner, noise 0/1000/1500,"

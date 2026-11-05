@@ -216,15 +216,28 @@ static void draw(const char *s)
     tiny(str, (uint8_t)(128u - (unsigned)(o - str) * 4u), 49, o);
 }
 
-/* One new key press (EXIT and a successful GeoNav handoff leave listen). */
+/* One new key press (EXIT and a successful hand-off leave listen). Once a
+ * position is decoded, MENU hands the whole sonde_info_t to GeoNav, which
+ * hands it back on EXIT; 7 hands QR Map its message (latitude, longitude,
+ * then the ID as its label), and QR Map's EXIT starts this app again. Not
+ * installed: nothing happens. */
 static bool handleKey(uint8_t key)
 {
     if (key == APP_KEY_F) { g.fArm = !g.fArm; return false; }
     const bool reverse = g.fArm;
-    g.fArm = false;              /* any other key disarms F, MENU included */
+    g.fArm = false;              /* any other key disarms F, MENU and 7 included */
+    const sonde_info_t *in = &g.info;
     if (key == APP_KEY_MENU)
-        return (g.info.flags & SONDE_HAS_POS) != 0u &&
-               g.A->handoff(GEONAV_APP_NAME, &g.info, APP_HANDOFF_MAX);
+        return (in->flags & SONDE_HAS_POS) != 0u &&
+               g.A->handoff(GEONAV_APP_NAME, in, APP_HANDOFF_MAX);
+    if (key == APP_KEY_7) {
+        int32_t m[2 + sizeof in->id / 4];        /* latitude, longitude, ID */
+        m[0] = in->latS;
+        m[1] = in->lonS;
+        memcpy(m + 2, in->id, sizeof in->id);
+        return (in->flags & SONDE_HAS_POS) != 0u &&
+               g.A->handoff("QR Map", m, sizeof m);
+    }
     switch (key) {
         case APP_KEY_1: g.cfg.spk = !g.cfg.spk; rxAudio(); break;
         case APP_KEY_2: {
@@ -285,9 +298,9 @@ static void listen(const char *ui)
         if (g.pendKey == APP_KEY_EXIT) break;
         bool keyUi = false;
         if (!busy && g.pendKey != APP_KEY_INVALID) {
-            const bool geo = handleKey(g.pendKey);
+            const bool handedOff = handleKey(g.pendKey);
             g.pendKey = APP_KEY_INVALID;
-            if (geo) break;
+            if (handedOff) break;
             keyUi = true;
         }
         if ((uint32_t)(clk() - g.tFrame) > TRACK_CYC) g.track = false;
