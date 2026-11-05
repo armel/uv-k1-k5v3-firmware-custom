@@ -20,6 +20,7 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 enable_language(C ASM)
 
 option(DEV "Prepare the rolling Fusion development firmware" OFF)
+option(ENABLE_FEAT_F4HWN_UI_PLUS "Include the optional UI+ display style" OFF)
 
 find_package(Git QUIET)
 set(BUILD_COMMIT "unknown")

@@ -48,6 +48,7 @@ target_sources(App INTERFACE
     ui/scanner.c
     ui/status.c
     ui/ui.c
+    ui/ui_plus.c
     ui/welcome.c
     "version.c"
     main.c
@@ -177,6 +178,7 @@ enable_feature(ENABLE_FASTER_CHANNEL_SCAN)
 enable_feature(ENABLE_RSSI_BAR)
 enable_feature(ENABLE_AUDIO_BAR)
 enable_feature(ENABLE_FEAT_F4HWN_AUDIO_SCOPE)
+enable_feature(ENABLE_FEAT_F4HWN_UI_PLUS)
 enable_feature(ENABLE_COPY_CHAN_TO_VFO)
 enable_feature(ENABLE_REDUCE_LOW_MID_TX_POWER)
 enable_feature(ENABLE_BYP_RAW_DEMODULATORS)

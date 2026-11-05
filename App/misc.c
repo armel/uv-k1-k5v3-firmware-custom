@@ -125,7 +125,7 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     uint8_t       gSetting_set_eot = 0;
     uint8_t       gSetting_set_lck = SET_LCK_KEYS;
     bool          gSetting_set_met = 0;
-    bool          gSetting_set_gui = 0;
+    uint8_t       gSetting_set_gui = 0;
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         uint8_t       gSetting_set_audio_fm = 0;
         uint8_t       gSetting_set_audio_am = 0;

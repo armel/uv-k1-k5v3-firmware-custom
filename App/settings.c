@@ -16,6 +16,7 @@
  */
 
 #include <string.h>
+#include "ui/gui_style.h"
 
 #include "app/dtmf.h"
 #ifdef ENABLE_FMRADIO
@@ -515,7 +516,7 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 #endif
         gSetting_set_lck = (Data[2] < SET_LCK_LEN) ? Data[2] : SET_LCK_KEYS;
         gSetting_set_met = (tmp >> 2) & 0x01;
-        gSetting_set_gui = (tmp >> 3) & 0x01;
+        gSetting_set_gui = GUI_STYLE_Decode(Data[5]);
 
 #ifdef ENABLE_FEAT_F4HWN_CTR
         int ctr_value = Data[5] & 0x0F;
@@ -938,7 +939,6 @@ void SETTINGS_SaveVfoIndicesFlush(void)
 void SETTINGS_SaveSettings(void)
 {
     uint8_t *State;
-    uint8_t tmp = 0;
     uint8_t SecBuf[0x50];
 
     // ----------------------
@@ -1188,12 +1188,11 @@ void SETTINGS_SaveSettings(void)
     State[4] = gSetting_set_tmr ? (1 << 0) : 0;
 #endif
 
-    tmp =   (gSetting_set_inv << 0) |
-            (gSetting_set_met << 2) |
-            (gSetting_set_gui << 3);
-
     State[2] = gSetting_set_lck;
-    State[5] = ((tmp << 4) | (gSetting_set_ctr & 0x0F));
+    State[5] = (gSetting_set_ctr & 0x0F) |
+               (gSetting_set_inv << 4) |
+               (gSetting_set_met << 6) |
+               GUI_STYLE_Encode(gSetting_set_gui);
     State[6] = ((gSetting_set_tot << 4) | (gSetting_set_eot & 0x0F));
     uint8_t set_ptt_scn_sav = gSetting_set_ptt & 0x01;
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER

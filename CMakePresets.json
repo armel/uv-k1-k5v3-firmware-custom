@@ -118,6 +118,7 @@
             "name": "Fusion",
             "inherits": "default",
             "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_UI_PLUS": true,
                 "ENABLE_NO_HEAP": true,
                 "ENABLE_SPECTRUM": true,
                 "ENABLE_FMRADIO": true,
@@ -162,6 +163,7 @@
             "name": "FieldOps",
             "inherits": "Fusion",
             "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_UI_PLUS": false,
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_FOXHUNT": true,
                 "ENABLE_FEAT_F4HWN_BEACON": true,
@@ -173,6 +175,7 @@
             "name": "Transfer",
             "inherits": "Fusion",
             "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_UI_PLUS": false,
                 "ENABLE_AIRCOPY": true,
                 "ENABLE_AIRCOPY_UART": true,
                 "ENABLE_AIRCOPY_FLASH": true,
@@ -185,6 +188,7 @@
             "name": "Labs",
             "inherits": "Fusion",
             "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_UI_PLUS": false,
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_FOXHUNT": false,
                 "ENABLE_FEAT_F4HWN_BEACON": false,
@@ -266,6 +270,7 @@
             "name": "Max",
             "inherits": "Fusion",
             "cacheVariables": {
+                "ENABLE_FEAT_F4HWN_UI_PLUS": false,
                 "ENABLE_FEAT_F4HWN_FULL_WATCH": false,
                 "ENABLE_FEAT_F4HWN_RESCUE_OPS": true,
                 "ENABLE_FEAT_F4HWN_FOXHUNT": true,

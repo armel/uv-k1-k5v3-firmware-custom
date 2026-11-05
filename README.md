@@ -543,6 +543,54 @@ remains an explicit Git operation.
 - The first run may take a few minutes while Docker builds the base image.
 - Each build runs inside Docker, so your host environment remains clean.
 
+## UI+ display style
+
+Fusion includes an optional third display style at **Display → SetGUI → UI+**.
+TINY and CLASSIC retain their existing rendering. Saved style selections remain
+unchanged when upgrading.
+
+UI+ supports single-channel and dual A/B NAME+FREQ, FREQ, NAME and CHANNEL NUMBER
+views, plus VFO frequency mode and mixed memory/VFO screens. It reuses existing
+fonts, fits ten-character names and four-digit MHz/memory numbers, and keeps all
+five frequency decimal places visible. Compact secondary indicators preserve
+modulation, tone, power, offset, reverse, bandwidth and applicable SQL/MONI details.
+RX/TX meters share reserved space so normal reception and transmission do not move
+the main readouts. Scanning and existing messages retain their placement behavior;
+digit entry, warnings, DTMF, Full Watch and range details retain their special layouts.
+
+Full-screen examples generated from the firmware renderer with mocked radio I/O:
+[dual frequency](preview/ui-plus/dual-frequency.png),
+[dual name/channel/VFO](preview/ui-plus/dual-formats.png),
+[activity and mixed views](preview/ui-plus/dual-activity.png),
+[single name](preview/ui-plus/single-name.png), and
+[single VFO](preview/ui-plus/single-vfo.png).
+
+The `ENABLE_FEAT_F4HWN_UI_PLUS` build option defaults on in Fusion and off in the
+other presets. It can be enabled explicitly when flash space permits. Builds
+without the option retain the two-style menu and display a saved UI+ selection as
+CLASSIC. This change does not alter scanning behavior, channel records, calibration
+or the programming protocol.
+
+UI+ uses previously unused bit 5 of display-settings byte `0x00A15D`, together
+with the existing CLASSIC bit 7. Contrast, inversion and meter bits are preserved.
+Legacy saved TINY/CLASSIC values retain their meaning. Older firmware interprets
+UI+ as CLASSIC; saving settings there can clear the UI+ selection. With UI+ compiled
+in, `0xFF` decodes as UI+ (including an erased display byte). A CHIRP round-trip
+of the new style flag has not been hardware-tested.
+
+Build and validate from the repository root:
+
+```sh
+./compile-firmware.sh Fusion
+python3 tools/ui_plus/check.py --baseline-ref 3261ca7883d5b0b60c0905d8766612dee7b4191d
+node tools/check-menu-settings.mjs
+```
+
+The host checks run the production renderer under AddressSanitizer and
+UndefinedBehaviorSanitizer, compare TINY/CLASSIC with the upstream baseline,
+exercise live meters and layout boundaries, and test display-setting encoding.
+They require Clang, Python 3 and an existing Fusion build; no radio is accessed.
+
 ## Flashing the Firmware with UV Studio
 
 You can flash the UV-K5 V3 and UV-K1 directly from your web browser using the Web Serial-based [UV Studio](https://armel.github.io/uvstudio/).

@@ -1,11 +1,11 @@
 // Source-level regression check only: does not compile or execute firmware.
-// Run from the repository root: rtk run "node tools/check-menu-settings.mjs"
+// Run from the repository root: node tools/check-menu-settings.mjs
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 
 const baseline = 'f7004b871abbe296981c5a8b990718e8243262d6';
-const original = execFileSync('rtk', ['run', `git show ${baseline}:App/app/menu.c`], {encoding: 'utf8'});
+const original = execFileSync('git', ['show', `${baseline}:App/app/menu.c`], {encoding: 'utf8'});
 const current = readFileSync('App/app/menu.c', 'utf8');
 const definitions = readFileSync('App/app/menu_settings.def', 'utf8');
 const presets = JSON.parse(readFileSync('CMakePresets.json', 'utf8')).configurePresets;
@@ -93,7 +93,12 @@ for (const [, id, value, minimum, maximum] of entries) {
     const min = /\*pMin\s*=\s*([^;]+);/.exec(limits)?.[1] ?? '0';
     const max = /\*pMax\s*=\s*([^;]+);/.exec(limits)?.[1];
     assert.equal(compact(minimum), compact(min), `${id}: minimum changed`);
-    assert.equal(compact(maximum), compact(max), `${id}: maximum changed`);
+    if (id === 'MENU_SET_GUI') {
+        assert.equal(compact(max), 'ARRAY_SIZE(gSubMenu_SET_MET)-1');
+        assert.equal(compact(maximum), 'ARRAY_SIZE(gSubMenu_SET_GUI)-1');
+    } else {
+        assert.equal(compact(maximum), compact(max), `${id}: maximum changed`);
+    }
     assert.equal(compact(before[1].get(id)), compact(`${value} = gSubMenuSelection; break;`),
         `${id}: original write has additional behavior`);
     assert.match(compact(before[2].get(id)),
@@ -131,5 +136,5 @@ assert(compact(current).includes(compact(`
     gSubMenuSelection = *setting->value;
     return;
 `)), 'Generic read contract changed');
-console.log(`PASS: ${entries.length} Fusion descriptors match the reference; ${preserved} special cases unchanged.`);
+console.log(`PASS: ${entries.length} Fusion descriptors validated (including the third SetGUI style); ${preserved} special cases unchanged.`);
 console.log('Source equivalence check only; firmware compilation and device validation are still required.');

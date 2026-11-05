@@ -15,6 +15,7 @@
  */
 
 #include <string.h>
+#include "ui/gui_style.h"
 #include <stdlib.h>  // abs()
 
 #include "app/app.h"
@@ -46,6 +47,7 @@
 #include "ui/inputbox.h"
 #include "ui/main.h"
 #include "ui/ui.h"
+#include "ui/ui_plus.h"
 #include "audio.h"
 #include "menu.h"
 
@@ -56,6 +58,17 @@
 center_line_t center_line = CENTER_LINE_NONE;
 
 #ifdef ENABLE_FEAT_F4HWN
+#if UI_PLUS_ENABLED
+    // Live TX meter updates share page 3 with the lowered A status row.
+    static bool gUiPlusLoweredA;
+    static bool gUiPlusSingle;
+    // Frequency, channel-number and name-only views share the compact header.
+    static bool gUiPlusLargeReadout;
+#else
+#define gUiPlusLoweredA false
+#define gUiPlusSingle false
+#define gUiPlusLargeReadout false
+#endif
     // static int8_t RxBlink;
     static int8_t RxBlinkLed = 0;
     static int8_t RxBlinkLedCounter;
@@ -68,6 +81,20 @@ center_line_t center_line = CENTER_LINE_NONE;
     {
         return (gEeprom.DUAL_WATCH == DUAL_WATCH_OFF) && (gEeprom.CROSS_BAND_RX_TX == CROSS_BAND_OFF);
     }
+#endif
+
+#ifdef ENABLE_FEAT_F4HWN
+static void UI_MAIN_DrawSingleMessage(const char *text, uint8_t start, bool bold)
+{
+    uint8_t saved[LCD_WIDTH];
+    memcpy(saved, gFrameBuffer[5], sizeof(saved));
+    memset(gFrameBuffer[5], 0, LCD_WIDTH);
+    if (bold)
+        UI_PrintStringSmallBold(text, start, LCD_WIDTH - 1, 5);
+    else
+        UI_PrintStringSmallNormal(text, start, 0, 5);
+    UI_PLUS_FinishSingleActivity(saved, true);
+}
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_SCAN_PROGRESS
@@ -104,6 +131,10 @@ static uint8_t  gScanListNameCountdown_10ms;
 static void UI_MAIN_DrawCenterBoldLine(const char *text, uint8_t start)
 {
 #ifdef ENABLE_FEAT_F4HWN
+    if (gUiPlusSingle) {
+        UI_MAIN_DrawSingleMessage(text, start, true);
+        return;
+    }
     const uint8_t line = isMainOnly() ? 5 : 3;
 #else
     const uint8_t line = 3;
@@ -188,7 +219,7 @@ static uint8_t UI_MAIN_GetScanRssiSparklineMask(uint8_t previousLevel, uint8_t l
 static void UI_MAIN_DrawScanRssiSparkline(uint8_t line)
 {
     uint8_t *p_line = gFrameBuffer[line];
-    const uint8_t x0 = 7;
+    const uint8_t x0 = gUiPlusLargeReadout ? 42 : 7;
     uint8_t level[CHFRSCANNER_RSSI_SPARKLINE_WIDTH];
 
     if (!CHFRSCANNER_HasScanRssiSparkline())
@@ -216,7 +247,10 @@ static void UI_MAIN_DrawScanRssiSparkline(uint8_t line)
         }
 
         const uint8_t mask = UI_MAIN_GetScanRssiSparklineMask(previousLevel, displayLevel);
-        p_line[x0 + i] = (p_line[x0 + i] & 0x80) | mask;
+        if (gUiPlusSingle)
+            UI_PLUS_DrawIcon(&mask, 1, x0 + i, gUiPlusLargeReadout ? 1 : 23);
+        else
+            p_line[x0 + i] = (p_line[x0 + i] & 0x80) | mask;
     }
 }
 #endif
@@ -653,6 +687,11 @@ static bool UI_DrawScanProgress(void)
         gScanProgressPriorityState = 0;
     }
 
+    uint8_t saved[LCD_WIDTH];
+    if (gUiPlusSingle) {
+        memcpy(saved, gFrameBuffer[5], sizeof(saved));
+        memset(gFrameBuffer[5], 0, LCD_WIDTH);
+    }
     const uint8_t width = ScanProgress_DecimalDigits(total);
 
     ScanProgress_FormatIndex(text, sizeof(text), current_index, total, width);
@@ -678,6 +717,8 @@ static bool UI_DrawScanProgress(void)
 #endif
 
     ScanProgress_DrawGaugeLine(line, current_index, total, width, show_memory, show_range, extra_offset);
+    if (gUiPlusSingle)
+        UI_PLUS_FinishSingleActivity(saved, false);
 
     return true;
 }
@@ -701,7 +742,7 @@ static void DrawSmallPowerBars(uint8_t *p, unsigned int level)
 }
 #if defined ENABLE_AUDIO_BAR || defined ENABLE_RSSI_BAR
 
-static void DrawLevelBar(uint8_t xpos, uint8_t line, uint8_t level, uint8_t bars)
+static void DrawLevelBar(uint8_t xpos, uint8_t line, uint8_t level, uint8_t bars, bool compact)
 {
 #ifndef ENABLE_FEAT_F4HWN
     const char hollowBar[] = {
@@ -717,6 +758,19 @@ static void DrawLevelBar(uint8_t xpos, uint8_t line, uint8_t level, uint8_t bars
 
     for(uint8_t i = 0; i < level; i++) {
 #ifdef ENABLE_FEAT_F4HWN
+        if (compact) {
+            // Spread the compact RX meter's 13 segments over all three rows:
+            // 1-5 are one pixel, 6-9 two, and the four over-S9 bars three.
+            // All compact RX segments are solid, including over S9.
+            // Keep the 25-segment TX microphone meter's existing style.
+            const uint8_t height = bars == 13 ? 1u + i * 3u / bars :
+                                   (gSetting_set_met ? MIN(i + 1u, 3u) : 3u);
+            const uint8_t filled = (0x7Fu << (7u - height)) & 0x70u;
+            for (uint8_t j = 0; j < 4; j++)
+                p_line[xpos + i * 5u + j] |= (bars == 13 || i < bars - 4) ? filled :
+                                            (j == 0 || j == 3 ? 0x70u : 0x50u);
+            continue;
+        }
         if(gSetting_set_met)
         {
             const char hollowBar[] = {
@@ -836,9 +890,20 @@ void UI_DisplayAudioBar(void)
         barsOld = (barsOld - bars > 1) ? (barsOld - 1) : bars;
 
         uint8_t *p_line = gFrameBuffer[line];
-        memset(p_line, 0, LCD_WIDTH);
+        uint8_t saved[LCD_WIDTH];
+        if (gUiPlusSingle)
+            memcpy(saved, p_line, sizeof(saved));
+        bool compact = false;
+#ifdef ENABLE_FEAT_F4HWN
+        compact = gUiPlusLoweredA && line == 3;
+#endif
+        // Preserve A's last three status rows during every live refresh.
+        for (unsigned int x = 0; x < LCD_WIDTH; x++)
+            p_line[x] &= compact ? 0x07u : 0u;
 
-        DrawLevelBar(2, line, barsOld, 25);
+        DrawLevelBar(2, line, barsOld, 25, compact);
+        if (gUiPlusSingle)
+            UI_PLUS_FinishSingleActivity(saved, true);
 
         if (gCurrentFunction == FUNCTION_TRANSMIT)
             ST7565_BlitFullScreen();
@@ -853,7 +918,7 @@ void UI_DisplayAudioBar(void)
 #define SCOPE_FLOOR_DROP_SHR 3u   // floor drop IIR shift: drop by (floor-min) >> N per frame (~160ms to halve)
 #define SCOPE_VOLUME_MIN     200u // let's assume that the sound level in silence is 200
 
-void UI_DisplayAudioScopeOverlay(const uint8_t line, const bool active)
+static void DrawAudioScope(const uint8_t line, const bool active, const bool compact)
 {
     static uint16_t g_scope_buf[SCOPE_SAMPLES];
     static uint8_t  g_scope_write      = 0;
@@ -895,7 +960,8 @@ void UI_DisplayAudioScopeOverlay(const uint8_t line, const bool active)
     g_scope_write = (g_scope_write + 1u) % SCOPE_SAMPLES;
 
     uint8_t *p_line = gFrameBuffer[line];
-    memset(p_line, 0, LCD_WIDTH);
+    for (unsigned int x = 0; x < LCD_WIDTH; x++)
+        p_line[x] &= compact ? 0x07u : 0u;
 
     // Find min and max across current buffer
     uint16_t min_val = g_scope_buf[0];
@@ -920,19 +986,26 @@ void UI_DisplayAudioScopeOverlay(const uint8_t line, const bool active)
         uint8_t        height = 0u;
         if (range >= SCOPE_NOISE_GATE) {
             const uint16_t v = (g_scope_buf[idx] > g_scope_floor) ? (g_scope_buf[idx] - g_scope_floor) : 0u;
-            height = (uint8_t)((uint32_t)v * 7u / range);
+            height = (uint8_t)((uint32_t)v * (compact ? 3u : 7u) / range);
         }
-        // Filled column using bits 6..0 only (bit 7 always off to avoid overlap with text below)
+        // Full height uses bits 6..0; compact uses 6..4 with a gap above/below.
+        // Bits 2..0 belong to A's lowered status row in compact mode.
         // At silence (height 0): single pixel at bit 6 (baseline)
         const uint8_t mask = (height > 0u) ? (uint8_t)((0x7Fu << (7u - height)) & 0x7Fu) : 0x40u;
         // 2px column + 1px gap per sample
 
         uint8_t *p_col = &p_line[i * 3u];
-        p_col[0] = mask;
-        p_col[1] = mask;
+        p_col[0] |= mask;
+        p_col[1] |= mask;
 
     }
 
+}
+
+void UI_DisplayAudioScopeOverlay(const uint8_t line, const bool active)
+{
+    // Overlay apps retain their original full-height scope.
+    DrawAudioScope(line, active, false);
 }
 
 #ifdef ENABLE_FEAT_F4HWN_AUDIO_SCOPE
@@ -972,7 +1045,18 @@ void UI_DisplayAudioScope(void)
     RxBlinkLedCounter = 0;
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
 #endif
-    UI_DisplayAudioScopeOverlay((uint8_t)line, true);
+    bool compact = false;
+#ifdef ENABLE_FEAT_F4HWN
+    compact = gUiPlusLoweredA && line == 3;
+#endif
+    uint8_t saved[LCD_WIDTH];
+    if (gUiPlusSingle)
+        memcpy(saved, gFrameBuffer[5], sizeof(saved));
+    DrawAudioScope((uint8_t)line, true, compact);
+    if (gUiPlusSingle) {
+        UI_PLUS_FinishSingleActivity(saved, true);
+        ST7565_BlitLine(4);
+    }
     ST7565_BlitLine(line);
 }
 #endif
@@ -1021,15 +1105,32 @@ void DisplayRSSIBar(const bool now)
 
         clean = !clean;
 
-        if(clean) {
-            for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Default); i++)
-                p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Default[i];
+        if (gUiPlusSingle) {
+            const uint8_t *glyph = clean ? BITMAP_VFO_Default : BITMAP_VFO_Empty;
+            UI_PLUS_DrawIcon(glyph, sizeof(BITMAP_VFO_Default), 0, gUiPlusLargeReadout ? 1 : 23);
+            ST7565_BlitLine(gUiPlusLargeReadout ? 0 : 2);
+            if (!gUiPlusLargeReadout)
+                ST7565_BlitLine(3);
+        } else if (gUiPlusLoweredA && RxLine == 0) {
+            // A's arrow crosses two LCD pages after its three-pixel shift.
+            // Preserve the channel badge and all pixels outside that arrow.
+            const uint8_t *glyph = clean ? BITMAP_VFO_Default : BITMAP_VFO_Empty;
+            for (unsigned int x = 0; x < sizeof(BITMAP_VFO_Default); x++) {
+                gFrameBuffer[0][x] = (gFrameBuffer[0][x] & 0x07u) | (glyph[x] << 3);
+                gFrameBuffer[1][x] = (gFrameBuffer[1][x] & 0xFCu) | (glyph[x] >> 5);
+            }
+            ST7565_BlitLine(0);
+            ST7565_BlitLine(1);
         } else {
-            for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Empty); i++)
-                p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Empty[i];
+            if(clean) {
+                for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Default); i++)
+                    p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Default[i];
+            } else {
+                for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Empty); i++)
+                    p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Empty[i];
+            }
+            ST7565_DrawLine(0, RxLine + 1, p_line0, sizeof(BITMAP_VFO_Default));
         }
-
-        ST7565_DrawLine(0, RxLine + 1, p_line0, sizeof(BITMAP_VFO_Default));
     }
 
 #else
@@ -1065,10 +1166,13 @@ void DisplayRSSIBar(const bool now)
         return;     // display is in use
 
 #ifdef ENABLE_FEAT_F4HWN
-    if (now) {
+    const bool compact = gUiPlusLoweredA && line == 3;
+    if (now || gUiPlusSingle) {
         memcpy(oldLine, p_line, LCD_WIDTH);
-        memset(p_line, 0, LCD_WIDTH);
     }
+    if (now || compact || gUiPlusSingle)
+        for (unsigned int x = 0; x < LCD_WIDTH; x++)
+            p_line[x] &= compact ? 0x07u : 0u;
 #else
     if (now)
         memset(p_line, 0, LCD_WIDTH);
@@ -1122,6 +1226,21 @@ void DisplayRSSIBar(const bool now)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
+    if (compact) {
+        // Five rows remain between A's status row and B. Retain both numeric
+        // readings and the original horizontal S-meter scale in that space.
+        sprintf(str, "%d", display_rssi_dBm);
+        GUI_DisplaySmallest(str, 2, 27, false, true);
+        if (overS9Bars == 0)
+            sprintf(str, "S%d", s_level);
+        else
+            sprintf(str, "+%02d", overS9dBm);
+        GUI_DisplaySmallest(str, 26, 27, false, true);
+        DrawLevelBar(bar_x, line, s_level + overS9Bars, 13, true);
+        if (now && memcmp(oldLine, p_line, LCD_WIDTH) != 0)
+            ST7565_BlitLine(line);
+        return;
+    }
     if (gSetting_set_gui)
     {
         sprintf(str, "%3d", display_rssi_dBm);
@@ -1155,8 +1274,16 @@ void DisplayRSSIBar(const bool now)
 
     UI_PrintStringSmallNormal(str, 2, 0, line);
 #endif
-    DrawLevelBar(bar_x, line, s_level + overS9Bars, 13);
+    DrawLevelBar(bar_x, line, s_level + overS9Bars, 13, false);
 #ifdef ENABLE_FEAT_F4HWN
+    if (gUiPlusSingle) {
+        UI_PLUS_FinishSingleActivity(oldLine, true);
+        if (now) {
+            ST7565_BlitLine(4);
+            ST7565_BlitLine(5);
+        }
+        return;
+    }
     if (now && memcmp(oldLine, p_line, LCD_WIDTH) != 0)
         ST7565_BlitLine(line);
 #else
@@ -1448,6 +1575,11 @@ void UI_DisplayMain(void)
     char               String[22];
 
     center_line = CENTER_LINE_NONE;
+#if UI_PLUS_ENABLED
+    gUiPlusLoweredA = false;
+    gUiPlusSingle = false;
+    gUiPlusLargeReadout = false;
+#endif
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
     gFullWatchArrowsVisible = false;
 #endif
@@ -1487,6 +1619,28 @@ void UI_DisplayMain(void)
     }
 #endif
 
+    const unsigned int activeTxVFO = gRxVfoIsActive ? gEeprom.RX_VFO : gEeprom.TX_VFO;
+#if UI_PLUS_ENABLED
+    gUiPlusSingle = UI_PLUS_ENABLED && gSetting_set_gui == GUI_STYLE_PLUS && isMainOnly() &&
+        (IS_FREQ_CHANNEL(gEeprom.ScreenChannel[activeTxVFO]) ||
+         (IS_MR_CHANNEL(gEeprom.ScreenChannel[activeTxVFO]) &&
+          (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME_FREQ ||
+           gEeprom.CHANNEL_DISPLAY_MODE == MDF_FREQUENCY ||
+           gEeprom.CHANNEL_DISPLAY_MODE == MDF_CHANNEL ||
+           gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME))) &&
+#ifdef ENABLE_SCAN_RANGES
+        // The dedicated range screen needs both endpoints and its tone details.
+        !(IS_FREQ_CHANNEL(gEeprom.ScreenChannel[activeTxVFO]) && gScanRangeStart) &&
+#endif
+        VfoState[activeTxVFO] == VFO_STATE_NORMAL &&
+        gInputBoxIndex == 0 && !gDTMF_InputMode;
+#ifdef ENABLE_DTMF_CALLING
+    gUiPlusSingle = gUiPlusSingle && gDTMF_CallState == DTMF_CALL_STATE_NONE && !gDTMF_IsTx;
+#endif
+    gUiPlusLargeReadout = gUiPlusSingle &&
+        (IS_FREQ_CHANNEL(gEeprom.ScreenChannel[activeTxVFO]) ||
+         gEeprom.CHANNEL_DISPLAY_MODE != MDF_NAME_FREQ);
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     if (gEeprom.KEY_LOCK && gKeypadLocked > 0)
     {   // tell user how to unlock the keyboard
@@ -1496,10 +1650,17 @@ void UI_DisplayMain(void)
         return;
     }
 #else
-    UI_DisplayUnlockKeyboard(isMainOnly() ? 5 : 3);
+    if (gUiPlusSingle && gEeprom.KEY_LOCK && gKeypadLocked > 0) {
+        UI_MAIN_DrawSingleMessage("UNLOCK KEYBOARD", 12, true);
+        center_line = CENTER_LINE_IN_USE;
+    } else {
+        UI_DisplayUnlockKeyboard(isMainOnly() ? 5 : 3);
+    }
 #endif
 
-    unsigned int activeTxVFO = gRxVfoIsActive ? gEeprom.RX_VFO : gEeprom.TX_VFO;
+#if UI_PLUS_ENABLED
+    bool lowerUiPlusA = false;
+#endif
 
     for (unsigned int vfo_num = 0; vfo_num < 2; vfo_num++)
     {
@@ -1516,6 +1677,32 @@ void UI_DisplayMain(void)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
+        const bool uiPlusDualReadout = UI_PLUS_ENABLED && gSetting_set_gui == GUI_STYLE_PLUS && !isMainOnly() &&
+            (IS_FREQ_CHANNEL(displayChannel) ||
+             (IS_MR_CHANNEL(displayChannel) &&
+              (gEeprom.CHANNEL_DISPLAY_MODE == MDF_FREQUENCY ||
+               gEeprom.CHANNEL_DISPLAY_MODE == MDF_CHANNEL ||
+               gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME))) &&
+            VfoState[activeTxVFO] == VFO_STATE_NORMAL && VfoState[vfo_num] == VFO_STATE_NORMAL &&
+            gInputBoxIndex == 0 && !gDTMF_InputMode
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL
+#endif
+#ifdef ENABLE_SCAN_RANGES
+            && !(gScanRangeStart && IS_FREQ_CHANNEL(gEeprom.ScreenChannel[activeTxVFO]))
+#endif
+#ifdef ENABLE_DTMF_CALLING
+            && gDTMF_CallState == DTMF_CALL_STATE_NONE && !gDTMF_IsTx
+#endif
+            ;
+        const bool uiPlus = uiPlusDualReadout ||
+            (UI_PLUS_ENABLED && gSetting_set_gui == GUI_STYLE_PLUS && !isMainOnly() &&
+             gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME_FREQ && IS_MR_CHANNEL(displayChannel));
+        const uint8_t uiPlusLayout = gUiPlusSingle ? UI_PLUS_SINGLE_LAYOUT : uiPlus;
+#if UI_PLUS_ENABLED
+        if (vfo_num == 0)
+            lowerUiPlusA = uiPlus;
+#endif
         const unsigned int line0 = 0;  // text screen line
         const unsigned int line1 = 4;
         unsigned int line;
@@ -1668,13 +1855,21 @@ void UI_DisplayMain(void)
             }
 
             // highlight the selected/used VFO with a marker
-            if (isMainVFO)
-                memcpy(p_line0 + 0, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+            if (isMainVFO) {
+                if (gUiPlusSingle)
+                    UI_PLUS_DrawIcon(BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default), 0, gUiPlusLargeReadout ? 1 : 23);
+                else
+                    memcpy(p_line0 + 0, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+            }
         }
         else // active TX VFO
         {   // highlight the selected/used VFO with a marker
-            if (isMainVFO)
-                memcpy(p_line0 + 0, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+            if (isMainVFO) {
+                if (gUiPlusSingle)
+                    UI_PLUS_DrawIcon(BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default), 0, gUiPlusLargeReadout ? 1 : 23);
+                else
+                    memcpy(p_line0 + 0, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+            }
             else
                 memcpy(p_line0 + 0, BITMAP_VFO_NotDefault, sizeof(BITMAP_VFO_NotDefault));
         }
@@ -1689,7 +1884,12 @@ void UI_DisplayMain(void)
                 {   // show the TX symbol
                     mode = VFO_MODE_TX;
                     //UI_PrintStringSmallBold("TX", 8, 0, line);
+#ifdef ENABLE_FEAT_F4HWN
+                    GUI_DisplaySmallest("TX", gUiPlusLargeReadout ? 72 : (uiPlus ? UI_PLUS_ACTIVITY_X : 10),
+                                        gUiPlusLargeReadout ? 1 : (gUiPlusSingle ? 24 : (line == 0 ? 1 : 33)), false, true);
+#else
                     GUI_DisplaySmallest("TX", 10, line == 0 ? 1 : 33, false, true);
+#endif
 
                 }
             }
@@ -1733,7 +1933,13 @@ void UI_DisplayMain(void)
                             #endif
                         }
 
-                        GUI_DisplaySmallest(String, 10, RxLine == 0 ? 1 : 33, false, true);
+                        if (gUiPlusLargeReadout) {
+                            char profile[16];
+                            strcpy(profile, String);
+                            sprintf(String, "RX %s", profile);
+                        }
+                        GUI_DisplaySmallest(String, gUiPlusLargeReadout ? 72 : (uiPlus ? UI_PLUS_RX_LABEL_X : 10),
+                                            gUiPlusLargeReadout ? 1 : (gUiPlusSingle ? 24 : (RxLine == 0 ? 1 : 33)), false, true);
                         //UI_PrintStringSmallBold("RX", 8, 0, RxLine);
                     // }
 #else
@@ -1754,7 +1960,8 @@ void UI_DisplayMain(void)
                 ) {
                     //UI_PrintStringSmallNormal(">>", 8, 0, line);
                     //memcpy(p_line0 + 14, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
-                    GUI_DisplaySmallest(">>", 8, RxLine == 0 ? 1 : 33, false, true);
+                    GUI_DisplaySmallest(">>", uiPlus ? UI_PLUS_ACTIVITY_X : 8,
+                                        RxLine == 0 ? 1 : 33, false, true);
                 }
 
                 if(RxBlinkLed == 1)
@@ -1766,7 +1973,20 @@ void UI_DisplayMain(void)
         if((gScanStateDir == SCAN_OFF || vfo_num != gEeprom.RX_VFO) && TX_freq_check(frequency) != 0 && displayVfo->TX_LOCK == true)
         {
             if (!FUNCTION_IsRx() || RxOnVfofrequency != frequency)
+            {
+#ifdef ENABLE_FEAT_F4HWN
+                // Keep the lock above the compact channel-number badge. RX
+                // audio labels use this space only while the lock is hidden;
+                // TX and last-received markers have their own slot at x=20.
+                if (gUiPlusSingle)
+                    UI_PLUS_DrawIcon(BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock), gUiPlusLargeReadout ? 99 : 116, gUiPlusLargeReadout ? 1 : 9);
+                else
+                    memcpy(p_line0 + (uiPlus ? UI_PLUS_LOCK_X : 24),
+                           BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
+#else
                 memcpy(p_line0 + 24, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
+#endif
+            }
         }
 
         if (IS_MR_CHANNEL(displayChannel))
@@ -1774,10 +1994,35 @@ void UI_DisplayMain(void)
             const unsigned int x = 1;
             const bool inputting = gInputBoxIndex != 0 && gEeprom.TX_VFO == vfo_num;
             if (!inputting || gScanStateDir != SCAN_OFF)
+#ifdef ENABLE_FEAT_F4HWN
+                sprintf(String, uiPlus ? "%03u" : "%04u", displayChannel + 1);
+#else
                 sprintf(String, "%04u", displayChannel + 1);
+#endif
             else
                 sprintf(String, "%.4s", INPUTBOX_GetAsciiAlignRight() + 4);  // show the input text
 
+#ifdef ENABLE_FEAT_F4HWN
+            if (gUiPlusSingle) {
+                sprintf(String, "%03u", displayChannel + 1u);
+                if (gUiPlusLargeReadout) {
+                    // CHANNEL NUMBER already identifies the memory in the large
+                    // central readout. FREQ and NAME still need a small header badge.
+                    if (gEeprom.CHANNEL_DISPLAY_MODE != MDF_CHANNEL) {
+                        sprintf(String, "CH %03u", displayChannel + 1u);
+                        GUI_DisplaySmallest(String, 10, 1, false, true);
+                    }
+                } else {
+                    GUI_DisplaySmallest("CH", 6, 5, false, true);
+                    GUI_DisplaySmallest(String, displayChannel >= 999 ? 2 : 4, 12, false, true);
+                }
+            } else if (uiPlus) {
+                // The main CHANNEL readout already identifies the memory.
+                if (!uiPlusDualReadout || gEeprom.CHANNEL_DISPLAY_MODE != MDF_CHANNEL)
+                    UI_PLUS_DrawChannelNumber(String, line);
+            }
+            else
+#endif
             //if (gSetting_set_gui) {
                 UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
             /*
@@ -1804,6 +2049,14 @@ void UI_DisplayMain(void)
             const bool over1GHz = displayVfo->pRX->Frequency >= _1GHz_in_KHz;
 
             sprintf(String, over1GHz ? "F%u+" : "F%u", f);
+#ifdef ENABLE_FEAT_F4HWN
+            if (gUiPlusLargeReadout)
+                GUI_DisplaySmallestInverse(String, 10, 0, false, true,
+                                            10u + strlen(String) * 4u);
+            else if (uiPlusDualReadout)
+                UI_PLUS_DrawChannelNumber(String, line);
+            else
+#endif
             //if (gSetting_set_gui) {
                 UI_PrintStringSmallNormalInverse(String, x, 0, line + 1);
             /*
@@ -1892,7 +2145,7 @@ void UI_DisplayMain(void)
                 const char *displayStr;
                 uint8_t xStart = 113; // 3-char name aligned left
 
-                if(att->exclude == false)
+                if (!att->exclude)
                 {
                     // show the scan list assigment symbols
                     uint8_t countList = att->scanlist;
@@ -1928,7 +2181,12 @@ void UI_DisplayMain(void)
                 }
 
 #ifdef ENABLE_FEAT_F4HWN
-                GUI_DisplaySmallestInverse(displayStr, xStart + 2, line, false, true, 127);  
+                if (gUiPlusLargeReadout)
+                    GUI_DisplaySmallestInverse(displayStr, xStart + 2, 0, false, true, 127);
+                else if (gUiPlusSingle)
+                    UI_PLUS_DrawSingleList(displayStr, xStart + 2);
+                else
+                    GUI_DisplaySmallestInverse(displayStr, xStart + 2, line, false, true, 127);
 #else
                 GUI_DisplaySmallest(displayStr, xStart + 2, line == 0 ? 1 : 33, false, true);
 
@@ -1955,6 +2213,16 @@ void UI_DisplayMain(void)
                 {
                     case MDF_FREQUENCY: // show the channel frequency
                         UI_FormatFrequency(frequency, String);
+#ifdef ENABLE_FEAT_F4HWN
+                        if (gUiPlusLargeReadout) {
+                            UI_PLUS_DrawLargeFrequency(String);
+                            break;
+                        }
+                        if (uiPlusDualReadout) {
+                            UI_PLUS_DrawDualFrequency(String, line);
+                            break;
+                        }
+#endif
 #ifdef ENABLE_BIG_FREQ
                         if(frequency < _1GHz_in_KHz) {
                             // show the remaining 2 small frequency digits
@@ -1973,6 +2241,20 @@ void UI_DisplayMain(void)
                         break;
 
                     case MDF_CHANNEL:   // show the channel number
+#ifdef ENABLE_FEAT_F4HWN
+                        if (gUiPlusLargeReadout) {
+                            sprintf(String, "%03u", displayChannel + 1u);
+                            UI_PLUS_DrawLargeChannel(String);
+                            break;
+                        }
+#endif
+#ifdef ENABLE_FEAT_F4HWN
+                        if (uiPlusDualReadout) {
+                            sprintf(String, "CH %03u", displayChannel + 1u);
+                            UI_PLUS_DrawDualText(String, line);
+                            break;
+                        }
+#endif
                         sprintf(String, "CH-%04u", displayChannel + 1);
                         UI_PrintString(String, 36, 0, line, 8);
                         break;
@@ -1988,18 +2270,39 @@ void UI_DisplayMain(void)
 
                         if (gEeprom.CHANNEL_DISPLAY_MODE == MDF_NAME) {
                             String[10] = 0;
-                            UI_PrintString(String, 33, 0, line, 8);
+#ifdef ENABLE_FEAT_F4HWN
+                            if (gUiPlusLargeReadout)
+                                UI_PLUS_DrawLargeName(String);
+                            else if (uiPlusDualReadout)
+                                UI_PLUS_DrawDualText(String, line);
+                            else
+#endif
+                                UI_PrintString(String, 33, 0, line, 8);
                         }
                         else {
 #ifdef ENABLE_FEAT_F4HWN
                             if (isMainOnly())
                             {
                                 String[10] = 0;
-                                UI_PrintString(String, 33, 0, line, 8);
+                                if (gUiPlusSingle)
+                                    UI_PLUS_DrawSingleName(String);
+                                else
+                                    UI_PrintString(String, 33, 0, line, 8);
                             }
                             else
                             {
-                                if(activeTxVFO == vfo_num) {
+                                if (uiPlus) {
+                                    uint8_t nameX = UI_PLUS_NAME_X;
+#if defined(ENABLE_FEAT_F4HWN_SCAN_FASTER) && defined(ENABLE_FEAT_F4HWN_SCAN_RSSI)
+                                    // The existing scan graph occupies columns 7..30.
+                                    if (gScanStateDir != SCAN_OFF && !FUNCTION_IsRx() &&
+                                        vfo_num == gEeprom.RX_VFO && CHFRSCANNER_HasScanRssiSparkline())
+                                        nameX = UI_PLUS_SCAN_NAME_X;
+#endif
+                                    UI_PLUS_DrawName(String, nameX, line * 8u,
+                                                     activeTxVFO == vfo_num);
+                                }
+                                else if(activeTxVFO == vfo_num) {
                                     UI_PrintStringSmallBold(String, 32 + 4, 0, line);
                                 }
                                 else
@@ -2015,7 +2318,9 @@ void UI_DisplayMain(void)
                             if (isMainOnly())
                             {
                                 UI_FormatFrequency(frequency, String);
-                                if(frequency < _1GHz_in_KHz) {
+                                if (gUiPlusSingle) {
+                                    UI_PLUS_DrawSingleFrequency(String);
+                                } else if(frequency < _1GHz_in_KHz) {
                                     // show the remaining 2 small frequency digits
                                     UI_PrintStringSmallNormal(String + 7, 113, 0, line + 4);
                                     String[7] = 0;
@@ -2031,7 +2336,11 @@ void UI_DisplayMain(void)
                             else
                             {
                                 sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
-                                UI_PrintStringSmallNormal(String, 32 + 4, 0, line + 1);
+                                if (uiPlus)
+                                    UI_PLUS_DrawFrequency(String, UI_PLUS_FREQUENCY_X,
+                                                          line * 8u + UI_PLUS_FREQUENCY_Y);
+                                else
+                                    UI_PrintStringSmallNormal(String, 32 + 4, 0, line + 1);
                             }
 #else                           // show the channel frequency below the channel number/name
                             sprintf(String, "%03u.%05u", frequency / 100000, frequency % 100000);
@@ -2046,6 +2355,13 @@ void UI_DisplayMain(void)
             {   // frequency mode
                 UI_FormatFrequency(frequency, String);
 
+#ifdef ENABLE_FEAT_F4HWN
+                if (gUiPlusLargeReadout)
+                    UI_PLUS_DrawLargeFrequency(String);
+                else if (uiPlusDualReadout)
+                    UI_PLUS_DrawDualFrequency(String, line);
+                else
+#endif
 #ifdef ENABLE_BIG_FREQ
                 if(frequency < _1GHz_in_KHz) {
                     // show the remaining 2 small frequency digits
@@ -2063,12 +2379,18 @@ void UI_DisplayMain(void)
 
                 // show the channel symbols
                 const ChannelAttributes_t* att = MR_GetChannelAttributes(displayChannel);
-                if (att->compander)
+                if (att->compander) {
+#ifdef ENABLE_FEAT_F4HWN
+                    if (gUiPlusLargeReadout || uiPlusDualReadout)
+                        UI_PLUS_DrawIcon(BITMAP_compand, sizeof(BITMAP_compand), 120, line * 8u);
+                    else
+#endif
 #ifdef ENABLE_BIG_FREQ
                     memcpy(p_line0 + 120, BITMAP_compand, sizeof(BITMAP_compand));
 #else
                     memcpy(p_line0 + 120 + LCD_WIDTH, BITMAP_compand, sizeof(BITMAP_compand));
 #endif
+                }
             }
         }
 
@@ -2117,7 +2439,17 @@ void UI_DisplayMain(void)
                 #endif
             }
             if(Level >= 0)
-                DrawSmallPowerBars(p_line1 + LCD_WIDTH, Level);
+            {
+#ifdef ENABLE_FEAT_F4HWN
+                if (uiPlus)
+                    UI_PLUS_DrawPowerBars(Level, line);
+                else
+#endif
+                if (gUiPlusSingle)
+                    UI_PLUS_DrawSinglePowerBars(Level);
+                else
+                    DrawSmallPowerBars(p_line1 + LCD_WIDTH, Level);
+            }
         }
 
         // ----------------------------------------
@@ -2180,14 +2512,17 @@ void UI_DisplayMain(void)
 
         if (gSetting_set_gui)
         {
-            UI_PrintStringSmallNormal(s, LCD_WIDTH + 22, 0, line + 1);
-            UI_PrintStringSmallNormal(t, LCD_WIDTH + 2, 0, line + 1);
+            UI_PLUS_PrintStatus(s, 22, line, uiPlusLayout);
+            UI_PLUS_PrintStatus(t, 2, line, uiPlusLayout);
 
             if (isMainOnly() && !gDTMF_InputMode)
             {
                 if(shift == 0)
                 {
-                    UI_PrintStringSmallNormal(String, 2, 0, 6);
+                    if (gUiPlusSingle)
+                        GUI_DisplaySmallest(String, 2, UI_PLUS_SINGLE_FOOTER_Y, false, true);
+                    else
+                        UI_PrintStringSmallNormal(String, 2, 0, 6);
                 }
 
                 if((vfoInfo->StepFrequency / 100) < 100)
@@ -2198,7 +2533,10 @@ void UI_DisplayMain(void)
                 {
                     sprintf(String, "%dK", vfoInfo->StepFrequency / 100);               
                 }
-                UI_PrintStringSmallNormal(String, 46, 0, 6);
+                if (gUiPlusSingle)
+                    GUI_DisplaySmallest(String, 46, UI_PLUS_SINGLE_FOOTER_Y, false, true);
+                else
+                    UI_PrintStringSmallNormal(String, 46, 0, 6);
             }
         }
         else
@@ -2239,7 +2577,7 @@ void UI_DisplayMain(void)
                 const char pwr_short[][3] = {"L1", "L2", "L3", "L4", "L5", "M", "H"};
                 //sprintf(String, "%s", pwr_short[currentPower]);
                 //UI_PrintStringSmallNormal(String, LCD_WIDTH + 42, 0, line + 1);
-                UI_PrintStringSmallNormal(pwr_short[currentPower], LCD_WIDTH + 42, 0, line + 1);
+                UI_PLUS_PrintStatus(pwr_short[currentPower], 42, line, uiPlusLayout);
 
                 arrowPos = 38;
             }
@@ -2251,6 +2589,11 @@ void UI_DisplayMain(void)
 
             if(userPower == true)
             {
+#ifdef ENABLE_FEAT_F4HWN
+                if (uiPlusLayout)
+                    UI_PLUS_PrintStatus(">", arrowPos, line, uiPlusLayout);
+                else
+#endif
                 memcpy(p_line0 + 256 + arrowPos, BITMAP_PowerUser, sizeof(BITMAP_PowerUser));
             }
         }
@@ -2277,7 +2620,7 @@ void UI_DisplayMain(void)
 #if ENABLE_FEAT_F4HWN
         if (gSetting_set_gui)
         {
-            UI_PrintStringSmallNormal(dir_list[i], LCD_WIDTH + 60, 0, line + 1);
+            UI_PLUS_PrintStatus(dir_list[i], 60, line, uiPlusLayout);
         }
         else
         {
@@ -2303,7 +2646,7 @@ void UI_DisplayMain(void)
         {
             if (gSetting_set_gui)
             {
-                UI_PrintStringSmallNormal("R", LCD_WIDTH + 68, 0, line + 1);
+                UI_PLUS_PrintStatus("R", 68, line, uiPlusLayout);
             }
             else
             {
@@ -2328,7 +2671,7 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N", "N+"};
-                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth + narrower], LCD_WIDTH + 80, 0, line + 1);
+                UI_PLUS_PrintStatus(bandWidthNames[displayBandwidth + narrower], 80, line, uiPlusLayout);
             }
             else
             {
@@ -2339,7 +2682,7 @@ void UI_DisplayMain(void)
             if (gSetting_set_gui)
             {
                 const char *bandWidthNames[] = {"W", "N"};
-                UI_PrintStringSmallNormal(bandWidthNames[displayBandwidth], LCD_WIDTH + 80, 0, line + 1);
+                UI_PLUS_PrintStatus(bandWidthNames[displayBandwidth], 80, line, uiPlusLayout);
             }
             else
             {
@@ -2355,7 +2698,14 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_DTMF_CALLING
         // show the DTMF decoding symbol
         if (vfoInfo->DTMF_DECODING_ENABLE || gSetting_KILLED)
+        {
+#ifdef ENABLE_FEAT_F4HWN
+            if (uiPlusLayout)
+                UI_PLUS_PrintStatus("DTMF", 90, line, uiPlusLayout);
+            else
+#endif
             UI_PrintStringSmallNormal("DTMF", LCD_WIDTH + 78, 0, line + 1);
+        }
 #endif
 
 #ifndef ENABLE_FEAT_F4HWN
@@ -2399,7 +2749,7 @@ void UI_DisplayMain(void)
            }
 
            if (gSetting_set_gui) {
-                UI_PrintStringSmallNormal(String, LCD_WIDTH + 98, 0, line + 1);
+                UI_PLUS_PrintStatus(String, uiPlusLayout ? 110 : 98, line, uiPlusLayout);
            } else {
                 GUI_DisplaySmallest(String, 110, line == 0 ? 17 : 49, false, true);
            }
@@ -2457,7 +2807,7 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_AUDIO_BAR
         if (gSetting_mic_bar && gCurrentFunction == FUNCTION_TRANSMIT) {
             center_line = CENTER_LINE_AUDIO_BAR;
-            UI_DisplayAudioBar();
+            // Draw after positioning A so the meter knows which rows are free.
         }
         else
 #endif
@@ -2465,7 +2815,7 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_RSSI_BAR
         if (rx) {
             center_line = CENTER_LINE_RSSI;
-            DisplayRSSIBar(false);
+            // Draw after positioning A, as for the transmit meter.
         }
         else
 #endif
@@ -2494,7 +2844,10 @@ void UI_DisplayMain(void)
 #ifdef ENABLE_FEAT_F4HWN
                     if (isMainOnly())
                     {
-                        UI_PrintStringSmallNormal(String, 2, 0, 5);
+                        if (gUiPlusSingle)
+                            UI_MAIN_DrawSingleMessage(String, 2, false);
+                        else
+                            UI_PrintStringSmallNormal(String, 2, 0, 5);
                     }
                     else
                     {
@@ -2537,7 +2890,10 @@ void UI_DisplayMain(void)
                 sprintf(String, "Charge %u.%02uV %u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
                     BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-                UI_PrintStringSmallNormal(String, 2, 0, 3);
+                if (gUiPlusSingle)
+                    UI_MAIN_DrawSingleMessage(String, 2, false);
+                else
+                    UI_PrintStringSmallNormal(String, 2, 0, 3);
             }
 #endif
         }
@@ -2575,6 +2931,50 @@ void UI_DisplayMain(void)
     //#ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
     //}
     //#endif
+#endif
+
+#if UI_PLUS_ENABLED
+    if (gUiPlusSingle && center_line == CENTER_LINE_NONE &&
+        gScanStateDir == SCAN_OFF &&
+        (gCurrentFunction == FUNCTION_FOREGROUND || gCurrentFunction == FUNCTION_POWER_SAVE)) {
+        if (gTxVfo->pTX->Frequency == gTxVfo->pRX->Frequency) {
+            strcpy(String, "SIMPLEX");
+        } else {
+            char frequency[16];
+            UI_FormatFrequency(gTxVfo->pTX->Frequency, frequency);
+            sprintf(String, "TX %s", frequency);
+        }
+        // The legacy printer adds one pixel before its first glyph.
+        UI_MAIN_DrawSingleMessage(String, (LCD_WIDTH - (strlen(String) * 7u - 1u)) / 2u - 1u, false);
+    }
+    bool lowerForRx = FUNCTION_IsRx();
+    // Keep existing message/Full Watch layouts where idle A is already higher.
+    if (gSetting_live_DTMF_decoder && gDTMF_RX_live[0] != 0)
+        lowerForRx = false;
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    if (lowerForRx && gEeprom.DUAL_WATCH == DUAL_WATCH_FULL) {
+        uint8_t count;
+        APP_GetFullWatchBackgroundVfos(&count);
+        if (count != 0)
+            lowerForRx = false;
+    }
+#endif
+    if (lowerUiPlusA && (center_line == CENTER_LINE_NONE ||
+                        center_line == CENTER_LINE_AUDIO_SCOPE ||
+                        center_line == CENTER_LINE_AUDIO_BAR ||
+                        (center_line == CENTER_LINE_RSSI && lowerForRx)) &&
+        gScanStateDir == SCAN_OFF && !gDTMF_InputMode &&
+        (gCurrentFunction == FUNCTION_FOREGROUND || gCurrentFunction == FUNCTION_POWER_SAVE ||
+         gCurrentFunction == FUNCTION_TRANSMIT || lowerForRx))
+        gUiPlusLoweredA = UI_PLUS_LowerChannelA();
+#endif
+#ifdef ENABLE_RSSI_BAR
+    if (center_line == CENTER_LINE_RSSI)
+        DisplayRSSIBar(false);
+#endif
+#ifdef ENABLE_AUDIO_BAR
+    if (center_line == CENTER_LINE_AUDIO_BAR)
+        UI_DisplayAudioBar();
 #endif
 
     ST7565_BlitFullScreen();

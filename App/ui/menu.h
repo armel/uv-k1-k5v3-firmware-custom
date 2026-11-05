@@ -22,6 +22,7 @@
 
 #include "audio.h"     // VOICE_ID_t
 #include "settings.h"
+#include "ui/gui_style.h"
 
 typedef struct __attribute__((packed)) {
     const char  name[7];    // menu display area only has room for 6 characters
@@ -226,6 +227,7 @@ extern const char* const            gSubMenu_D_RSP[4];
     extern const char* const        gSubMenu_SET_TOT[4];
     extern const char* const        gSubMenu_SET_LCK[];
     extern const char* const        gSubMenu_SET_MET[2];
+    extern const char* const        gSubMenu_SET_GUI[GUI_STYLE_COUNT];
     #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
         extern const char* const    gSubMenu_SET_SCN[2];
     #endif

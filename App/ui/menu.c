@@ -16,6 +16,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include "ui/gui_style.h"
 #include <stdlib.h>
 
 #include "../app/action.h"
@@ -422,6 +423,17 @@ const char* const gSubMenu_SCRAMBLER[] =
         "KEYS\nPTT",
         "KEYS\nACTIONS\nPTT"
     };
+
+    const char* const gSubMenu_SET_GUI[] =
+    {
+        "TINY",
+        "CLASSIC",
+#if UI_PLUS_ENABLED
+        "UI+"
+#endif
+    };
+    _Static_assert(ARRAY_SIZE(gSubMenu_SET_GUI) == GUI_STYLE_COUNT,
+                   "GUI menu and stored style values must agree");
 
     const char* const gSubMenu_SET_MET[] =
     {
@@ -1724,8 +1736,11 @@ void UI_DisplayMenu(void)
             goto copy_menu_choice;
 
         case MENU_SET_MET:
-        case MENU_SET_GUI:
             choiceTable = gSubMenu_SET_MET;
+            goto copy_menu_choice;
+
+        case MENU_SET_GUI:
+            choiceTable = gSubMenu_SET_GUI;
             goto copy_menu_choice;
 
         #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
