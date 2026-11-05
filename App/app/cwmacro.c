@@ -615,6 +615,13 @@ void CW_AddToTxDisplay(char ch, bool hasSpace)
 	UART_Send(buf, strlen(buf));
 #endif
 	
+#ifdef ENABLE_CODE_PRACTICE
+	// The callsign drill scores characters only, and a space would push the keyed
+	// line out of line with the callsign above it
+	if (gCW_CpoActive && gCW_CpoCallMode != CPO_CALL_MODE_OFF)
+		hasSpace = false;
+#endif
+
 	// Add space first if needed (never as the first character on the line)
 	if (hasSpace && gCW_TX_DisplayIndex > 0) {
 		MakeRoom();

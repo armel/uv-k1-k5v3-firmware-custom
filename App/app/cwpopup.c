@@ -24,8 +24,6 @@
 #include "ui/ui.h"
 
 #define CW_POPUP_SHOW_10MS     200  // 2 s after the last key press
-#define CW_WPM_MIN             10   // same range as the CWwpm menu
-#define CW_WPM_MAX             45
 
 static CW_PopupKind_t s_kind;
 static uint16_t       s_10ms;           // idle time left, counted on the 10 ms tick so it's exact
@@ -139,7 +137,7 @@ static void StepSpeed(int8_t direction)
 {
 	const int wpm = gEeprom.CW_KEY_WPM + direction;
 
-	if (wpm < CW_WPM_MIN || wpm > CW_WPM_MAX) {
+	if (wpm < CW_KEY_WPM_MIN || wpm > CW_KEY_WPM_MAX) {
 		CW_ErrorBeep();
 		return;
 	}

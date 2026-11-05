@@ -1,5 +1,6 @@
 #include "usbd_core.h"
 #include "usbd_cdc.h"
+#include "py32f071_ll_utils.h"
 
 /*!< endpoint address */
 #define CDC_IN_EP  0x81
@@ -40,34 +41,21 @@ static const uint8_t cdc_descriptor[] = {
     ///////////////////////////////////////
     0x1C,                       /* bLength */
     USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
-    'P', 0x00,                  /* wcChar0 */
-    'U', 0x00,                  /* wcChar1 */
-    'Y', 0x00,                  /* wcChar2 */
-    'A', 0x00,                  /* wcChar3 */
-    ' ', 0x00,                  /* wcChar4 */
-    'C', 0x00,                  /* wcChar5 */
-    'D', 0x00,                  /* wcChar6 */
-    'C', 0x00,                  /* wcChar7 */
-    ' ', 0x00,                  /* wcChar8 */
-    'D', 0x00,                  /* wcChar9 */
-    'E', 0x00,                  /* wcChar10 */
-    'M', 0x00,                  /* wcChar11 */
-    'O', 0x00,                  /* wcChar12 */
-    ///////////////////////////////////////
-    /// string3 descriptor
-    ///////////////////////////////////////
-    0x16,                       /* bLength */
-    USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
-    '2', 0x00,                  /* wcChar0 */
-    '0', 0x00,                  /* wcChar1 */
-    '2', 0x00,                  /* wcChar2 */
-    '2', 0x00,                  /* wcChar3 */
-    '1', 0x00,                  /* wcChar4 */
-    '2', 0x00,                  /* wcChar5 */
-    '3', 0x00,                  /* wcChar6 */
-    '4', 0x00,                  /* wcChar7 */
-    '5', 0x00,                  /* wcChar8 */
-    '6', 0x00,                  /* wcChar9 */
+    'Q', 0x00,                  /* wcChar0 */
+    'u', 0x00,                  /* wcChar1 */
+    'a', 0x00,                  /* wcChar2 */
+    'n', 0x00,                  /* wcChar3 */
+    's', 0x00,                  /* wcChar4 */
+    'h', 0x00,                  /* wcChar5 */
+    'e', 0x00,                  /* wcChar6 */
+    'n', 0x00,                  /* wcChar7 */
+    'g', 0x00,                  /* wcChar8 */
+    ' ', 0x00,                  /* wcChar9 */
+    'U', 0x00,                  /* wcChar10 */
+    'S', 0x00,                  /* wcChar11 */
+    'B', 0x00,                  /* wcChar12 */
+    /* string3 (serial number) is built from the unique device ID on request,
+     * see usbd_string_descriptor_callback() */
 #ifdef CONFIG_USB_HS
     ///////////////////////////////////////
     /// device qualifier descriptor
@@ -86,7 +74,32 @@ static const uint8_t cdc_descriptor[] = {
     0x00
 };
 
-USB_MEM_ALIGNX uint8_t read_buffer[128];
+/* Serial number: the 96-bit unique device ID as 24 hex digits, UID word 0 first,
+ * so radios plugged in together enumerate as distinct devices. */
+bool usbd_string_descriptor_callback(uint8_t index, uint8_t *buf, uint32_t buf_len, uint32_t *len)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    const uint32_t uid[3] = { LL_GetUID_Word0(), LL_GetUID_Word1(), LL_GetUID_Word2() };
+    const uint32_t size = 2 + 24 * 2;
+
+    if (index != USB_STRING_SERIAL_INDEX || buf_len < size)
+        return false;
+
+    buf[0] = size;
+    buf[1] = USB_DESCRIPTOR_TYPE_STRING;
+    uint8_t *p = buf + 2;
+    for (uint8_t w = 0; w < 3; w++) {
+        for (int8_t shift = 28; shift >= 0; shift -= 4) {
+            *p++ = hex[(uid[w] >> shift) & 0xF];
+            *p++ = 0x00;
+        }
+    }
+    *len = size;
+    return true;
+}
+
+/* In the USB state section: it fills RAM left free below the pinned overlay. */
+USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t read_buffer[128];
 // USB_MEM_ALIGNX uint8_t write_buffer[4];
 
 static cdc_acm_rx_buf_t client_rx_buf = {0};

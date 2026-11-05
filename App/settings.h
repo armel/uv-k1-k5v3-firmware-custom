@@ -107,8 +107,22 @@ typedef enum CW_IambicMode_t CW_IambicMode_t;
 #define CW_HANG_10MS_MAX          200
 #define CW_HANG_10MS_DEFAULT      30
 
+// Sidetone tone in 10s of Hz (CWfreq menu), 400-900 Hz in 50 Hz steps
+#define CW_TONE_MIN               40
+#define CW_TONE_MAX               90
+#define CW_TONE_STEP              5
+#define CW_TONE_DEFAULT           60
+
+// Keyer speed
+#define CW_KEY_WPM_MIN            10
+#define CW_KEY_WPM_MAX            60
+#define CW_KEY_WPM_DEFAULT        18
+
+// Number of CW settings bytes (EEPROM_Config_t CW_SETTINGS)
+#define CW_SETTINGS_SIZE          11
+
 // Copy practice effective speed (Farnsworth): the slowest the gaps between
-// characters can stretch to. It always stays below the keyer speed (max 45).
+// characters can stretch to. It always stays below the keyer speed.
 #define CW_FARNSWORTH_WPM_MIN     5
 
 #endif
@@ -420,18 +434,25 @@ typedef struct {
     uint8_t               S9_LEVEL;
 #endif
 #ifdef ENABLE_CW_MODULATOR
-	uint8_t			  	  CW_TONE_FREQUENCY; 	// Actual frequency in 10s of Hz (e.g. 60 for 600 Hz), stored in eeprom as 50 Hz steps from 450 (0=450, 1=500, ..., 15=1200), default 600
-	uint8_t               CW_SIDETONE_LEVEL;	// CW sidetone level: raw menu index 0=off, 1-15 = volume level (see CW_ApplySidetoneGain for the actual BK4819 gain curve)
-	CW_IambicMode_t       CW_KEYER_MODE;		// Iambic A, Iambic B, Ultimatic, or Bug/SAB (keyer disabled when CW_KEY_INPUT == HANDKEY)
-	uint8_t               CW_KEY_WPM;			// actual WPM
-	uint8_t               CW_KEY_INPUT;			// Bitmapped button/port input selections for CW keyer
-	uint16_t			  CW_KEY_INPUT_MENU;	// index of the chosen input method in the menu
-	bool     			  CW_BREAKIN_ENABLE;    // TX on key
-	uint8_t               CW_MESSAGE_REPEAT_DELAY;  // Repeat delay in seconds
-	uint8_t               CW_ROGER_DAH_DITS;    // proper roger dah length in dits
-	uint8_t               CW_HANG_10MS;         // break-in hang time in 10 ms units
-	uint8_t               CW_FARNSWORTH_WPM;    // copy practice effective speed, 0 = keyer spacing
-	bool                  CW_FARNSWORTH_AUTO;   // copy practice narrows and widens the spacing on its own
+	// Stored byte for byte, in this order, at CW_SETTINGS_ADDR. The limits and
+	// defaults are in s_cw_settings_limits (settings.c) and the CHIRP module.
+	union {
+		struct {
+			uint8_t CW_TONE_FREQUENCY;        // 10s of Hz (60 = 600 Hz), CW_TONE_*
+			uint8_t CW_SIDETONE_LEVEL;        // 0 = off, 1-15 (see CW_ApplySidetoneGain)
+			uint8_t CW_KEY_WPM;
+			uint8_t CW_KEYER_MODE;            // CW_IambicMode_t
+			uint8_t CW_KEY_INPUT_MENU;        // index into CW_KEY_INPUT_menu_to_bitmap
+			uint8_t CW_BREAKIN_ENABLE;        // TX on key
+			uint8_t CW_MESSAGE_REPEAT_DELAY;  // seconds
+			uint8_t CW_ROGER_DAH_DITS;        // proper roger dah length in dits
+			uint8_t CW_HANG_10MS;             // break-in hang time in 10 ms units
+			uint8_t CW_FARNSWORTH_WPM;        // copy practice effective speed, 0 = keyer spacing
+			uint8_t CW_FARNSWORTH_AUTO;       // copy practice narrows and widens the spacing on its own
+		};
+		uint8_t CW_SETTINGS[CW_SETTINGS_SIZE];
+	};
+	uint8_t CW_KEY_INPUT;                  // CW_KEY_INPUT_menu_to_bitmap[CW_KEY_INPUT_MENU]
 #endif
 
 } EEPROM_Config_t;
@@ -516,8 +537,8 @@ void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep)
 //   +3  layout version
 //   +4  EEPROM schema (EEPROM_SCHEMA_*)
 //   +5  reserved (3)
-//   +8  CW settings, 8 bytes (moved from 0xA140)
-//   +16 reserved for new gEeprom values (48)
+//   +8  CW settings, CW_SETTINGS_SIZE bytes (v1.x packed them into 8 at 0xA140)
+//   +19 reserved for new gEeprom values (45)
 #define CW_BLOCK_ADDR          0x00A200
 #define CW_BLOCK_SIZE          0x40
 #define CW_BLOCK_HDR_SIZE      8

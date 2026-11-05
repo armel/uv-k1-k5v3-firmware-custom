@@ -906,13 +906,17 @@ MIC_GAIN_LIST = ["+1.5dB", "+4.0dB", "+8.0dB", "+12.0dB", "+16.0dB", "+20.0dB", 
 # they were at 0xA140, the second half of the AES key field.
 _NR7Y_CW_SETTINGS_ADDR = 0x00A208
 _NR7Y_CW_SETTINGS_LEGACY_ADDR = 0x00A140
-# Sidetone frequency: 50 Hz steps from 450 Hz in bits 0-3 of CW byte 0, as far
-# as the firmware's CWfreq menu goes (800 Hz)
-_NR7Y_CW_FREQ_OPTS = ["%d Hz" % (450 + i * 50) for i in range(8)]
+# Sidetone frequency in 10s of Hz, 400-900 Hz in 50 Hz steps; mirrors CW_TONE_*
+# in App/settings.h
+_NR7Y_CW_TONE_MIN = 40
+_NR7Y_CW_TONE_MAX = 90
+_NR7Y_CW_TONE_STEP = 5
+_NR7Y_CW_FREQ_OPTS = ["%d Hz" % (t * 10) for t in range(
+    _NR7Y_CW_TONE_MIN, _NR7Y_CW_TONE_MAX + 1, _NR7Y_CW_TONE_STEP)]
 
-# Sidetone volume is stored in bits 4-7 of CW byte 0 as a code, not the level.
-# Codes 1-6 were levels 1-6 of the old 6-level curve and now stand for the new
-# levels with the same loudness; the firmware's settings.c has the same table.
+# v1.x stored the sidetone volume as a code: codes 1-6 were the old 6-level
+# curve's levels 1-6, which are levels 6 and 11-15 of the new one. Only the
+# v1.x image conversion uses it.
 _NR7Y_CW_SIDETONE_CODE_TO_LEVEL = [0, 6, 11, 12, 13, 14, 15,
                                    1, 2, 3, 4, 5, 7, 8, 9, 10]
 
@@ -951,7 +955,7 @@ _NR7Y_CW_PROSIGN_CODES = {name: code for code, name in _NR7Y_CW_PROSIGNS.items()
 # Longest a full macro can be as text: every byte a word of its own, up to <SOS>
 _NR7Y_CW_MACRO_TEXT_MAX = _NR7Y_CW_MACRO_MAX_LEN * 6
 
-# CW key input mode display strings (menu index 0-10 stored directly in EEPROM bits 0-4)
+# CW key input mode display strings, by menu index
 _NR7Y_CW_KEY_INPUT_MODES = [
     "PTT HandKey",           # 0: 0x08
     "Port HandKey",          # 1: 0x18
@@ -966,7 +970,7 @@ _NR7Y_CW_KEY_INPUT_MODES = [
     "USB Port HandKey",          # 10: 0x28
 ]
 
-# CW keyer mode display strings (bits 0-1 of _NR7Y_CW_SETTINGS_ADDR+4)
+# CW keyer mode display strings
 _NR7Y_CW_KEYER_MODES = [
     "Iambic A",       # 0
     "Iambic B",       # 1
@@ -974,26 +978,74 @@ _NR7Y_CW_KEYER_MODES = [
     "Semi-Auto Bug",  # 3
 ]
 
-# Copy practice effective speed (Farnsworth) in bits 2-7 of
-# _NR7Y_CW_SETTINGS_ADDR+4, 0 = off; mirrors CW_FARNSWORTH_WPM_MIN in
-# App/settings.h. It stays below the 45 WPM keyer maximum.
+# Keyer speed, mirrors CW_KEY_WPM_* in App/settings.h
+_NR7Y_CW_WPM_MIN = 10
+_NR7Y_CW_WPM_MAX = 60
+_NR7Y_CW_WPM_DEFAULT = 18
+
+# Copy practice effective speed (Farnsworth), 0 = off; mirrors
+# CW_FARNSWORTH_WPM_MIN in App/settings.h. It stays below the keyer maximum.
 _NR7Y_CW_FARNSWORTH_WPM_MIN = 5
-_NR7Y_CW_FARNSWORTH_WPM_MAX = 44
+_NR7Y_CW_FARNSWORTH_WPM_MAX = _NR7Y_CW_WPM_MAX - 1
 _NR7Y_CW_FARNSWORTH_OPTS = ["OFF"] + [
     "%d WPM" % w for w in range(_NR7Y_CW_FARNSWORTH_WPM_MIN,
                                 _NR7Y_CW_FARNSWORTH_WPM_MAX + 1)]
 
-# Proper roger dah length in dits (full byte at _NR7Y_CW_SETTINGS_ADDR+5),
-# mirrors CW_ROGER_DAH_DITS_* in App/settings.h
+# Proper roger dah length in dits, mirrors CW_ROGER_DAH_DITS_* in App/settings.h
 _NR7Y_CW_ROGER_DITS_MIN = 3
 _NR7Y_CW_ROGER_DITS_MAX = 20
 _NR7Y_CW_ROGER_DITS_DEFAULT = 9
 
-# Break-in hang time in 10 ms units (full byte at _NR7Y_CW_SETTINGS_ADDR+7),
-# mirrors CW_HANG_10MS_* in App/settings.h
+# Break-in hang time in 10 ms units, mirrors CW_HANG_10MS_* in App/settings.h
 _NR7Y_CW_HANG_10MS_MIN = 1
 _NR7Y_CW_HANG_10MS_MAX = 200
 _NR7Y_CW_HANG_10MS_DEFAULT = 30
+
+# CW settings, one byte each from _NR7Y_CW_SETTINGS_ADDR: name -> (offset, min,
+# max, default), the same as s_cw_settings_limits in App/settings.c. A byte out
+# of range reads as the default.
+_NR7Y_CW_FIELDS = {
+    "tone":            (0, _NR7Y_CW_TONE_MIN, _NR7Y_CW_TONE_MAX, 60),
+    "sidetone":        (1, 0, 15, 7),
+    "wpm":             (2, _NR7Y_CW_WPM_MIN, _NR7Y_CW_WPM_MAX, _NR7Y_CW_WPM_DEFAULT),
+    "keyer_mode":      (3, 0, 3, 1),
+    "key_input":       (4, 0, 10, 0),
+    "break_in":        (5, 0, 1, 1),
+    "repeat_delay":    (6, 0, 127, 4),
+    "roger_dits":      (7, _NR7Y_CW_ROGER_DITS_MIN, _NR7Y_CW_ROGER_DITS_MAX,
+                        _NR7Y_CW_ROGER_DITS_DEFAULT),
+    "hang_10ms":       (8, _NR7Y_CW_HANG_10MS_MIN, _NR7Y_CW_HANG_10MS_MAX,
+                        _NR7Y_CW_HANG_10MS_DEFAULT),
+    "farnsworth_wpm":  (9, 0, _NR7Y_CW_FARNSWORTH_WPM_MAX, 0),
+    "farnsworth_auto": (10, 0, 1, 0),
+}
+_NR7Y_CW_SETTINGS_SIZE = 11
+
+
+def _nr7y_unpack_v1_cw_settings(old):
+    """The 8 packed bytes v1.x kept at 0xA140, as the v2.0 CW settings. Decodes
+    them the way v1.4 firmware did; a field it would have defaulted is 0xFF."""
+    f = dict.fromkeys(_NR7Y_CW_FIELDS, 0xFF)
+    if old[0] != 0xFF:
+        f["tone"] = 45 + (old[0] & 0x0F) * 5
+        f["sidetone"] = _NR7Y_CW_SIDETONE_CODE_TO_LEVEL[old[0] >> 4]
+    f["wpm"] = old[1] & 0x7F
+    if old[2] < 0x80:
+        f["key_input"] = old[2] & 0x0F
+        f["break_in"] = (old[2] >> 6) & 1
+        f["farnsworth_auto"] = (old[2] >> 5) & 1
+    if old[3] < 0x80:
+        f["repeat_delay"] = old[3]
+    if old[4] >> 2 == 0 or _NR7Y_CW_FARNSWORTH_WPM_MIN <= old[4] >> 2 < 45:
+        f["keyer_mode"] = old[4] & 0x03
+        f["farnsworth_wpm"] = old[4] >> 2
+    f["roger_dits"] = old[5]
+    f["hang_10ms"] = old[7]
+    new = bytearray(b"\xFF" * _NR7Y_CW_SETTINGS_SIZE)
+    for name, (off, lo, hi, _) in _NR7Y_CW_FIELDS.items():
+        if lo <= f[name] <= hi:
+            new[off] = f[name]
+    return bytes(new)
 
 # The NR7Y CW firmware is one build, the "CW" preset in CMakePresets.json, so
 # the module assumes its features rather than reading build options (F4HWN v6.2
@@ -4145,8 +4197,11 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
 
         new_cw = _NR7Y_CW_SETTINGS_ADDR
         old_cw = _NR7Y_CW_SETTINGS_LEGACY_ADDR
-        if raw[new_cw:new_cw + 8] == b"\xFF" * 8:
-            raw[new_cw:new_cw + 8] = raw[old_cw:old_cw + 8]
+        size = _NR7Y_CW_SETTINGS_SIZE
+        if (raw[new_cw:new_cw + size] == b"\xFF" * size
+                and raw[old_cw:old_cw + 8] != b"\xFF" * 8):
+            raw[new_cw:new_cw + size] = _nr7y_unpack_v1_cw_settings(
+                raw[old_cw:old_cw + 8])
         raw[old_cw:old_cw + 8] = b"\xFF" * 8
 
         # Key actions, unless the image came from armel (v6.2 stores the fixed
@@ -4219,9 +4274,9 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         """Return a RadioSettingGroup containing all CW settings."""
         cw = RadioSettingGroup("cw", "CW Settings")
 
-        # Sidetone Frequency (450-950 Hz in 50 Hz steps)
+        # Sidetone Frequency
         try:
-            fi = self._get_cw_frequency_idx()
+            fi = (self._cw_get("tone") - _NR7Y_CW_TONE_MIN) // _NR7Y_CW_TONE_STEP
             cw.append(RadioSetting("cw_frequency", "Sidetone Frequency",
                                    RadioSettingValueList(_NR7Y_CW_FREQ_OPTS,
                                                          _NR7Y_CW_FREQ_OPTS[fi])))
@@ -4231,7 +4286,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         # Sidetone Volume (0=OFF, 1-15)
         vol_opts = ["OFF"] + [str(i) for i in range(1, 16)]
         try:
-            vi = self._get_cw_sidetone_level()
+            vi = self._cw_get("sidetone")
             cw.append(RadioSetting("cw_sidetone_level", "Sidetone Volume",
                                    RadioSettingValueList(vol_opts, vol_opts[vi])))
         except Exception as e:
@@ -4239,24 +4294,25 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
 
         # Keyer Mode
         try:
-            mi = self._get_cw_keyer_mode()
+            mi = self._cw_get("keyer_mode")
             cw.append(RadioSetting("cw_keyer_mode", "Keyer Mode",
                                    RadioSettingValueList(_NR7Y_CW_KEYER_MODES,
                                                         _NR7Y_CW_KEYER_MODES[mi])))
         except Exception as e:
             LOG.error("CW keyer mode: %s", e)
 
-        # Keyer Speed (10-45 WPM)
+        # Keyer Speed
         try:
-            wpm = self._get_cw_wpm()
+            wpm = self._cw_get("wpm")
             cw.append(RadioSetting("cw_wpm", "Keyer Speed (WPM)",
-                                   RadioSettingValueInteger(10, 45, wpm)))
+                                   RadioSettingValueInteger(_NR7Y_CW_WPM_MIN,
+                                                            _NR7Y_CW_WPM_MAX, wpm)))
         except Exception as e:
             LOG.error("CW WPM: %s", e)
 
         # Key Input Mode
         try:
-            ki = self._get_cw_key_input_idx()
+            ki = self._cw_get("key_input")
             cw.append(RadioSetting("cw_key_input", "Key Input Mode",
                                    RadioSettingValueList(_NR7Y_CW_KEY_INPUT_MODES,
                                                         _NR7Y_CW_KEY_INPUT_MODES[ki])))
@@ -4266,7 +4322,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         # Break-in
         try:
             breakin_opts = ["OFF", "ON"]
-            bi = 1 if self._get_cw_breakin() else 0
+            bi = self._cw_get("break_in")
             rs_bi = RadioSetting("cw_break_in", "Break-in (CWbkin)",
                                  RadioSettingValueList(breakin_opts, breakin_opts[bi]))
             rs_bi.set_doc("ON: TX during keying. OFF: sidetone only, no RF TX.")
@@ -4276,7 +4332,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
 
         # Break-in hang time
         try:
-            hang = self._get_cw_hang_ms()
+            hang = self._cw_get("hang_10ms") * 10
             rs_hang = RadioSetting("cw_hang_ms", "Break-in Hang Time (ms) (CWhang)",
                                    RadioSettingValueInteger(_NR7Y_CW_HANG_10MS_MIN * 10,
                                                             _NR7Y_CW_HANG_10MS_MAX * 10,
@@ -4289,7 +4345,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
 
         # Message Repeat Delay
         try:
-            rd = self._get_cw_repeat_delay()
+            rd = self._cw_get("repeat_delay")
             rs_rd = RadioSetting("cw_repeat_delay", "Message Repeat Delay (sec)",
                                  RadioSettingValueInteger(0, 127, rd))
             rs_rd.set_doc("Delay between repeated CW message plays (0-127 seconds)")
@@ -4299,7 +4355,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
 
         # Proper Roger dah length
         try:
-            rg = self._get_cw_roger_dits()
+            rg = self._cw_get("roger_dits")
             rs_rg = RadioSetting("cw_roger_dits", "Proper Roger Dah (dits)",
                                  RadioSettingValueInteger(_NR7Y_CW_ROGER_DITS_MIN,
                                                           _NR7Y_CW_ROGER_DITS_MAX, rg))
@@ -4311,8 +4367,9 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
 
         # Copy practice spacing (Farnsworth)
         try:
-            eff = self._get_cw_farnsworth_wpm()
-            opt = "OFF" if eff == 0 else "%d WPM" % eff
+            eff = self._cw_get("farnsworth_wpm")
+            opt = ("%d WPM" % eff if eff >= _NR7Y_CW_FARNSWORTH_WPM_MIN
+                   else "OFF")
             rs_fw = RadioSetting("cw_farnsworth_wpm", "Copy Practice Spacing",
                                  RadioSettingValueList(_NR7Y_CW_FARNSWORTH_OPTS, opt))
             rs_fw.set_doc("Effective speed of the copy practice drills: characters "
@@ -4327,7 +4384,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
             auto_opts = ["OFF", "ON"]
             rs_fa = RadioSetting("cw_farnsworth_auto", "Copy Practice Auto Spacing",
                                  RadioSettingValueList(auto_opts,
-                                                       auto_opts[self._get_cw_farnsworth_auto()]))
+                                                       auto_opts[self._cw_get("farnsworth_auto")]))
             rs_fa.set_doc("Narrow the copy practice spacing a step after 5 calls in a "
                           "row copied on the first listen, and widen it a step when a "
                           "call has to be revealed.")
@@ -4417,30 +4474,32 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         """Dispatch a single cw_* setting to its encode/write helper."""
         try:
             if name == "cw_frequency":
-                self._set_cw_frequency_idx(_NR7Y_CW_FREQ_OPTS.index(str(element.value)))
+                self._cw_set("tone", _NR7Y_CW_TONE_MIN + _NR7Y_CW_TONE_STEP *
+                             _NR7Y_CW_FREQ_OPTS.index(str(element.value)))
             elif name == "cw_sidetone_level":
                 vol_opts = ["OFF"] + [str(i) for i in range(1, 16)]
-                self._set_cw_sidetone_level(vol_opts.index(str(element.value)))
+                self._cw_set("sidetone", vol_opts.index(str(element.value)))
             elif name == "cw_keyer_mode":
-                self._set_cw_keyer_mode(_NR7Y_CW_KEYER_MODES.index(str(element.value)))
+                self._cw_set("keyer_mode", _NR7Y_CW_KEYER_MODES.index(str(element.value)))
             elif name == "cw_wpm":
-                self._set_cw_wpm(int(element.value))
+                self._cw_set("wpm", element.value)
             elif name == "cw_key_input":
-                self._set_cw_key_input_idx(
-                    _NR7Y_CW_KEY_INPUT_MODES.index(str(element.value)))
+                self._cw_set("key_input",
+                             _NR7Y_CW_KEY_INPUT_MODES.index(str(element.value)))
             elif name == "cw_break_in":
-                self._set_cw_breakin(["OFF", "ON"].index(str(element.value)))
+                self._cw_set("break_in", ["OFF", "ON"].index(str(element.value)))
             elif name == "cw_repeat_delay":
-                self._set_cw_repeat_delay(int(element.value))
+                self._cw_set("repeat_delay", element.value)
             elif name == "cw_roger_dits":
-                self._set_cw_roger_dits(int(element.value))
+                self._cw_set("roger_dits", element.value)
             elif name == "cw_hang_ms":
-                self._set_cw_hang_ms(int(element.value))
+                self._cw_set("hang_10ms", int(element.value) // 10)
             elif name == "cw_farnsworth_wpm":
-                self._set_cw_farnsworth_wpm(
-                    _NR7Y_CW_FARNSWORTH_OPTS.index(str(element.value)))
+                idx = _NR7Y_CW_FARNSWORTH_OPTS.index(str(element.value))
+                self._cw_set("farnsworth_wpm",
+                             0 if idx == 0 else _NR7Y_CW_FARNSWORTH_WPM_MIN + idx - 1)
             elif name == "cw_farnsworth_auto":
-                self._set_cw_farnsworth_auto(["OFF", "ON"].index(str(element.value)))
+                self._cw_set("farnsworth_auto", ["OFF", "ON"].index(str(element.value)))
             elif name.startswith("cw_msg"):
                 # "cw_msg1" → idx 1 … "cw_msg4" → idx 4
                 self._set_cw_msg(int(name[6:]), str(element.value))
@@ -4462,180 +4521,15 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         """Write one byte to the image at the given address."""
         self._mmap[addr] = int(byte_val) & 0xFF
 
-    # -- Sidetone frequency (bits 0-3 of CW byte 0) --
+    def _cw_get(self, name):
+        """A CW setting (_NR7Y_CW_FIELDS), or its default when out of range."""
+        off, lo, hi, default = _NR7Y_CW_FIELDS[name]
+        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + off)
+        return b if lo <= b <= hi else default
 
-    def _get_cw_frequency_idx(self):
-        """Return sidetone frequency index 0-7 (450-800 Hz, 50 Hz steps)."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR)
-        if b == 0xFF:
-            return 3   # Default 600 Hz
-        # Firmware stores (Hz/10 − 45) / 5 in bits 0-3
-        freq_val = 45 + (b & 0x0F) * 5   # Hz/10
-        return max(0, min(len(_NR7Y_CW_FREQ_OPTS) - 1, (freq_val * 10 - 450) // 50))
-
-    def _cw_byte0(self):
-        """CW byte 0, with a blank (0xFF) byte read as 600 Hz at level 7."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR)
-        return 0xC3 if b == 0xFF else b
-
-    def _set_cw_frequency_idx(self, idx):
-        b = self._cw_byte0()
-        freq_hz = 450 + int(idx) * 50
-        encoded = (freq_hz // 10 - 45) // 5
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR, (b & 0xF0) | (encoded & 0x0F))
-
-    # -- Sidetone level (bits 4-7 of CW byte 0) --
-
-    def _get_cw_sidetone_level(self):
-        """Return sidetone volume index 0-15 (0=OFF)."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR)
-        if b == 0xFF:
-            return 7   # Default level 7
-        return _NR7Y_CW_SIDETONE_CODE_TO_LEVEL[(b >> 4) & 0x0F]
-
-    def _set_cw_sidetone_level(self, level):
-        b = self._cw_byte0()
-        code = _NR7Y_CW_SIDETONE_CODE_TO_LEVEL.index(int(level))
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR, (b & 0x0F) | (code << 4))
-
-    # -- CW byte 4: keyer mode (bits 0-1), copy practice effective speed (bits 2-7) --
-
-    def _cw_byte4_valid(self, b):
-        """Same check as the firmware: an effective speed field out of range means
-        the byte was never written in this layout (blank, or a pre-1.0 beta)."""
-        eff = b >> 2
-        return eff == 0 or (_NR7Y_CW_FARNSWORTH_WPM_MIN <= eff
-                            <= _NR7Y_CW_FARNSWORTH_WPM_MAX)
-
-    def _get_cw_keyer_mode(self):
-        """Return 0=Iambic A, 1=Iambic B, 2=Ultimatic, 3=Semi-Auto Bug."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 4)
-        if not self._cw_byte4_valid(b):
-            return 1   # Default Mode B (blank/invalid EEPROM)
-        return b & 0x03
-
-    def _set_cw_keyer_mode(self, mode):
-        mode = max(0, min(len(_NR7Y_CW_KEYER_MODES) - 1, int(mode)))
-        eff = self._get_cw_farnsworth_wpm()
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 4, mode | (eff << 2))
-
-    def _get_cw_farnsworth_wpm(self):
-        """Return the copy practice effective speed, 0 = off."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 4)
-        if not self._cw_byte4_valid(b):
-            return 0
-        return b >> 2
-
-    def _set_cw_farnsworth_wpm(self, idx):
-        """idx into _NR7Y_CW_FARNSWORTH_OPTS: 0 = off, else the speed's option."""
-        eff = 0 if idx <= 0 else min(_NR7Y_CW_FARNSWORTH_WPM_MAX,
-                                     _NR7Y_CW_FARNSWORTH_WPM_MIN + int(idx) - 1)
-        mode = self._get_cw_keyer_mode()
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 4, mode | (eff << 2))
-
-    # -- Keyer speed (bits 0-6 of CW byte 1; mode no longer shares this byte) --
-
-    def _get_cw_wpm(self):
-        """Return WPM (10-45)."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 1)
-        if b == 0xFF:
-            return 18  # Default 18 WPM
-        wpm = b & 0x7F
-        return wpm if 10 <= wpm <= 45 else 18
-
-    def _set_cw_wpm(self, wpm):
-        wpm = max(10, min(45, int(wpm)))
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 1, wpm & 0x7F)
-
-    # -- Key input mode (bits 0-4 of CW byte 2) --
-
-    def _get_cw_key_input_idx(self):
-        """Return key input menu index 0-10."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 2)
-        if b == 0xFF or b >= 0x80:
-            return 0   # Default HandKey
-        idx = b & 0x1F
-        return idx if idx < len(_NR7Y_CW_KEY_INPUT_MODES) else 0
-
-    def _set_cw_key_input_idx(self, idx):
-        if idx < 0 or idx >= len(_NR7Y_CW_KEY_INPUT_MODES):
-            idx = 0
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 2)
-        break_in = (b >> 6) & 0x01
-        auto = (b & 0x20) if b < 0x80 else 0   # bit 5: copy practice auto spacing
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 2,
-                       (int(idx) & 0x1F) | auto | (break_in << 6))
-
-    # -- Break-in enable (bit 6 of CW byte 2) --
-
-    def _get_cw_breakin(self):
-        """Return 1=ON (break-in enabled), 0=OFF."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 2)
-        if b == 0xFF or b >= 0x80:
-            return 1   # Default ON
-        return (b >> 6) & 0x01
-
-    def _set_cw_breakin(self, enable):
-        enable = 1 if enable else 0
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 2)
-        auto = (b & 0x20) if b < 0x80 else 0   # bit 5: copy practice auto spacing
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 2,
-                       (b & 0x1F) | auto | (enable << 6))
-
-    # -- Copy practice auto spacing (bit 5 of CW byte 2) --
-
-    def _get_cw_farnsworth_auto(self):
-        """Return 1=ON, 0=OFF."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 2)
-        if b >= 0x80:
-            return 0   # Default OFF
-        return (b >> 5) & 0x01
-
-    def _set_cw_farnsworth_auto(self, enable):
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 2)
-        if b >= 0x80:
-            # Blank byte: write the firmware's defaults alongside (HandKey, break-in on)
-            b = 0x40
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 2,
-                       (b & ~0x20 & 0x7F) | ((1 if enable else 0) << 5))
-
-    # -- Message repeat delay (bits 0-6 of CW byte 3) --
-
-    def _get_cw_repeat_delay(self):
-        """Return repeat delay in seconds (0-127)."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 3)
-        if b >= 0x80:
-            return 4   # Default 4 seconds
-        return b & 0x7F
-
-    def _set_cw_repeat_delay(self, delay):
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 3, max(0, min(127, int(delay))) & 0x7F)
-
-    # -- Proper roger dah length (full byte at CW byte 5) --
-
-    def _get_cw_roger_dits(self):
-        """Return proper roger dah length in dits (3-20)."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 5)
-        if not _NR7Y_CW_ROGER_DITS_MIN <= b <= _NR7Y_CW_ROGER_DITS_MAX:
-            return _NR7Y_CW_ROGER_DITS_DEFAULT  # blank/invalid EEPROM
-        return b
-
-    def _set_cw_roger_dits(self, dits):
-        dits = max(_NR7Y_CW_ROGER_DITS_MIN, min(_NR7Y_CW_ROGER_DITS_MAX, int(dits)))
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 5, dits)
-
-    # -- Break-in hang time (full byte at CW byte 7, 10 ms units) --
-
-    def _get_cw_hang_ms(self):
-        """Return break-in hang time in ms (10-2000)."""
-        b = self._mmap_byte(_NR7Y_CW_SETTINGS_ADDR + 7)
-        if not _NR7Y_CW_HANG_10MS_MIN <= b <= _NR7Y_CW_HANG_10MS_MAX:
-            b = _NR7Y_CW_HANG_10MS_DEFAULT  # blank/invalid EEPROM
-        return b * 10
-
-    def _set_cw_hang_ms(self, ms):
-        units = max(_NR7Y_CW_HANG_10MS_MIN, min(_NR7Y_CW_HANG_10MS_MAX, int(ms) // 10))
-        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + 7, units)
+    def _cw_set(self, name, value):
+        off, lo, hi, _ = _NR7Y_CW_FIELDS[name]
+        self._mmap_set(_NR7Y_CW_SETTINGS_ADDR + off, max(lo, min(hi, int(value))))
 
     # ------------------------------------------------------------------ CW macro read/write
 

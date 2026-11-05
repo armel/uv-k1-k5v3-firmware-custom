@@ -302,7 +302,7 @@
                 "ENABLE_FEAT_F4HWN_LOGO": true,
                 "ENABLE_FEAT_F4HWN_K5VIEWER": true,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT": true,
-                "ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG": true,
+                "ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG": false,
                 "ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY": true,
                 "ENABLE_FEAT_F4HWN_OVERLAY_APPS": true,
                 "ENABLE_FEAT_F4HWN_OVERLAY_INFO": true,

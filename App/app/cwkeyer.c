@@ -221,7 +221,7 @@ void CW_KeyerReconfigure(bool enable)
 //   1-7:   DAC 0, tuning gain halves per step     -72 to -36 dB, 6 dB/step
 //   8-10:  full tuning gain, DAC 0/3/6            -30, -24, -18 dB
 //   11-15: full tuning gain, DAC 8/11/13/14/15    -14, -8, -4, -2, 0 dB
-// Levels 6 and 11-15 are the old levels 1-6 (see s_cw_sidetone_code_to_level).
+// Levels 6 and 11-15 are v1.x's levels 1-6 (CHIRP's v1.x image conversion maps them).
 // RX audio gets its own DAC gain back after the hang time (RADIO_SetModulation, RADIO_SetupRegisters).
 // Retune by editing the table and rebuilding.
 typedef struct {
@@ -267,14 +267,20 @@ static void CW_UpdatePlaybackGaps(void)
 void CW_UpdateWPM()
 {
     const uint32_t wpm = gEeprom.CW_KEY_WPM;
-    const uint32_t dit_ticks = TICKS_PER_MINUTE / (wpm * DITS_PER_WORD);
 
-    s_dit_count = dit_ticks;
-    s_dah_count = 3U * dit_ticks;
-    s_gap_count = dit_ticks; // inter-element gap = 1 dit
-    s_ext_gap_count = 3U * dit_ticks / 2U; // after 1.5 dits, hold char gap if key pressed
-    s_char_gap_count = 3U * dit_ticks; // inter-char gap = 3 dits
-    s_word_gap_count = 7U * dit_ticks; // inter-word gap = 7 dits
+    // Each length is rounded from the exact dit (1200 / wpm ms), not built up
+    // from a truncated dit: that made a 45 WPM dah 78 ms instead of 80.
+    #define CW_HALF_DITS_TO_TICKS(h) \
+        (((h) * TICKS_PER_MINUTE + wpm * DITS_PER_WORD) / (2U * wpm * DITS_PER_WORD))
+
+    s_dit_count = CW_HALF_DITS_TO_TICKS(2U);
+    s_dah_count = CW_HALF_DITS_TO_TICKS(6U);
+    s_gap_count = s_dit_count; // inter-element gap = 1 dit
+    s_ext_gap_count = CW_HALF_DITS_TO_TICKS(3U); // after 1.5 dits, hold char gap if key pressed
+    s_char_gap_count = CW_HALF_DITS_TO_TICKS(6U); // inter-char gap = 3 dits
+    s_word_gap_count = CW_HALF_DITS_TO_TICKS(14U); // inter-word gap = 7 dits
+
+    #undef CW_HALF_DITS_TO_TICKS
     CW_UpdatePlaybackGaps();
 
 #if CW_KEYER_DEBUG

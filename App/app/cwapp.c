@@ -26,6 +26,7 @@
 #include "app/cwmacro.h"
 #include "app/cwpopup.h"
 #include "app/cwrit.h"
+#include "app/action.h"
 #include "app/app.h"
 #include "app/menu.h"
 #include "audio.h"
@@ -111,6 +112,12 @@ void CW_OverlayExit(void)
 {
 	RADIO_SelectVfos();
 	RADIO_SetupRegisters(true);
+
+	// RADIO_SetupRegisters mutes AF (or closes the audio path) and drops to
+	// FUNCTION_FOREGROUND, so nothing would reopen it and we'd show MONI with
+	// no audio. ACTION_Monitor reopens it and relights the green RX LED.
+	if (gMonitor)
+		ACTION_Monitor();
 }
 
 // ---------------------------------------------------------------------------

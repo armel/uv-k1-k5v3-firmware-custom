@@ -1794,7 +1794,7 @@ void UI_DisplayMenu(void)
 
 #ifdef ENABLE_CW_MODULATOR
 		case MENU_CW_FREQ:
-			sprintf(String, "Tone\n%d Hz", 450 + gSubMenuSelection * 50);
+			sprintf(String, "Tone\n%d Hz", (CW_TONE_MIN + gSubMenuSelection * CW_TONE_STEP) * 10);
 			break;
 
 		case MENU_CW_SIDETONE_LEVEL:
