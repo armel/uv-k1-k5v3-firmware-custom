@@ -41,7 +41,7 @@ if(ENABLE_FEAT_F4HWN)
         set(AUTHOR_STRING_1 "EGZUMER-F4HWN")
     endif()
     if(NOT AUTHOR_STRING_2)
-        set(AUTHOR_STRING_2 "NR7Y")
+        set(AUTHOR_STRING_2 "Brass")
     endif()
     if(NOT VERSION_STRING_1)
         set(VERSION_STRING_1 "v0.22")
@@ -101,6 +101,23 @@ add_subdirectory(App)
 
 target_link_libraries(${EXE_NAME} Core App)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(PRINTF_FORMAT_CHECK_ARGS
+    --source-root "${CMAKE_SOURCE_DIR}/App"
+)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    list(APPEND PRINTF_FORMAT_CHECK_ARGS --define DEBUG)
+endif()
+add_custom_target(check_printf_formats
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/cmake/check_printf_formats.py"
+            ${PRINTF_FORMAT_CHECK_ARGS}
+    DEPENDS "${CMAKE_SOURCE_DIR}/cmake/check_printf_formats.py"
+    COMMENT "Validating minimal printf formats"
+    VERBATIM
+)
+add_dependencies(${EXE_NAME} check_printf_formats)
+
 target_compile_definitions(${EXE_NAME} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 target_link_libraries(${EXE_NAME} ${TOOLCHAIN_LINK_LIBRARIES})
 
@@ -117,9 +134,36 @@ set_target_properties(${EXE_NAME} PROPERTIES ADDITIONAL_CLEAN_FILES ${EXE_NAME}.
 # Force linker to ignore RWX segment warning even if cache exists
 target_link_options(${EXE_NAME} PRIVATE -Wl,--no-warn-rwx-segment)
 
+# ENABLE_NO_HEAP: no malloc/sbrk is linked (libc is discarded in py32f071xb.ld),
+# so the reserved heap is dead weight. Zero it to reclaim ~512 B of RAM. This is
+# a global toolchain optimization, independent of multiboot. The linker script
+# reads __min_heap_size when defined, else keeps its 0x200 default.
+if(ENABLE_NO_HEAP)
+    target_link_options(${EXE_NAME} PRIVATE "-Wl,--defsym=__min_heap_size=0")
+endif()
+
 # -----------------------------------
 #  Post build processing
 #
+
+# The restore stub executes while application flash is unavailable. Reject an
+# overlay build if the linked stub branches outside its RAM section or if its
+# input section refers to any external code/data. This is deliberately a hard
+# build gate: either condition could make a restore unrecoverable without DFU.
+if(ENABLE_FEAT_F4HWN_MULTIBOOT_OVERLAY)
+    add_custom_command(
+        TARGET ${EXE_NAME}
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+                "-DOBJDUMP=${CMAKE_OBJDUMP}"
+                "-DELF=$<TARGET_FILE:${EXE_NAME}>"
+                "-DMAP=${CMAKE_CURRENT_BINARY_DIR}/${EXE_NAME}.map"
+                "-DBINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/check_mb_ramfunc.cmake"
+        COMMENT "Checking multiboot RAM stub isolation"
+        VERBATIM
+    )
+endif()
 
 # Generate .bin file
 add_custom_command(

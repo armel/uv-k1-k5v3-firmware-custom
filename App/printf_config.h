@@ -2,3 +2,6 @@
 #define PRINTF_DISABLE_SUPPORT_EXPONENTIAL
 #define PRINTF_DISABLE_SUPPORT_PTRDIFF_T
 #define PRINTF_DISABLE_SUPPORT_FLOAT
+
+// Keep only the integer and string formats used by the firmware UI.
+#define PRINTF_USE_MINIMAL

@@ -14,7 +14,6 @@
  *     limitations under the License.
  */
 #include "app/spectrum.h"
-#include "am_fix.h"
 #include "audio.h"
 #include "misc.h"
 
@@ -608,10 +607,6 @@ uint16_t GetRssi()
     // Discard first read (AGC may still be transitioning), keep second
     BK4819_GetRSSI();
     uint16_t rssi = BK4819_GetRSSI();
-#ifdef ENABLE_AM_FIX
-    if (settings.modulationType == MODULATION_AM && gSetting_AM_fix)
-        rssi += AM_fix_get_gain_diff() * 2;
-#endif
     return rssi;
 }
 
@@ -1733,17 +1728,23 @@ static uint8_t GetScanStepTextWidth()
     return (sprintf(NULL, "%u", GetScanStep() / 100) + 4) * 4; // "%u.%02uk", 4 px advance per char
 }
 
+static uint8_t GetBwTextWidth()
+{
+    return (strlen(bwOptions[settings.listenBw]) * 4) + 4; // 4 px advance per char
+}
+
 static void DrawRssiTriggerLevel(const uint8_t *topY)
 {
     if (settings.rssiTriggerLevel == RSSI_MAX_VALUE || monitorMode)
         return;
     uint8_t scanStepTextWidth = GetScanStepTextWidth();
+    uint8_t bwTextWidth = GetBwTextWidth();
     uint8_t y = Rssi2Y(settings.rssiTriggerLevel);
     for (uint8_t x = 0; x < 128; x += 2)
     {
         if (SpectrumColumnAtOrAboveY(topY, x, y))
             continue;
-        if (y <= 12 && (x < scanStepTextWidth + 2 || x >= 114))
+        if (y <= 12 && (x < scanStepTextWidth + 2 || x >= 128 - bwTextWidth - 2))
             continue;
         if (gFrameBuffer[y / 8][x] & (1 << (y % 8)))
             continue;
@@ -2474,12 +2475,6 @@ static void Tick()
     if (gNextTimeslice)
     {
         gNextTimeslice = false;
-#ifdef ENABLE_AM_FIX
-        if (settings.modulationType == MODULATION_AM && !lockAGC)
-        {
-            AM_fix_10ms(vfo); // allow AM_Fix to apply its AGC action
-        }
-#endif
         BACKLIGHT_Update();
     }
 

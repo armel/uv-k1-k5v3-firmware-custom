@@ -24,6 +24,14 @@
 #include "k5viewer.h"
 #endif
 
+#define BRICK_WIDTH  14
+#define BRICK_HEIGHT 5
+#define BALL_WIDTH    3
+#define BALL_HEIGHT   3
+#define RACKET_WIDTH  24
+#define RACKET_HEIGHT 2
+#define RACKET_Y      50
+
 static uint32_t randSeed = 1;
 static uint8_t blockAnim = 0;
 
@@ -101,16 +109,14 @@ void drawScore()
 
 // Render the ball
 void renderBall(bool state) {
-    UI_DrawRectangleBuffer(gFrameBuffer, ball.x, ball.y, ball.x + ball.w - 1, ball.y + ball.h - 1, state);
-    UI_DrawLineBuffer(gFrameBuffer, ball.x - 1, ball.y + 1, ball.x + ball.w, ball.y + 1, state);
+    UI_DrawRectangleBuffer(gFrameBuffer, ball.x, ball.y, ball.x + BALL_WIDTH - 1, ball.y + BALL_HEIGHT - 1, state);
+    UI_DrawLineBuffer(gFrameBuffer, ball.x - 1, ball.y + 1, ball.x + BALL_WIDTH, ball.y + 1, state);
 }
 
 // Init ball
 void initBall() {
     ball.x  = 62;
     ball.y  = 30;
-    ball.w  = 3;
-    ball.h  = 3;
     ball.dx = 0;
     ball.dy = 1;
 
@@ -119,7 +125,7 @@ void initBall() {
 
 // Calculate the direction of the bounced ball
 void directionBall(int16_t x, uint8_t w, int8_t num) {
-    ball.dx = map(x + w - ball.x, 0, w, num, -num);
+    ball.dx = (int16_t)(x + w - ball.x) * (-num - num) / w + num;
     ball.dy *= -1;
 }
 
@@ -145,8 +151,8 @@ void drawBall() {
     }
     // And now Down...
     if (ball.y == 47) {
-        if (ball.x + 1 >= racket.x && ball.x - 1 <= racket.x + racket.w) {
-            directionBall(racket.x, racket.w, 3);
+        if (ball.x + 1 >= racket.x && ball.x - 1 <= racket.x + RACKET_WIDTH) {
+            directionBall(racket.x, RACKET_WIDTH, 3);
             tone = 400;
         }
     } 
@@ -172,24 +178,15 @@ void drawBall() {
 
 // Init wall
 void initWall() {
-    uint8_t offset = 6;
-    uint8_t i      = 0;
-    uint8_t j      = 0;
-    uint8_t k      = 0;
+    Brick *current = brick;
 
-    for (i = 0; i < BRICK_NUMBER; i++) {
-        if (i % 6 == 0) {
-            j = 0;
-            k++;
+    for (uint8_t y = 0; y < 24; y += 8) {
+        for (uint8_t x = 6; x < 126; x += 20) {
+            current->x       = x;
+            current->y       = y;
+            current->destroy = false;
+            current++;
         }
-
-        brick[i].x       = offset + (20 * j);
-        brick[i].y       = -8 + 8 * k;
-        brick[i].w       = 14;
-        brick[i].h       = 5;
-        brick[i].destroy = false;
-
-        j++;
     }
 }
 
@@ -205,13 +202,13 @@ void drawWall() {
             fb_ptr[14] = 0b00011110;
 
             if ((ball.x + 1 >= brick[i].x &&
-                 ball.x - 1 <= brick[i].x + brick[i].w) &&
+                 ball.x - 1 <= brick[i].x + BRICK_WIDTH) &&
                 ((ball.y + 1 >= brick[i].y && 
-                  ball.y - 1 <= brick[i].y + brick[i].h))) {
+                  ball.y - 1 <= brick[i].y + BRICK_HEIGHT))) {
                 brick[i].destroy = true;
                 score++;
 
-                directionBall(brick[i].x, brick[i].w, 2);
+                directionBall(brick[i].x, BRICK_WIDTH, 2);
 
                 BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, true);
                 memset(fb_ptr + 1, 0b00111111, 13);
@@ -238,16 +235,13 @@ void drawWall() {
 
 // Render the racket shape
 void renderRacket(int x, bool state) {
-    UI_DrawRectangleBuffer(gFrameBuffer, x + 1, racket.y, x + racket.w - 2, racket.y + racket.h, state);
-    UI_DrawLineBuffer(gFrameBuffer, x, racket.y + 1, x + racket.w - 1, racket.y + 1, state);
+    UI_DrawRectangleBuffer(gFrameBuffer, x + 1, RACKET_Y, x + RACKET_WIDTH - 2, RACKET_Y + RACKET_HEIGHT, state);
+    UI_DrawLineBuffer(gFrameBuffer, x, RACKET_Y + 1, x + RACKET_WIDTH - 1, RACKET_Y + 1, state);
 }
 
 // Init racket
 void initRacket() {
-    racket.w = 24;
-    racket.x = (64) - (racket.w / 2);
-    racket.y = 50;
-    racket.h = 2;
+    racket.x = 64 - (RACKET_WIDTH / 2);
     racket.p = racket.x;
 
     renderRacket(racket.x, true);

@@ -1,0 +1,445 @@
+<div id="aprs-pixel-workbench" class="aprs-workbench viz-dotted-background">
+  <style>
+    #aprs-pixel-workbench {
+      --p-bg: light-dark(#f7fbfd, #101820);
+      --p-panel: light-dark(#ffffff, #17232d);
+      --p-ink: light-dark(#102536, #eef8ff);
+      --p-muted: light-dark(#577184, #a8bdca);
+      --p-line: light-dark(#b8d8e8, #355163);
+      --p-grid: light-dark(#d8eef7, #29414f);
+      --p-pixel: light-dark(#06141f, #f6fbff);
+      --p-cyan: light-dark(#007b9d, #43dff8);
+      color-scheme: light dark;
+      color: var(--p-ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      padding: 16px;
+    }
+    #aprs-pixel-workbench * { box-sizing: border-box; }
+    #aprs-pixel-workbench .shell {
+      max-width: 980px;
+      margin: 0 auto;
+      background: var(--p-bg);
+      border: 1px solid var(--p-line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    #aprs-pixel-workbench header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      background: light-dark(#07385f, #082b48);
+      color: #eefcff;
+    }
+    #aprs-pixel-workbench h1,
+    #aprs-pixel-workbench h2 { margin: 0; font-weight: 500; }
+    #aprs-pixel-workbench header span { color: #43dff8; }
+    #aprs-pixel-workbench .stage {
+      display: grid;
+      grid-template-columns: minmax(230px, 1fr) minmax(260px, 1fr) 96px;
+      gap: 16px;
+      align-items: start;
+      padding: 16px;
+      border-bottom: 1px solid var(--p-line);
+    }
+    #aprs-pixel-workbench .pane-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: var(--p-muted);
+    }
+    #aprs-pixel-workbench .source-window {
+      width: 100%;
+      aspect-ratio: 156 / 136;
+      background-image: url("./aprs_symbols_20_mockup.png");
+      background-repeat: no-repeat;
+      background-size: 897.4359% 823.5294%;
+      border: 1px solid var(--p-line);
+      background-color: #fff;
+    }
+    #aprs-pixel-workbench .matrix {
+      display: grid;
+      grid-template-columns: repeat(20, 1fr);
+      aspect-ratio: 1;
+      width: min(100%, 320px);
+      background: var(--p-panel);
+      border: 1px solid var(--p-line);
+    }
+    #aprs-pixel-workbench .matrix button {
+      min-width: 0;
+      min-height: 0;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-right: 1px solid var(--p-grid);
+      border-bottom: 1px solid var(--p-grid);
+      border-radius: 0;
+      background: transparent;
+    }
+    #aprs-pixel-workbench .matrix button.on { background: var(--p-pixel); }
+    #aprs-pixel-workbench .native-wrap {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+    }
+    #aprs-pixel-workbench .native {
+      display: grid;
+      grid-template-columns: repeat(20, 1px);
+      grid-template-rows: repeat(20, 1px);
+      width: 20px;
+      height: 20px;
+      background: light-dark(#fff, #eaf3f8);
+      outline: 1px solid var(--p-line);
+    }
+    #aprs-pixel-workbench .native i,
+    #aprs-pixel-workbench .mini i { background: transparent; }
+    #aprs-pixel-workbench .native i.on,
+    #aprs-pixel-workbench .mini i.on { background: #07141d; }
+    #aprs-pixel-workbench .selected-code {
+      font-size: 22px;
+      color: var(--p-cyan);
+      text-align: center;
+    }
+    #aprs-pixel-workbench .tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 16px 16px;
+      border-bottom: 1px solid var(--p-line);
+    }
+    #aprs-pixel-workbench .tools button,
+    #aprs-pixel-workbench .tools label,
+    #aprs-pixel-workbench .symbol {
+      color: var(--p-ink);
+      background: var(--p-panel);
+      border: 1px solid var(--p-line);
+      font: inherit;
+    }
+    #aprs-pixel-workbench .tools button,
+    #aprs-pixel-workbench .tools label {
+      padding: 7px 10px;
+      border-radius: 7px;
+    }
+    #aprs-pixel-workbench .tools input { display: none; }
+    #aprs-pixel-workbench .save-status {
+      align-self: center;
+      color: var(--p-muted);
+      margin-left: auto;
+    }
+    #aprs-pixel-workbench .symbols {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(72px, 1fr));
+      gap: 8px;
+      padding: 16px;
+    }
+    #aprs-pixel-workbench .symbol {
+      min-width: 0;
+      padding: 7px 4px 6px;
+      border-radius: 8px;
+      display: grid;
+      justify-items: center;
+      gap: 5px;
+    }
+    #aprs-pixel-workbench .symbol[aria-pressed="true"] {
+      border-color: var(--p-cyan);
+      box-shadow: inset 0 0 0 1px var(--p-cyan);
+    }
+    #aprs-pixel-workbench .mini {
+      display: grid;
+      grid-template-columns: repeat(20, 2px);
+      grid-template-rows: repeat(20, 2px);
+      width: 40px;
+      height: 40px;
+      background: #f7fbfd;
+    }
+    #aprs-pixel-workbench .symbol small {
+      overflow: hidden;
+      max-width: 100%;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      color: var(--p-muted);
+    }
+    #aprs-pixel-workbench details { margin: 0 16px 16px; }
+    #aprs-pixel-workbench summary { color: var(--p-cyan); }
+    #aprs-pixel-workbench details img {
+      display: block;
+      width: 100%;
+      height: auto;
+      margin-top: 10px;
+      border: 1px solid var(--p-line);
+    }
+    @media (max-width: 760px) {
+      #aprs-pixel-workbench .stage { grid-template-columns: 1fr 1fr; }
+      #aprs-pixel-workbench .native-wrap { grid-column: 1 / -1; }
+      #aprs-pixel-workbench .symbols { grid-template-columns: repeat(4, minmax(64px, 1fr)); }
+    }
+    @media (max-width: 480px) {
+      #aprs-pixel-workbench .stage { grid-template-columns: 1fr; }
+      #aprs-pixel-workbench .symbols { grid-template-columns: repeat(3, minmax(64px, 1fr)); }
+    }
+  </style>
+
+  <section class="shell" aria-label="Atelier de validation APRS 20 par 20">
+    <header>
+      <h1>APRS 20×20</h1>
+      <span>48 pictogrammes · validation pixel par pixel</span>
+    </header>
+
+    <div class="stage">
+      <section>
+        <div class="pane-title"><span>Planche source</span><strong id="source-name"></strong></div>
+        <div id="source-window" class="source-window" role="img"></div>
+      </section>
+      <section>
+        <div class="pane-title"><span>Matrice CSS éditable</span><strong>20 × 20</strong></div>
+        <div id="matrix" class="matrix" aria-label="Matrice de pixels éditable"></div>
+      </section>
+      <section class="native-wrap">
+        <div class="pane-title">Taille écran</div>
+        <div id="native" class="native" role="img" aria-label="Aperçu à taille réelle"></div>
+        <div id="selected-code" class="selected-code"></div>
+      </section>
+    </div>
+
+    <div class="tools">
+      <button id="undo-one" type="button">Rétablir ce picto</button>
+      <button id="undo-all" type="button">Rétablir les 48</button>
+      <button id="invert" type="button">Inverser les pixels</button>
+      <button id="export-json" type="button">Exporter JSON</button>
+      <label for="import-json">Importer JSON</label>
+      <input id="import-json" type="file" accept="application/json,.json">
+      <span id="save-status" class="save-status" aria-live="polite">Sauvegarde automatique active</span>
+    </div>
+
+    <div id="symbols" class="symbols" aria-label="Sélection des 48 pictogrammes"></div>
+
+    <details>
+      <summary>Afficher la planche complète</summary>
+      <img src="./aprs_symbols_20_mockup.png" alt="Planche source des 48 pictogrammes APRS">
+    </details>
+  </section>
+
+  <script>
+    (() => {
+      const root = document.getElementById('aprs-pixel-workbench');
+      const codes = ['/\x23','/X','/&','/Y',"/'",'/[','/-','/r','/.','/^','/0','/_','/:','/a','/;','/b','/<','/f','/>','\\a','\\i','/j','/E','/k','/I','/m','/K','/O','/P','/s','/R','/v','/y','/T','/U','/V','\\\x23','\\&','\\-','/W','\\_','\\0','E0','/Q','/`','YY','\\^','\\Y'];
+      const names = ['DIGI','HELICOPTER','HF GATEWAY','SAILBOAT','SMALL ACFT','PERSON','VHF HOUSE','REPEATER','X','LARGE ACFT','CIRCLE','WEATHER STN','FIRE','AMBULANCE','CAMPGROUND','BICYCLE','MOTORCYCLE','FIRE TRUCK','CAR','ARES','INDOOR DIGI','JEEP','EYE','TRUCK','TCP/IP','MIC-E REPEATER','SCHOOL','BALLOON','POLICE','POWERED SHIP','REC VEHICLE','VAN','YAGI','SSTV','BUS','ATV','OVERLAY DIGI','OVERLAY GATE','HF HOUSE','NWS SITE','WX DIGI','OVERLAY CIRCLE','ECHOLINK','QUAKE','DISH ANTENNA','YAESU RADIO','ALT AIRCRAFT','RADIOS/DEVICES'];
+      const sourceX = [17,189,362,535,708,881,1054,1227];
+      const sourceY = [87,256,427,598,768,939];
+      // v3: slots redrawn for another symbol (absent from the source sheet), and the code they replaced
+      const replaced = {7:'/\\',19:'/g',20:'/C',40:'\\.',43:'I0',44:'W0'};
+      const REV = 3;
+      const encoded = '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';
+      const raw = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+      const original = new Uint8Array(48 * 400);
+
+      for (let n = 0; n < 48; n++) {
+        for (let y = 0; y < 20; y++) {
+          for (let x = 0; x < 20; x++) {
+            original[n * 400 + y * 20 + x] = (raw[n * 60 + Math.floor(y / 8) * 20 + x] >> (y & 7)) & 1;
+          }
+        }
+      }
+
+      function packPixels(values) {
+        const bytes = new Uint8Array(values.length / 8);
+        for (let i = 0; i < values.length; i++) if (values[i]) bytes[i >> 3] |= 1 << (i & 7);
+        return btoa(String.fromCharCode(...bytes));
+      }
+
+      function unpackPixels(encoded) {
+        const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+        if (bytes.length !== 2400) throw new Error('Sauvegarde locale invalide');
+        const values = new Uint8Array(48 * 400);
+        for (let i = 0; i < values.length; i++) values[i] = (bytes[i >> 3] >> (i & 7)) & 1;
+        return values;
+      }
+
+      // drop what an older symbol list saved or exported in the replaced slots
+      function resetReplaced(values) {
+        for (const n in replaced) values.set(original.subarray(n * 400, n * 400 + 400), n * 400);
+        return values;
+      }
+
+      const storageKey = 'aprs-symbols-20-editor-v1';
+      let localSaved = null;
+      try { localSaved = JSON.parse(localStorage.getItem(storageKey)); } catch (_) {}
+      const saved = window.openai?.widgetState?.privateContent || localSaved;
+      let pixels = new Uint8Array(original);
+      let selected = 5;
+      if (saved) {
+        try {
+          if (typeof saved.packed === 'string') pixels = unpackPixels(saved.packed);
+          else if (saved.pixels && saved.pixels.length === 19200)
+            pixels = Uint8Array.from(saved.pixels, c => c === '1' ? 1 : 0);
+          if (saved.rev !== REV) resetReplaced(pixels);
+          selected = Number.isInteger(saved.selected) ? Math.max(0, Math.min(47, saved.selected)) : selected;
+        } catch (_) {}
+      }
+
+      const matrix = root.querySelector('#matrix');
+      const native = root.querySelector('#native');
+      const symbols = root.querySelector('#symbols');
+      const source = root.querySelector('#source-window');
+      const sourceName = root.querySelector('#source-name');
+      const selectedCode = root.querySelector('#selected-code');
+      const saveStatus = root.querySelector('#save-status');
+
+      function cells(container, index, editable) {
+        container.replaceChildren();
+        for (let p = 0; p < 400; p++) {
+          const cell = document.createElement(editable ? 'button' : 'i');
+          if (editable) {
+            cell.type = 'button';
+            cell.setAttribute('aria-label', `Pixel ${p % 20 + 1}, ${Math.floor(p / 20) + 1}`);
+            cell.addEventListener('click', () => {
+              pixels[index * 400 + p] ^= 1;
+              renderSelected();
+              renderMini(index);
+              remember();
+            });
+          }
+          cell.classList.toggle('on', !!pixels[index * 400 + p]);
+          container.appendChild(cell);
+        }
+      }
+
+      function renderMini(index) {
+        const mini = symbols.children[index]?.querySelector('.mini');
+        if (mini) cells(mini, index, false);
+      }
+
+      function renderSelected() {
+        cells(matrix, selected, true);
+        cells(native, selected, false);
+        selectedCode.textContent = codes[selected];
+        sourceName.textContent = names[selected];
+        source.style.backgroundImage = selected in replaced ? 'none' : '';
+        const col = selected % 8;
+        const row = Math.floor(selected / 8);
+        const scale = source.clientWidth / 156;
+        source.style.backgroundSize = `${1400 * scale}px ${1120 * scale}px`;
+        source.style.backgroundPosition = `${-sourceX[col] * scale}px ${-sourceY[row] * scale}px`;
+        source.setAttribute('aria-label', `${codes[selected]} ${names[selected]}, planche source`);
+        [...symbols.children].forEach((button, i) => button.setAttribute('aria-pressed', String(i === selected)));
+      }
+
+      function remember() {
+        const packed = packPixels(pixels);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify({ selected, packed, rev: REV }));
+          saveStatus.textContent = 'Sauvegardé automatiquement';
+        } catch (_) {
+          saveStatus.textContent = 'Sauvegarde locale indisponible — exportez le JSON';
+        }
+        if (window.openai?.setWidgetState) {
+          window.openai.setWidgetState({
+            modelContent: { selectedCode: codes[selected], edited: !pixels.every((v, i) => v === original[i]) },
+            privateContent: { selected, packed, rev: REV }
+          }).catch(() => {});
+        }
+      }
+
+      function exportDocument() {
+        return {
+          format: 'aprs-symbols-20',
+          version: 1,
+          width: 20,
+          height: 20,
+          symbols: codes.map((code, index) => ({
+            code,
+            name: names[index],
+            pixels: Array.from(pixels.subarray(index * 400, index * 400 + 400), p => p ? '1' : '0').join('')
+          }))
+        };
+      }
+
+      function pixelsFromDocument(document) {
+        if (!document || document.format !== 'aprs-symbols-20' || document.version !== 1 ||
+            document.width !== 20 || document.height !== 20 || !Array.isArray(document.symbols) ||
+            document.symbols.length !== 48) throw new Error('Format APRS 20x20 invalide');
+        const next = new Uint8Array(original);
+        document.symbols.forEach((symbol, index) => {
+          const old = !!symbol && symbol.code === replaced[index];    // v1/v2 file: keep the new drawing
+          if (!symbol || (symbol.code !== codes[index] && !old) || typeof symbol.pixels !== 'string' ||
+              !/^[01]{400}$/.test(symbol.pixels)) throw new Error(`Symbole ${codes[index]} invalide`);
+          if (old) return;
+          for (let p = 0; p < 400; p++) next[index * 400 + p] = symbol.pixels[p] === '1' ? 1 : 0;
+        });
+        return next;
+      }
+
+      codes.forEach((code, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'symbol';
+        button.setAttribute('aria-label', `${code} ${names[index]}`);
+        button.innerHTML = `<span class="mini" aria-hidden="true"></span><strong>${code}</strong><small>${names[index]}</small>`;
+        button.addEventListener('click', () => { selected = index; renderSelected(); remember(); });
+        symbols.appendChild(button);
+        renderMini(index);
+      });
+
+      root.querySelector('#undo-one').addEventListener('click', () => {
+        pixels.set(original.subarray(selected * 400, selected * 400 + 400), selected * 400);
+        renderSelected(); renderMini(selected); remember();
+      });
+      root.querySelector('#undo-all').addEventListener('click', () => {
+        pixels = new Uint8Array(original);
+        for (let i = 0; i < 48; i++) renderMini(i);
+        renderSelected(); remember();
+      });
+      root.querySelector('#invert').addEventListener('click', () => {
+        for (let p = 0; p < 400; p++) pixels[selected * 400 + p] ^= 1;
+        renderSelected(); renderMini(selected); remember();
+      });
+      root.querySelector('#export-json').addEventListener('click', () => {
+        const blob = new Blob([JSON.stringify(exportDocument(), null, 2) + '\n'], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'aprs_symbols_20_edited_v3.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        saveStatus.textContent = 'JSON exporté';
+      });
+      root.querySelector('#import-json').addEventListener('change', async event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          pixels = pixelsFromDocument(JSON.parse(await file.text()));
+          for (let i = 0; i < 48; i++) renderMini(i);
+          renderSelected();
+          remember();
+          saveStatus.textContent = 'JSON importé et sauvegardé';
+        } catch (error) {
+          saveStatus.textContent = error instanceof Error ? error.message : 'Import impossible';
+        }
+        event.target.value = '';
+      });
+
+      window.addEventListener('openai:set_globals', event => {
+        const next = event.detail?.globals?.widgetState?.privateContent;
+        if (!next) return;
+        try {
+          if (typeof next.packed === 'string') pixels = unpackPixels(next.packed);
+          else if (next.pixels && next.pixels.length === 19200)
+            pixels = Uint8Array.from(next.pixels, c => c === '1' ? 1 : 0);
+          else return;
+          if (next.rev !== REV) resetReplaced(pixels);
+          selected = Math.max(0, Math.min(47, next.selected || 0));
+          for (let i = 0; i < 48; i++) renderMini(i);
+          renderSelected();
+        } catch (_) {}
+      });
+
+      new ResizeObserver(renderSelected).observe(source);
+
+      renderSelected();
+    })();
+  </script>
+</div>

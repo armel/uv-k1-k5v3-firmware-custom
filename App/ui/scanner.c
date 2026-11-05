@@ -71,7 +71,7 @@ void UI_DisplayScanner(void)
         sprintf(String, "CTCSS:%u.%uHz", CTCSS_Options[gScanCssResultCode] / 10, CTCSS_Options[gScanCssResultCode] % 10);
         pPrintStr = String;
     } else {
-        sprintf(String, "DCS:D%03oN", DCS_Options[gScanCssResultCode]);
+        sprintf(String, "DCS:D%03oN", DCS_GetOption(gScanCssResultCode));
         pPrintStr = String;
     }
  

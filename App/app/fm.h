@@ -19,8 +19,11 @@
 
 #ifdef ENABLE_FMRADIO
 
-#include "driver/keyboard.h"
 #include "misc.h"
+
+#ifdef ENABLE_FMRADIO_EMBEDDED
+#include "driver/keyboard.h"
+#endif
 
 #define FM_CHANNEL_UP   0x01
 #define FM_CHANNEL_DOWN 0xFF
@@ -30,32 +33,34 @@ enum {
 };
 
 extern uint16_t          gFM_Channels[FM_CHANNELS_MAX];
+
+bool    FM_CheckValidChannel(uint8_t Channel);
+// returns first valid channel starting at Channel
+uint8_t FM_FindNextChannel(uint8_t Channel, uint8_t Direction);
+int     FM_ConfigureChannelState(void);
+int     FM_CheckFrequencyLock(uint16_t Frequency, uint16_t LowerLimit);
+
+#ifdef ENABLE_FMRADIO_EMBEDDED
 extern bool              gFmRadioMode;
 extern uint8_t           gFmRadioCountdown_500ms;
 extern volatile uint16_t gFmPlayCountdown_10ms;
 extern volatile int8_t   gFM_ScanState;
 extern bool              gFM_AutoScan;
 extern uint8_t           gFM_ChannelPosition;
-// Doubts about          whether this should be signed or not
-extern uint16_t          gFM_FrequencyDeviation;
 extern bool              gFM_FoundFrequency;
 extern uint16_t          gFM_RestoreCountdown_10ms;
 
-bool    FM_CheckValidChannel(uint8_t Channel);
-// returns first valid channel starting at Channel
-uint8_t FM_FindNextChannel(uint8_t Channel, uint8_t Direction);
-int     FM_ConfigureChannelState(void);
 void    FM_TurnOff(void);
 void    FM_EraseChannels(void);
 
 void    FM_Tune(uint16_t Frequency, int8_t Step, bool bFlag);
 void    FM_PlayAndUpdate(void);
-int     FM_CheckFrequencyLock(uint16_t Frequency, uint16_t LowerLimit);
 
 void    FM_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 void    FM_Play(void);
 void    FM_Start(void);
+#endif
 
 #endif
 

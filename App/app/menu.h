@@ -24,6 +24,9 @@
 #endif
 
 extern uint8_t gUnlockAllTxConfCnt;
+extern bool     gScanMixEditorActive;
+extern uint8_t  gScanMixEditorCursor;
+extern uint32_t gScanMixEditorMask;
 
 #ifdef ENABLE_CW_MODULATOR
 extern bool gCwKeyInputCheckFailed;
@@ -40,4 +43,3 @@ void MENU_StopCssScan(void);
 void MENU_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 #endif
-

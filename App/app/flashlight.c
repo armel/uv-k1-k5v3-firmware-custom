@@ -51,6 +51,9 @@ static inline void Flashlight_Toggle(){ GPIO_TogglePin(GPIO_PIN_FLASHLIGHT); }
 
     void ACTION_FlashLight(void)
     {
+        static uint16_t lastButtonTick;
+        const uint16_t now = gFlashLightBlinkCounter;
+
         // switch (gFlashLightState) {
         //     case FLASHLIGHT_OFF:
         //         Flashlight_TurnOn();
@@ -62,6 +65,15 @@ static inline void Flashlight_Toggle(){ GPIO_TogglePin(GPIO_PIN_FLASHLIGHT); }
         //     default:
         //         Flashlight_TurnOff();
         // }
+
+        if (gFlashLightState != FLASHLIGHT_OFF &&
+            (uint16_t)(now - lastButtonTick) >= (2500u / 10u)) {
+            Flashlight_TurnOff();
+            gFlashLightState = FLASHLIGHT_OFF;
+            return;
+        }
+
+        lastButtonTick = now;
 
         if(gFlashLightState == FLASHLIGHT_OFF) {
             Flashlight_TurnOn();

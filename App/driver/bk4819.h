@@ -116,7 +116,7 @@ void     BK4819_ExitTxMute(void);
 void     BK4819_Sleep(void);
 void     BK4819_StopTxTone(void);
 void     BK4819_TurnsOffTones_TurnsOnRX(void);
-#ifdef ENABLE_AIRCOPY
+#if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     void     BK4819_SetupAircopy(void);
 #endif
 void     BK4819_ResetFSK(void);
@@ -170,7 +170,7 @@ uint8_t  BK4819_GetCDCSSCodeType(void);
 uint8_t  BK4819_GetCTCShift(void);
 uint8_t  BK4819_GetCTCType(void);
 
-void     BK4819_SendFSKData(uint16_t *pData);
+void     BK4819_SendFSKData(uint16_t *pData, uint8_t words);
 void     BK4819_PrepareFSKReceive(void);
 
 void     BK4819_PlayRoger(BK4819_FilterBandwidth_t Bandwidth);

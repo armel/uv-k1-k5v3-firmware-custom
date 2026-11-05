@@ -16,7 +16,7 @@
 
 #include "app/foxhunt.h"
 
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
 
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
 #include "app/uart.h"
@@ -25,6 +25,9 @@
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "k5viewer.h"
 #endif
+
+#include "settings.h"
+#include "ui/status.h"
 
 #ifdef ENABLE_CW_MODULATOR
 #include "app/cwkeyer.h"
@@ -88,17 +91,21 @@
 #define FOXHUNT_AUDIO_BEEP      1
 #define FOXHUNT_AUDIO_STATION   2
 
-// --- Beacon (fox) sub-mode ---------------------------------------------------
+// --- Beacon (fox) app --------------------------------------------------------
 // Turns the radio into the hidden transmitter: each cycle keys up on the TX VFO and
-// repeats the CW fox identifier (MOE..MO5, or "<call> MOE") in Morse for the TX window,
-// then stays silent for the (adjustable) idle gap. The carrier stays up during the
-// window; only the tone modulation is keyed on/off (EnterTxMute/ExitTxMute) = MCW on FM.
+// repeats the CW fox identifier (MOE..MO5, "<call>", or "<call> MOE") in Morse for the TX window,
+// then stays silent for the (adjustable) idle gap. Two keying modes (KEY_4):
+//   TONE (default): carrier stays up the whole window, only the tone is keyed on/off
+//                   (EnterTxMute/ExitTxMute) = MCW on FM (F2A).
+//   CARR:           the carrier (PA_ENABLE) is keyed together with the tone, so between
+//                   elements the carrier itself is gone (carrier interruption, the ARDF
+//                   field pattern) — harder to home in on, at the cost of some key clicks.
 #define FOXHUNT_BEACON_TONE_HZ   1000           // CW tone pitch (Hz)
 #define FOXHUNT_MORSE_UNIT_MS    100            // one Morse time unit (~12 WPM, ARDF pace)
+#define FOXHUNT_BEACON_LEAD_MS   600            // silent carrier lead-in (two dahs) for RX squelch
 #define FOXHUNT_BEACON_IDLE_DEF  30             // default silence between IDs (s)
 #define FOXHUNT_BEACON_IDLE_MIN  5              // shortest idle gap (s)
-#define FOXHUNT_BEACON_IDLE_MAX  240            // longest idle gap (s) — 4 min = the ARDF
-                                                // silence of a 5-fox cycle (60 s TX x4)
+#define FOXHUNT_BEACON_IDLE_MAX  600            // longest idle gap (s) — 10 minutes
 #define FOXHUNT_BEACON_IDLE_STEP 5              // idle adjust step (s)
 // TX window: the ID is repeated for this many seconds each cycle (a real ARDF fox keys
 // up for a fixed slot, not a single one-shot). 60 s = the classic ARDF slot.
@@ -106,13 +113,12 @@
 #define FOXHUNT_BEACON_TX_MIN    5              // shortest TX window (s)
 #define FOXHUNT_BEACON_TX_MAX    60             // longest TX window (s)
 #define FOXHUNT_BEACON_TX_STEP   5              // TX adjust step (s)
-#define FOXHUNT_CALLSIGN_ADDR    0x00A0C8u      // boot message line 1 in SPI flash
 #define FOXHUNT_CALLSIGN_MAX     12             // maximum boot-message characters used by the beacon
 
 // Fox identifier (3 key). MOE..MO5 are the five standard IARU ARDF foxes ("MO" + 1..5
 // dits: E I S H 5); MO is the ARDF finish/home beacon (transmitted continuously on a real
 // course — here it rides the normal TX/IDLE cycle, so set a short IDLE for a near-constant
-// MO); CALL prefixes the operator's callsign (legal ID on the ham bands): "<call> MOE".
+// MO); CALL sends the operator's callsign alone, while CALL_MOE sends "<call> MOE".
 // Pure MOE..MO5 / MO (no callsign) suit casual / PMR fox games.
 #define FOXHUNT_FOX_MOE    0
 #define FOXHUNT_FOX_MOI    1
@@ -121,11 +127,12 @@
 #define FOXHUNT_FOX_MO5    4
 #define FOXHUNT_FOX_MO     5
 #define FOXHUNT_FOX_CALL   6
-#define FOXHUNT_FOX_COUNT  7
+#define FOXHUNT_FOX_CALL_MOE 7
+#define FOXHUNT_FOX_COUNT  8
 
 // Framebuffer lines for the transmitted message (gFontBig spans two lines each):
-// CALL id shows the callsign on _CALL and the "MOx" below on _ID; a pure single-word
-// fox (MOE..MO5) is centred on _ONE.
+// CALL_MOE shows the callsign on _CALL and "MOE" below on _ID; a single-word
+// callsign or fox identifier (MOE..MO5) is centred on _ONE.
 #define FOXHUNT_MSG_LINE_CALL  1
 #define FOXHUNT_MSG_LINE_ID    3
 #define FOXHUNT_MSG_LINE_ONE   2
@@ -203,11 +210,10 @@ static const uint8_t FOXHUNT_MORSE_DIGIT[10] = {
 // Trailing character of each fox id: MOE / MOI / MOS / MOH / MO5 (index = FOXHUNT_FOX_*).
 static const char FOXHUNT_FOX_TAIL[5] = {'E', 'I', 'S', 'H', '5'};
 
-// Beacon sub-mode state.
-static bool    foxBeacon;         // false = hunt (RX), true = beacon (TX)
+// Beacon state.
 static bool    beaconPhaseTx;     // true = transmit this tick, false = idle gap
-static uint8_t beaconIdle;        // configured silence between IDs (s)
-static uint8_t beaconIdleLeft;    // seconds left in the current silence
+static uint16_t beaconIdle;       // configured silence between IDs (s)
+static uint16_t beaconIdleLeft;   // seconds left in the current silence
 static uint8_t beaconIdleTick;    // tick counter that clocks the idle countdown
 static char    beaconMsg[17];     // CW message: 12-char call + " MOE" + NUL, e.g. "F4HWN MOE"
 static uint8_t beaconCharsSent;   // characters completed in the current burst
@@ -215,11 +221,12 @@ static uint8_t beaconTx;          // TX window length (s): the ID repeats for th
 static uint16_t beaconTxMsLeft;   // ms left in the current TX window (drained as it plays)
 static uint8_t beaconTxSecShown;  // whole-second value last painted on the TX line
 static uint8_t foxFox;            // selected fox identifier (FOXHUNT_FOX_*)
+static bool    beaconCarrierKeyed; // false = TONE (F2A, keyed tone); true = CARR (keyed carrier)
 static char    foxCall[FOXHUNT_CALLSIGN_MAX + 1];  // sanitised callsign for the CALL id
 
 static void FOXHUNT_EnterHunt(void);
 static void FOXHUNT_EnterBeacon(void);
-static void FOXHUNT_BeaconDraw(bool txNow, uint8_t idleLeft);
+static void FOXHUNT_BeaconDraw(bool txNow, uint16_t idleLeft);
 static void FOXHUNT_UpdateBeaconProgress(uint8_t visibleChars);
 static void FOXHUNT_BuildBeaconMsg(void);
 static void FOXHUNT_SaveConfig(void);
@@ -432,33 +439,15 @@ static void FOXHUNT_Tag(const char *s, uint8_t x, uint8_t line)
 static void FOXHUNT_DrawFKey(void)
 {
     if (foxLocked)
-        memcpy(gStatusLine + 69, gFontKeyLock, sizeof(gFontKeyLock));
+        memcpy(gStatusLine + 70, gFontKeyLock, sizeof(gFontKeyLock));
     else if (gWasFKeyPressed)
-        memcpy(gStatusLine + 69, gFontF, sizeof(gFontF));
+        memcpy(gStatusLine + 70, gFontF, sizeof(gFontF));
 }
 
 // Draw a string right-aligned in the small (7 px) font: its right edge lands at rightX.
 static void FOXHUNT_DrawRightSmall(const char *s, uint8_t rightX, uint8_t line)
 {
     UI_PrintStringSmallNormal(s, (uint8_t)(rightX - strlen(s) * 7), 0, line);
-}
-
-// Battery icon plus the optional voltage/percentage text, top-right of the status
-// line — shared by the hunt and beacon screens.
-static void FOXHUNT_DrawStatusBattery(void)
-{
-    unsigned int bx = LCD_WIDTH - sizeof(BITMAP_BatteryLevel1);
-    UI_DrawBattery(gStatusLine + bx, gBatteryDisplayLevel, gLowBatteryBlink);
-    if (gSetting_battery_text != 0) {
-        if (gSetting_battery_text == 1) {      // voltage
-            const uint16_t v = MIN(gBatteryVoltageAverage, 999);
-            sprintf(str, "%u.%02u", v / 100, v % 100);
-        } else {                               // percentage
-            sprintf(str, "%02u%%", BATTERY_VoltsToPercent(gBatteryVoltageAverage));
-        }
-        bx -= 7 * strlen(str);
-        UI_PrintStringSmallBufferNormal(str, gStatusLine + bx);
-    }
 }
 
 // Right-aligned frequency on the bottom line (line 6), shared by the hunt and
@@ -476,7 +465,7 @@ static void FOXHUNT_BeaconChrome(void)
     UI_DisplayClear();
     UI_StatusClear();
     GUI_DisplaySmallestInverse("BEACON", 2, 0, true, true, 26);
-    FOXHUNT_DrawStatusBattery();
+    UI_DrawStatusBattery(gStatusLine, str);
     FOXHUNT_DrawFKey();
     FOXHUNT_DrawFreqBR(gTxVfo->pTX->Frequency);
 }
@@ -494,7 +483,7 @@ static void FOXHUNT_Draw(void)
     GUI_DisplaySmallestInverse("FOX HUNT", 2, 0, true, true, 34);
 
     // Battery (icon + optional percentage/voltage) top-right, as on the main screens.
-    FOXHUNT_DrawStatusBattery();
+    UI_DrawStatusBattery(gStatusLine, str);
     FOXHUNT_DrawFKey();
 
     // Gauge-mode icon (2 key), between the label and the audio icon: ascending
@@ -575,7 +564,7 @@ static void FOXHUNT_Draw(void)
 // the burst end, fox at the next repeat), so cycling any of them is safe at any time.
 
 // Wrap a 0..count-1 index one step forward (dir > 0) or backward, both ways round.
-static uint8_t FOXHUNT_WrapStep(uint8_t v, uint8_t count, int8_t dir)
+static __attribute__((noinline)) uint8_t FOXHUNT_WrapStep(uint8_t v, uint8_t count, int8_t dir)
 {
     return (uint8_t)((v + (dir > 0 ? 1u : (unsigned)(count - 1u))) % count);
 }
@@ -628,6 +617,16 @@ static void FOXHUNT_AttCycle(int8_t dir)
     FOXHUNT_RebaseMeasurements();
 }
 
+// Convert the two navigation keys into the same semantic value direction used
+// by the resident menus and by the overlay FoxHunt app:
+//   UV-K5 UP/DOWN    -> +1/-1
+//   UV-K1 LEFT/RIGHT -> -1/+1
+static int8_t FOXHUNT_NavDirection(KEY_Code_t key)
+{
+    int8_t direction = (key == KEY_UP) ? 1 : -1;
+    return gEeprom.SET_NAV ? direction : -direction;
+}
+
 // Fox identifier: MOE -> MOI -> MOS -> MOH -> MO5 -> MO -> CALL (F reverses).
 static void FOXHUNT_FoxCycle(int8_t dir)
 {
@@ -641,22 +640,27 @@ static void FOXHUNT_TxCycle(int8_t dir)
                                  FOXHUNT_BEACON_TX_STEP, dir);
 }
 
-// Idle gap: 5..240 s (F reverses).
+// Idle gap: 5..600 s (F reverses).
 static void FOXHUNT_IdleCycle(int8_t dir)
 {
-    beaconIdle = FOXHUNT_RangeStep(beaconIdle, FOXHUNT_BEACON_IDLE_MIN, FOXHUNT_BEACON_IDLE_MAX,
-                                   FOXHUNT_BEACON_IDLE_STEP, dir);
+    if (dir > 0)
+        beaconIdle = (beaconIdle >= FOXHUNT_BEACON_IDLE_MAX)
+                   ? FOXHUNT_BEACON_IDLE_MIN : beaconIdle + FOXHUNT_BEACON_IDLE_STEP;
+    else
+        beaconIdle = (beaconIdle <= FOXHUNT_BEACON_IDLE_MIN)
+                   ? FOXHUNT_BEACON_IDLE_MAX : beaconIdle - FOXHUNT_BEACON_IDLE_STEP;
 }
 
 // Apply a beacon number key in the given direction; returns true when it changed a
-// setting so the caller can refresh. Keys follow the on-screen layout: 1 = TX (top-left),
-// 2 = IDLE (below it), 3 = FOX (right). Shared by both beacon phases.
+// setting so the caller can refresh. Keys: 1 = TX, 2 = IDLE, 3 = FOX, 4 = keying mode
+// (TONE/CARR, a plain toggle so dir is moot). Shared by both beacon phases.
 static bool FOXHUNT_BeaconKey(KEY_Code_t key, int8_t dir)
 {
     switch (key) {
         case KEY_1: FOXHUNT_TxCycle(dir);   return true;
         case KEY_2: FOXHUNT_IdleCycle(dir); return true;
         case KEY_3: FOXHUNT_FoxCycle(dir);  return true;
+        case KEY_4: beaconCarrierKeyed = !beaconCarrierKeyed; return true;
         default:    return false;
     }
 }
@@ -693,10 +697,7 @@ static void FOXHUNT_IdleHousekeeping(void)
     // hunt loop, and the beacon idle gap, never a burst), so the reading is not
     // pulled down by TX load — keeping the status icon live and letting the
     // beacon's battery gate react to a pack draining under a long run.
-    BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);
-    if (gBatteryVoltageIndex > 3)
-        gBatteryVoltageIndex = 0;
-    BATTERY_GetReadings(false);
+    BATTERY_Sample(false);
 
     // Persist any changed setting within ~0.5 s, so it survives a power-off (not
     // just a clean EXIT). No-op when nothing changed.
@@ -754,8 +755,8 @@ static void FOXHUNT_HandleKeys(void)
     // released only by the long-press F handled above. Keeping ATT reachable is the whole
     // point: on the final approach the sensitivity still has to be pulled down by hand.
     if (foxLocked) {
-        if (kbd.current == KEY_UP)   FOXHUNT_AttCycle(+1);   // more attenuation
-        if (kbd.current == KEY_DOWN) FOXHUNT_AttCycle(-1);   // less attenuation
+        if (kbd.current == KEY_UP || kbd.current == KEY_DOWN)
+            FOXHUNT_AttCycle(FOXHUNT_NavDirection(kbd.current));
         return;
     }
 
@@ -785,23 +786,15 @@ static void FOXHUNT_HandleKeys(void)
             FOXHUNT_AttCycle(dir);
             break;
         case KEY_UP:
-            // Attenuation up one step (also the locked-mode control).
-            FOXHUNT_AttCycle(+1);
-            break;
         case KEY_DOWN:
-            // Attenuation down one step.
-            FOXHUNT_AttCycle(-1);
+            // Follow SetNav: UP/DOWN on K5, LEFT/RIGHT on K1.
+            FOXHUNT_AttCycle(FOXHUNT_NavDirection(kbd.current));
             break;
         case KEY_MENU:
             // Reset the peak / min hold and the trend reference (before each body scan).
             peakDbm  = curDbm;
             minDbm   = curDbm;
             trendRef = curDbm;
-            break;
-        case KEY_SIDE1:
-        case KEY_SIDE2:
-            // Same shortcut that opened Fox Hunt now toggles to the beacon.
-            FOXHUNT_EnterBeacon();
             break;
         default:
             break;
@@ -810,22 +803,18 @@ static void FOXHUNT_HandleKeys(void)
     gWasFKeyPressed = false;   // any non-F key consumes (or cancels) the reverse arm
 }
 
-// (Re)enter the hunt (RX) sub-mode: fixed front-end gain, attenuator and audio mode
-// re-applied, peak/trend reset. Called at start-up and when leaving the beacon. The
-// audio mode is a hunt setting, so it is (re)applied here, not forced off — it must
-// survive a trip through the beacon.
+// Enter Fox Hunt with fixed front-end gain, the persisted attenuator/audio mode,
+// and freshly rebased level tracking.
 static void FOXHUNT_EnterHunt(void)
 {
-    foxBeacon = false;
-
     BK4819_SetAGC(false);
     FOXHUNT_ApplyAtt();
     FOXHUNT_SetAudio();          // (re)apply the current audio mode: off / beep / station
 
     // Let the RSSI settle to the gain just applied, then reset the peak/min hold, trend
-    // reference and signal history onto a fresh reading (also re-primes the sparkline on
-    // return from the beacon). Same settle as FOXHUNT_AttCycle: without it a restored
-    // BYP/BYP+ step at start-up or on beacon return would rebase onto the old-gain reading.
+    // reference and signal history onto a fresh reading. Same settle as
+    // FOXHUNT_AttCycle: without it a restored
+    // BYP/BYP+ step at start-up would rebase onto the old-gain reading.
     // SetAudio already waits when audio is on, but not in the default audio-off case.
     SYSTEM_DelayMs(FOXHUNT_ATT_SETTLE_MS);
     FOXHUNT_RebaseMeasurements();
@@ -845,18 +834,15 @@ static VfoState_t FOXHUNT_TxState(void)
         return VFO_STATE_BAT_LOW;
     if (gBatteryDisplayLevel > 6)
         return VFO_STATE_VOLTAGE_HIGH;
-#ifndef ENABLE_TX_WHEN_AM
     if (gTxVfo->Modulation != MODULATION_FM)
         return VFO_STATE_TX_DISABLE;
-#endif
     return VFO_STATE_NORMAL;
 }
 
 // Refuse feedback shown when a burst is barred: reuse the beacon screen layout and
 // the radio's own state label (VfoStateStr, e.g. "TX DISABLE" / "BAT LOW" / "VOLT
-// HIGH"), same font as the main screen, for a beat; the caller then falls back to
-// the hunt. The RX front-end and audio path are left untouched so the hunt keeps
-// reading cleanly.
+// HIGH"), same font as the main screen, for a beat; the caller then waits through
+// a fresh idle gap before checking again.
 static void FOXHUNT_TxDeniedNotice(VfoState_t state)
 {
     // Frame (clear + BEACON tag + battery + barred TX frequency).
@@ -873,12 +859,10 @@ static void FOXHUNT_TxDeniedNotice(VfoState_t state)
         FOXHUNT_TickDelay();
 }
 
-// Enter the beacon (fox) sub-mode. The TX gates are enforced per burst in
-// FOXHUNT_BeaconTick (which runs immediately), so entry just arms the state.
+// Enter the Beacon app. TX gates are enforced before each burst.
 static void FOXHUNT_EnterBeacon(void)
 {
-    foxBeacon     = true;
-    AUDIO_AudioPathOff();        // no RX audio while beaconing; foxAudioMode kept for the hunt
+    AUDIO_AudioPathOff();
     gCurrentVfo   = gTxVfo;      // the VFO RADIO_SetTxParameters keys up
     beaconPhaseTx = true;
 }
@@ -896,25 +880,27 @@ static void FOXHUNT_DrawTxSeconds(void)
     beaconTxSecShown = sec;
 }
 
-// Sleep in short slices while watching the keypad, so a burst stays interactive and the
-// TX-window countdown (beaconTxMsLeft) drains in real time. EXIT leaves Fox Hunt and a
-// side key aborts back to the hunt (both return true). The 1/2/3 keys edit the beacon
+// Sleep in short slices while watching the keypad, so a burst stays interactive. Morse
+// delays drain the TX-window countdown (beaconTxMsLeft); the silent lead-in does not.
+// EXIT leaves Beacon. The 1/2/3 keys edit the beacon
 // settings live, exactly as in the idle phase: the TX window (1) and idle gap (2) take
 // effect at the upcoming window / gap, and a FOX change (3) at the next repeat (the
 // message is rebuilt there, never under the running loop).
-static bool FOXHUNT_TxDelay(uint16_t ms)
+static bool FOXHUNT_TxDelay(uint16_t ms, bool drainWindow)
 {
     while (ms) {
         const uint16_t slice = (ms > 10) ? 10 : ms;   // 10 ms: same fade rate as idle
         SYSTEM_DelayMs(slice);
         ms -= slice;
-        beaconTxMsLeft = (beaconTxMsLeft > slice) ? (beaconTxMsLeft - slice) : 0;
+        if (drainWindow)
+            beaconTxMsLeft = (beaconTxMsLeft > slice) ? (beaconTxMsLeft - slice) : 0;
         BACKLIGHT_Update();                 // keep any brightness fade moving in TX
 
         // Tick the remaining-window seconds live: repaint only line 0 when the whole
         // second changes, so the countdown drains smoothly through a long ID instead of
         // jumping once per repeat (a one-line blit barely dents the Morse timing).
-        if ((uint8_t)((beaconTxMsLeft + 999u) / 1000u) != beaconTxSecShown) {
+        if (drainWindow
+            && (uint8_t)((beaconTxMsLeft + 999u) / 1000u) != beaconTxSecShown) {
             FOXHUNT_DrawTxSeconds();
             ST7565_BlitLine(0);
         }
@@ -944,17 +930,12 @@ static bool FOXHUNT_TxDelay(uint16_t ms)
             continue;
 
         if (kbd.current == KEY_EXIT) {
-            foxRunning = false;             // abort the burst and leave Fox Hunt
-            return true;
-        }
-        if (kbd.current == KEY_SIDE1 || kbd.current == KEY_SIDE2) {
-            foxBeacon = false;              // abort the burst and switch back to hunt
+            foxRunning = false;             // abort the burst and leave Beacon
             return true;
         }
         if (kbd.current == KEY_MENU) {
-            // Cut the transmission short but stay in Beacon: aborting the burst without
-            // clearing foxBeacon/foxRunning drops the loop straight into a fresh idle
-            // gap of the configured IDLE length.
+            // Cut the transmission short but stay in Beacon: the loop drops straight
+            // into a fresh idle gap of the configured IDLE length.
             return true;
         }
         if (kbd.current == KEY_F) {         // arm / disarm the reverse step
@@ -982,14 +963,34 @@ static uint8_t FOXHUNT_MorseByte(char c)
     return 0;
 }
 
-// Send one character as modulated CW: key the running TX tone on per element,
-// muting the modulation (carrier stays up) between them. Returns true if aborted.
+// Beacon keying primitive. Both modes key the tone (Enter/ExitTxMute); CARR additionally
+// gates the PA in lockstep, so between elements the carrier itself is gone — not just the
+// tone. Muting the tone in CARR too is deliberate: gating PA_ENABLE does not perfectly
+// kill the carrier, and a tone left riding would bleed through that residual carrier as a
+// near-continuous note. The PLL stays locked, so the carrier gate is only a GPIO toggle.
+static void FOXHUNT_KeyOn(void)
+{
+    BK4819_ExitTxMute();
+    // Assert the carrier in both modes: a no-op in TONE (already up), but it re-arms the PA
+    // if the mode was switched from CARR mid-window while the carrier happened to be down.
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, true);
+}
+static void FOXHUNT_KeyOff(void)
+{
+    BK4819_EnterTxMute();
+    if (beaconCarrierKeyed)
+        BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+}
+
+// Send one character as Morse: key each element on (FOXHUNT_KeyOn) for its dit/dah
+// duration, off (FOXHUNT_KeyOff) in the gaps. What "key" means depends on the beacon
+// mode (tone vs carrier), see above. Returns true if aborted.
 static bool FOXHUNT_MorseChar(char c, uint8_t visibleChars)
 {
     uint8_t code = FOXHUNT_MorseByte(c);
 
     if (code == 0) {                            // space / unknown -> word gap
-        if (FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS * 4))
+        if (FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS * 4, true))
             return true;
         FOXHUNT_UpdateBeaconProgress(visibleChars);
         return false;
@@ -1000,10 +1001,10 @@ static bool FOXHUNT_MorseChar(char c, uint8_t visibleChars)
     for (bit >>= 1; bit; bit >>= 1) {           // then walk the elements, MSB first
         const uint16_t on = (code & bit) ? (FOXHUNT_MORSE_UNIT_MS * 3)   // dah
                                          :  FOXHUNT_MORSE_UNIT_MS;        // dit
-        BK4819_ExitTxMute();
-        if (FOXHUNT_TxDelay(on)) { BK4819_EnterTxMute(); return true; }
-        BK4819_EnterTxMute();
-        if (FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS)) return true;         // intra gap
+        FOXHUNT_KeyOn();
+        if (FOXHUNT_TxDelay(on, true)) { FOXHUNT_KeyOff(); return true; }
+        FOXHUNT_KeyOff();
+        if (FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS, true)) return true;   // intra gap
     }
 
     // Reveal the character once all its CW elements have been transmitted. The
@@ -1012,7 +1013,7 @@ static bool FOXHUNT_MorseChar(char c, uint8_t visibleChars)
     FOXHUNT_UpdateBeaconProgress(visibleChars);
 
     // Inter-character gap is 3 units; one already elapsed after the last element.
-    return FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS * 2);
+    return FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS * 2, true);
 }
 
 // One beacon cycle: repeat the CW identification for the whole TX window, at the TX
@@ -1021,15 +1022,26 @@ static bool FOXHUNT_MorseChar(char c, uint8_t visibleChars)
 // keys up for a fixed slot rather than sending a single one-shot.
 static void FOXHUNT_BeaconTransmit(void)
 {
-    RADIO_SetTxParameters();                             // key up: carrier + PA
+    RADIO_SetTxParameters();                             // key up: carrier + PA + PLL lock
 
-    // Prime the tone generator, then start silent before the first element.
+    // Prime the tone generator and mute it before the silent carrier lead-in.
     BK4819_TransmitTone(false, FOXHUNT_BEACON_TONE_HZ);
     BK4819_EnterTxMute();
 
     beaconTxMsLeft = (uint16_t)beaconTx * 1000u;         // drained inside FOXHUNT_TxDelay
 
-    bool stop = false;
+    // Hold a silent carrier before the first element so an FM receiver has time to
+    // open its squelch. Keep the carrier up even in CARR mode for this lead-in, then
+    // restore normal carrier keying before the first Morse mark. The lead-in is outside
+    // the configured ID window, and the initial redraw makes the TX state visible at once.
+    FOXHUNT_BuildBeaconMsg();
+    beaconCharsSent = 0;
+    FOXHUNT_BeaconDraw(true, 0);
+    FOXHUNT_BlitScreen();
+    bool stop = FOXHUNT_TxDelay(FOXHUNT_BEACON_LEAD_MS, false);
+    if (beaconCarrierKeyed)
+        BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+
     while (!stop && beaconTxMsLeft > 0) {
         // Rebuild from the current fox at the repeat boundary — this is where a FOX
         // change made live (during the previous repeat or the idle gap) takes effect,
@@ -1066,23 +1078,26 @@ static void FOXHUNT_BeaconTransmit(void)
 
         // Word gap before the next repeat, only while the window still has room.
         if (!stop && beaconTxMsLeft > 0)
-            stop = FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS * 7);
+            stop = FOXHUNT_TxDelay(FOXHUNT_MORSE_UNIT_MS * 7, true);
     }
 
-    // Key down: mute, drop the PA and restore RX for the silent gap. If the burst
-    // was interrupted, FOXHUNT_TxDelay already set the target mode (quit or hunt).
+    // Key down: mute, drop the PA and restore RX for the silent gap. If EXIT
+    // interrupted the burst, FOXHUNT_TxDelay has already stopped the app.
     BK4819_EnterTxMute();
     BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
     RADIO_SetupRegisters(true);
 }
 
-// Build the CW message from the current fox id: "<call> MOE" for CALL (falls back to a
-// bare MOE when no callsign is set), otherwise the pure "MOx" of the chosen fox.
+// Build the CW message from the current fox id. CALL sends the callsign alone;
+// CALL_MOE preserves the former "<call> MOE" identification. Both fall back to
+// bare MOE when no callsign is configured.
 static void FOXHUNT_BuildBeaconMsg(void)
 {
-    if (foxFox == FOXHUNT_FOX_CALL) {
-        if (foxCall[0] != '\0')
+    if (foxFox == FOXHUNT_FOX_CALL || foxFox == FOXHUNT_FOX_CALL_MOE) {
+        if (foxCall[0] != '\0' && foxFox == FOXHUNT_FOX_CALL_MOE)
             sprintf(beaconMsg, "%s MOE", foxCall);
+        else if (foxCall[0] != '\0')
+            strcpy(beaconMsg, foxCall);
         else
             strcpy(beaconMsg, "MOE");
     } else if (foxFox == FOXHUNT_FOX_MO) {
@@ -1092,19 +1107,21 @@ static void FOXHUNT_BuildBeaconMsg(void)
     }
 }
 
-// Short label for the FOX setting: "FOX CALL" or "FOX MOx".
+// Short label for the FOX setting: "FOX CALL", "FOX CALL MOE", or "FOX MOx".
 static void FOXHUNT_FoxLabel(char *out)
 {
     if (foxFox == FOXHUNT_FOX_CALL)
         strcpy(out, "FOX CALL");
+    else if (foxFox == FOXHUNT_FOX_CALL_MOE)
+        strcpy(out, "FOX CALL MOE");
     else if (foxFox == FOXHUNT_FOX_MO)
         strcpy(out, "FOX MO");
     else
         sprintf(out, "FOX MO%c", FOXHUNT_FOX_TAIL[foxFox]);
 }
 
-// Draw the transmitted portion of the message. A CALL id splits on the space: callsign
-// on the upper line, "MOx" below. A pure fox (no space) is centred on one line. Each
+// Draw the transmitted portion of the message. CALL_MOE splits on the space: callsign
+// on the upper line, "MOE" below. A single-word message is centred on one line. Each
 // revealed prefix keeps the anchor of the full string, so characters appear in place
 // instead of re-centring as they arrive.
 static void FOXHUNT_DrawBeaconMessage(uint8_t visibleChars)
@@ -1169,7 +1186,7 @@ static void FOXHUNT_UpdateBeaconProgress(uint8_t visibleChars)
     ST7565_BlitLine(topLine + 1);
 }
 
-static void FOXHUNT_BeaconDraw(bool txNow, uint8_t idleLeft)
+static void FOXHUNT_BeaconDraw(bool txNow, uint16_t idleLeft)
 {
     // Frame (clear + BEACON tag + battery + TX frequency on the bottom-right).
     FOXHUNT_BeaconChrome();
@@ -1187,16 +1204,19 @@ static void FOXHUNT_BeaconDraw(bool txNow, uint8_t idleLeft)
         UI_PrintString(str, 0, 127, 3, 10);
     }
 
-    // Bottom-left column: 1 = TX window over 2 = IDLE gap. Bottom-right: 3 = FOX id over
-    // the freq (drawn by FOXHUNT_BeaconChrome). All three are inverse tags; each has its
-    // own number key, editable in either phase, so there is no cursor to show.
+    // Settings tags: TX (line 5, left) over IDLE (line 6, left). On line 5, right of TX:
+    // FOX shifted left with the keying mode (TONE/CARR) right-aligned beside it, so the pair
+    // spans roughly the width of the TX frequency drawn just below on line 6
+    // (FOXHUNT_BeaconChrome). Keys: 1 TX, 2 IDLE, 3 FOX, 4 mode; editable in either phase.
     sprintf(str, "TX %us", beaconTx);
     FOXHUNT_Tag(str, 4, 5);
     sprintf(str, "IDLE %us", beaconIdle);
     FOXHUNT_Tag(str, 4, 6);
-
+    const char *mode = beaconCarrierKeyed ? "CARR" : "TONE";
+    const uint8_t modeX = (uint8_t)(125 - strlen(mode) * 4);
     FOXHUNT_FoxLabel(str);
-    FOXHUNT_Tag(str, (uint8_t)(125 - strlen(str) * 4), 5);
+    FOXHUNT_Tag(str, (uint8_t)(modeX - 5u - strlen(str) * 4u), 5);
+    FOXHUNT_Tag(mode, modeX, 5);
 }
 
 static void FOXHUNT_BeaconKeys(void)
@@ -1226,11 +1246,7 @@ static void FOXHUNT_BeaconKeys(void)
 
     switch (kbd.current) {
         case KEY_EXIT:
-            foxRunning = false;                         // leave Fox Hunt entirely
-            break;
-        case KEY_SIDE1:
-        case KEY_SIDE2:
-            foxBeacon = false;                          // toggle back to the hunt
+            foxRunning = false;
             break;
         case KEY_MENU:
             // Restart a full idle interval now (the TX-phase M drops here too).
@@ -1255,28 +1271,26 @@ static void FOXHUNT_BeaconTick(void)
         // LOCK / TX LOCK and modulation are fixed for the session, but the battery
         // is re-sampled over the idle gaps (FOXHUNT_IdleHousekeeping), so a beacon
         // left running stops keying up once the pack falls low or over-voltage
-        // instead of transmitting blind. Refuse, notify, and drop back to hunt.
+        // instead of transmitting blind. Refuse, notify, then retry after an idle gap.
         VfoState_t state = FOXHUNT_TxState();
         if (state != VFO_STATE_NORMAL) {
             FOXHUNT_TxDeniedNotice(state);
-            foxBeacon     = false;
             beaconPhaseTx = false;
-            FOXHUNT_EnterHunt();
+            beaconIdleLeft = beaconIdle;
+            beaconIdleTick = 0;
             return;
         }
 
         // The burst repeats the ID for the whole TX window, redrawing the screen
-        // itself each repeat (remaining-window countdown); it may clear foxBeacon
-        // (side-key abort) or foxRunning (EXIT).
+        // itself each repeat (remaining-window countdown); EXIT may clear
+        // foxRunning and abort it.
         FOXHUNT_BeaconTransmit();
 
         beaconPhaseTx  = false;
         beaconIdleLeft = beaconIdle;
         beaconIdleTick = 0;
 
-        if (foxRunning && !foxBeacon)                   // side-key switched to hunt
-            FOXHUNT_EnterHunt();
-        return;                                         // EXIT (quit) falls through
+        return;
     }
 
     // Idle (silent) phase: responsive, editable countdown.
@@ -1285,12 +1299,8 @@ static void FOXHUNT_BeaconTick(void)
 #endif
     FOXHUNT_BeaconKeys();
 
-    if (!foxRunning)                                    // EXIT: leave Fox Hunt
+    if (!foxRunning)
         return;
-    if (!foxBeacon) {                                  // side-key: back to the hunt
-        FOXHUNT_EnterHunt();
-        return;
-    }
 
     FOXHUNT_BeaconDraw(false, beaconIdleLeft);
     FOXHUNT_BlitScreen();
@@ -1312,26 +1322,29 @@ static void FOXHUNT_BeaconTick(void)
 // span 0x9000..0x90E0 (224 B); the old 0x90D6 mapping bound was 10 B short and
 // overlapped the last VFO (470 MHz VFO1 @ 0x90D0..0x90DF), so the config sits at
 // 0x90E0, just past the real end. Normal saves are read-modify-write (Append=false)
-// so they preserve these bytes, and the VFO mapping is extended to 0x90E7
+// so they preserve these bytes, and the VFO mapping is extended to 0x90E9
 // (eeprom_compat.c) so aircopy clones them with the VFOs. A factory reset clears it.
 #define FOXHUNT_CFG_ADDR  0x0090E0u
-#define FOXHUNT_CFG_MAGIC 0xF4u    // tells a written config from erased flash (0xFF)
-#define FOXHUNT_CFG_LEN   7        // magic + att + graph + audio + idle + fox + tx
+#define FOXHUNT_CFG_MAGIC_V1 0xF4u // original config with an 8-bit idle value
+#define FOXHUNT_CFG_MAGIC    0xF5u
+#define FOXHUNT_CFG_LEN      9      // magic + att + graph + audio + idle16 + fox + tx + carrier
 
 // RAM mirror of the bytes last written to flash, so FOXHUNT_SaveConfig only touches
 // the flash when a value actually changed.
 static uint8_t foxCfgSaved[FOXHUNT_CFG_LEN];
 
 // Pack the live settings into the on-flash layout.
-static void FOXHUNT_ConfigPack(uint8_t out[FOXHUNT_CFG_LEN])
+static __attribute__((noinline)) void FOXHUNT_ConfigPack(uint8_t out[FOXHUNT_CFG_LEN])
 {
     out[0] = FOXHUNT_CFG_MAGIC;
     out[1] = attStep;
     out[2] = foxGraphMode;
     out[3] = foxAudioMode;
-    out[4] = beaconIdle;
-    out[5] = foxFox;
-    out[6] = beaconTx;
+    out[4] = (uint8_t)beaconIdle;
+    out[5] = (uint8_t)(beaconIdle >> 8);
+    out[6] = foxFox;
+    out[7] = beaconTx;
+    out[8] = beaconCarrierKeyed;
 }
 
 // Restore persisted settings; erased/invalid flash leaves the defaults in place.
@@ -1339,26 +1352,43 @@ static void FOXHUNT_LoadConfig(void)
 {
     uint8_t cfg[FOXHUNT_CFG_LEN];
     PY25Q16_ReadBuffer(FOXHUNT_CFG_ADDR, cfg, sizeof(cfg));
+    const bool legacy = cfg[0] == FOXHUNT_CFG_MAGIC_V1;
 
-    if (cfg[0] == FOXHUNT_CFG_MAGIC) {                    // valid, saved config
+    if (cfg[0] == FOXHUNT_CFG_MAGIC || legacy) {
         if (cfg[1] < FOXHUNT_ATT_COUNT)      attStep      = cfg[1];
         if (cfg[2] <= FOXHUNT_GRAPH_HIST)    foxGraphMode = cfg[2];
         if (cfg[3] <= FOXHUNT_AUDIO_STATION) foxAudioMode = cfg[3];
-        if (cfg[4] >= FOXHUNT_BEACON_IDLE_MIN && cfg[4] <= FOXHUNT_BEACON_IDLE_MAX
-            && (cfg[4] % FOXHUNT_BEACON_IDLE_STEP) == 0)
-            beaconIdle = cfg[4];
-        if (cfg[5] < FOXHUNT_FOX_COUNT)      foxFox       = cfg[5];
-        if (cfg[6] >= FOXHUNT_BEACON_TX_MIN && cfg[6] <= FOXHUNT_BEACON_TX_MAX
-            && (cfg[6] % FOXHUNT_BEACON_TX_STEP) == 0)
-            beaconTx = cfg[6];
+        if (!legacy) {
+            const uint16_t idle = (uint16_t)cfg[4] | ((uint16_t)cfg[5] << 8);
+            if (idle >= FOXHUNT_BEACON_IDLE_MIN && idle <= FOXHUNT_BEACON_IDLE_MAX
+                && (idle % FOXHUNT_BEACON_IDLE_STEP) == 0)
+                beaconIdle = idle;
+            if (cfg[6] < FOXHUNT_FOX_COUNT)      foxFox       = cfg[6];
+            if (cfg[7] >= FOXHUNT_BEACON_TX_MIN && cfg[7] <= FOXHUNT_BEACON_TX_MAX
+                && (cfg[7] % FOXHUNT_BEACON_TX_STEP) == 0)
+                beaconTx = cfg[7];
+            if (cfg[8] <= 1) beaconCarrierKeyed = cfg[8];
+        } else {                                         // migrate the former 8-byte layout
+            if (cfg[4] >= FOXHUNT_BEACON_IDLE_MIN && cfg[4] <= 240u
+                && (cfg[4] % FOXHUNT_BEACON_IDLE_STEP) == 0)
+                beaconIdle = cfg[4];
+            if (cfg[5] < 6u)                     foxFox       = cfg[5];
+            else if (cfg[5] == 6u)               foxFox       = FOXHUNT_FOX_CALL_MOE;
+            if (cfg[6] >= FOXHUNT_BEACON_TX_MIN && cfg[6] <= FOXHUNT_BEACON_TX_MAX
+                && (cfg[6] % FOXHUNT_BEACON_TX_STEP) == 0)
+                beaconTx = cfg[6];
+            if (cfg[7] <= 1) beaconCarrierKeyed = cfg[7];
+        }
     }
 
     FOXHUNT_ConfigPack(foxCfgSaved);   // mirror the loaded (or default) state
+    if (legacy)
+        foxCfgSaved[0] = FOXHUNT_CFG_MAGIC_V1; // force one deferred write in the new layout
 }
 
 // Write the settings to flash, but only when they changed since the last write.
 // Called on the 500 ms tick (so any change persists within ~0.5 s and survives a
-// power-off, not just a clean EXIT) and once more on leaving Fox Hunt. The RAM
+// power-off, not just a clean EXIT) and once more on leaving either app. The RAM
 // compare avoids re-reading the 4 KB sector on every quiet tick.
 static void FOXHUNT_SaveConfig(void)
 {
@@ -1372,15 +1402,13 @@ static void FOXHUNT_SaveConfig(void)
     memcpy(foxCfgSaved, cfg, sizeof(cfg));
 }
 
-void APP_RunFoxHunt(void)
+static void FOXHUNT_Begin(void)
 {
-    // Finish any pending backlight fade, then start with the screen on and a full
-    // BLTime window (BACKLIGHT_TurnOn also re-arms the sleep countdown).
     BACKLIGHT_UpdateTickless();
     BACKLIGHT_TurnOn();
 
-    // Hunt on the user-selected VFO: dual-watch / cross-band may have left the
-    // radio listening on the other VFO, so force RX on the selected one and retune.
+    // Both apps operate on the user-selected VFO. Dual watch may have left the
+    // receiver on the other one, so establish a deterministic starting point.
     gEeprom.RX_VFO = gEeprom.TX_VFO;
     gRxVfo         = gTxVfo;
     gCurrentVfo    = gTxVfo;
@@ -1394,69 +1422,77 @@ void APP_RunFoxHunt(void)
     CW_KeyerReconfigure(false);
 #endif
 
-    // Beacon defaults (LoadConfig may override fox / tx / idle below).
-    beaconIdle    = FOXHUNT_BEACON_IDLE_DEF;
-    beaconTx      = FOXHUNT_BEACON_TX_DEF;
-    foxFox        = FOXHUNT_FOX_CALL;      // identified beacon by default (legal on ham)
-    beaconPhaseTx = false;
-
-    // Read the callsign from the boot message (line 1), sanitised to what Morse can
-    // send; empty/erased leaves foxCall empty (the CALL id then falls back to bare MOE).
-    {
-        char call[FOXHUNT_CALLSIGN_MAX + 1];
-        uint8_t n = 0;
-        PY25Q16_ReadBuffer(FOXHUNT_CALLSIGN_ADDR, call, FOXHUNT_CALLSIGN_MAX);
-        call[FOXHUNT_CALLSIGN_MAX] = '\0';
-        for (uint8_t i = 0; i < FOXHUNT_CALLSIGN_MAX; i++) {
-            char c = call[i];
-            if (c == '\0' || (uint8_t)c == 0xFF)
-                break;
-            if (c >= 'a' && c <= 'z')
-                c -= 32;
-            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/')
-                foxCall[n++] = c;
-        }
-        foxCall[n] = '\0';
-    }
-
-    // Start in the hunt (RX) sub-mode, S-meter staircase gauge by default, then restore
-    // any persisted settings (attenuator, gauge, audio, beacon idle / fox / tx).
+    // Initialise the full configuration before loading either persisted layout.
     attStep      = 0;
     foxGraphMode = FOXHUNT_GRAPH_BAR;
     foxAudioMode = FOXHUNT_AUDIO_OFF;
-    FOXHUNT_LoadConfig();     // may override att / gauge / audio / idle / fox / tx
-    FOXHUNT_EnterHunt();      // applies the restored attStep and audio mode
-    // beaconMsg is (re)built by FOXHUNT_BeaconTransmit before every burst, and nothing
-    // reads it before the first burst, so no need to assemble it here.
+    beaconIdle    = FOXHUNT_BEACON_IDLE_DEF;
+    beaconTx      = FOXHUNT_BEACON_TX_DEF;
+    foxFox        = FOXHUNT_FOX_CALL_MOE;
+    beaconCarrierKeyed = false;   // TONE (F2A) by default
+    beaconPhaseTx = false;
+    FOXHUNT_LoadConfig();
 
-    // Prime the key state with whatever is held right now, so the side key that
-    // launched Fox Hunt (still down on a long-press assignment) is not taken for
-    // a fresh press and does not immediately toggle to the beacon.
+    // Ignore the key that launched the modal app until it has been released.
     kbd.prev = kbd.current = KEYBOARD_GetKey();
-    gWasFKeyPressed = false;   // start with the reverse-step arm cleared
-
-    // Always enter unlocked: the keypad lock is a transient safety toggle, not a
-    // persisted setting, so a previous session must not leave the pad locked.
+    gWasFKeyPressed = false;
     foxLocked = false;
     fHoldMs   = 0;
     fLongDone = false;
-
     foxRunning = true;
+}
+
+static void FOXHUNT_LoadCallsign(void)
+{
+    char call[FOXHUNT_CALLSIGN_MAX + 1];
+    uint8_t n = 0;
+
+    // Read the callsign from the boot message (line 1), sanitised to what Morse can
+    // send; empty/erased leaves foxCall empty (both CALL choices then fall back to bare MOE).
+    PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, call, FOXHUNT_CALLSIGN_MAX);
+    call[FOXHUNT_CALLSIGN_MAX] = '\0';
+    for (uint8_t i = 0; i < FOXHUNT_CALLSIGN_MAX; i++) {
+        char c = call[i];
+        if (c == '\0' || (uint8_t)c == 0xFF)
+            break;
+        if (c >= 'a' && c <= 'z')
+            c -= 32;
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/')
+            foxCall[n++] = c;
+    }
+    foxCall[n] = '\0';
+}
+
+static void FOXHUNT_End(void)
+{
+    FOXHUNT_SaveConfig();
+    gWasFKeyPressed = false;
+    AUDIO_AudioPathOff();
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
+    RADIO_SelectVfos();
+    RADIO_SetupRegisters(true);
+}
+
+/* Both entry points stay in this translation unit so their small modal services
+ * can be shared when both features are enabled. The action table references only
+ * the enabled entry point(s); --gc-sections then drops the complete unused RX or
+ * Beacon call graph, including its private constants and bitmaps. */
+void APP_RunFoxHunt(void)
+{
+    FOXHUNT_Begin();
+
+    FOXHUNT_EnterHunt();
     while (foxRunning) {
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
         UART_ServiceCommands();
 #endif
-        if (foxBeacon) {
-            FOXHUNT_BeaconTick();
-            continue;
-        }
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
         // Keep the K5Viewer link alive and pick up any remote key.
         K5VIEWER_ParseInput();
 #endif
         FOXHUNT_HandleKeys();
-        if (foxBeacon)          // just switched to beacon: skip the RX work this tick
-            continue;
+        if (!foxRunning)
+            break;
 
         curDbm = FOXHUNT_ReadDbm();
         if (curDbm > peakDbm)
@@ -1494,24 +1530,23 @@ void APP_RunFoxHunt(void)
         FOXHUNT_TickDelay();          // tick delay + smooth backlight fade
     }
 
-    // Persist the session's settings on the way out (EXIT clears foxRunning) so
-    // they survive a later power cycle.
-    FOXHUNT_SaveConfig();
-
-    gWasFKeyPressed = false;   // don't leak a pending reverse-step arm to the main screen
-
-    // Mute any pending tone, drop the PA (safety), then restore the normal VFO
-    // selection and RX config.
-    AUDIO_AudioPathOff();
-    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, false);
-    RADIO_SelectVfos();
-    RADIO_SetupRegisters(true);
+    FOXHUNT_End();
 }
 
-void ACTION_FoxHunt(void)
+void APP_RunBeacon(void)
 {
-    APP_RunFoxHunt();
-    GUI_SelectNextDisplay(DISPLAY_MAIN);
+    FOXHUNT_Begin();
+    FOXHUNT_LoadCallsign();
+    FOXHUNT_EnterBeacon();
+
+    while (foxRunning) {
+#if defined(ENABLE_UART) || defined(ENABLE_USB)
+        UART_ServiceCommands();
+#endif
+        FOXHUNT_BeaconTick();
+    }
+
+    FOXHUNT_End();
 }
 
-#endif // ENABLE_FEAT_F4HWN_FOXHUNT
+#endif // ENABLE_FEAT_F4HWN_FOXHUNT || ENABLE_FEAT_F4HWN_BEACON

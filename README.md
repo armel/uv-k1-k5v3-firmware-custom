@@ -6,7 +6,26 @@ Pre-built `.uf2`/`.bin` files ready to flash are published every release, you do
 ## 📖 [**Documentation site →**](https://briand.github.io/cw-firmware-docs/)
 Full menu reference, rework guides now live here.
 
-This repository builds on the F4HWN codebase by adding a set of features specifically for CW operators.
+## ⚠️ Upgrading from v1.x to v2.0: back up with CHIRP first
+
+> [!IMPORTANT]
+> v2.0 moves to the F4HWN v6.x codebase and restructures where settings are stored: CW settings and macros move to new locations, and key assignments are numbered differently. **The firmware does not migrate your old settings.** The v2.0 CHIRP module does that conversion. If you skip these steps, your channels stay but your CW settings, macros and key assignments go back to their defaults.
+
+To carry your channels and settings over:
+
+1. **Before flashing v2.x**, while the radio still runs v1.x, open CHIRP with the CHIRP module from your current v1.x release (for example `nr7y.k1-k5v3.chirp.v1.4.py`), download from the radio and **save the image** (`.img`). This file is your backup; keep it.
+2. Flash v2.0 (see [Flashing the Firmware with UV Studio](#flashing-the-firmware-with-uv-studio)).
+3. On the radio, run **Reset → ALL** and let it restart. This clears the old layout so nothing left over from v1. Calibration is not affected.
+4. In CHIRP, load the CHIRP module attached to the [v2.0 release](https://github.com/briand/uv-k1-k5v3-firmware-custom/releases) (`brass.k1-k5v3.chirp.v2.0.py`; the firmware is named Brass from v2.0), then **open the image you saved in step 1**. The module converts it to the v2.x layout as it loads: channels, settings, CW settings, macros and key assignments. Images from before v1.4 also get their CW/USB filter settings converted.
+5. Upload to the radio.
+
+Notes:
+
+- After upgrading, use only the v2.0 CHIRP module with the radio. It refuses to upload to v1.x firmware, and a v1.x module would write CW settings and macros where v2.0 no longer reads them.
+- Without the CHIRP step, a radio that had macros recorded can show up to 12 garbage entries in CHIRP at channels 449-460, where v1.x stored the macros. Delete them, or do the steps above.
+- Multiboot: when v2.0 opens a configuration bank where stock F4HWN v6.2 has saved settings, it keeps that bank's channels, settings and key assignments.
+
+This repository builds on the [F4HWN codebase](https://github.com/armel/uv-k1-k5v3-firmware-custom) by Armel F4HWN, adding a set of features specifically for CW operators.
 
 - High-speed RX/TX switching for realtime Morse code sending in true CW modulation
 - Automatic iambic keyer with A/B/Ultimatic/Bug modes
@@ -22,6 +41,13 @@ This repository builds on the F4HWN codebase by adding a set of features specifi
 This firmware only supports the UVK5v3 or UVK1 Quansheng hardware. It does not work with the original UVK5 model; use the V1 mod firmware [here](https://github.com/briand/uv-k5-firmware-custom-cw) instead for v1 radios.
 
 This code is available under the Apache 2.0 License as is the work of giants that it builds upon.
+
+## ❤️ Support the original author
+
+The bulk of this firmware is the work of Armel F4HWN and the projects he built on; this fork adds the CW features on top. If you find it useful, please consider supporting him directly:
+
+- GitHub Sponsors: [github.com/sponsors/armel](https://github.com/sponsors/armel)
+- PayPal: [paypal.me/F4HWN](https://www.paypal.com/paypalme/F4HWN)
 
 --- The F4HWN README contents follow ---
 
@@ -65,7 +91,7 @@ Anyway, have fun.
 
 # Donations
 
-Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Olivier 14RC206, Frédéric F4ESO, Stéphane F5LGW (2 times), Jorge Ornelas (4 times), Laurent F4AXK, Christophe Morel, Clayton W0LED, Pierre Antoine F6FWB, Jean-Claude 14FRS3306, Thierry F4GVO, Eric F1NOU, PricelessToolkit, Ady M6NYJ, Tom McGovern (4 times), Joseph Roth, Pierre-Yves Colin, Frank DJ7FG, Marcel Testaz, Brian Frobisher, Yannick F4JFO, Paolo Bussola, Dirk DL8DF, Levente Szőke (2 times), Bernard-Michel Herrera, Jérôme Saintespes, Paul Davies, RS (3 times), Johan F4WAT, Robert Wörle, Rafael Sundorf, Paul Harker, Peter Fintl, Pascal F4ICR (2 times), Mike DL2MF (3 times), Eric KI1C / F4WFS (3 times), Phil G0ELM, Jérôme Lambert, Eliot Vedel, Alfonso EA7KDF, Jean-François F1EVM, Robert DC1RDB (2 times), Ian KE2CHJ, Daryl VK3AWA, Roberto Brunelli, Robert Boardman, Stephen Oliver, Nicolas F4INE, William Bruno, Daniel OK2VLK, Tayler Chew, Peter DL7RFP, Philippe Kopp, Rune LA6YMA, Jeremy Luna, Steef Wagenaar (2 times), Zhuo BG7SGA, Jamie M0JLB, Antoine LIBERT, Vince K0DKR, Julia DF7JA, Ken 2E0UMK, Victor TI2SYS, Tobi DG9LAY, Deaglan K4DFQ, Catherine PALMER, Brian WA6JFK, Stéphane Hintzy, Roger F1HCN, Marcin Kusaj, Flavio Cottarelli, Bob N1MLZ, Carlos EA1IJ, Brian M7YLF, Giuseppe IT9LLH and 邓 月 for their [donations](https://www.paypal.com/paypalme/F4HWN). That’s so kind of them. Thanks so much 🙏🏻
+Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP (3 times), Olivier 14RC206, Frédéric F4ESO, Stéphane F5LGW (2 times), Jorge Ornelas (4 times), Laurent F4AXK, Christophe Morel, Clayton W0LED, Pierre Antoine F6FWB, Jean-Claude 14FRS3306, Thierry F4GVO, Eric F1NOU, PricelessToolkit, Ady M6NYJ, Tom McGovern (4 times), Joseph Roth, Pierre-Yves Colin, Frank DJ7FG, Marcel Testaz, Brian Frobisher, Yannick F4JFO, Paolo Bussola, Dirk DL8DF, Levente Szőke (2 times), Bernard-Michel Herrera, Jérôme Saintespes, Paul Davies, RS (3 times), Johan F4WAT, Robert Wörle, Rafael Sundorf, Paul Harker, Peter Fintl, Pascal F4ICR (2 times), Mike DL2MF (3 times), Eric KI1C / F4WFS (3 times), Phil G0ELM, Jérôme Lambert, Eliot Vedel, Alfonso EA7KDF, Jean-François F1EVM, Robert DC1RDB (2 times), Ian KE2CHJ, Daryl VK3AWA, Roberto Brunelli, Robert Boardman, Stephen Oliver, Nicolas F4INE, William Bruno, Daniel OK2VLK, Tayler Chew, Peter DL7RFP, Philippe Kopp, Rune LA6YMA, Jeremy Luna, Steef Wagenaar (2 times), Zhuo BG7SGA, Jamie M0JLB, Antoine LIBERT, Vince K0DKR, Julia DF7JA, Ken 2E0UMK, Victor TI2SYS, Tobi DG9LAY, Deaglan K4DFQ, Catherine PALMER, Brian WA6JFK, Stéphane Hintzy, Roger F1HCN, Marcin Kusaj, Flavio Cottarelli, Bob N1MLZ, Carlos EA1IJ, Brian M7YLF, Giuseppe IT9LLH, 邓 月, Jon M1JRH, Antonios Chouchoumis, Cédric Thomas, Justin White, Gordon Campbell, Per Georg Fostad, Edward Phillips, Peter Kintscher and Jerome Lambert for their [donations](https://www.paypal.com/paypalme/F4HWN). That’s so kind of them. Thanks so much 🙏🏻
 
 ## Table of Contents
 
@@ -82,18 +108,132 @@ Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, David F4BPP, Ol
 
 ### Fusion edition
 
-Fusion is the reference edition of the project. It provides an all-in-one firmware for the UV-K1 and UV-K5 V3, including:
+Fusion is the generic reference edition for the UV-K1 and UV-K5 V3. It is intended
+for everyday use and is the base inherited by the specialized editions. It includes:
 
 - Fagci's spectrum analyzer,
-- broadcast FM radio,
-- VOX and AirCopy,
-- BEAM wireless channel transfer,
+- broadcast FM radio and VOX,
 - [UV Studio](https://armel.github.io/uvstudio/) with integrated K5Viewer screen mirroring, screenshots and remote keyboard control,
 - advanced RX audio profiles and Audio Scope,
-- first-responder-oriented controls,
-- the Breakout game,
 - automatic RX/TX activity logging with RF Log,
-- full Fox Hunt and Morse Beacon support.
+- Full Watch across VFO A, VFO B and up to two priority channels,
+- Multiboot with one protected Main backup and four user firmware slots,
+- independent Multiconfig banks, switchable at runtime through `SetCfg`.
+
+Specialized presets extend Fusion for specific uses:
+
+- **Transfer** adds AirCopy and BEAM wireless channel transfer.
+- **FieldOps** adds first-responder controls, Fox Hunt and Morse Beacon support.
+- **Labs** is the experimental edition. It carries the broad feature selection of the
+  other releases and adds the overlay-apps platform (apps loaded from external Flash and
+  run in a 4 KiB RAM overlay) — the newest, least-settled work. Expect rough edges. It is
+  not a strict superset of every other edition: features may be exchanged between releases
+  to preserve stability and memory headroom.
+- **Custom** remains a manually configured build based directly on the hidden technical default.
+
+### Multiboot and Multiconfig
+
+Multiboot uses the radio's external Flash to keep one automatically maintained
+**Main** firmware backup and four additional firmware slots. Each image is
+validated before it is restored to internal Flash, and the selector displays
+the edition and version stored in every valid slot.
+
+To open the Multiboot selector, power off the radio, hold `MENU`, power it on,
+then release the key when the selector appears. Use `UP` and `DOWN` to choose a
+slot, `MENU` to restore it and `EXIT` to leave without making changes.
+
+> [!CAUTION]
+> Never power off the radio while a firmware slot is being restored.
+
+Multiconfig provides one independent configuration bank for Main and for each
+of the four user slots. A bank contains the memory channels and names, VFO
+settings, scan lists, radio settings and edition-specific settings. By default,
+each firmware slot uses the bank with the same number.
+
+The `SetCfg` menu can select and apply another bank immediately, without
+restarting the radio or changing firmware. The status bar shows the active bank
+as `CFG M` or `CFG 1` to `CFG 4`, so several operating configurations can be
+used with the same firmware and compatible configurations can be shared across
+editions.
+
+A `SetCfg` override survives normal power cycles. It does not permanently
+redefine the default configuration bank of a firmware slot: selecting a
+firmware through Multiboot always restores the natural association between the
+selected slot and its bank (`Main` to `CFG M`, or slot `N` to `CFG N`). Select
+another bank with `SetCfg` again after switching firmware if required.
+
+### Full Watch
+
+Full Watch extends the normal dual-watch cycle to monitor:
+
+- VFO A,
+- VFO B,
+- priority channel 1,
+- priority channel 2.
+
+The priority channels come from the existing scan-list priority settings.
+Duplicates, invalid entries and channels already loaded in VFO A or B are
+ignored automatically.
+
+The `RxMode` menu provides two Full Watch modes:
+
+- `FULL RX / RESPOND` replies on the channel that opened the squelch,
+- `MAIN TX / FULL RX` always transmits on the selected main VFO.
+
+Animated chevrons show the background watch cycle while the normal VFO display
+remains available for navigation and operation.
+
+### Overlay applications and APRS
+
+Labs can store up to 48 applications from the current collection of 36 in
+external Flash. Each app is loaded into a dedicated 4 KiB RAM overlay only
+while it is running, while larger read-only assets such as text, fonts, bitmaps
+and lookup tables remain in external Flash.
+
+The current app collection includes:
+
+- radio tools: Broadcast FM, Fox Hunt, Beacon, Beam, Signal Finder, Spectrum3D
+  and ToneCall,
+- digital and signal apps: ACARS RX, AIS RX, ATIS RX, APRS RX, APRS TX, APRS Edit,
+  APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW USB, SSTV, POCSAG RX, Sonde M10,
+  Sonde M20, Sonde RS41 and EPIRB 406,
+- tools and diagnostics: AF Scope, AF Spectro, Resistor, System Info and Flash Map,
+- games and demos: Breakout, Cube3D, Hell Maze, Minesweeper, Plasma, Rapid Roll,
+  Snake, Sokoban, Space Impact and Tetris.
+
+APRS RX receives AX.25 UI frames using Bell 202 AFSK at 1200 baud, displays
+common position formats and Mic-E data, and keeps a five-frame history. APRS TX
+uses an editable callsign (with boot-message fallback) and transmits a position beacon; its companion
+APRS Edit app edits the callsign, SSID, digipeater path, position, symbol and
+89-character comment.
+APRS DIGI is a deliberately limited `WIDE1-1` fill-in digipeater with
+path-independent duplicate suppression and channel-busy protection.
+KISS TNC makes the radio the TNC of APRSdroid (or any KISS client) over the
+USB-C cable: the phone runs the APRS application, the radio demodulates and
+transmits.
+
+ACARS RX receives the 2400 bit/s AM-MSK aircraft data link, checks odd parity
+and CRC, and keeps a three-message history with aircraft address, flight ID,
+label and printable message text.
+AIS RX samples the raw discriminator at 38.4 kHz, validates HDLC frames and
+shows Class A/B position and static reports from AIS1 or AIS2, one channel at a
+time. Its Flipper Zero bench vectors stay on 433.650 MHz.
+
+AF Scope and AF Spectro are one instrument for the demodulated RX audio, split
+in two apps that hand off to each other with `MENU`: AF Scope is an
+oscilloscope (frequency counter, peak detect, persistence) and a tuner (the
+frequency of a steady tone against the nearest known tone); AF Spectro shows
+the spectrum and a sonogram, the two main peaks and the level difference
+between two tones (DTMF, FSK, Bell 202...). Both work in FM, AM and USB.
+
+> [!IMPORTANT]
+> Overlay apps, including APRS RX, APRS TX and APRS DIGI, are experimental and intended for
+> Labs. Use the app files supplied with the same firmware release so their ABI
+> and required capabilities match the installed firmware.
+
+> [!CAUTION]
+> Transmitting apps must only be used on frequencies, power levels and modes
+> permitted by your licence and local regulations.
 
 ### Radio and signal handling
 
@@ -126,16 +266,19 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
 
 ### Scanning
 
-- Support for up to 24 named scan lists.
+- Support for up to 24 named scan lists + 1 mixed list.
 - Each memory channel can be assigned to:
   - `OFF`,
   - one scan list from `01` to `24`,
   - `ALL`.
 - The `ALL` list scans every channel except those assigned to `OFF`.
+- The `MIX` list combines any selected subset of the 24 named lists into one
+  scan set.
 - Automatic selection of the next valid list when the requested list is empty.
 - Direct scan-list selection while scanning:
   - `00` selects `ALL`,
-  - `01` to `24` select the corresponding list.
+  - `01` to `24` select the corresponding list,
+  - `25` selects `MIX`.
 - Long press on `MENU` while scanning to exclude the current memory channel.
 - Up to 64 frequency exclusions.
 - Very fast scanning mode, reaching approximately 150 frequencies per second.
@@ -148,7 +291,7 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
 - Improved VFO screen with:
   - Classic and Tiny S-meter styles,
   - Classic and Tiny frequency-information layouts,
-  - `MAIN ONLY`, `DUAL` and `CROSS` display modes,
+  - `MAIN ONLY`, `DUAL`, `FULL` and `CROSS` display modes,
   - RX activity indication on the active VFO,
   - optional RX LED blinking,
   - squelch, monitor, step and CTCSS/DCS information,
@@ -202,7 +345,7 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
   - selectable RF attenuation,
   - silent, Geiger-style and received-audio modes,
   - long-press `F` keypad lock (attenuation stays adjustable with the arrow keys).
-- Integrated Morse Beacon transmitter with:
+- Independent Morse Beacon transmitter with:
   - `MOE`, `MOI`, `MOS`, `MOH`, `MO5` and `MO` identifiers,
   - optional callsign identification,
   - configurable TX and idle periods,
@@ -236,7 +379,39 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
 - RF Log monitoring, analytics and CSV export.
 - Firmware flashing, calibration backup and restore, and boot-logo management from the same interface.
 - BEAM transfer of complete channel settings between compatible radios.
-- Improved AirCopy interface and progress reporting.
+
+#### AirCopy (Transfer edition)
+
+AirCopy can transfer one 128-channel bank, the radio settings, or all memory
+banks and settings in one operation. Version 6.1 adds a stop-and-wait protocol
+with acknowledgements in both directions:
+
+- the receiver acknowledges CRC32 comparison frames and every stored data frame,
+- a missing acknowledgement automatically triggers a retry, up to three times,
+- invalid, out-of-sequence or mismatched selections are rejected instead of
+  being applied silently,
+- the progress screen reports retries or receive errors and distinguishes
+  blocks that were already identical from blocks that were copied.
+
+Before sending data, the two radios compare CRC32 values in groups of up to 24
+blocks. The receiver returns a difference bitmap, so only blocks whose contents
+differ are transmitted. Each radio data frame can carry up to three consecutive
+64-byte blocks, approximately doubling over-the-air throughput compared with
+the previous one-block framing.
+
+Transfer also supports direct radio-to-radio cable cloning over UART at 460800
+baud. Press `*` in AirCopy to switch between `AIR COPY` and `CABLE COPY`; use
+`UP` and `DOWN` to select a memory bank, `Settings` or `All (Mem+Set)`, then
+`MENU` on the sender and `EXIT` on the receiver.
+
+Cable mode additionally provides `Flash 2M`, which clones the complete 2 MiB
+external Flash. Sectors are compared by CRC32 and only different sectors are
+written. The device-specific calibration sector is never copied or erased, and
+the receiving radio must be restarted after a successful Flash clone.
+
+> [!IMPORTANT]
+> The new AirCopy wire format is not compatible with earlier versions. Both
+> radios must run the same firmware version.
 
 ### Settings and controls
 
@@ -256,7 +431,8 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
   - `SetNFM`: narrow-FM bandwidth,
   - `SetVol`: RX audio volume,
   - `SetScn`: scan mode,
-  - `SetNav`: radio-specific navigation layout.
+  - `SetNav`: radio-specific navigation layout,
+  - `SetCfg`: apply another Multiconfig bank without restarting.
 - Improved `PonMsg`, `BackLt`, `TxTOut`, `ScnRev` and `KeyLck` menus.
 - Full VFO state restoration with a long press on `EXIT`.
 - Squelch changes made with `F + UP` or `F + DOWN` are persisted.
@@ -279,7 +455,9 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
   - offset removal,
   - BEAM,
   - RF Log,
-  - Fox Hunt / Beacon.
+  - Fox Hunt,
+  - Beacon,
+  - ToneCall (launches the ToneCall overlay app, Labs).
 
 ### Reliability and optimization
 
@@ -292,11 +470,10 @@ Fusion is the reference edition of the project. It provides an all-in-one firmwa
 - Improved VFO persistence and restoration.
 - Extensive code refactoring and memory optimization.
 - DTMF calling and the scrambler remain disabled in Fusion.
-- Legacy AM Fix code is not used by this firmware.
+- Legacy AM Fix support has been removed.
 
 ## Main features from Egzumer:
 * many of OneOfEleven mods:
-   * AM fix, huge improvement in reception quality
    * long press buttons functions replicating F+ action
    * fast scanning
    * channel name editing in the menu
@@ -347,9 +524,10 @@ But, they are nice toys for the price, fun to play with.
 
 ## Compiling and Building from Docker
 
-This project provides a Docker-based build system to compile the Fusion firmware for the UV-K1 and UV-K5 V3. Everything is handled through the `compile-with-docker.sh` helper script.
-
-The documented build output is generated inside `build/Fusion`, using the CMake presets defined in `CMakePresets.json`.
+This project provides a Docker-based build system for the UV-K1 and UV-K5 V3.
+Everything is handled through the `compile-firmware.sh` helper script. Fusion is
+the default generic preset, while specialized builds are generated in their own
+`build/<Preset>` directories.
 
 ### Prerequisites
 
@@ -358,29 +536,37 @@ The documented build output is generated inside `build/Fusion`, using the CMake 
 
 ### Build Script Overview
 
-The script `compile-with-docker.sh` performs the following actions:
+The script `compile-firmware.sh`:
 
 1. Builds the Docker image (`uvk1-uvk5v3`) if it does not already exist.
-2. Removes any previous `build` directory to ensure a clean configuration.
-3. Runs CMake using the `Fusion` preset inside the Docker container.
-4. Builds the firmware and outputs `.elf`, `.bin` and `.hex` files.
+2. Configures the selected preset with `cmake --fresh`.
+3. Builds the firmware and outputs matching `.elf`, `.bin` and `.hex` files.
+4. Displays Flash and RAM usage; `All` keeps the individual build logs quiet.
 
 ### Usage
 
 ```bash
-./compile-with-docker.sh Fusion [extra CMake options]
+./compile-firmware.sh [Preset] [extra CMake options]
 ```
 
-### Documented Preset
+The default preset is **Fusion**. Available presets are:
 
+- **Custom**
 - **Fusion**
+- **Transfer**
+- **FieldOps**
+- **Labs**
+- **All** (Fusion, Transfer, FieldOps and Labs)
 
-### Examples
-
-Build Fusion:
+Examples:
 
 ```bash
-./compile-with-docker.sh Fusion
+./compile-firmware.sh
+./compile-firmware.sh Fusion
+./compile-firmware.sh Transfer
+./compile-firmware.sh FieldOps
+./compile-firmware.sh Labs
+./compile-firmware.sh All
 ```
 
 ### Passing Additional CMake Options
@@ -391,15 +577,15 @@ These are forwarded directly to `cmake --preset` inside the container.
 Examples:
 
 ```bash
-./compile-with-docker.sh Fusion -DENABLE_SPECTRUM=ON
-./compile-with-docker.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON -DENABLE_NOAA=ON
-./compile-with-docker.sh Fusion -DSQL_TONE=600
+./compile-firmware.sh FieldOps -DENABLE_VOX=OFF
+./compile-firmware.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON
+./compile-firmware.sh Fusion -DSQL_TONE=600
 ```
 
 To prepare the rolling development firmware:
 
 ```bash
-./compile-with-docker.sh Fusion -DDEV=ON
+./compile-firmware.sh Fusion -DDEV=ON
 ```
 
 This keeps the regular build output in `build/Fusion` and also updates

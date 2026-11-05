@@ -37,7 +37,11 @@ void COMMON_SwitchVFOs()
 
     if (gEeprom.CROSS_BAND_RX_TX != CROSS_BAND_OFF)
         gEeprom.CROSS_BAND_RX_TX = gEeprom.TX_VFO + 1;
-    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF)
+    if (gEeprom.DUAL_WATCH != DUAL_WATCH_OFF
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL
+#endif
+    )
         gEeprom.DUAL_WATCH = gEeprom.TX_VFO + 1;
 
     gRequestSaveSettings  = 1;

@@ -76,9 +76,6 @@ enum
     MENU_S_PRI,
     MENU_S_PRI_CH_1,
     MENU_S_PRI_CH_2,    
-#ifdef ENABLE_ALARM
-    MENU_AL_MOD,
-#endif
 #ifdef ENABLE_DTMF_CALLING
     MENU_ANI_ID,
 #endif
@@ -101,9 +98,6 @@ enum
     MENU_VOL,
     MENU_BAT_TXT,
     MENU_AM,
-#ifdef ENABLE_AM_FIX
-    MENU_AM_FIX,
-#endif
 #ifndef ENABLE_FEAT_F4HWN
     #ifdef ENABLE_NOAA
         MENU_NOAA_S,
@@ -153,6 +147,9 @@ enum
         MENU_NOAA_S,
     #endif
     MENU_SET_NAV,
+    #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        MENU_SET_CFG,
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         MENU_SET_AUD,
     #endif
@@ -221,25 +218,26 @@ uint8_t UI_MENU_CategoryItemCount(uint8_t cat);
 extern const uint8_t FIRST_HIDDEN_MENU_ITEM;
 extern const t_menu_item MenuList[];
 
-extern const char* const gSubMenu_TXP[8];
-extern const char* const gSubMenu_SFT_D[3];
-extern const char* const gSubMenu_W_N[2];
+extern const char* const            gSubMenu_TXP[8];
+extern const char* const            gSubMenu_SFT_D[3];
+extern const char* const            gSubMenu_W_N[2];
 #ifdef ENABLE_EXTRA_FILTER
-	extern const char* const gSubMenu_W_N_SSB[1];
+extern const char* const            gSubMenu_W_N_SSB[1];
 #endif
 const char* const *UI_MENU_FilterLabels(void);
-extern const char* const gSubMenu_OFF_ON[2];
-extern const char*       gSubMenu_NA;
-extern const char* const gSubMenu_TOT[11];
-extern const char* const gSubMenu_RXMode[4];
+extern const char* const            gSubMenu_OFF_ON[2];
+extern const char*                  gSubMenu_NA;
+extern const char* const            gSubMenu_TOT[11];
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+extern const char* const            gSubMenu_RXMode[6];
+#else
+extern const char* const            gSubMenu_RXMode[4];
+#endif
 
 #ifdef ENABLE_VOICE
     extern const char* const        gSubMenu_VOICE[3];
 #endif
 extern const char* const            gSubMenu_MDF[4];
-#ifdef ENABLE_ALARM
-    extern const char* const        gSubMenu_AL_MOD[2];
-#endif
 #ifdef ENABLE_DTMF_CALLING
 extern const char* const            gSubMenu_D_RSP[4];
 #endif
@@ -291,20 +289,15 @@ extern const char* const            gSubMenu_SET_NAV[2];
     extern const char* const        gSubMenu_SCRAMBLER[11];
 #endif
 
-typedef struct /* __attribute__((packed)) */ {
-    const char* name; 
-    uint8_t     id;
-} t_sidefunction;
-
-extern const uint8_t         gSubMenu_SIDEFUNCTIONS_size;
-extern const t_sidefunction gSubMenu_SIDEFUNCTIONS[];
+#define SIDEFUNCTION_COUNT ACTION_OPT_LEN
+extern const char *const gSubMenu_SIDEFUNCTIONS[ACTION_OPT_LEN];  // NULL where ACTION_OPT_IS_DEFINED is false
 extern const char		gSubmenu_SIDETONE[9][6];
 extern const char*        gSubMenu_CW_KEY_BUTTON[3];
 extern const char*        gSubMenu_CW_KEY_PORT[3];
 #ifdef ENABLE_CW_MODULATOR
 extern const char*        gSubMenu_CW_KEY_INPUT[11];
 #endif
-
+                         
 extern bool              gIsInSubMenu;
                          
 extern uint8_t           gMenuCursor;

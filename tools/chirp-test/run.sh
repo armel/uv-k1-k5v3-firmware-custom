@@ -14,14 +14,14 @@ REPO="$(cd "$HERE/../.." && pwd)"
 CHIRP="${1:-$HOME/code/chirp}"
 [[ $# -gt 0 ]] && shift || true
 
-export NR7Y_MODULE="${NR7Y_MODULE:-$REPO/chirp/nr7y.k1-k5v3.chirp.py}"
+export NR7Y_MODULE="${NR7Y_MODULE:-$REPO/chirp/brass.k1-k5v3.chirp.py}"
 
 if [[ ! -f "$CHIRP/tests/test_drivers.py" ]]; then
   echo "No CHIRP checkout at $CHIRP (pass the path as the first argument)" >&2
   exit 1
 fi
 
-IDENT='Quansheng_UV-K1_&_UV-K5_V3_F4HWN_Fusion_NR7Y'
+IDENT='Quansheng_UV-K1_&_UV-K5_V3_F4HWN_Fusion_Brass'
 IMG="$CHIRP/tests/images/$IDENT.img"
 # The suite hardcodes tests/images/ as the search path, so the image has to be
 # placed inside the CHIRP checkout. Always clean it up, including on failure.

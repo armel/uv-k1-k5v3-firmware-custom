@@ -76,6 +76,8 @@ bool RXTX_LOG_IsEnabled(void);
 void RXTX_LOG_BeginRx(const VFO_Info_t *vfo, FUNCTION_Type_t function);
 void RXTX_LOG_BeginTx(const VFO_Info_t *vfo);
 void RXTX_LOG_EndActive(void);
+void RXTX_LOG_Suspend(void);
+void RXTX_LOG_Resume(void);
 void RXTX_LOG_Task10ms(void);
 void RXTX_LOG_Tick500ms(void);
 const char *RXTX_LOG_GetFilterName(void);

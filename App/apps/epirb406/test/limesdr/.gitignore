@@ -1,0 +1,3 @@
+# IQ files: 181 MB per mode, regenerate with t001lime.py
+*.cs16
+__pycache__/

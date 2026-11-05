@@ -21,6 +21,7 @@
 #include "py32f071_ll_system.h"
 #include "py32f071_ll_dma.h"
 #include "py32f071_ll_gpio.h"
+#include "py32f071_ll_rcc.h"
 #include "py32f071_ll_usart.h"
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -111,6 +112,35 @@ void UART_Init(void)
     LL_USART_Enable(USARTx);
     LL_USART_TransmitData8(USARTx, 0);
 }
+
+#ifdef ENABLE_AIRCOPY_UART
+bool UART_SetBaudRate(uint32_t BaudRate)
+{
+    uint32_t timeout = UART_TX_TIMEOUT_ITERATIONS;
+    LL_RCC_ClocksTypeDef clocks;
+
+    // Never change BRR while the final byte of a frame is still on the wire.
+    while (!LL_USART_IsActiveFlag_TC(USARTx) && timeout > 0u)
+        timeout--;
+
+    if (!LL_USART_IsActiveFlag_TC(USARTx))
+        return false;
+
+    LL_RCC_GetSystemClocksFreq(&clocks);
+    if (BaudRate == 0u || clocks.PCLK1_Frequency == LL_RCC_PERIPH_FREQUENCY_NO)
+        return false;
+
+    LL_USART_Disable(USARTx);
+#if defined(USART_CR3_OVER8)
+    LL_USART_SetBaudRate(USARTx, clocks.PCLK1_Frequency,
+                        LL_USART_GetOverSampling(USARTx), BaudRate);
+#else
+    LL_USART_SetBaudRate(USARTx, clocks.PCLK1_Frequency, BaudRate);
+#endif
+    LL_USART_Enable(USARTx);
+    return true;
+}
+#endif
 
 void UART_Send(const void *pBuffer, uint32_t Size)
 {

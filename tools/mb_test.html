@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Multiboot M1 - bench test</title>
+<style>
+  :root {
+    --bg:#0f1216; --panel:#171b21; --line:#272d36; --fg:#e6e9ee; --muted:#9aa4b2;
+    --accent:#3aa0ff; --ok:#3fbf6b; --danger:#e5484d; --warnbg:#2a2114; --warnline:#6b5424;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    display:flex; justify-content:center; padding:24px;
+  }
+  .wrap { width:100%; max-width:760px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
+  .warn { background:var(--warnbg); border-color:var(--warnline); font-size:13px; color:#e8d9b0; }
+  .warn b { color:#f4e6c0; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button {
+    font:inherit; font-weight:600; color:var(--fg); background:#222831;
+    border:1px solid var(--line); border-radius:8px; padding:10px 16px; cursor:pointer;
+  }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#04121f; }
+  button.danger  { background:var(--danger); border-color:var(--danger); color:#1a0405; }
+  button.warnbtn { background:transparent; border-color:var(--warnline); color:#e5b84d; }
+  button.warnbtn:hover:not(:disabled) { border-color:#e5b84d; }
+  .status { display:flex; align-items:center; gap:8px; margin-left:auto; font-size:13px; color:var(--muted); }
+  .dot { width:9px; height:9px; border-radius:50%; background:#555; }
+  .dot.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  .dot.err { background:var(--danger); }
+  label.baud { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+  input { font:inherit; width:80px; background:#0d1015; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  .steps { font-size:13px; color:var(--muted); margin:0 0 14px; padding-left:18px; }
+  .steps li { margin:3px 0; }
+  .steps code { color:var(--fg); }
+  #log {
+    font:12.5px/1.5 var(--mono); background:#0b0e12; border:1px solid var(--line);
+    border-radius:8px; padding:12px; height:280px; overflow:auto; white-space:pre-wrap; word-break:break-word;
+  }
+  .l-tx { color:var(--accent); } .l-rx { color:var(--ok); }
+  .l-warn { color:#e5b84d; } .l-err { color:var(--danger); } .l-info { color:var(--muted); }
+  .logbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .logbar button { padding:5px 10px; font-size:12px; font-weight:500; }
+  .unsupported { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Multiboot M1 &mdash; bench test</h1>
+  <div class="sub">UV-K1 / UV-K5 V3 &middot; F4HWN &middot; commandes cachées <code>0x0710</code> / <code>0x0712</code> via Web Serial</div>
+
+  <div class="panel warn">
+    <b>Radio sacrifiable uniquement.</b> Nécessite un firmware compilé avec
+    <code>-DENABLE_FEAT_F4HWN_MULTIBOOT=ON</code>. Le bootloader d'usine n'est jamais touché :
+    en cas d'échec du <i>restore</i>, re-flasher via USB/DFU dans UV Studio.
+    Ferme UV Studio / K5Viewer avant de te connecter (le port série ne peut être ouvert qu'une fois).
+  </div>
+
+  <div id="unsupported" class="panel warn unsupported">
+    <b>Web Serial indisponible.</b> Utilise Chrome, Edge, Brave ou Opera sur ordinateur.
+    Si tu as ouvert ce fichier en <code>file://</code> et que ça ne marche pas, sers-le en local :
+    <code>python -m http.server</code> puis ouvre <code>http://localhost:8000/tools/mb_test.html</code>.
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button id="btnConnect" class="primary">Connecter</button>
+      <button id="btnDisconnect" disabled>Déconnecter</button>
+      <label class="baud">baud <input id="baud" type="number" value="38400" title="ignoré sur le port USB-C virtuel"></label>
+      <span class="status"><span id="dot" class="dot"></span><span id="statusText">déconnecté</span></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <ol class="steps">
+      <li><b>Backup</b> — copie l'app interne vers le slot 0 externe (sans danger). Attends l'ack.</li>
+      <li>Optionnel : dumpe le slot 0 (<code>0x020000</code>) dans UV Studio pour vérifier.</li>
+      <li><b>Restore + reset</b> — reprogramme l'interne depuis le slot 0. Succès = la radio reboote sur le même firmware.</li>
+    </ol>
+    <div class="row">
+      <button id="btnBackup" disabled>Backup &nbsp;<small>0x0710</small></button>
+      <button id="btnRestore" class="danger" disabled>Restore + reset &nbsp;<small>0x0712</small></button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnCorrupt" class="warnbtn" disabled>Corrompre le slot (random) &nbsp;<small>0x0714</small></button>
+      <button id="btnDiag" class="warnbtn" disabled>Valider slot 0 &nbsp;<small>0x0716</small></button>
+      <button id="btnDump" class="warnbtn" disabled>Dump slot 0 &nbsp;<small>0x0718</small></button>
+      <button id="btnSpi" class="warnbtn" disabled>Diag SPI &nbsp;<small>0x071C</small></button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <span class="sub" style="margin:0"><b>Corrompre</b> → le prochain Restore doit être refusé (CRC32). <b>Valider</b> → contrôle header + CRC32 sans rien reflasher, renvoie le verdict et le CRC calculé (ne peut pas se bloquer).</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="logbar">
+      <span class="sub" style="margin:0">Journal</span>
+      <button id="btnClear">Effacer</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// Mirror of App/app/uart.c (Obfuscation[]) and App/driver/crc.c (CRC-16/XMODEM).
+const OBF = [0x16,0x6C,0x14,0xE6,0x2E,0x91,0x0D,0x40,0x21,0x35,0xD5,0x40,0x13,0x03,0xE9,0x80];
+const CMD_BACKUP = 0x0710, CMD_RESTORE = 0x0712;
+
+// Restore refusal codes (mb_flash.h). 0 = OK (never reported: the radio resets).
+const MB_ERR = {
+  1: "pas de header de slot valide (magic)",
+  2: "version de header trop récente",
+  3: "image non marquée complète (COMMITTED)",
+  4: "taille d'image invalide",
+  5: "CRC32 de l'image incorrect",
+  6: "timeout lecture flash externe (SPI)",
+};
+
+let port = null, writer = null, keepReading = false;
+const rx = [];               // rolling received-byte buffer for reply parsing
+
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+
+function log(msg, cls="l-info") {
+  const t = new Date().toLocaleTimeString();
+  const div = document.createElement("div");
+  div.className = cls;
+  div.textContent = `[${t}] ${msg}`;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+const hex = arr => Array.from(arr, b => b.toString(16).padStart(2,"0")).join(" ");
+
+function crc16(data) {
+  let crc = 0;
+  for (const b of data) {
+    crc ^= b << 8;
+    for (let i = 0; i < 8; i++)
+      crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+  }
+  return crc & 0xFFFF;
+}
+
+// Build one obfuscated, CRC'd command frame the firmware will accept.
+function buildFrame(id, data = new Uint8Array(0)) {
+  const payload = new Uint8Array(4 + data.length);
+  payload[0] = id & 0xFF;  payload[1] = (id >> 8) & 0xFF;
+  payload[2] = data.length & 0xFF; payload[3] = (data.length >> 8) & 0xFF;
+  payload.set(data, 4);
+  const size = payload.length;
+  const crc = crc16(payload);
+  const body = new Uint8Array(size + 2);
+  body.set(payload, 0); body[size] = crc & 0xFF; body[size + 1] = (crc >> 8) & 0xFF;
+  for (let i = 0; i < body.length; i++) body[i] ^= OBF[i % 16];   // obfuscate payload+CRC
+  const frame = new Uint8Array(4 + body.length + 2);
+  frame[0] = 0xAB; frame[1] = 0xCD; frame[2] = size & 0xFF; frame[3] = (size >> 8) & 0xFF;
+  frame.set(body, 4);
+  frame[frame.length - 2] = 0xDC; frame[frame.length - 1] = 0xBA;
+  return frame;
+}
+
+// Scan the rolling RX buffer for a complete reply frame:
+//   0xAB 0xCD | size(2 LE) | body(size, obfuscated) | pad(2) | 0xDC 0xBA
+function scanReplies() {
+  for (let i = 0; i + 4 <= rx.length; i++) {
+    if (rx[i] !== 0xAB || rx[i+1] !== 0xCD) continue;
+    const size = rx[i+2] | (rx[i+3] << 8);
+    const total = 4 + size + 2 + 2;                 // header + body + pad + footer
+    if (i + total > rx.length) return;              // wait for more bytes
+    if (rx[i + total - 2] !== 0xDC || rx[i + total - 1] !== 0xBA) continue;
+    const body = rx.slice(i + 4, i + 4 + size).map((b, k) => b ^ OBF[k % 16]);
+    const replyId = body[0] | (body[1] << 8);
+    const u32 = o => (body[o] | (body[o+1] << 8) | (body[o+2] << 16) | (body[o+3] << 24)) >>> 0;
+    if (replyId === 0x0711 && size >= 12) {
+      log(`✓ BACKUP OK — image ${u32(4)} o, CRC32 0x${u32(8).toString(16).padStart(8,"0")}`, "l-rx");
+    } else if (replyId === 0x0713 && size >= 5) {
+      const code = body[4];
+      log(`✗ RESTORE refusé — ${MB_ERR[code] || "erreur inconnue"} (code ${code}) → flash interne intacte`, "l-err");
+    } else if (replyId === 0x0715 && size >= 6) {
+      const cnt = body[4] | (body[5] << 8);
+      log(`✓ slot 0 corrompu (${cnt} octets) → le prochain Restore doit être REFUSÉ (CRC32)`, "l-warn");
+    } else if (replyId === 0x0717 && size >= 9) {
+      const crc = u32(4), code = body[8];
+      if (code === 0)
+        log(`✓ VALIDATION OK — slot 0 sain, CRC32 0x${crc.toString(16).padStart(8,"0")}`, "l-rx");
+      else
+        log(`✗ VALIDATION KO — ${MB_ERR[code] || "erreur inconnue"} (code ${code}), CRC calculé 0x${crc.toString(16).padStart(8,"0")}`, "l-err");
+    } else if (replyId === 0x0719 && size >= 9) {
+      const addr = u32(4), n = body[8], data = body.slice(9, 9 + n);
+      const hx = data.map(b => b.toString(16).padStart(2,"0")).join(" ");
+      log(`DUMP 0x${addr.toString(16).padStart(6,"0")} (${n} o): ${hx}`, "l-info");
+      const isFMB1 = data[0] === 0x46 && data[1] === 0x4d && data[2] === 0x42 && data[3] === 0x31;
+      const allFF  = data.length > 0 && data.every(b => b === 0xff);
+      if (isFMB1)     log("✓ magic « FMB1 » présent → le backup ÉCRIT bien la flash externe", "l-rx");
+      else if (allFF) log("✗ zone vierge (tout à FF) → le backup n'écrit PAS la flash externe", "l-err");
+      else            log("⚠ ni FMB1 ni vierge → contenu inattendu (voir hex ci-dessus)", "l-warn");
+    } else if (replyId === 0x071d && size >= 20) {
+      const cr1 = u32(4), cr2 = u32(8), sr = u32(12), ccr4 = u32(16);
+      const spe = (cr1 >> 6) & 1, rxdma = cr2 & 1, txdma = (cr2 >> 1) & 1;
+      const txe = (sr >> 1) & 1, rxne = sr & 1, bsy = (sr >> 7) & 1;
+      const dmaOn = rxdma || txdma;
+      log(`SPI2 CR1=0x${cr1.toString(16).padStart(4,"0")} (SPE=${spe}) · CR2=0x${cr2.toString(16).padStart(4,"0")} (RXDMAEN=${rxdma} TXDMAEN=${txdma}) · SR=0x${sr.toString(16).padStart(4,"0")} (TXE=${txe} BSY=${bsy}) · DMA RD.EN=${ccr4 & 1}`, (spe && !dmaOn) ? "l-rx" : "l-err");
+      if (!spe)        log("→ SPI2 DÉSACTIVÉ : c'est ça qui fige les lectures.", "l-err");
+      else if (rxdma)  log("→ RXDMAEN=1 : l'octet reçu part vers le DMA au lieu de RXNE → lecture polled bloque. (c'est ma théorie)", "l-err");
+      else if ((ccr4 & 1) && !rxdma && !txdma) log("-> canal DMA arme mais requetes SPI coupees : etat inactif normal.", "l-rx");
+      else if (ccr4 & 1) log("→ canal DMA RX armé : peut consommer les octets. Le fix le désarme.", "l-warn");
+      else             log("→ SPI2 propre (pas de DMA). Si la lecture bloque encore, c'est ailleurs.", "l-warn");
+    } else {
+      log(`reply 0x${replyId.toString(16).padStart(4,"0")} reçu`, "l-rx");
+    }
+    rx.splice(0, i + total);                         // consume up to end of frame
+    return scanReplies();
+  }
+  if (rx.length > 512) rx.splice(0, rx.length - 512);
+}
+
+async function readLoop() {
+  while (port && port.readable && keepReading) {
+    const reader = port.readable.getReader();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && value.length) {
+          log("RX " + hex(value), "l-rx");
+          for (const b of value) rx.push(b);
+          scanReplies();
+        }
+      }
+    } catch (e) {
+      if (keepReading) log("lecture interrompue: " + e.message + " (reset radio ?)", "l-warn");
+    } finally {
+      reader.releaseLock();
+    }
+  }
+}
+
+async function connect() {
+  if (!navigator.serial) return;
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: parseInt($("baud").value, 10) || 38400 });
+    writer = port.writable.getWriter();
+    keepReading = true;
+    rx.length = 0;
+    readLoop();
+    setConnected(true);
+    log("connecté.", "l-info");
+  } catch (e) {
+    log("connexion échouée: " + e.message, "l-err");
+    setConnected(false);
+  }
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (writer) { writer.releaseLock(); writer = null; } } catch {}
+  try { if (port) await port.close(); } catch {}
+  port = null;
+  setConnected(false);
+  log("déconnecté.", "l-info");
+}
+
+async function send(name, frame) {
+  if (!writer) { log("non connecté.", "l-err"); return; }
+  log(`TX ${name}: ` + hex(frame), "l-tx");
+  await writer.write(frame);
+}
+
+function setConnected(on) {
+  $("dot").className = "dot" + (on ? " on" : "");
+  $("statusText").textContent = on ? "connecté" : "déconnecté";
+  $("btnConnect").disabled = on;
+  $("btnDisconnect").disabled = !on;
+  $("btnBackup").disabled = !on;
+  $("btnRestore").disabled = !on;
+  $("btnCorrupt").disabled = !on;
+  $("btnDiag").disabled = !on;
+  $("btnDump").disabled = !on;
+  $("btnSpi").disabled = !on;
+}
+
+$("btnConnect").onclick = connect;
+$("btnDisconnect").onclick = disconnect;
+$("btnClear").onclick = () => { logEl.textContent = ""; };
+$("btnBackup").onclick = () => {
+  log("BACKUP: la radio est figée quelques secondes pendant l'écriture (~118 Ko)...", "l-info");
+  send("BACKUP 0x0710", buildFrame(CMD_BACKUP));
+};
+$("btnRestore").onclick = () => {
+  log("RESTORE: validation slot 0 puis reflash. Succès = reboot (device lost). Refus = reply 0x0713 (flash intacte).", "l-warn");
+  send("RESTORE 0x0712", buildFrame(CMD_RESTORE));
+};
+$("btnCorrupt").onclick = () => {
+  const rnd = new Uint8Array(32);
+  crypto.getRandomValues(rnd);
+  log("CORRUPT: écrit 32 octets aléatoires dans l'image du slot 0 (header intact)...", "l-warn");
+  send("CORRUPT 0x0714", buildFrame(0x0714, rnd));
+};
+$("btnDiag").onclick = () => {
+  log("VALIDER: contrôle header + CRC32 du slot 0 (sans reflash)...", "l-info");
+  send("VALIDATE 0x0716", buildFrame(0x0716));
+};
+$("btnDump").onclick = () => {
+  const addr = 0x020000, len = 8;   // < 16 -> forces the driver's POLLED read path
+  const d = new Uint8Array([addr & 0xFF, (addr >> 8) & 0xFF, (addr >> 16) & 0xFF, (addr >> 24) & 0xFF, len]);
+  log(`DUMP: lecture de ${len} octets à 0x${addr.toString(16).padStart(6,"0")} via le driver polled (< 16 o)...`, "l-info");
+  send("DUMP 0x0718", buildFrame(0x0718, d));
+};
+$("btnSpi").onclick = () => {
+  log("DIAG SPI: lecture des registres SPI2 / DMA (aucun accès flash, ne peut pas bloquer)...", "l-info");
+  send("SPI STATE 0x071C", buildFrame(0x071C));
+};
+
+if (!navigator.serial) {
+  $("unsupported").style.display = "block";
+  ["btnConnect","btnDisconnect","btnBackup","btnRestore"].forEach(id => $(id).disabled = true);
+}
+</script>
+</body>
+</html>

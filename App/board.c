@@ -21,6 +21,9 @@
     #include "app/fm.h"
 #endif
 #include "board.h"
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    #include "apps/app_overlay.h"
+#endif
 #include "py32f071_ll_bus.h"
 #include "py32f071_ll_gpio.h"
 #include "py32f071_ll_rcc.h"
@@ -71,8 +74,17 @@ void BOARD_GPIO_Init(void)
     LL_GPIO_InitTypeDef InitStruct;
     LL_GPIO_StructInit(&InitStruct);
     InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
-    InitStruct.Pull = LL_GPIO_PULL_UP;
     InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+
+    /* Keep the backlight dark from the first possible GPIO write.  Its pin can
+     * otherwise float while the rest of the board GPIOs are being configured. */
+    LL_GPIO_ResetOutputPin(GPIOF, LL_GPIO_PIN_8);
+    InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+    InitStruct.Pull = LL_GPIO_PULL_NO;
+    InitStruct.Pin = LL_GPIO_PIN_8;
+    LL_GPIO_Init(GPIOF, &InitStruct);
+
+    InitStruct.Pull = LL_GPIO_PULL_UP;
 
     // ---------------------
     // Input pins
@@ -123,9 +135,8 @@ void BOARD_GPIO_Init(void)
     LL_GPIO_Init(GPIOF, &InitStruct);
 #endif
 
-    // Backlight: PF8
     // BK4819 CS: PF9
-    InitStruct.Pin = LL_GPIO_PIN_9 | LL_GPIO_PIN_8  ;
+    InitStruct.Pin = LL_GPIO_PIN_9;
     LL_GPIO_Init(GPIOF, &InitStruct);
 
 #ifndef ENABLE_SWD
@@ -169,6 +180,11 @@ void BOARD_ADC_Init(void)
 
 void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 {
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    /* An overlay app may hold the ADC on PA4 (RX audio capture): the battery
+     * channel back for this conversion, whoever asks for it. */
+    const bool capture = APP_AfCaptureYieldAdc();
+#endif
     LL_ADC_REG_StartConversionSWStart(ADC1);
     while (!LL_ADC_IsActiveFlag_EOS(ADC1))
         ;
@@ -176,18 +192,23 @@ void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 
     *pVoltage = LL_ADC_REG_ReadConversionData12(ADC1);
     *pCurrent = 0;
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    if (capture)
+        APP_AfCaptureResumeAdc();
+#endif
 }
 
 void BOARD_Init(void)
 {
     BOARD_GPIO_Init();
+    /* Blank and initialise the LCD as soon as its GPIOs are available. */
+    ST7565_Init();
     BACKLIGHT_InitHardware();
     BOARD_ADC_Init();
 #ifdef ENABLE_VOICE
     VOICE_Init();
 #endif
     PY25Q16_Init();
-    ST7565_Init();
 #ifdef ENABLE_FMRADIO
     BK1080_Init0();
 #endif

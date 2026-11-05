@@ -112,18 +112,13 @@ static const uint8_t BITMAP_QR_GitHub_Wiki_Compressed[137] = {
 // Linker symbols (provided by the linker script)
 extern uint8_t _sdata;          // Start of .data in RAM
 extern uint8_t _edata;          // End of .data in RAM
-extern uint8_t _sbss;           // Start of .bss in RAM
+extern uint8_t _sbss;           // Start of zero-initialized RAM
 extern uint8_t _ebss;           // End of .bss in RAM
 
-// _eflash_used must be defined in the linker script immediately after the last
-// section with a FLASH load address (after .noncacheable). Example:
-//
-//   .noncacheable : {
-//       ...
-//   } > RAM AT> FLASH
-//   _eflash_used = LOADADDR(.noncacheable) + SIZEOF(.noncacheable);
-//
-// This gives the exact byte count that the linker reports as FLASH used.
+// _eflash_used is defined by the linker at the end of the final section with a
+// FLASH load image. This is currently .mb_ramfunc (empty without the overlay),
+// after the load image for .data. The .noncacheable section is NOLOAD RAM. It
+// therefore gives the exact byte count that the linker reports as FLASH used.
 extern uint8_t _eflash_used;
 
 // Absolute symbols: their *address* IS the numeric size value (ARM/CMSIS convention).
@@ -152,8 +147,8 @@ static void build_usage(uint32_t* ram_used, uint32_t* flash_used)
     const uint32_t stack_size = (uint32_t)(uintptr_t)&_Min_Stack_Size;
     *ram_used = span(&_sdata, &_ebss) + heap_size + stack_size;
 
-    // FLASH: _eflash_used is placed by the linker script right after the last
-    // section copied to FLASH (.data LMA + .noncacheable LMA).
+    // FLASH: _eflash_used follows the final FLASH load image (.mb_ramfunc,
+    // after the .data load image; .noncacheable is NOLOAD RAM).
     // Note: _etext is NOT usable here because this linker script places .rodata
     // sections AFTER _etext, making it an unreliable end-of-flash marker.
     *flash_used = span((void*)FLASH_BASE, &_eflash_used);
@@ -275,15 +270,17 @@ void UI_DisplayWelcome(void)
     }
 #endif
     else {
-        char WelcomeString0[16];
-        char WelcomeString1[16];
+        char WelcomeString0[17];
+        char WelcomeString1[17];
         char WelcomeString2[16];
         // char WelcomeString3[32];   // only used by commented-out MEM/Edition blocks below
 
         // 0x0EB0
-        PY25Q16_ReadBuffer(0x00A0C8, WelcomeString0, 16);
+        PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE1_ADDR, WelcomeString0, 16);
+        WelcomeString0[16] = '\0';
         // 0x0EC0
-        PY25Q16_ReadBuffer(0x00A0D8, WelcomeString1, 16);
+        PY25Q16_ReadBuffer(SETTINGS_BOOT_MESSAGE_LINE2_ADDR, WelcomeString1, 16);
+        WelcomeString1[16] = '\0';
 
         sprintf(WelcomeString2, "%u.%02uV %u%%",
                 gBatteryVoltageAverage / 100,
@@ -328,7 +325,7 @@ void UI_DisplayWelcome(void)
         UI_PrintString(WelcomeString1, 0, 127, 2, 10);
 
 #ifdef ENABLE_FEAT_F4HWN
-        const size_t version_width = strlen(DisplayVersion) * (ARRAY_SIZE(gFontSmall[0]) + 1u);
+        const size_t version_width = strlen(DisplayVersion) * (FONT_SMALL_WIDTH + 1u);
         const uint8_t version_x = version_width < LCD_WIDTH
             ? (uint8_t)((LCD_WIDTH - version_width + 1u) / 2u)
             : 0u;
@@ -377,7 +374,11 @@ void UI_DisplayWelcome(void)
         */
 
         //sprintf(WelcomeString3, "%s Edition", Edition);
+#ifdef UPSTREAM_STRING
+        UI_PrintStringSmallNormal(UPSTREAM_STRING, 0, 127, 6);
+#else
         UI_PrintStringSmallNormal(Edition, 0, 127, 6);
+#endif
 
 #else
         UI_PrintStringSmallNormal(Version, 0, 127, 6);

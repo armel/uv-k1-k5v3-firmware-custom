@@ -1,0 +1,438 @@
+# EPIRB 406: on-radio 406 MHz beacon decoder (work in progress)
+
+Goal: an overlay app that decodes first-generation Cospas-Sarsat 406 MHz beacon
+messages directly on the UV-K1 / UV-K5 v3 and shows the 15-hex ID, country,
+protocol, position and BCH status.
+
+Status:
+
+| Step | State |
+|---|---|
+| Feasibility: can an app read the demodulated signal? | **Done**: yes, on PA4 (see `../lab406/README.md`) |
+| Decoder core (`dec406.c`), host-tested on synthetic audio | **Done**: 17/17 tests pass |
+| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes |
+| Bench test with the beacon generator on 433.650 MHz | **Done** (2026-09-27) |
+| Bench test with a Flipper Zero on 433.650 MHz (`test/flipper406.py`) | **Done** (2026-09-30, v1.6) |
+
+## Using the app
+
+1. Set the VFO to the beacon frequency, **FM, wide bandwidth**: 406.031 MHz for
+   real beacons, or the generator frequency (433.650 MHz on the bench).
+2. Launch **EPIRB 406** with no burst in progress: the noise floor is measured at
+   launch.
+3. The speaker is off by default. Key 1 turns it on if you want to hear the
+   bursts; decoding still receives the BK4829 AF signal on PA4 while it is off.
+
+Every decoded message plays three 1536 Hz beeps (150 ms on, 150 ms off), even
+with the speaker off, so a beacon heard while the radio is in a pocket is not
+missed. The beeps are played after the burst (about 0.75 s, within the 1.5 s
+re-arm delay), and the next burst of a real beacon comes about 50 s later.
+
+Each burst is detected on RSSI (10 dB above the floor), sampled for up to 900 ms
+and decoded. The five latest messages stay in RAM, newest first. A new decode is
+shown immediately from its first detail row. The history is lost on exit.
+
+| Screen | Content |
+|---|---|
+| Status bar | `EPIRB 406`, speaker icon while enabled, and arrows when details or another history entry exist above/below |
+| Before the first frame | Blinking `WAITING...` in the body |
+| Fixed line 0 | 15-hex ID in bold and, with several messages, the selected/newest count (`2/5`) at its right |
+| Scrolled body | Country and protocol; latitude and longitude together on one row when they fit, otherwise on two rows in normal view; right below, the position source and flags when present (`EXT 121`, `INT`, `COARSE`, `RAW ID` for a spare location code 0000/0001, `CANCEL` for an ELT(DT) cancellation message), so they show without scrolling; SELF-TEST and LONG/SHORT; then the frame sequence and burst RSSI (`FR 3 -95dBm`). `121` abbreviates the 121.5 MHz homing transmitter. Both views always keep 5 coordinate decimals |
+| Dotted separator | APRS-style line at y=40, above the two fixed information rows |
+| Fixed tuning row | Current RX frequency prefixed by `RX` and its offset from the VFO, updated immediately by keys 4/5/6; current RSSI and noise floor in dBm are shown as `-40 / -100dBm` at the right |
+| Bottom row | Complete frames (`FR`), failed captures (`ER`), last error: `NS` (no frame sync found) or `CUT` (sync found, message incomplete); at the right, BCH-1/BCH-2 of the selected message (`BCH OK/OK`, `BCH ER/ER`, or `--` on a short message) |
+
+Keys (UV-K5 and UV-K1):
+
+| Key | Action |
+|---|---|
+| UP / DOWN (held) | Scroll the selected message one pixel per 50 ms slot, according to `SET_NAV` (UV-K1: LEFT/RIGHT) |
+| UP / DOWN (pressed again at an end) | Select the newer / older message, from its first detail row |
+| * | Normal / compact view, saved on exit; returns to the first detail row. Normal view is the default |
+| 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz |
+| 5 | Back to the VFO frequency |
+| 1 | Speaker on/off, saved on exit; off by default |
+| MENU | Clear all five messages and the counters |
+| EXIT | Quit (the firmware retunes to the VFO frequency) |
+
+Sampling is never interrupted after frame synchronization. While still searching,
+the keyboard is first polled after 300 ms, then every 50 ms; a detected key cancels
+the false trigger without adding an error and restores the ADC. After every attempt,
+RSSI rearming runs in the main loop until the carrier drops or 1.5 seconds of
+wall-clock time elapse, so keys and the display remain responsive.
+
+Tuning writes the BK4829 frequency registers (0x38/0x39, 10 Hz units) and
+restarts the synthesizer (REG_30 to 0, then back) so it relocks; it only lasts
+while the app runs. Useful when the carrier sits near the edge of the channel: on
+the bench, the full frame was only received with the K1 5 kHz below the
+generator. The backlight stays on while the app runs (since v1.4). The
+decoder integrates the discriminator pulses (INT); the INT/DIR toggle of v1.1-v1.2
+(key 1) was removed in v1.3 once INT was proven on the radio.
+
+Space: v1.5 used 4,052 of the 4,096 bytes. To make it fit, the sync search
+compares 32-bit words (the inverted-polarity distance is 44 minus the normal
+one), number formatting uses subtraction instead of division (no `__udivsi3`),
+only the last message is kept, and the app is built with `-fno-jump-tables`
+(48 bytes saved on the key `switch`).
+
+v1.6 moves the screen texts and the 24 protocol names to read-only assets
+(`gen_assets.py`, API level 2, 432 bytes outside the overlay). Measured: the app
+went from 4,052 to **3,320 bytes, leaving 776 bytes free** (44 before). `draw()` reads the UI texts in one
+`asset_read` into a word-aligned stack block, so each text costs a 2-byte
+sp-relative add instead of a literal-pool load and its pool word; each text is
+padded to 4 bytes for that. A protocol name is read straight into the line
+buffer. The names are parsed from `NAMES` in `dec406.c`, so the host test and the
+app share one table (`dec406_proto_name` is dropped from the app by
+`--gc-sections`). The hex digits of the ID are computed instead of taken from a
+table. The app state is grouped in one struct (one base address per function
+instead of a literal-pool word per global), the dead `seq`/`inv` copies of the
+last message are gone, and the zeroing already done by the loader, the ADC
+restore already done after each capture and the backlight call already made
+every loop are no longer repeated.
+
+v1.7 counts the sync-pattern bits with a loop (one pass per set bit) instead of
+the branch-free version: 36 bytes less, **3,284 bytes, 812 free**. The cost is
+at most 4 x 32 passes per half-bit (every 12 samples), and only while searching
+for the sync, against 5,000 cycles per sample; host tests 29/29.
+
+## Signal path on the radio
+
+```
+beacon RF --> BK4829 (RAW: no HPF300 / LPF3K / de-emphasis, AFC off)
+          --> AF output (FM) --> audio circuit --> PA4 --> ADC channel 4 @ 9.6 kHz
+```
+
+- **RAW receive** is set by the app itself (REG_2B bits 10/9/8, REG_73 bit 4), as
+  `BK4819_EnterRaw` does. The firmware restores all radio registers on app exit.
+- **PA4** is the voice-prompt DAC pin. Voice is disabled in every preset, so the
+  app switches the DAC off and reads PA4 as an analog input. Measured on the K1:
+  idle 518, message range 165-894 (about 0.6 V p-p), no clipping.
+- The BK4829 AF output stays enabled because PA4 receives it before the speaker
+  amplifier. Key 1 can therefore mute the speaker without stopping decoding.
+- **Decode beeps**: `prepare_tone` and the speaker on, then five 150 ms
+  `play_tone_raw` calls alternating 1536 Hz and 0 Hz (REG_71 = 0: the tone
+  generator gives no output, a silent gap for the cost of a beep). Then
+  `tune()` on the same frequency: speaker amplifier off, `tones_off_rx` (REG_70
+  cleared, REG_30 to 0 then RX, the state the firmware leaves after a key beep)
+  and the RX audio again (AF in FM, speaker as set by key 1). The RAW bits in
+  REG_2B / REG_73 are not touched. Tuning (keys 4/5/6) relocks through the same
+  path.
+- **No click after the beeps**: REG_30 to 0 switches the AF DAC off and back on,
+  a step on the AF output. v2.6 did it with the amplifier still on after the
+  last beep, which gave a loud click. `tune()` now turns the amplifier off
+  first, the order `AUDIO_PlayBeep` uses (amplifier off, tones off and RX,
+  amplifier back only if the speaker is on). The two frequency writes before
+  `tones_off_rx` give the amplifier a head start instead of the firmware's
+  5 ms delay. The `audio_path(false)` on exit went to pay for it: the loader's
+  `RADIO_SetupRegisters` starts with `AUDIO_AudioPathOff()`.
+- **PA4 bias**: the pin has no DC reference; the app holds it at mid-scale with
+  the MCU DAC (output buffer off, code 2048) for the whole run. The volume knob is analog; whether it changes the PA4 level
+  still has to be checked.
+- Tuning: first-generation channels span 406.025-406.040 MHz. One VFO at
+  406.031 MHz with the wide filter covers them all; a carrier offset only shifts
+  the audio DC level, which the decoder removes.
+
+## First-generation message (C/S T.001)
+
+400 bps biphase-L, ±1.1 rad phase modulation. About 160 ms of unmodulated carrier,
+then 112 (short) or 144 (long) bits, one burst about every 50 s.
+
+| Bits | Content |
+|---|---|
+| 1-15 | Bit sync, all ones |
+| 16-24 | Frame sync: `000101111` normal, `011010000` self-test |
+| 25 | Format flag: 1 = long |
+| 26 | Protocol flag: 0 = location protocols, 1 = user protocols |
+| 27-36 | Country code (France 227/228) |
+| 37-40 | Protocol code (37-39 for user protocols) |
+| 41-85 | Identification and coarse position (PDF-1) |
+| 86-106 | BCH-1, BCH(82,61) over bits 25-106 |
+| 107-132 | Fine position offsets and flags (PDF-2, long messages) |
+| 133-144 | BCH-2, BCH(26,14) over bits 107-144 |
+
+Every position format of C/S T.001 Issue 4 Rev. 11 (October 2023, Annex A3.3) has
+the same shape: N/S flag, 7 bits of latitude degrees, sub-degree bits, E/W flag,
+8 bits of longitude degrees, sub-degree bits; then, in PDF-2, an optional offset
+per axis (sign, 1 = plus; minutes; seconds in 4 s steps, `1111` = no offset).
+Since v2.2 the parser is one routine driven by this table (`FMT` in `dec406.c`):
+
+| Format (T.001) | Codes | Position | Steps | Offsets | Source / 121.5 |
+|---|---|---|---|---|---|
+| Standard location (A3.3.5) | 0010-0111, 1100, 1110 | 65-85 | 15' | 113-132, 5-bit minutes, if 107-110 = `1101` | 111 / 112 |
+| National location (A3.3.6) | 1000, 1010, 1011, 1111 | 59-85 | 2' | 113-126, 2-bit minutes, if 107-110 = `1101` (bit 110: position data flag) | 111 / 112 |
+| RLS location (A3.3.7) | 1101 | 67-85 | 30' | 115-132, 4-bit minutes | 107 / 108 |
+| ELT(DT) location (A3.3.8) | 1001 | 67-85 | 30' | 115-132, 4-bit minutes, unless 113-114 = `00` (rotating field, e.g. operator 3LD) | - |
+| User-location (A3.3.4) | user 010, 110, 001, 011, 111, long | PDF-2 108-132 | 4' | - | 107 / - |
+
+The 15-hex ID is bits 26-85 (section 3.2), with a PDF-1 position replaced by its
+default value (A3.2: flags 0, degrees all ones, sub-degree bits all ones except in
+national location). A latitude above 90 degrees means no position: the default
+value, or the fixed pattern of the ELT(DT) cancellation message (A3.3.8.5, shown
+as `CANCEL`). User protocols carry no position except user-location, whose
+position is only used with a valid BCH-2. Not displayed: ELT(DT) activation,
+altitude and location freshness, the RLS return-link bits, the 3LD letters and the
+user-protocol identities (MMSI, call sign, registration).
+
+## Decoder (`dec406.c`)
+
+Streaming, one call per ADC sample, integer only, no division per sample,
+freestanding (no libc). About 150 bytes of state.
+
+1. **DC removal**: exponential tracker, fast while searching (~13 ms, so the
+   noise before the burst does not bias it), slow once locked (~107 ms).
+2. **Phase rebuild**: the discriminator outputs dphi/dt, a pulse per phase flip.
+   A leaky integrator (~1.7 ms) rebuilds the ±1.1 rad biphase waveform.
+3. **Clock recovery**: a DPLL (gain 1/8) aligns 12-sample half-bit slots on the
+   zero crossings of the rebuilt waveform.
+4. **Sync search**: the signs of the last 44 half-bits are compared with 13
+   preamble ones + frame sync, normal and self-test, in both polarities (the
+   receive chain may invert). Up to 2 mismatches allowed.
+5. **Bits**: soft decision per bit, first half minus second half.
+6. **Parsing**: BCH-1 and BCH-2 syndromes, country, protocol, 15-hex ID, position
+   (coarse + fine offsets) for every location format (table above). The parse
+   leaves the PDF-1 position bits at their default value: parse a message once.
+
+Size for Cortex-M0+ (firmware toolchain, `-Os`): 1,468 bytes of code, after the
+size work described above.
+
+## Tests (`test/`)
+
+```
+test/run_tests.sh
+```
+
+- `frame406.py` builds frames: the bench generator's reference frame (long,
+  standard location test, country 227, ID `1C7C2468ACFFBFF`), a self-test
+  variant, a short message, or a frame with one bit flipped.
+- `gen406.py` synthesizes what PA4 sees: biphase phase modulation with
+  raised-cosine transitions, carrier offset, noise in a 25 kHz channel, FM
+  discriminator, audio low-pass, AC coupling, 9.6 kHz ADC with clock error,
+  12-bit around the measured 518 bias, full-scale noise when no carrier.
+- `host_dec406.c` runs the decoder over the samples and prints each message;
+  `host_dec406 -x HEX` parses a frame directly, without the audio chain.
+
+### Every T.001 coding option (`test/t001frames.py`)
+
+`t001frames.py` builds one frame per coding option of T.001 Rev. 11 Annex A (61
+frames): user protocols (maritime MMSI and call sign, radio call sign, aviation,
+the six serial types, test, national, orbitography, emergency codes, self-test),
+user-location, standard location (all identities, S/W, default offsets, default
+position, self-test), national location (with and without offsets), RLS (TAC,
+MMSI, test, return-link bits) and ELT(DT) (24-bit address, operator, TAC, test,
+3LD rotating field, default position, GNSS self-test, cancellation). Each frame
+carries the 15-hex ID and position the specification gives; the BCH code is
+checked against both worked examples of Annex B. Test positions: 49.07624 N,
+0.73018 E and 33 52'08" S, 70 39'28" W.
+
+```
+test/t001check.py --fast     # parse the bits directly (seconds)
+test/t001check.py            # through gen406.py audio + the demodulator (minutes)
+test/t001flipper.py          # test/flipper/t001/*.sub + README index
+test/limesdr/t001lime.py     # the same frames as LimeSDR IQ files (see below)
+```
+
+v2.2: 61/61 match, both ways.
+
+Results (2026-09-27): 29/29 pass. The first 17 cases, covering CNR 12-15 dB, ±5 kHz offset,
+inverted chain, ±3000 ppm clock error, 50-250 µs rise time, 3 kHz audio
+low-pass, 150 Hz AC coupling, a combined worst case, self-test, short message,
+a corrupted bit (BCH-1 reported as failed) and 3 bursts in a row.
+
+Sensitivity (5 seeds per point, CNR in 25 kHz):
+
+| CNR | 12 dB | 10 dB | 9 dB | 8 dB | 7 dB | 6 dB |
+|---|---|---|---|---|---|---|
+| Decoded, BCH ok | 5/5 | 4/5 | 4/5 | 3/5 | 1/5 | 0/5 |
+
+Possible gains later: BCH error correction (BCH-1 corrects up to 3 bit errors,
+BCH-2 up to 2), and a 12.5 kHz filter when the beacon channel is known (+3 dB).
+
+## Flipper Zero test transmitter (`test/flipper406.py`)
+
+Without the rpitx generator, a Flipper Zero is enough to test the app on the bench.
+It cannot phase-modulate, so each biphase-L half-bit is sent as one 2-FSK tone
+(preset `2FSKDev238Async`, +/-2.38 kHz, Sub-GHz RAW durations of 1,250 us, 160 ms
+of lead tone, 20 ms of tail). The receiver's discriminator then outputs the
+biphase waveform itself instead of the pulses of a real beacon, and the app's
+leaky integrator still tracks its sign: checked first with a pure-Python model of
+the receive chain and dec406 (exact frame down to ~2.5 kHz rms of discriminator
+noise, +/-4 kHz offset, 2000 ppm clock error), then on the radio.
+
+```
+test/flipper406.py test/flipper
+```
+
+writes `epirb406_long.sub` (reference frame), `_selftest`, `_short`,
+`_bch_err` (bit 50 flipped, BCH-1 fails), `_eltdt` and `_eltdt_selftest`
+(ELT(DT) location protocol, same position, 15-hex ID `1C72091A2B3FDFF`), on
+433.650 MHz (433 MHz SRD band). Copy
+them to `subghz/` on the Flipper, set the K1 to 433.650 MHz FM wide, launch the
+app, then Send one file per burst, at least 2 s apart. If the Flipper's crystal
+puts the carrier off the channel, tune with UP/DOWN. Never transmit these files
+on 406.0-406.1 MHz.
+
+## LimeSDR test transmitter (`test/limesdr/`)
+
+The Flipper sends 2-FSK; a LimeSDR (Mini) sends the real beacon modulation,
+±1.1 rad biphase-L with 150 µs transitions, so the receiver's discriminator
+outputs pulses as with a real EPIRB and the app's integrator is exercised as in
+the field. Needs numpy and SoapySDR with the LimeSuite driver.
+
+```
+cd test/limesdr
+./t001lime.py                          # t001/psk and t001/fsk: 61 bursts each, cs16, 1 MS/s
+./txall.py --dry-run                   # the sequence and what the app should show
+./txall.py                             # every psk frame on 433.650 MHz, 3 s apart
+./txall.py --only 'eltdt_*' --delay 5  # one family
+./limetx.py t001/psk/nl_epirb.cs16 --format cs16 --rate 1e6 --freq 433.65e6 --repeat 5 --gap 2.5
+```
+
+- `t001lime.py` writes the 61 `t001frames.py` frames as IQ files (`psk/`: real
+  modulation, `fsk/`: the Flipper signal), carrier at 0 Hz, plus `t001/README.md`,
+  the index of expected IDs and positions that `txall.py` prints before each
+  burst. The `.cs16` files (181 MB per mode) are not in git: regenerate them.
+- `limetx.py` transmits one IQ file (LO 250 kHz below the signal, shifted back
+  digitally so the LO leakage stays off the channel); `txall.py` opens the radio
+  once and sends a folder, one burst per file. Default TX gain 30 dB.
+- Checked on the host: the 61 psk files, through an FM discriminator and
+  dec406, give the expected ID and position. Set the radio to 433.650 MHz FM
+  wide and launch EPIRB 406 before transmitting.
+
+`limetx.py` refuses 405.9-406.2 MHz: **never transmit on 406.0-406.1 MHz**, the
+Cospas-Sarsat satellites relay anything there as a real distress alert.
+
+### Validation of v2.3 (2026-10-08)
+
+All the tests that validate v2.3 were made over the air with the **psk** IQ
+files (real 406 modulation), transmitted by a LimeSDR with `txall.py` on
+433.650 MHz, the radio in FM wide running EPIRB 406 v2.3: the 61 frames of
+`t001/`, one burst each, covering every coding option of C/S T.001 Rev. 11
+Annex A. Result: `FRAME 61 ERR 0`, every burst detected, synchronized and
+received in full, with no failed capture.
+
+![EPIRB 406 v2.3 after the 61 LimeSDR bursts](test/limesdr/validation_v2.3.png)
+
+Last burst of the series (`ul_test`, user-location test protocol), as expected
+in `t001/README.md`: ID `9C7C123456789AB`, `227 User test`, `49.06666N
+0.73333E`, `INT COARSE` (internal source, 4-minute PDF-2 position), `LONG`,
+`BCH OK/OK`; bottom row `FRAME 61 ERR 0`.
+
+## Bench results
+
+**2026-09-27, UV-K1, generator on 433.650 MHz, DIR mode, first on-air decode.**
+Sync found, but the message is wrong in a systematic way:
+
+| | Sent | Received |
+|---|---|---|
+| 15-hex ID | `1C7C2468ACFFBFF` | `0C3C002004FFBFF` |
+| Country | 227 | 97 |
+| Position | 49.27111 N 0.78222 E | 16.00000 N 0.25000 E (coarse) |
+| BCH | ok / ok | ERR / ERR |
+
+Over bits 26-64: every `1` preceded by a `0` is read as `0` (9/9), every `1`
+preceded by a `1` is correct (8/8), no `0` is ever wrong. Timing and sync are
+therefore right; the decision fails where biphase-L has no transition at the bit
+boundary (`0` then `1`), which depends on the real signal shape at PA4.
+
+None of the simulated chains reproduce this exact pattern (pulse or de-emphasized
+signal, low-pass, AC coupling, inverted: INT always decodes). Simulated ADC
+clipping at 0 (PA4 bias is only 518/4095) does break INT decoding entirely, which
+may explain why DIR was in use.
+
+**Diagnosis with 406 Lab scope mode (v1.1-v1.5).** Sampled at 9.6 kHz, PA4 slid
+towards 0 V as soon as fast sampling started, and about half of the message
+samples were clipped at 0 whatever the AF gain or RAW setting (details in
+`../lab406/README.md`). PA4 has no DC reference of its own: the audio reaches it
+through a coupling capacitor, and fast ADC sampling drags the node down.
+
+**Fix.** The MCU DAC on PA4, output buffer off, set to mid-scale (2048), holds
+the pin at about VDD/2 as a weak bias. Measured with it (AF gain 14, RAW):
+carrier 2048-2049, message 1896-2194, no clipping. EPIRB 406 v1.2 turns this bias
+on at launch and restores the DAC, its clock and the pin on exit. The host test
+generator now uses the measured bias (2048) and level (~150 LSB peak); 17/17
+still pass.
+
+**v1.2 on the bench (INT mode):** ID `1C7C2468ACFFBFF`, country 227, "Std test",
+BCH-1 OK: the first block (bits 25-106) is received intact and BCH-1 is confirmed
+on a real frame. BCH-2 fails, so the fine position offsets and the homing flag
+are not applied (`49.25000N 0.75000E coarse`, no `121.5`). Either BCH-2 is
+computed differently from the generator, or the last bits of the burst are
+received with errors. v1.3 shows the raw end of the frame (`END` + bits 105-144
+as hex) to tell which: an error-free reception of the reference frame reads
+`END F58521EDA3`.
+
+**v1.3 on the bench.** The generator sends exactly the reference frame
+(`FFFE2F8E3E12345631401FB07DF58521EDA3`), so BCH-2 is computed correctly. The
+received end changed from burst to burst (`F68521E704`, `D5786733DD`): errors
+growing towards the end of the burst, not a fixed pattern.
+
+**Root cause: DC tracker rounding.** The mean was updated with `e >> 10`; an
+arithmetic right shift floors, so every small negative deviation moved the mean
+down by one step and small positive ones never moved it up. The mean crept
+downwards during the message, the leaky integrator accumulated the offset, and
+the last bits went wrong. Negligible with the large swing of the first model,
+fatal at the ~150 LSB swing measured on PA4. Reproduced on the host at the
+measured level (BCH-1 ok / BCH-2 fail, 3 of 4 seeds at 30 dB CNR), fixed with
+round-to-nearest: 4/4 from 30 down to 12 dB, and from -3% to +2% bit-rate error.
+A second-order (bit-rate tracking) loop was tried and dropped: no gain once the
+rounding was fixed.
+
+The test suite now has 12 more cases at the measured level (CNR 12 dB, ±2%
+clock, 4 noise seeds each): the old decoder fails 6 of them with the radio's
+symptom, the fixed one passes all 29.
+
+**Recordings from the radio (406 Rec, 2026-09-27).** Three bursts recorded
+on the K1 and decoded on the host give exactly the radio's result (sync found,
+polarity inverted, ID correct, BCH FAIL/FAIL). Activity per 10 ms shows carrier
+until 150 ms after the trigger, modulation until **410 ms**, then noise: the
+carrier is gone. 260 ms of modulation instead of 360 ms, so only ~104 of the 144
+bits are on air, at the same point on every burst; the bit rate itself is exact
+(the preamble pattern repeats every 24 samples at 9.6 kHz). A synthetic burst cut
+after 106 bits decodes as BCH ok/FAIL (the v1.2 result) and after 104 bits as
+FAIL/FAIL with the correct ID (the v1.4 result). **The bench generator (rpitx
+playing the IQ file) drops the last ~100 ms of the burst**; the decoder is not at
+fault for the end of the frame. Fix on the generator side: pad the IQ file with
+at least 150 ms of carrier after the last bit. The recordings are kept outside
+the repo in `~/dev/uv-k1-406-captures`.
+
+**Correction.** The generator is not at fault: an RTL-SDR on the Mac decodes the
+full burst on air. 406 Rec v1.1 (RSSI every 10 ms) showed RSSI falling to the
+noise floor (about -93 dBm) 410-420 ms after the trigger on every burst: the
+signal left the K1's channel, most likely a frequency move of the rpitx carrier
+near the end of the burst that a wideband RTL-SDR decoder follows and a 25 kHz
+channel does not. (The RSSI read during fast sampling showed a constant -21 dBm,
+not the -64 to -75 dBm of the trigger; only its change is meaningful. v1.1 is a
+diagnostic build: the RSSI reads disturb the sample timing.)
+
+**Full decode on the radio (2026-09-27).** With the K1 VFO **5 kHz below** the
+generator frequency (433.645 MHz for 433.650), EPIRB 406 v1.4 decoded the whole
+reference frame: ID `1C7C2468ACFFBFF`, country 227, "Std test", position
+49.27111 N 0.78222 E, `END F58521EDA3` (all 144 bits intact, BCH-2 ok). This confirms the explanation above: at
+433.650 the rpitx carrier moves down near the end of the burst and leaves the
+channel; 5 kHz lower, it stays inside. A steady carrier offset only shifts the
+discriminator's DC level, which the decoder removes. Real first-generation
+beacons have far more stable oscillators, but the offset matters there too: one
+VFO at 406.031 MHz with the wide filter must cover 406.025-406.040.
+
+The earlier fixes stand on their own: the PA4 bias (v1.2) removed the clipping
+that caused the "every 1 after a 0" errors, and the DC tracker rounding (v1.4) is
+a real bias reproduced on the host at the measured level.
+
+## Open points
+
+- **Layouts** checked against T.001 Issue 4 Rev. 11 (v2.2): default position
+  pattern (A3.2), every location format (A3.3.4-A3.3.8), BCH codes (both Annex B
+  examples). Over the air with the real 406 modulation (LimeSDR, v2.3): all 61
+  coding options, 61/61 received. Real-beacon confirmation so far: standard
+  location (bench generator) and ELT(DT) (issue #616, PlutoSDR frame); national,
+  RLS and user-location only with generated frames.
+- The synthetic chain is a model: the first real captures from PA4 may need the
+  integrator or DC constants retuned (`dec406_init(..., integrate)` also allows a
+  phase-like input if the hardware turns out to integrate already).
+- Second-generation beacons (spread-spectrum OQPSK) are out of scope.
+
+## Version
+
+`APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
+stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
+Current source: **v2.7** (amplifier off before the RX return, no click after the beeps): size to be measured, estimated unchanged (v2.6, three decode beeps: 4,092 of 4,096 bytes; v2.5, one beep: 4,088; v2.4: 4,072).

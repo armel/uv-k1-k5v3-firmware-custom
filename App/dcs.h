@@ -35,7 +35,9 @@ enum {
 };
 
 extern const uint16_t CTCSS_Options[50];
-extern const uint16_t DCS_Options[104];
+#define DCS_OPTION_COUNT 104u
+// Option must be in the range 0..DCS_OPTION_COUNT-1.
+uint16_t DCS_GetOption(uint8_t Option);
 
 uint32_t DCS_GetGolayCodeWord(DCS_CodeType_t CodeType, uint8_t Option);
 uint8_t DCS_GetCdcssCode(uint32_t Code);

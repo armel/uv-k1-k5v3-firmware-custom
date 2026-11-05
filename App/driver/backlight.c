@@ -63,6 +63,8 @@ static void BACKLIGHT_SetHardwareBrightness(uint8_t brightness);
     // STEPS * STEP_MS ~= total fade duration in ms.
     #define BL_STARTUP_FADE_STEPS   40
     #define BL_STARTUP_FADE_STEP_MS 12
+    // First PWM value that produces a non-zero duty cycle with 32 levels.
+    #define BL_STARTUP_VISIBLE_MIN  ((255 + DUTY_CYCLE_LEVELS - 1) / DUTY_CYCLE_LEVELS)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
@@ -143,14 +145,18 @@ void BACKLIGHT_UpdateTickless(void) {
 
 #ifdef ENABLE_FEAT_F4HWN
 // Soft, progressive power-on fade-in.
-// Ramps from the current brightness (0 at power-on) to targetBrightness using
-// a smoothstep (3x^2 - 2x^3) easing curve. Easing gently at both ends reads as
-// a smooth, progressive fade instead of the abrupt linear ramp, and stepping
-// through many fine stops keeps it fluid even with the 32-level PWM.
+// Starts at the first visible PWM level, then ramps to targetBrightness using
+// a smoothstep (3x^2 - 2x^3) easing curve. Avoiding sub-PWM values removes the
+// apparent pause between drawing the welcome screen and lighting it.
 static void BACKLIGHT_FadeInStartup(void)
 {
-    const int16_t from = currentBrightness;         // 0 at power-on
-    const int16_t span = targetBrightness - from;   // ramp amplitude
+    const int16_t from = targetBrightness < BL_STARTUP_VISIBLE_MIN
+        ? targetBrightness
+        : BL_STARTUP_VISIBLE_MIN;
+    const int16_t span = targetBrightness - from;
+
+    currentBrightness = from;
+    BACKLIGHT_SetHardwareBrightness((uint8_t)currentBrightness);
 
     if (span <= 0) {
         gUpdateBacklight = false;
@@ -227,18 +233,7 @@ void BACKLIGHT_TurnOn(void)
 
 void BACKLIGHT_TurnOff()
 {
-#ifdef ENABLE_BLMIN_TMP_OFF
-    register uint8_t tmp;
-
-    if (gEeprom.BACKLIGHT_MIN_STAT == BLMIN_STAT_ON)
-        tmp = gEeprom.BACKLIGHT_MIN;
-    else
-        tmp = 0;
-
-    BACKLIGHT_SetBrightness(tmp);
-#else
     BACKLIGHT_SetBrightness(gEeprom.BACKLIGHT_MIN);
-#endif
     gBacklightCountdown_500ms = 0;
     backlightOn = false;
 }

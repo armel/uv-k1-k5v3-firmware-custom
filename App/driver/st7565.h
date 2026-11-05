@@ -42,6 +42,10 @@ void ST7565_SelectColumnAndLine(uint8_t Column, uint8_t Line);
 void ST7565_WriteByte(uint8_t Value);
 
 #ifdef ENABLE_FEAT_F4HWN
+    #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    void ST7565_BlitScreen(uint8_t line);    // 0 status line, 1-7 a frame line, 8 all frame lines
+    bool ST7565_Feed(unsigned count);
+    #endif
     #if defined(ENABLE_FEAT_F4HWN_CTR) || defined(ENABLE_FEAT_F4HWN_INV)
     void ST7565_ContrastAndInv(void);
     #endif

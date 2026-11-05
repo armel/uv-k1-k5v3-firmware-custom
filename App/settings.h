@@ -25,6 +25,10 @@
 #include "radio.h"
 #include <driver/backlight.h>
 
+/* Shared PY25Q16 locations for the two configurable boot-message lines. */
+#define SETTINGS_BOOT_MESSAGE_LINE1_ADDR 0x00A0C8u
+#define SETTINGS_BOOT_MESSAGE_LINE2_ADDR 0x00A0D8u
+
 enum POWER_OnDisplayMode_t {
 #ifdef ENABLE_FEAT_F4HWN
     POWER_ON_DISPLAY_MODE_ALL,
@@ -147,7 +151,10 @@ enum {
 enum {
     DUAL_WATCH_OFF = 0,
     DUAL_WATCH_CHAN_A,
-    DUAL_WATCH_CHAN_B
+    DUAL_WATCH_CHAN_B,
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    DUAL_WATCH_FULL
+#endif
 };
 
 enum {
@@ -168,74 +175,74 @@ enum {
 };
 
 enum ACTION_OPT_t {
-    ACTION_OPT_NONE = 0,
-    ACTION_OPT_FLASHLIGHT,
-    ACTION_OPT_POWER,
-    ACTION_OPT_MONITOR,
-    ACTION_OPT_SCAN,
-    ACTION_OPT_VOX,
-    ACTION_OPT_ALARM,
-    ACTION_OPT_FM,
-    ACTION_OPT_1750,
-    ACTION_OPT_KEYLOCK,
-    ACTION_OPT_A_B,
-    ACTION_OPT_VFO_MR,
-    ACTION_OPT_SWITCH_DEMODUL,
-    ACTION_OPT_BLMIN_TMP_OFF, //BackLight Minimum Temporay OFF
-#ifdef ENABLE_FEAT_F4HWN
-    ACTION_OPT_RXMODE,
-    ACTION_OPT_MAINONLY,
-    ACTION_OPT_PTT,
-    ACTION_OPT_WN,
-    ACTION_OPT_BACKLIGHT,
-    ACTION_OPT_MUTE,
-    ACTION_OPT_RXA,
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        ACTION_OPT_POWER_HIGH,
-        ACTION_OPT_REMOVE_OFFSET,
-    #endif
-#endif
-#ifdef ENABLE_REGA
-    ACTION_OPT_REGA_ALARM,
-    ACTION_OPT_REGA_TEST,
-#endif
+    /* Persisted in EEPROM: never renumber or make these values conditional. */
+    ACTION_OPT_NONE           = 0,
+    ACTION_OPT_FLASHLIGHT     = 1,
+    ACTION_OPT_POWER          = 2,
+    ACTION_OPT_MONITOR        = 3,
+    ACTION_OPT_SCAN           = 4,
+    ACTION_OPT_VOX            = 5,
+    ACTION_OPT_FM             = 6,
+    ACTION_OPT_1750           = 7,
+    ACTION_OPT_KEYLOCK        = 8,
+    ACTION_OPT_A_B            = 9,
+    ACTION_OPT_VFO_MR         = 10,
+    ACTION_OPT_SWITCH_DEMODUL = 11,
+    ACTION_OPT_RXMODE         = 12,
+    ACTION_OPT_MAINONLY       = 13,
+    ACTION_OPT_PTT            = 14,
+    ACTION_OPT_WN             = 15,
+    ACTION_OPT_MUTE           = 16,
+    ACTION_OPT_RXA            = 17,
+
+    /* Preset-specific actions keep their IDs even when not compiled. */
+    ACTION_OPT_RXTX_LOG       = 18,
+    ACTION_OPT_BEAM           = 19,
+    ACTION_OPT_POWER_HIGH     = 20,
+    ACTION_OPT_REMOVE_OFFSET  = 21,
+    ACTION_OPT_FOXHUNT        = 22,
+    ACTION_OPT_BEACON         = 23,
+    ACTION_OPT_TONECALL       = 24,
+
+    ACTION_OPT_UPSTREAM_END   = 25,   // one past upstream's last action
+
+    /* NR7Y CW actions: fixed IDs in a block of their own from 32, so upstream
+     * can keep adding actions at 25 and up without renumbering these. 25-31
+     * are left unused. Ordered as the menu lists them. The CHIRP driver carries
+     * the same numbers; v1.4 and older numbered them by build options (see
+     * _NR7Y_LEGACY_ACTION_IDS in the CHIRP driver). */
+    ACTION_OPT_CW_FIRST          = 32,
+    ACTION_OPT_CW_KEY_INPUT      = 32,
+    ACTION_OPT_CW_KEYER_MODE     = 33,
+    ACTION_OPT_CW_SPEED          = 34,
+    ACTION_OPT_CW_BREAK_IN       = 35,
+    ACTION_OPT_CPO               = 36,
+    ACTION_OPT_PLAY_CWMSG1       = 37,
+    ACTION_OPT_PLAY_CWMSG2       = 38,
+    ACTION_OPT_PLAY_CWMSG3       = 39,
+    ACTION_OPT_PLAY_CWMSG4       = 40,
+    ACTION_OPT_REPEAT_CWMSG1     = 41,
+    ACTION_OPT_REPEAT_CWMSG2     = 42,
+    ACTION_OPT_REPEAT_CWMSG3     = 43,
+    ACTION_OPT_REPEAT_CWMSG4     = 44,
+    ACTION_OPT_CW_PROPER_ROGER   = 45,
+    ACTION_OPT_CW_END            = 46,   // one past the last CW action
+
 #ifdef ENABLE_CW_MODULATOR
-	ACTION_OPT_PLAY_CWMSG1,
-	ACTION_OPT_PLAY_CWMSG2,
-	ACTION_OPT_PLAY_CWMSG3,
-	ACTION_OPT_PLAY_CWMSG4,
-	ACTION_OPT_REPEAT_CWMSG1,
-	ACTION_OPT_REPEAT_CWMSG2,
-	ACTION_OPT_REPEAT_CWMSG3,
-	ACTION_OPT_REPEAT_CWMSG4,
+    ACTION_OPT_LEN            = ACTION_OPT_CW_END
+#else
+    ACTION_OPT_LEN            = ACTION_OPT_UPSTREAM_END
 #endif
-#if defined(ENABLE_CW_MODULATOR) && defined(ENABLE_CODE_PRACTICE)
-    ACTION_OPT_CPO,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_BEAM
-    ACTION_OPT_BEAM,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-    ACTION_OPT_RXTX_LOG,
-#endif
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
-    ACTION_OPT_FOXHUNT,
-#endif
-// A key bind is stored as this enum's number, so new actions go on the end: one
-// inserted earlier renumbers everything after it and remaps binds already set.
-// The CHIRP driver lists the actions in this same order.
-#ifdef ENABLE_CW_MODULATOR
-    ACTION_OPT_CW_KEYER_MODE,
-    ACTION_OPT_CW_PROPER_ROGER,
-    ACTION_OPT_CW_SPEED,
-    ACTION_OPT_CW_KEY_INPUT,
-    ACTION_OPT_CW_BREAK_IN,
-#endif
-    ACTION_OPT_LEN
 };
 
+// Whether an ID names an action this build knows, CW or not. IDs between
+// upstream's last action and the CW block are not actions: they read as unset,
+// and menus step over them.
+#define ACTION_OPT_IS_DEFINED(a) \
+    ((a) < ACTION_OPT_UPSTREAM_END || ((a) >= ACTION_OPT_CW_FIRST && (a) < ACTION_OPT_LEN))
+
 // Side key and M long actions used while the stored one is unset (erased 0xFF, or
-// anything else past ACTION_OPT_LEN): a fresh radio, or after Reset ALL. A stored
+// anything else that fails ACTION_OPT_IS_DEFINED): a fresh radio, or after Reset ALL. A stored
 // action always wins, so a layout set from the menu or CHIRP is never replaced.
 // The CHIRP driver carries the same table.
 #ifdef ENABLE_CW_MODULATOR
@@ -261,12 +268,6 @@ enum ACTION_OPT_t {
     };
     typedef enum VOICE_Prompt_t VOICE_Prompt_t;
 #endif
-
-enum ALARM_Mode_t {
-    ALARM_MODE_SITE = 0,
-    ALARM_MODE_TONE
-};
-typedef enum ALARM_Mode_t ALARM_Mode_t;
 
 enum ROGER_Mode_t {
     ROGER_MODE_OFF = 0,
@@ -336,6 +337,7 @@ typedef struct {
     uint8_t               BACKLIGHT_TIME;
     uint8_t               SCAN_RESUME_MODE;
     uint8_t               SCAN_LIST_DEFAULT;
+    uint32_t              SCAN_LIST_MIX_MASK;
     bool                  SCAN_LIST_ENABLED;
     uint16_t              SCANLIST_PRIORITY_CH[6];
 //#ifdef ENABLE_FEAT_F4HWN_RESUME_STATE // Fix me !!! What the hell is this?
@@ -350,9 +352,6 @@ typedef struct {
     uint8_t               field38_0x33;
 
     uint8_t               AUTO_KEYPAD_LOCK;
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    ALARM_Mode_t      ALARM_MODE;
-#endif
     POWER_OnDisplayMode_t POWER_ON_DISPLAY_MODE;
     ROGER_Mode_t          ROGER;
     uint8_t               REPEATER_TAIL_TONE_ELIMINATION;
@@ -414,9 +413,6 @@ typedef struct {
 
     uint8_t               KEY_M_LONG_PRESS_ACTION;
     uint8_t               BACKLIGHT_MIN;
-#ifdef ENABLE_BLMIN_TMP_OFF
-    BLMIN_STAT_t          BACKLIGHT_MIN_STAT;
-#endif
     uint8_t               BACKLIGHT_MAX;
     BATTERY_Type_t        BATTERY_TYPE;
 #ifdef ENABLE_RSSI_BAR
@@ -461,11 +457,18 @@ typedef struct {
     PTT_ID_t         dtmfPttIdTxMode;
 } ChannelScanDisplayInfo_t;
 
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT_HOT_CFG
+void     SETTINGS_InitEEPROM(bool preserve_display_mode);
+#else
 void     SETTINGS_InitEEPROM(void);
+#endif
 void     SETTINGS_LoadCalibration(void);
 uint32_t SETTINGS_FetchChannelFrequency(const uint16_t channel);
 bool     SETTINGS_FetchChannelScanInfo(const uint16_t channel, uint32_t *frequency, ModulationMode_t *modulation);
 bool     SETTINGS_FetchChannelScanDisplayInfo(const uint16_t channel, ChannelScanDisplayInfo_t *info);
+#if defined(ENABLE_FEAT_F4HWN_FULL_WATCH) || defined(ENABLE_FEAT_F4HWN_SCAN_FASTER)
+void     SETTINGS_ApplyChannelScanDisplayInfo(VFO_Info_t *vfo, uint16_t channel, const ChannelScanDisplayInfo_t *info);
+#endif
 void     SETTINGS_FetchChannelName(char *s, const uint16_t channel);
 void     SETTINGS_FactoryReset(bool bIsAll);
 #ifdef ENABLE_FMRADIO
@@ -478,7 +481,6 @@ void SETTINGS_SaveChannelName(uint16_t channel, const char * name);
 void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO, uint8_t Mode);
 void SETTINGS_SaveBatteryCalibration(const uint16_t * batteryCalibration);
 void SETTINGS_UpdateChannel(uint16_t channel, const VFO_Info_t *pVFO, bool keep);
-void SETTINGS_WriteBuildOptions(void);
 #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
     void SETTINGS_WriteCurrentState(void);
 #endif
@@ -496,15 +498,35 @@ void SETTINGS_WriteBuildOptions(void);
 // channels and F Lock could not gate them. Schema 2 gives bit 6 back to
 // TX_LOCK and keeps the filter in bit 1 as a plain wide/narrow flag.
 //
-// The marker lives at the end of the settings block, in the same 4K sector as
-// the version string, so it costs no extra erase cycle. Pre-v1.4 firmware never
-// wrote it, so an un-migrated radio reads back erased 0xFF.
-#define EEPROM_SCHEMA_ADDR     0x00A170
-#define EEPROM_SCHEMA_LEGACY   1   // pre-v1.4; stored as 0x00 or erased 0xFF
+// v2.0 keeps the marker in the CW block header (CW_BLOCK_SCHEMA_ADDR) and only
+// ever writes schema 2. v1.4-v1.x kept it at 0xA170, which upstream armel uses
+// for its scan-list mask. The firmware no longer migrates anything: the CHIRP
+// module converts schema 1 images, and a radio upgraded without that keeps
+// the old filter bits on its pre-v1.4 CW/USB channels.
 #define EEPROM_SCHEMA_CURRENT  2   // v1.4: bit 6 is TX_LOCK, bit 1 is the filter
 
-#ifdef ENABLE_CW_MODULATOR
-    void SETTINGS_MigrateFilterSchema(void);
-#endif
+// ---- NR7Y CW block (v2.0) ----
+//
+// 64 bytes in the settings sector, clear of the upstream settings that end at
+// 0xA177. Flash and logical (CHIRP) addresses are the same. The header is
+// written last, in one write, so a valid one means everything it describes is
+// in place; a future layout change does the same with the new version.
+//
+//   +0  'C','W','X'  signature
+//   +3  layout version
+//   +4  EEPROM schema (EEPROM_SCHEMA_*)
+//   +5  reserved (3)
+//   +8  CW settings, 8 bytes (moved from 0xA140)
+//   +16 reserved for new gEeprom values (48)
+#define CW_BLOCK_ADDR          0x00A200
+#define CW_BLOCK_SIZE          0x40
+#define CW_BLOCK_HDR_SIZE      8
+#define CW_BLOCK_VERSION       1
+#define CW_BLOCK_OFF_VERSION   3
+#define CW_BLOCK_OFF_SCHEMA    4
+#define CW_BLOCK_SCHEMA_ADDR   (CW_BLOCK_ADDR + CW_BLOCK_OFF_SCHEMA)
+#define CW_SETTINGS_ADDR       (CW_BLOCK_ADDR + 0x08)
+
+#define CW_BLOCK_SIG           "CWX"   // first 3 bytes, no terminator stored
 
 #endif

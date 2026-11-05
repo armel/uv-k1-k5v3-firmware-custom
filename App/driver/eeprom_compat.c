@@ -51,15 +51,14 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
     _MK_MAPPING(0x008000, 0x008000, 0x00886E),  // 1024 MR  + 7 VFO Attributes * 2 Bytes (ex 0x002000) 0x008000 -> 0x00880E
                                                 // List name * 4 Bytes 0x00880E -> 0x00886E
 
-    _MK_MAPPING(0x009000, 0x009000, 0x0090E7),  // 14 VFO * 16 Bytes = 0x9000 -> 0x90E0 (the old
+    _MK_MAPPING(0x009000, 0x009000, 0x0090E9),  // 14 VFO * 16 Bytes = 0x9000 -> 0x90E0 (the old
                                                 // 0x90D6 bound was 10 B short: it truncated the
                                                 // 470 MHz VFO1 record at 0x90D0 -> 0x90DF)
-                                                // Fox Hunt settings * 7 Bytes       0x90E0 -> 0x90E7
-                                                // (ENABLE_FEAT_F4HWN_FOXHUNT, written directly by
-                                                // app/foxhunt.c; concatenated here so aircopy clones
-                                                // them together with the VFOs)
+                                                // Fox Hunt / Beacon settings * 9 Bytes 0x90E0 -> 0x90E9
+                                                // (written directly by app/foxhunt.c; concatenated
+                                                // here so aircopy clones them with the VFOs)
 
-    _MK_MAPPING(0x00A000, 0x00A000, 0x00A171),  // Settings * 16 Bytes (ex 0x004000)        0x00A000 -> 0x00A010
+    _MK_MAPPING(0x00A000, 0x00A000, 0x00A240),  // Settings * 16 Bytes (ex 0x004000)        0x00A000 -> 0x00A010
                                                 // Settings * 16 Bytes (ex 0x005000)        0x00A010 -> 0x00A020
                                                 // Settings FM * 8 Bytes (0x006000)         0x00A020 -> 0x00A028
                                                 // MR FM * 128 Bytes (0x003000)             0x00A028 -> 0x00A0A8
@@ -67,14 +66,23 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // Settings * 56 Bytes (0x008000)           0x00A0F8 -> 0x00A130
                                                 // Settings Scanlist * 8 Bytes (0x009000)   0x00A130 -> 0x00A138
                                                 // Settings AES * 16 Bytes (0x00A000)       0x00A138 -> 0x00A148
+                                                // (pre-v2.0 CW settings in 0xA140 -> 0xA148)
                                                 // Settings Spectrum * 8 Bytes              0x00A148 -> 0x00A150
                                                 // Settings * 8 Bytes (0x00B000)            0x00A150 -> 0x00A158
                                                 // Settings F4HWN * 8 Bytes (0x00C000)      0x00A158 -> 0x00A160
                                                 // Settings Version * 16 Bytes              0x00A160 -> 0x00A170
-                                                // EEPROM schema marker * 1 Byte            0x00A170 -> 0x00A171
-                                                // (see EEPROM_SCHEMA_* in settings.h; the
-                                                // bound must include it or CHIRP's serial
-                                                // read returns 0xFF and its write is dropped)
+                                                // Settings Mixed Scan Lists * 8 Bytes      0x00A170 -> 0x00A178
+                                                // (v1.4-v1.x kept the EEPROM schema at 0xA170)
+                                                // Reserved for upstream F4HWN settings     0x00A178 -> 0x00A200
+                                                // NR7Y CW block * 64 Bytes                 0x00A200 -> 0x00A240
+                                                // (CW_BLOCK_* in settings.h)
+                                                //
+                                                // One entry through the CW block on purpose: the
+                                                // last 8-byte chunk of a mapping is written in
+                                                // Append mode, which leaves the rest of the sector
+                                                // erased if the write needs an erase. With the
+                                                // mapping ending before 0xA200, a CHIRP or AirCopy
+                                                // write of its last chunk could wipe the CW block.
 
     _MK_MAPPING(0x010000, 0x00B000, 0x00B200),  // Calibration 512 Bytes!!!
 
@@ -83,10 +91,18 @@ static const AddrMapping_t ADDR_MAPPINGS[] = {
                                                 // [0x08..0x407] 128x64 monochrome bitmap, 1024 Bytes
                                                 // ST7565-native: 8 pages * 128 columns, column-major LSB-top
 
+    _MK_MAPPING(0x00B000, 0x00D000, 0x00D100),  // NR7Y CW macros (sector of their own):
+                                                // 16 B header + 4 x 48 B + 48 B spare
+                                                // (CW_MACRO_* in app/cwmacro.h). Logical 0xB000
+                                                // is calibration, so they sit after the logo.
+                                                // Anything later stored past 0xB100 in this sector
+                                                // needs this entry extended, for the Append reason
+                                                // given at 0xA000.
+
     // Not mapped, for documentation only (the EEPROM API uses 16-bit
     // addresses and could not reach a 32 KB window anyway):
     //
-    // 0x1E0000 -> 0x1E8000: RX/TX append-only log * 32 KB / 8 sectors
+    // 0x018000 -> 0x020000: RX/TX append-only log * 32 KB / 8 sectors
     //                       (ENABLE_FEAT_F4HWN_RXTX_LOG, accessed directly
     //                       by app/rxtx_log.c, not through this layer)
 };
@@ -114,11 +130,8 @@ void EEPROM_ReadBuffer(uint16_t Address, void *pBuffer, uint8_t Size)
     }
 }
 
-void EEPROM_WriteBuffer(uint16_t Address, const void *pBuffer)
+void EEPROM_WriteBuffer(uint16_t Address, const void *pBuffer, uint8_t Size)
 {
-    // Write 8 bytes!!
-
-    uint16_t Size = 8;
     while (Size)
     {
         uint32_t PY_Addr;

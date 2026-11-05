@@ -45,3 +45,17 @@ This is the regression test for two shipped bugs:
   and surfaces as "Internal driver error" before the port is opened.
 
 The two go together. Do not add one without the other.
+
+## `test_legacy_image.py` — the v2.0 CW storage conversion
+
+```
+python3 tools/chirp-test/test_legacy_image.py [path/to/module.py]
+```
+
+Loads a pre-v2.0 image (macros at `0x1C00`, CW settings at `0xA140`, schema at
+`0xA170`) and checks it comes out in the v2.0 layout: macros at `0xD010` behind
+a `CWM` header, CW settings at `0xA208`, a `CWX` header at `0xA200`, and the
+channels that held macros emptied while a real channel in a failed block is
+kept, and the key actions renumbered to fixed IDs. Also covers the armel `MIX`
+guard (which skips the renumbering), a second load being a no-op, and the
+upload gate refusing pre-v2.0 firmware.

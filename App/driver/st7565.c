@@ -132,8 +132,13 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
     // ST7565_BlitScreen(1..7) = ST7565_BlitLine()
     // ST7565_BlitScreen(8) = ST7565_BlitFullScreen()
     //
+    // Public for the overlay apps (blit_page): none of these but BlitLine
+    // sends a K5Viewer frame.
 
-    static void ST7565_BlitScreen(uint8_t line)
+#ifndef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    static
+#endif
+    void ST7565_BlitScreen(uint8_t line)
     {
         CS_Assert();
         ST7565_WriteByte(0x40);
@@ -173,6 +178,52 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
     {
         ST7565_BlitScreen(0);
     }
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    // The screen a few bytes at a time, for an overlay app that sends it
+    // between its audio samples: a whole-screen blit is an 11 ms burst on the
+    // LCD SPI, which the speaker plays as a flutter. Count 0 starts a frame
+    // (the start line, as the blits); then page by page from the status line,
+    // 3 command bytes (page, column 4) and 128 data bytes, 1048 in all.
+    // Every byte is waited out (RXNE) before A0 may switch: SPI1 has a FIFO
+    // and BSY lags a write, so a byte queued under a switching A0 is read as
+    // an LCD command (start line, contrast...). True while bytes remain.
+    static uint8_t feedPage = FRAME_LINES + 1, feedCol;
+
+    bool ST7565_Feed(unsigned count)
+    {
+        unsigned page = feedPage, col = feedCol;
+
+        if (count == 0) {
+            CS_Assert();
+            ST7565_WriteByte(0x40);
+            page = col = 0;
+        }
+
+        for (; count && page <= FRAME_LINES; count--) {
+            uint8_t value;
+
+            if (col < 3) {
+                A0_Reset();
+                value = col == 0 ? 0xB0 | page : col == 1 ? 0x10 : 0x04;   // page, column 4
+            } else {
+                A0_Set();
+                value = (page ? gFrameBuffer[page - 1] : gStatusLine)[col - 3];
+            }
+            SPI_WriteByte(value);
+
+            if (++col == 3 + LCD_WIDTH) {
+                col = 0;
+                if (++page > FRAME_LINES)
+                    CS_Release();
+            }
+        }
+
+        feedPage = page;
+        feedCol = col;
+        return page <= FRAME_LINES;
+    }
+#endif
 #else
     void ST7565_BlitFullScreen(void)
     {
@@ -204,9 +255,11 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
 void ST7565_FillScreen(uint8_t value)
 {
     CS_Assert();
-    for (unsigned i = 0; i < 8; i++) {
-        // TODO: This is wrong
-        DrawLine(0, i, NULL, value);
+    for (uint8_t line = 0; line < 8u; line++) {
+        ST7565_SelectColumnAndLine(4u, line);
+        A0_Set();
+        for (uint8_t column = 0; column < LCD_WIDTH; column++)
+            SPI_WriteByte(value);
     }
     CS_Release();
 }
@@ -333,6 +386,10 @@ void ST7565_Init(void)
     SPI_Init();
     ST7565_HardwareReset();
     CS_Assert();
+
+    /* Hide the controller RAM immediately.  On K1 there is no usable hardware
+     * reset pin, so its power-on contents can otherwise briefly reach the LCD. */
+    ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 0);
     ST7565_WriteByte(ST7565_CMD_SOFTWARE_RESET);   // software reset
     SYSTEM_DelayMs(120);
 
@@ -354,13 +411,16 @@ void ST7565_Init(void)
         ST7565_WriteByte(ST7565_CMD_POWER_CIRCUIT | 0b111);   // VB=1 VR=1 VF=1
 
     SYSTEM_DelayMs(40);
-    
-    ST7565_WriteByte(ST7565_CMD_SET_START_LINE | 0);   // line 0
-    ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 1);   // D=1
 
+    ST7565_WriteByte(ST7565_CMD_SET_START_LINE | 0);   // line 0
     CS_Release();
 
+    /* Clear all eight LCD RAM pages while the display is still disabled. */
     ST7565_FillScreen(0x00);
+
+    CS_Assert();
+    ST7565_WriteByte(ST7565_CMD_DISPLAY_ON_OFF | 1);   // D=1
+    CS_Release();
 }
 
 #ifdef ENABLE_FEAT_F4HWN_SLEEP

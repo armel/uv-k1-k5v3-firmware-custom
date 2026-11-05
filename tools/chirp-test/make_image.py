@@ -1,4 +1,4 @@
-"""Build a synthetic schema-2 .img for CHIRP's driver test suite.
+"""Build a synthetic schema-2, v2.0-layout .img for CHIRP's driver test suite.
 
 Covers every modulation and both filter settings, so the driver tests exercise
 the mode table and the wide/narrow bit rather than just FM defaults.
@@ -59,13 +59,25 @@ for v in range(14):
     img[a + 12] = (1 << 6) | (1 << 2)
     img[a + 14] = 4
 
-img[m.NR7Y_SCHEMA_ADDR] = m.NR7Y_SCHEMA_CURRENT
-img[0x00A159] = 0x80        # BUILD_OPTIONS.ENABLE_CW_MODULATOR
+# v2.0 layout: CW block header (schema in it), then the macro
+# area with one macro. The holes the download skips stay erased.
+img[m.MAIN_END:m.MEM_SIZE] = b'\xFF' * (m.MEM_SIZE - m.MAIN_END)
+img[m.NR7Y_CW_BLOCK_ADDR:m.NR7Y_CW_BLOCK_ADDR + 8] = (
+    m.NR7Y_CW_BLOCK_SIG + bytes([m.NR7Y_CW_BLOCK_VERSION,
+                                 m.NR7Y_SCHEMA_CURRENT, 0xFF, 0xFF, 0xFF]))
+img[m.CW_MACRO_START:m.CW_MACRO_START + 16] = m._NR7Y_CW_MACRO_HDR
+cq = b'CQ' + bytes([ord('D') | 0x80, ord('E')])
+macro = bytearray(b'\xFF' * m._NR7Y_CW_MACRO_SIZE)
+macro[0] = len(cq) | m._NR7Y_CW_MACRO_SIG
+macro[1:1 + len(cq)] = cq
+macro[-1] = sum(cq) & 0xFF
+a = m._NR7Y_CW_MACRO_ADDRS[0]
+img[a:a + len(macro)] = macro
 
 radio = m.UVK5_NR7Y_Fusion(None)
 radio._mmap = memmap.MemoryMapBytes(bytes(img))
 radio.process_mmap()
-radio.metadata = {'nr7y_firmware': 'NR7Y v1.4',
+radio.metadata = {'nr7y_firmware': 'Brass v2.0',
                   'nr7y_schema': m.NR7Y_SCHEMA_CURRENT}
 radio.save_mmap(OUT)
 print("wrote %s (%d bytes)" % (OUT, os.path.getsize(OUT)))

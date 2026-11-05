@@ -38,13 +38,16 @@ typedef enum {
     BATTERY_TYPE_1600_MAH,
     BATTERY_TYPE_2200_MAH,
     BATTERY_TYPE_3500_MAH,
-    BATTERY_TYPE_1500_MAH,
+    BATTERY_TYPE_1400_MAH,
     BATTERY_TYPE_2500_MAH,
     BATTERY_TYPE_UNKNOWN
 } BATTERY_Type_t;
 
 
 unsigned int BATTERY_VoltsToPercent(unsigned int voltage_10mV);
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
+void BATTERY_Sample(bool bDisplayBatteryLevel);
+#endif
 void BATTERY_GetReadings(bool bDisplayBatteryLevel);
 void BATTERY_TimeSlice500ms(void);
 

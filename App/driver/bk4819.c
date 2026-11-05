@@ -1142,7 +1142,7 @@ void BK4819_TurnsOffTones_TurnsOnRX(void)
         BK4819_REG_30_ENABLE_RX_DSP);
 }
 
-#ifdef ENABLE_AIRCOPY
+#if defined(ENABLE_AIRCOPY) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
     void BK4819_SetupAircopy(void)
     {
         BK4819_WriteRegister(BK4819_REG_70, 0x00E0);    // Enable Tone2, tuning gain 48
@@ -1755,10 +1755,12 @@ uint8_t BK4819_GetCTCType(void)
     return (BK4819_ReadRegister(BK4819_REG_0C) >> 10) & 3u;
 }
 
-void BK4819_SendFSKData(uint16_t *pData)
+void BK4819_SendFSKData(uint16_t *pData, uint8_t words)
 {
     unsigned int i;
-    uint8_t Timeout = 200;
+    // TX-finished poll ceiling (units of 5 ms): must exceed the frame's on-air
+    // time (~3 ticks/word at 1200 bps) or a large frame is cut off mid-send.
+    uint16_t Timeout = (uint16_t)words * 3u + 100u;
 
     SYSTEM_DelayMs(20);
 
@@ -1766,7 +1768,7 @@ void BK4819_SendFSKData(uint16_t *pData)
     BK4819_WriteRegister(BK4819_REG_59, 0x8068);
     BK4819_WriteRegister(BK4819_REG_59, 0x0068);
 
-    for (i = 0; i < 36; i++)
+    for (i = 0; i < words; i++)
         BK4819_WriteRegister(BK4819_REG_5F, pData[i]);
 
     SYSTEM_DelayMs(20);

@@ -416,35 +416,7 @@ static bool ScanFastUpdateDisplayVfo(uint16_t channel, uint32_t *frequency, Modu
     }
 
     scanFastDisplayVfo = gEeprom.VfoInfo[gEeprom.RX_VFO];
-
-    scanFastDisplayVfo.CHANNEL_SAVE = channel;
-    scanFastDisplayVfo.freq_config_RX = info.rx;
-    scanFastDisplayVfo.freq_config_TX = info.tx;
-    scanFastDisplayVfo.TX_OFFSET_FREQUENCY = info.offset;
-    scanFastDisplayVfo.StepFrequency = info.stepFrequency;
-    scanFastDisplayVfo.STEP_SETTING = info.stepSetting;
-    scanFastDisplayVfo.Modulation = info.modulation;
-    scanFastDisplayVfo.TX_OFFSET_FREQUENCY_DIRECTION = info.txOffsetFrequencyDirection;
-    scanFastDisplayVfo.OUTPUT_POWER = info.outputPower;
-    scanFastDisplayVfo.FrequencyReverse = info.frequencyReverse;
-    scanFastDisplayVfo.CHANNEL_BANDWIDTH = info.channelBandwidth;
-    scanFastDisplayVfo.BUSY_CHANNEL_LOCK = info.busyChannelLock;
-    scanFastDisplayVfo.TX_LOCK = info.txLock;
-#ifdef ENABLE_DTMF_CALLING
-    scanFastDisplayVfo.DTMF_DECODING_ENABLE = info.dtmfDecodingEnable;
-#endif
-    scanFastDisplayVfo.DTMF_PTT_ID_TX_MODE = info.dtmfPttIdTxMode;
-
-    if (!scanFastDisplayVfo.FrequencyReverse)
-    {
-        scanFastDisplayVfo.pRX = &scanFastDisplayVfo.freq_config_RX;
-        scanFastDisplayVfo.pTX = &scanFastDisplayVfo.freq_config_TX;
-    }
-    else
-    {
-        scanFastDisplayVfo.pRX = &scanFastDisplayVfo.freq_config_TX;
-        scanFastDisplayVfo.pTX = &scanFastDisplayVfo.freq_config_RX;
-    }
+    SETTINGS_ApplyChannelScanDisplayInfo(&scanFastDisplayVfo, channel, &info);
 
     scanFastDisplayVfoValid = true;
 
@@ -553,11 +525,7 @@ static void ScanFastApplyChannelShape(ModulationMode_t modulation)
     }
     else
     {
-#ifdef ENABLE_AM_FIX
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, true);
-#else
         BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, false);
-#endif
     }
 
     if (modulationChanged)
@@ -756,7 +724,12 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
         gScanKeepResult = false;
     }
-    
+
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    // Scanning retunes the VFO and clears the crossband flag the swap depends on,
+    // so end the swap first, as a channel change does.
+    APP_FullWatchReset();
+#endif
     RADIO_SelectVfos();
     CHFRSCANNER_AbortActiveReception();
 
@@ -1049,9 +1022,9 @@ static void NextFreqChannel(void)
 static void NextMemChannel(void)
 {
     static uint16_t prev_mr_chan = 0;
-    const bool      enabled      = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= MR_CHANNELS_LIST + 1) ? gEeprom.SCAN_LIST_ENABLED : true;
-    const int16_t   chan1        = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= MR_CHANNELS_LIST + 1 && gEeprom.SCANLIST_PRIORITY_CH[0] != MR_CHANNELS_MAX) ? gEeprom.SCANLIST_PRIORITY_CH[0] : -1;
-    const int16_t   chan2        = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= MR_CHANNELS_LIST + 1 && gEeprom.SCANLIST_PRIORITY_CH[1] != MR_CHANNELS_MAX) ? gEeprom.SCANLIST_PRIORITY_CH[1] : -1;
+    const bool      enabled      = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= SCAN_LIST_MODE_MIX) ? gEeprom.SCAN_LIST_ENABLED : true;
+    const int16_t   chan1        = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= SCAN_LIST_MODE_MIX && gEeprom.SCANLIST_PRIORITY_CH[0] != MR_CHANNELS_MAX) ? gEeprom.SCANLIST_PRIORITY_CH[0] : -1;
+    const int16_t   chan2        = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= SCAN_LIST_MODE_MIX && gEeprom.SCANLIST_PRIORITY_CH[1] != MR_CHANNELS_MAX) ? gEeprom.SCANLIST_PRIORITY_CH[1] : -1;
     const uint16_t  prev_chan    = gNextMrChannel;
     uint16_t        chan         = 0;
 

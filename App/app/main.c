@@ -20,24 +20,29 @@
 #include "app/app.h"
 #include "app/chFrScanner.h"
 #include "app/common.h"
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #include "app/generic.h"
 #include "app/main.h"
+#include "app/menu.h"
 #include "app/scanner.h"
 
 #ifdef ENABLE_SPECTRUM
 #include "app/spectrum.h"
 #endif
 
-#ifdef ENABLE_FEAT_F4HWN_GAME
-#include "app/breakout.h"
+#if defined(ENABLE_FEAT_F4HWN_GAME) && !defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#include "app/breakout.h"   // resident game only; the overlay path uses app_menu.h
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#include "apps/app_menu.h"
 #endif
 #ifdef ENABLE_CODE_PRACTICE
 #include "app/cpo.h"
 #endif
 #ifdef ENABLE_CW_MODULATOR
+#include "app/cwapp.h"
 #include "app/cwpopup.h"
 #include "app/cwrit.h"
 #endif
@@ -108,7 +113,7 @@ static void toggle_chan_scanlist(void)
 
         scanlist++;
 
-        if (scanlist > MR_CHANNELS_LIST + 1)
+        if (scanlist > SCAN_LIST_MODE_ALL)
             scanlist = 0;
 
         gTxVfo->SCANLIST_PARTICIPATION = scanlist;
@@ -263,16 +268,15 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #elif defined(ENABLE_SPECTRUM)
                 APP_RunSpectrum();
                 gRequestDisplayScreen = DISPLAY_MAIN;
+#elif defined(ENABLE_CODE_PRACTICE)
+                CPO_Enter();
+                gRequestDisplayScreen = DISPLAY_CPO;
 #endif
             }
             else {
 
                 toggle_chan_scanlist();
             }
-#if defined(ENABLE_CODE_PRACTICE) && !defined(ENABLE_NOAA) && !defined(ENABLE_SPECTRUM)
-				CPO_Enter();
-				gRequestDisplayScreen = DISPLAY_CPO;
-#endif
             break;
 
         case KEY_6:
@@ -280,9 +284,21 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
             break;
 
         case KEY_7:
-#ifdef ENABLE_FEAT_F4HWN_GAME
+            // F + 7 opens the overlay-apps menu when that support is built;
+            // otherwise it launches the resident game (GAME); otherwise VOX.
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             if (!beep) {
-                APP_RunBreakout();
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+#ifdef ENABLE_CW_MODULATOR
+                CW_OverlayEnter();
+#endif
+                APP_MenuOpen();            // overlay-apps selector
+#ifdef ENABLE_CW_MODULATOR
+                CW_OverlayExit();
+#endif
+#else
+                APP_RunBreakout();         // resident game (no overlay support)
+#endif
             } else {
 #endif
 #ifdef ENABLE_CW_MODULATOR
@@ -296,7 +312,7 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #ifdef ENABLE_VOX
                 ACTION_Vox();
 #endif
-#ifdef ENABLE_FEAT_F4HWN_GAME
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             }
 #endif
 
@@ -549,26 +565,6 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
     if (!gWasFKeyPressed) { // F-key wasn't pressed
 
         if (gScanStateDir != SCAN_OFF){
-            /*
-            switch(Key) {
-                case KEY_0:
-                    gEeprom.SCAN_LIST_DEFAULT = MR_CHANNELS_LIST + 1;
-                    #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
-                        SETTINGS_WriteCurrentState();
-                    #endif
-                    break;
-                case KEY_1...KEY_9:
-                    gEeprom.SCAN_LIST_DEFAULT = Key;
-                    #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
-                        SETTINGS_WriteCurrentState();
-                    #endif
-                    break;
-                default:
-                    break;
-            }
-            return;
-            */
-
             INPUTBOX_Append(Key);
 
             /* Wait until exactly two digits are entered */
@@ -583,8 +579,26 @@ static void MAIN_Key_DIGITS(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             /* 00 = ALL scan lists */
             if (value == 0)
             {
-                gEeprom.SCAN_LIST_DEFAULT = MR_CHANNELS_LIST + 1;
+                gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_ALL;
                 UI_MAIN_NotifyScanListChanged();
+            #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+                SETTINGS_WriteCurrentState();
+            #endif
+                return;
+            }
+
+            /* 25 = saved MIX selection */
+            if (value == SCAN_LIST_MIX_SHORTCUT)
+            {
+                gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_MIX;
+
+                if (!RADIO_CheckValidList(SCAN_LIST_MODE_MIX))
+                {
+                    gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
+                    RADIO_NextValidList(1);
+                }
+                UI_MAIN_NotifyScanListChanged();
+
             #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
                 SETTINGS_WriteCurrentState();
             #endif
@@ -786,7 +800,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
     }
 #endif
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (!gFmRadioMode)
 #endif
     {
@@ -821,7 +835,7 @@ static void MAIN_Key_EXIT(bool bKeyPressed, bool bKeyHeld)
         return;
     }
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     ACTION_FM();
 #endif
     return;
@@ -912,6 +926,7 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
             #endif
 
             gFlagRefreshSetting = true;
+            gScanMixEditorActive = false;
             gRequestDisplayScreen = DISPLAY_MENU;
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
             gMenuLevel  = MENU_LEVEL_CAT;
@@ -985,6 +1000,9 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
         }
 #endif
         if (gScanStateDir == SCAN_OFF
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL
+#endif
 #ifdef ENABLE_NOAA
             && !IS_NOAA_CHANNEL(gTxVfo->CHANNEL_SAVE)
 #endif
@@ -1074,6 +1092,12 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
     }
 
     if (gScanStateDir == SCAN_OFF) {
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+        // Navigate from the displayed priority; the normal reload ends the swap.
+        const VFO_Info_t *displayVfo = APP_GetFullWatchDisplayVfo(gEeprom.TX_VFO);
+        if (displayVfo != NULL)
+            Channel = displayVfo->CHANNEL_SAVE;
+#endif
 #ifdef ENABLE_NOAA
         if (!IS_NOAA_CHANNEL(Channel))
 #endif
@@ -1101,7 +1125,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
             Next = RADIO_FindNextChannel(Channel + Direction, Direction, false, 0);
             if (Next == 0xFFFF)
                 return;
-            if (Channel == Next)
+            if (Channel == Next && gEeprom.ScreenChannel[gEeprom.TX_VFO] == Next)
                 return;
             gEeprom.MrChannel[gEeprom.TX_VFO] = Next;
             gEeprom.ScreenChannel[gEeprom.TX_VFO] = Next;
@@ -1134,7 +1158,7 @@ static void MAIN_Key_UP_DOWN(bool bKeyPressed, bool bKeyHeld, int8_t Direction)
 
 void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 {
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     if (gFmRadioMode && Key != KEY_PTT && Key != KEY_EXIT) {
         if (!bKeyHeld && bKeyPressed)
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;

@@ -32,5 +32,15 @@ void     APP_Update(void);
 void     APP_TimeSlice10ms(void);
 void     APP_TimeSlice500ms(void);
 bool     APP_IsScreenSaverDisplayed(void);
+void     APP_ModalBacklightTick(bool allowScreenSaver);
+void     APP_ModalScreenSaverExit(void);
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+// Ends any priority swap; the swap state is rebuilt on the next watch cycle.
+void APP_FullWatchReset(void);
+VFO_Info_t *APP_GetFullWatchDisplayVfo(uint8_t vfo);
+// Requires Full Watch mode; initializes the background VFOs on first access.
+VFO_Info_t *const *APP_GetFullWatchBackgroundVfos(uint8_t *count);
+uint8_t APP_GetFullWatchScrollPhase(void);
+#endif
 
 #endif

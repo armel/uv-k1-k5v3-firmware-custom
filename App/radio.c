@@ -17,14 +17,18 @@
 #include "driver/bk4819-regs.h"
 #include <string.h>
 
-#include "am_fix.h"
+#ifdef ENABLE_CW_MODULATOR
 #include "app/cwkeyer.h"
 #include "app/cwrit.h"
+#endif
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    #include "app/app.h"
+#endif
 #include "app/dtmf.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
     #include "app/rxtx_log.h"
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
 #endif
 #ifdef ENABLE_CW_MODULATOR
@@ -143,14 +147,38 @@ const char gModulationStr[MODULATION_UKNOWN][4] = {
 #endif
 #endif
 
+bool RADIO_IsChannelInScanList(uint8_t channelScanList, uint8_t scanList)
+{
+    if (scanList < 1 || scanList > SCAN_LIST_MODE_MIX)
+        return false;
+
+    if (channelScanList == 0)
+        return false;
+
+    if (channelScanList == SCAN_LIST_MODE_ALL)
+        return true;
+
+    if (scanList == SCAN_LIST_MODE_ALL)
+        return true;
+
+    if (scanList == SCAN_LIST_MODE_MIX) {
+        if (channelScanList > MR_CHANNELS_LIST)
+            return false;
+        return (gEeprom.SCAN_LIST_MIX_MASK & (1u << (channelScanList - 1u))) != 0;
+    }
+
+    return scanList >= 1 && scanList <= MR_CHANNELS_LIST && channelScanList == scanList;
+}
+
 bool RADIO_CheckValidList(uint8_t scanList)
 {
-    if(scanList == MR_CHANNELS_LIST + 1)
+    if (scanList == SCAN_LIST_MODE_ALL)
         return true;
 
     for (uint16_t i = 0; IS_MR_CHANNEL(i); i++) {
         const ChannelAttributes_t* att = MR_GetChannelAttributes(i);
-        if(att->scanlist == scanList && att->exclude == false)
+        if (att != NULL && !att->exclude && att->band <= BAND7_470MHz &&
+            RADIO_IsChannelInScanList(att->scanlist, scanList))
         {
             return true;
         }
@@ -158,20 +186,43 @@ bool RADIO_CheckValidList(uint8_t scanList)
     return false;
 }
 
+uint8_t RADIO_GetAdjacentScanList(uint8_t scanList, int8_t direction)
+{
+    if (scanList < 1 || scanList > SCAN_LIST_MODE_MIX)
+        scanList = 1;
+
+    if (direction > 0) {
+        if (scanList == MR_CHANNELS_LIST)
+            return SCAN_LIST_MODE_MIX;
+        if (scanList == SCAN_LIST_MODE_MIX)
+            return SCAN_LIST_MODE_ALL;
+        if (scanList == SCAN_LIST_MODE_ALL)
+            return 1;
+        return scanList + 1;
+    }
+
+    if (direction < 0) {
+        if (scanList == 1)
+            return SCAN_LIST_MODE_ALL;
+        if (scanList == SCAN_LIST_MODE_ALL)
+            return SCAN_LIST_MODE_MIX;
+        if (scanList == SCAN_LIST_MODE_MIX)
+            return MR_CHANNELS_LIST;
+        return scanList - 1;
+    }
+
+    return scanList;
+}
+
 void RADIO_NextValidList(int8_t direction)
 {
     uint8_t startList = gEeprom.SCAN_LIST_DEFAULT;
     uint8_t attempts = 0;
-    const uint8_t MAX_VALUE = MR_CHANNELS_LIST + 1;  // 25 (1-24 lists + ALL)
+    const uint8_t MAX_VALUE = SCAN_LIST_MODE_MIX;
     
     do {
-        if (direction > 0) {
-            // Forward: 1 → 2 → ... → 25 → 1
-            gEeprom.SCAN_LIST_DEFAULT = (gEeprom.SCAN_LIST_DEFAULT % MAX_VALUE) + 1;
-        } else {
-            // Backward: 25 → 24 → ... → 1 → 25
-            gEeprom.SCAN_LIST_DEFAULT = ((gEeprom.SCAN_LIST_DEFAULT - 2 + MAX_VALUE) % MAX_VALUE) + 1;
-        }
+        gEeprom.SCAN_LIST_DEFAULT = RADIO_GetAdjacentScanList(gEeprom.SCAN_LIST_DEFAULT,
+                                                              direction);
         attempts++;
         
         if (RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT))
@@ -181,7 +232,7 @@ void RADIO_NextValidList(int8_t direction)
     
     // Safety fallback: switch to ALL mode
     if (!RADIO_CheckValidList(gEeprom.SCAN_LIST_DEFAULT)) {
-        gEeprom.SCAN_LIST_DEFAULT = MAX_VALUE;  // ALL (25)
+        gEeprom.SCAN_LIST_DEFAULT = SCAN_LIST_MODE_ALL;
     }
 }
 
@@ -192,13 +243,15 @@ bool RADIO_CheckValidChannel(uint16_t channel, bool checkScanList, uint8_t scanL
     // return true if the channel appears valid
     if (!IS_MR_CHANNEL(channel))
         return false;
+    if (att == NULL)
+        return false;
     if (checkScanList && att->exclude == true)
         return false;
     if (att->band > BAND7_470MHz)
         return false;
-    if (!checkScanList || (scanList > MR_CHANNELS_LIST && att->scanlist != 0) || (scanList > 0 && att->scanlist == MR_CHANNELS_LIST + 1))
+    if (!checkScanList)
         return true;
-    if ((scanList == 0) || (scanList != att->scanlist)) {
+    if (!RADIO_IsChannelInScanList(att->scanlist, scanList)) {
         return false;
     }
     
@@ -269,7 +322,7 @@ void RADIO_ValidateAndSetCode(FREQ_Config_t *pFreq_Config, uint8_t tmp) {
         case CODE_TYPE_CONTINUOUS_TONE:
         case CODE_TYPE_DIGITAL:
         case CODE_TYPE_REVERSE_DIGITAL:
-            if (tmp > ((pFreq_Config->CodeType == CODE_TYPE_CONTINUOUS_TONE ? ARRAY_SIZE(CTCSS_Options) : ARRAY_SIZE(DCS_Options)) - 1))
+            if (tmp > ((pFreq_Config->CodeType == CODE_TYPE_CONTINUOUS_TONE ? ARRAY_SIZE(CTCSS_Options) : DCS_OPTION_COUNT) - 1))
                 tmp = 0;
             break;
     }
@@ -345,7 +398,7 @@ void RADIO_ConfigureChannel(const unsigned int VFO, const unsigned int configure
     }
     else {
         band = channel - FREQ_CHANNEL_FIRST;
-        bParticipation = MR_CHANNELS_LIST + 1;
+        bParticipation = SCAN_LIST_MODE_ALL;
     }
 
     pVfo->Band                    = band;
@@ -849,6 +902,19 @@ BK4819_FilterBandwidth_t RADIO_ResolveFilter(const VFO_Info_t *pVfo)
     return narrow ? BK4819_FILTER_BW_NARROW : BK4819_FILTER_BW_WIDE;
 }
 
+// weak_no_different for BK4819_SetFilterBandwidth(): whether the RX filter keeps
+// its width on weak signals instead of narrowing. Since ENABLE_AM_FIX went away
+// (v6.2) only AM holds it; FM narrows.
+static bool RADIO_FilterHoldsOnWeakSignal(const VFO_Info_t *pVfo)
+{
+#ifdef ENABLE_CW_MODULATOR
+    // CW and USB keep the behavior they had before v6.2
+    if (pVfo->Modulation == MODULATION_CW || pVfo->Modulation == MODULATION_USB)
+        return true;
+#endif
+    return pVfo->Modulation == MODULATION_AM;
+}
+
 void RADIO_SetupRegisters(bool switchToForeground)
 {
     const BK4819_FilterBandwidth_t Bandwidth = RADIO_ResolveFilter(gRxVfo);
@@ -871,7 +937,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
 
     BK4819_ToggleGpioOut(BK4819_GPIO6_PIN2_GREEN, false);
 
-    BK4819_SetFilterBandwidth(Bandwidth, true);
+    BK4819_SetFilterBandwidth(Bandwidth, RADIO_FilterHoldsOnWeakSignal(gRxVfo));
 
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, false);
 
@@ -993,7 +1059,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
 #ifdef ENABLE_NOAA
         && !IS_NOAA_CHANNEL(gCurrentVfo->CHANNEL_SAVE)
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
         && !gFmRadioMode
 #endif
     ){
@@ -1069,7 +1135,9 @@ void RADIO_SetupRegisters(bool switchToForeground)
     }
 #endif
 
-void RADIO_SetTxParameters(void)
+/* fm false (CW Keyer): no settling waits and PA_ENABLE left off, the caller
+ * re-locks the PLL and keys the PA itself. */
+static void RADIO_SetTxParametersEx(bool fm)
 {
 	const BK4819_FilterBandwidth_t Bandwidth = RADIO_ResolveFilter(gCurrentVfo);
 
@@ -1082,7 +1150,7 @@ void RADIO_SetTxParameters(void)
 
     BK4819_ToggleGpioOut(BK4819_GPIO0_PIN28_RX_ENABLE, false);
 
-	BK4819_SetFilterBandwidth(Bandwidth, true);
+	BK4819_SetFilterBandwidth(Bandwidth, RADIO_FilterHoldsOnWeakSignal(gCurrentVfo));
 
 	uint32_t tx_frequency = gCurrentVfo->pTX->Frequency;
 #ifdef ENABLE_CW_MODULATOR
@@ -1106,27 +1174,27 @@ void RADIO_SetTxParameters(void)
 	/// Perhaps the transciever and PA really do need long delays to make these transitions correctly,
 	/// but in testing I haven't seen that to be the case. I'm leaving the original ones for non-CW anyway.
 
-	SYSTEM_DelayMs(gTxVfo->Modulation == MODULATION_CW ? 1 : 10);
+	SYSTEM_DelayMs(fm * (gTxVfo->Modulation == MODULATION_CW ? 1 : 10));
 #else
-	SYSTEM_DelayMs(10);
+    SYSTEM_DelayMs(fm * 10);
 #endif
 
     BK4819_PickRXFilterPathBasedOnFrequency(gCurrentVfo->pTX->Frequency);
 
-    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, true);
+    BK4819_ToggleGpioOut(BK4819_GPIO1_PIN29_PA_ENABLE, fm);
 
 #ifdef ENABLE_CW_MODULATOR
-	SYSTEM_DelayMs(gTxVfo->Modulation == MODULATION_CW ? 1 : 5);
+	SYSTEM_DelayMs(fm * (gTxVfo->Modulation == MODULATION_CW ? 1 : 5));
 #else
-    SYSTEM_DelayMs(5);
+    SYSTEM_DelayMs(fm * 5);
 #endif
 
     BK4819_SetupPowerAmplifier(gCurrentVfo->TXP_CalculatedSetting, gCurrentVfo->pTX->Frequency);
 
 #ifdef ENABLE_CW_MODULATOR
-	SYSTEM_DelayMs(gTxVfo->Modulation == MODULATION_CW ? 1 : 10);
+	SYSTEM_DelayMs(fm * (gTxVfo->Modulation == MODULATION_CW ? 1 : 10));
 #else
-    SYSTEM_DelayMs(10);
+    SYSTEM_DelayMs(fm * 10);
 #endif
 
     switch (gCurrentVfo->pTX->CodeType)
@@ -1145,6 +1213,16 @@ void RADIO_SetTxParameters(void)
             BK4819_SetCDCSSCodeWord(DCS_GetGolayCodeWord(gCurrentVfo->pTX->CodeType, gCurrentVfo->pTX->Code));
             break;
     }
+}
+
+void RADIO_SetTxParameters(void)
+{
+    RADIO_SetTxParametersEx(true);
+}
+
+void RADIO_PrepareTx(void)
+{
+    RADIO_SetTxParametersEx(false);
 }
 
 void RADIO_SetModulation(ModulationMode_t modulation)
@@ -1271,14 +1349,6 @@ void RADIO_SetupAGC(bool listeningAM, bool disable)
         return;
     lastSettings = newSettings;
 
-#ifdef ENABLE_AM_FIX
-    if (listeningAM && gSetting_AM_fix) {
-        BK4819_SetAGC(0);
-        AM_fix_enable(!disable);
-        return;
-    }
-#endif
-
     BK4819_SetAGC(!disable);
     BK4819_InitAGC(listeningAM);
 }
@@ -1315,7 +1385,12 @@ void RADIO_PrepareTX(void)
         if (!gRxVfoIsActive)
         {   // use the current RX vfo
             gEeprom.RX_VFO = gEeprom.TX_VFO;
-            gRxVfo         = gTxVfo;
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+            VFO_Info_t *fullWatchVfo = APP_GetFullWatchDisplayVfo(gEeprom.TX_VFO);
+            gRxVfo = fullWatchVfo != NULL ? fullWatchVfo : gTxVfo;
+#else
+            gRxVfo = gTxVfo;
+#endif
             gRxVfoIsActive = true;
         }
 
@@ -1329,9 +1404,6 @@ void RADIO_PrepareTX(void)
     if(TX_freq_check(gCurrentVfo->pTX->Frequency) != 0
 #ifdef ENABLE_FEAT_F4HWN
         && gCurrentVfo->TX_LOCK == true
-#endif
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-        && gAlarmState != ALARM_STATE_SITE_ALARM
 #endif
     ){
         // TX frequency not allowed
@@ -1356,27 +1428,24 @@ void RADIO_PrepareTX(void)
         State = VFO_STATE_TX_DISABLE;
     }
 #endif
-    #ifdef ENABLE_CW_MODULATOR
-    #ifndef ENABLE_TX_WHEN_AM
-        else if (gCurrentVfo->Modulation == MODULATION_AM) {
-            State = VFO_STATE_TX_DISABLE;
-        }
-    #endif
-    #else
-    #ifndef ENABLE_TX_WHEN_AM
-        else if (gCurrentVfo->Modulation != MODULATION_FM) {
-            // not allowed to TX in AM mode
-            State = VFO_STATE_TX_DISABLE;
-        }
-    #endif
-    #endif
+#ifdef ENABLE_CW_MODULATOR
+    // CW and USB transmit. AM is receive-only, as in upstream.
+    else if (gCurrentVfo->Modulation == MODULATION_AM) {
+        State = VFO_STATE_TX_DISABLE;
+    }
+#else
+    else if (gCurrentVfo->Modulation != MODULATION_FM) {
+        // AM and other non-FM modes are receive-only.
+        State = VFO_STATE_TX_DISABLE;
+    }
+#endif
 
     if (State != VFO_STATE_NORMAL) {
         // TX not allowed
         RADIO_SetVfoState(State);
 
-#if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-        gAlarmState = ALARM_STATE_OFF;
+#ifdef ENABLE_TX1750
+        gTx1750Active = false;
 #endif
 
 #ifdef ENABLE_DTMF_CALLING
@@ -1410,8 +1479,8 @@ void RADIO_PrepareTX(void)
 
     gTxTimerCountdown_500ms = 0;            // no timeout
 
-    #if defined(ENABLE_ALARM) || defined(ENABLE_TX1750)
-    if (gAlarmState == ALARM_STATE_OFF)
+    #ifdef ENABLE_TX1750
+    if (!gTx1750Active)
     #endif
     {
 

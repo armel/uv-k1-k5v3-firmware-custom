@@ -17,7 +17,7 @@
 #ifndef APP_FOXHUNT_H
 #define APP_FOXHUNT_H
 
-#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
 
 #include "keyboard_state.h"
 
@@ -46,12 +46,21 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#endif
 
-// Entry point wired as an assignable side-key action (see action.c).
+#if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+// Assignable resident/overlay launchers (see action.c).
 void ACTION_FoxHunt(void);
+void ACTION_Beacon(void);
+#endif
 
+#ifdef ENABLE_FEAT_F4HWN_FOXHUNT
 // Self-contained modal loop that owns the screen and keypad until EXIT.
 void APP_RunFoxHunt(void);
+#endif
 
-#endif // ENABLE_FEAT_F4HWN_FOXHUNT
+#ifdef ENABLE_FEAT_F4HWN_BEACON
+void APP_RunBeacon(void);
+#endif
+
 #endif // APP_FOXHUNT_H

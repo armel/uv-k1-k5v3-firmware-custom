@@ -17,6 +17,7 @@
 #include <assert.h>
 
 #include "battery.h"
+#include "board.h"
 #include "driver/backlight.h"
 #include "driver/st7565.h"
 #include "functions.h"
@@ -81,8 +82,8 @@ const uint16_t Voltage2PercentageTable[][7][2] = {
         {0,   0  },
     },
 
-    // Estimated discharge curve for 1500 mAh K1 battery (improve this)
-    [BATTERY_TYPE_1500_MAH] = {
+    // Estimated discharge curve for 1400 mAh K1 battery (improve this)
+    [BATTERY_TYPE_1400_MAH] = {
         {828, 100},  // Fully charged (measured ~8.28V)
         {813, 97 },  // Top end
         {758, 25 },  // Mid level
@@ -128,6 +129,16 @@ unsigned int BATTERY_VoltsToPercent(const unsigned int voltage_10mV)
 
     return 0;
 }
+
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON)
+void BATTERY_Sample(const bool bDisplayBatteryLevel)
+{
+    BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[gBatteryVoltageIndex++], &gBatteryCurrent);
+    if (gBatteryVoltageIndex > 3u)
+        gBatteryVoltageIndex = 0u;
+    BATTERY_GetReadings(bDisplayBatteryLevel);
+}
+#endif
 
 void BATTERY_GetReadings(const bool bDisplayBatteryLevel)
 {

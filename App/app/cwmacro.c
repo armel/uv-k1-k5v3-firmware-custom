@@ -167,7 +167,7 @@ bool CW_ValidateChar(char ch)
 	return false;
 }
 
-uint8_t compute_macro_checksum(const uint8_t *block, uint8_t length)
+static uint8_t compute_macro_checksum(const uint8_t *block, uint8_t length)
 {
 	uint8_t sum = 0;
 	// Sum payload bytes only (block[1] .. block[length])
@@ -177,42 +177,69 @@ uint8_t compute_macro_checksum(const uint8_t *block, uint8_t length)
 	return sum;
 }
 
+uint8_t CW_MacroBlockLength(const uint8_t *block)
+{
+	const uint8_t raw_len = block[0];
+
+	// 0xFF = empty block; a clear high bit means no signature
+	if (raw_len == 0xFF || (raw_len & CW_MACRO_SIG) == 0)
+		return 0;
+
+	const uint8_t length = raw_len & ~CW_MACRO_SIG;
+	if (length == 0 || length > CW_MACRO_MAX_LEN)
+		return 0;
+
+	if (block[CW_MACRO_CHECKSUM_OFFSET] != compute_macro_checksum(block, length))
+		return 0;
+
+	return length;
+}
+
+bool CW_MacroHeaderValid(void)
+{
+	uint8_t hdr[8];
+	EEPROM_ReadBuffer(CW_MACRO_HDR_EEPROM_ADDR, hdr, sizeof(hdr));
+
+	// A newer version may add fields, but the block size is what we rely on
+	return memcmp(hdr, CW_MACRO_HDR_SIG, 3) == 0
+		&& hdr[3] >= CW_MACRO_HDR_VERSION && hdr[3] != 0xFF
+		&& hdr[5] == CW_MACRO_BLOCK_SIZE;
+}
+
+void CW_WriteMacroHeader(void)
+{
+	uint8_t hdr[CW_MACRO_HDR_SIZE];
+	memset(hdr, 0xFF, sizeof(hdr));
+	memcpy(hdr, CW_MACRO_HDR_SIG, 3);
+	hdr[3] = CW_MACRO_HDR_VERSION;
+	hdr[4] = CW_MACRO_COUNT;
+	hdr[5] = CW_MACRO_BLOCK_SIZE;
+
+	for (uint8_t i = 0; i < CW_MACRO_HDR_SIZE; i += 8)
+		EEPROM_WriteBuffer(CW_MACRO_HDR_EEPROM_ADDR + i, hdr + i, 8);
+}
+
 uint8_t CW_GetMacroLength(uint8_t macroIndex)
 {
 	if (macroIndex >= CW_MACRO_COUNT)
 		return 0;
-	
-	uint8_t raw_len;
-	EEPROM_ReadBuffer(MACRO_ADDRS[macroIndex], &raw_len, 1);
+
+	// No macro area header means no macros
+	if (!CW_MacroHeaderValid())
+		return 0;
+
+	uint8_t block[CW_MACRO_BLOCK_SIZE];
+	EEPROM_ReadBuffer(MACRO_ADDRS[macroIndex], block, CW_MACRO_BLOCK_SIZE);
 
 #if CW_MACRO_DEBUG
 	{
 		char buf[64];
-		sprintf_(buf, "CW_GetMacroLength: idx=%u raw_len=0x%02x\r\n", macroIndex, raw_len);
+		sprintf_(buf, "CW_GetMacroLength: idx=%u raw_len=%u\r\n", macroIndex, block[0]);
 		UART_Send(buf, strlen(buf));
 	}
 #endif
 
-	// 0xFF = empty block
-	if (raw_len == 0xFF)
-		return 0;
-
-	// Check signature bit (high bit set indicates a valid macro)
-	if ((raw_len & CW_MACRO_SIG) == 0)
-		return 0;
-
-	uint8_t length = raw_len & ~CW_MACRO_SIG;
-	if (length == 0 || length > CW_MACRO_MAX_LEN)
-		return 0;
-
-	// Validate checksum (read entire block including checksum byte)
-	uint8_t block[CW_MACRO_BLOCK_SIZE];
-	EEPROM_ReadBuffer(MACRO_ADDRS[macroIndex], block, CW_MACRO_BLOCK_SIZE);
-	uint8_t checksum = block[CW_MACRO_CHECKSUM_OFFSET];
-	if (checksum != compute_macro_checksum(block, length))
-		return 0;
-
-	return length;
+	return CW_MacroBlockLength(block);
 }
 
 uint8_t CW_LoadMacro(uint8_t macroIndex, char *buffer, uint8_t bufferSize)
@@ -236,7 +263,7 @@ uint8_t CW_LoadMacro(uint8_t macroIndex, char *buffer, uint8_t bufferSize)
 		sprintf_(buf, "CW_LoadMacro: read %u bytes from EEPROM (payload length=%u)\r\n", CW_MACRO_BLOCK_SIZE, length);
 		UART_Send(buf, strlen(buf));
 		for (uint8_t i = 0; i < length && i < 10; i++) {
-			sprintf_(buf, "  [%u]=0x%02x '%c'%s\r\n", i, block[i+1], 
+			sprintf_(buf, "  [%u]=%u '%c'%s\r\n", i, block[i+1], 
 				CW_MACRO_GET_CHAR(block[i+1]), CW_MACRO_HAS_SPACE(block[i+1]) ? " +SPC" : "");
 			UART_Send(buf, strlen(buf));
 		}
@@ -280,7 +307,7 @@ void CW_SaveMacro(uint8_t macroIndex, const char *buffer, uint8_t length)
 		UART_Send(buf, strlen(buf));
 		// Show all bytes being saved
 		for (uint8_t i = 0; i < length && i < 20; i++) {
-			sprintf_(buf, "  [%u]=0x%02x (%c%s)\r\n", i, (uint8_t)buffer[i], 
+			sprintf_(buf, "  [%u]=%u (%c%s)\r\n", i, (uint8_t)buffer[i], 
 				CW_MACRO_GET_CHAR(buffer[i]), CW_MACRO_HAS_SPACE(buffer[i]) ? " +SPC" : "");
 			UART_Send(buf, strlen(buf));
 		}
@@ -311,19 +338,22 @@ void CW_SaveMacro(uint8_t macroIndex, const char *buffer, uint8_t length)
 		char buf[64];
 		sprintf_(buf, "CW_SaveMacro: prepared %u-byte EEPROM block\r\n", (uint8_t)sizeof(data));
 		UART_Send(buf, strlen(buf));
-		sprintf_(buf, "  data[0]=0x%02x (length byte)\r\n", data[0]);
+		sprintf_(buf, "  data[0]=%u (length byte)\r\n", data[0]);
 		UART_Send(buf, strlen(buf));
 		for (uint8_t i = 1; i <= length && i <= 20; i++) {
-			sprintf_(buf, "  data[%u]=0x%02x\r\n", i, data[i]);
+			sprintf_(buf, "  data[%u]=%u\r\n", i, data[i]);
 			UART_Send(buf, strlen(buf));
 		}
 	}
 #endif
 
+	if (!CW_MacroHeaderValid())
+		CW_WriteMacroHeader();
+
 	// Write block to EEPROM in 8-byte chunks (aligned)
 	// EEPROM_WriteBuffer only writes 8 bytes at a time
 	for (uint8_t i = 0; i < CW_MACRO_BLOCK_SIZE; i += 8) {
-		EEPROM_WriteBuffer(MACRO_ADDRS[macroIndex] + i, data + i);
+		EEPROM_WriteBuffer(MACRO_ADDRS[macroIndex] + i, data + i, 8);
 	}
 }
 
@@ -443,7 +473,7 @@ void CW_EncoderProcessElement(CW_ElementType_t element)
 #if CW_ENCODER_DEBUG
 		{
 			char buf[64];
-			sprintf_(buf, "DECODE: pattern=0x%02x len=%d\r\n", s_encoder_pattern, s_encoder_length);
+			sprintf_(buf, "DECODE: pattern=%u len=%d\r\n", s_encoder_pattern, s_encoder_length);
 			UART_Send(buf, strlen(buf));
 		}
 #endif

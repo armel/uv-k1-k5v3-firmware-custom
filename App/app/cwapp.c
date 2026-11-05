@@ -95,6 +95,24 @@ void CW_EndTxNow(void)
         APP_StartListening(FUNCTION_MONITOR);
 }
 
+void CW_OverlayEnter(void)
+{
+	CW_StopPlayback();
+	if (gCW_State != CW_INACTIVE) {
+		gPttIsPressed = false;
+		CW_EndTxNow();
+	}
+	if (s_local_sidetone_held)
+		LocalSidetoneRelease();
+	CW_KeyerReconfigure(false);
+}
+
+void CW_OverlayExit(void)
+{
+	RADIO_SelectVfos();
+	RADIO_SetupRegisters(true);
+}
+
 // ---------------------------------------------------------------------------
 // CW_AppUpdate  –  called from main.c at approx 1ms cadence (sometimes a little longer)
 // ---------------------------------------------------------------------------

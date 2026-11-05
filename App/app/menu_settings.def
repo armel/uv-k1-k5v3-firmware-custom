@@ -1,0 +1,62 @@
+/* Simple persistent byte settings. No callbacks or channel/VFO writes belong here.
+ * MENU_SETTING(id, lvalue, minimum, maximum) is supplied by the includer.
+ * Intentionally no include guard: used for validation and table generation.
+ */
+
+MENU_SETTING(MENU_SAVE, gEeprom.BATTERY_SAVE, 0, 5)
+MENU_SETTING(MENU_BEEP, gEeprom.BEEP_CONTROL, 0, ARRAY_SIZE(gSubMenu_OFF_ON) - 1)
+MENU_SETTING(MENU_TOT, gEeprom.TX_TIMEOUT_TIMER, 5, 179)
+MENU_SETTING(MENU_SC_REV, gEeprom.SCAN_RESUME_MODE, 0, 104)
+MENU_SETTING(MENU_MDF, gEeprom.CHANNEL_DISPLAY_MODE, 0, ARRAY_SIZE(gSubMenu_MDF) - 1)
+MENU_SETTING(MENU_STE, gEeprom.TAIL_TONE_ELIMINATION, 0, ARRAY_SIZE(gSubMenu_OFF_ON) - 1)
+MENU_SETTING(MENU_RP_STE, gEeprom.REPEATER_TAIL_TONE_ELIMINATION, 0, 10)
+MENU_SETTING(MENU_S_LIST, gEeprom.SCAN_LIST_DEFAULT, 1, SCAN_LIST_MODE_MIX)
+MENU_SETTING(MENU_D_ST, gEeprom.DTMF_SIDE_TONE, 0, ARRAY_SIZE(gSubMenu_OFF_ON) - 1)
+MENU_SETTING(MENU_BATTYP, gEeprom.BATTERY_TYPE, 0, 4)
+MENU_SETTING(MENU_BAT_TXT, gSetting_battery_text, 0, ARRAY_SIZE(gSubMenu_BAT_TXT) - 1)
+#if defined(ENABLE_AUDIO_BAR)
+MENU_SETTING(MENU_MIC_BAR, gSetting_mic_bar, 0, ARRAY_SIZE(gSubMenu_OFF_ON) - 1)
+#endif
+#if defined(ENABLE_DTMF_CALLING)
+MENU_SETTING(MENU_D_RSP, gEeprom.DTMF_DECODE_RESPONSE, 0, ARRAY_SIZE(gSubMenu_D_RSP) - 1)
+#endif
+#if defined(ENABLE_DTMF_CALLING)
+MENU_SETTING(MENU_D_HOLD, gEeprom.DTMF_auto_reset_time, 5, 60)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_NAV, gEeprom.SET_NAV, 0, 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN_SLEEP)
+MENU_SETTING(MENU_SET_OFF, gSetting_set_off, 0, 120)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_TOT, gSetting_set_tot, 0, ARRAY_SIZE(gSubMenu_SET_TOT) - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_EOT, gSetting_set_eot, 0, ARRAY_SIZE(gSubMenu_SET_TOT) - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_CTR)
+MENU_SETTING(MENU_SET_CTR, gSetting_set_ctr, 1, 15)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_LCK, gSetting_set_lck, 0, SET_LCK_LEN - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_MET, gSetting_set_met, 0, ARRAY_SIZE(gSubMenu_SET_MET) - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_GUI, gSetting_set_gui, 0, ARRAY_SIZE(gSubMenu_SET_MET) - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_SCAN_FASTER)
+MENU_SETTING(MENU_SET_SCN, gSetting_set_scn, 0, ARRAY_SIZE(gSubMenu_SET_SCN) - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_VOL)
+MENU_SETTING(MENU_SET_VOL, gEeprom.VOLUME_GAIN, 0, 63)
+#endif
+#if defined(ENABLE_FEAT_F4HWN)
+MENU_SETTING(MENU_SET_TMR, gSetting_set_tmr, 0, ARRAY_SIZE(gSubMenu_OFF_ON) - 1)
+#endif
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_LOGO_SAV)
+MENU_SETTING(MENU_SET_SAV, gSetting_set_sav, 0, SET_SAV_LEN - 1)
+#endif
+

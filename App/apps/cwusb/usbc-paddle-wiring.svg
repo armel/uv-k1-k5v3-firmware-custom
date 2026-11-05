@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="340" viewBox="0 0 720 340" font-family="Helvetica, Arial, sans-serif">
+  <title>CW USB external paddle adapter wiring</title>
+  <rect width="720" height="340" fill="#ffffff"/>
+
+  <!-- radio side -->
+  <text x="40" y="34" font-size="15" font-weight="bold" fill="#222">UV-K1 / UV-K5 V3 (USB-C)</text>
+  <rect x="40" y="50" width="150" height="230" rx="14" fill="#f2f2f2" stroke="#444" stroke-width="2"/>
+  <text x="115" y="72" font-size="12" fill="#555" text-anchor="middle">USB-C plug</text>
+
+  <g font-size="13" fill="#222">
+    <text x="56" y="108">D+</text><text x="88" y="108" fill="#666" font-size="11">PA12</text>
+    <text x="56" y="158">D-</text><text x="88" y="158" fill="#666" font-size="11">PA11</text>
+    <text x="56" y="208">GND</text>
+    <text x="56" y="258">VBUS</text><text x="100" y="258" fill="#666" font-size="11">5 V</text>
+  </g>
+
+  <!-- wires -->
+  <g stroke-width="5" fill="none" stroke-linecap="round">
+    <path d="M190 104 H330 C380 104 380 120 430 120 H470" stroke="#1f6fd1"/>
+    <path d="M190 154 H330 C380 154 380 160 430 160 H520" stroke="#9a9a9a"/>
+    <path d="M190 204 H330 C380 204 380 200 430 200 H590" stroke="#222"/>
+    <path d="M190 254 H300" stroke="#d22"/>
+  </g>
+  <g font-size="11" fill="#555">
+    <text x="200" y="96">blue (typical)</text>
+    <text x="200" y="146">white (typical)</text>
+    <text x="200" y="196">black</text>
+    <text x="200" y="246">red</text>
+  </g>
+  <!-- VBUS insulated -->
+  <rect x="300" y="244" width="22" height="20" rx="3" fill="#ffd54f" stroke="#a07800"/>
+  <text x="332" y="252" font-size="12" fill="#b00" font-weight="bold">insulate, not connected</text>
+  <text x="332" y="268" font-size="11" fill="#555">(also CC and shield)</text>
+
+  <!-- jack -->
+  <text x="470" y="34" font-size="15" font-weight="bold" fill="#222">3.5 mm TRS (paddle plug contacts)</text>
+  <g stroke="#444" stroke-width="2">
+    <path d="M470 108 L490 102 L500 102 L500 138 L470 138 Z" fill="#c9a227"/>
+    <rect x="500" y="102" width="6" height="36" fill="#222"/>
+    <rect x="506" y="102" width="40" height="36" fill="#c9a227"/>
+    <rect x="546" y="102" width="6" height="36" fill="#222"/>
+    <rect x="552" y="102" width="70" height="36" fill="#c9a227"/>
+    <rect x="622" y="96" width="60" height="48" rx="6" fill="#555"/>
+  </g>
+  <g stroke="#888" stroke-width="1.5" stroke-dasharray="4 3">
+    <line x1="485" y1="138" x2="485" y2="226"/>
+    <line x1="526" y1="138" x2="526" y2="226"/>
+    <line x1="590" y1="138" x2="590" y2="226"/>
+  </g>
+  <g font-size="13" font-weight="bold" fill="#222" text-anchor="middle">
+    <text x="485" y="244">TIP</text>
+    <text x="526" y="244">RING</text>
+    <text x="590" y="244">SLEEVE</text>
+  </g>
+  <g font-size="12" text-anchor="middle">
+    <text x="485" y="262" fill="#1f6fd1">DIT</text>
+    <text x="526" y="262" fill="#666">DAH</text>
+    <text x="590" y="262" fill="#222">GND</text>
+  </g>
+  <g fill="#222">
+    <circle cx="470" cy="120" r="4"/><circle cx="520" cy="160" r="4"/><circle cx="590" cy="200" r="4"/>
+  </g>
+
+  <!-- notes -->
+  <text x="40" y="306" font-size="12" fill="#222">Paddle contacts close to ground; the app provides the pull-ups. Works in both plug orientations.</text>
+  <text x="40" y="324" font-size="12" fill="#b00" font-weight="bold">Never plug the adapter into a charger or a computer. Wire colours vary: check with a meter.</text>
+</svg>

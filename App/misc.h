@@ -39,6 +39,10 @@
 #define FM_CHANNELS_MAX 48
 #define MR_CHANNELS_MAX 1024
 #define MR_CHANNELS_LIST 24
+#define SCAN_LIST_MODE_ALL       (MR_CHANNELS_LIST + 1u)
+#define SCAN_LIST_MODE_MIX       (MR_CHANNELS_LIST + 2u)
+#define SCAN_LIST_MIX_SHORTCUT   25u
+#define SCAN_LIST_MIX_MASK_ALL   ((1u << MR_CHANNELS_LIST) - 1u)
 // CACHE-BASED OPTIMIZATION: Only keep active channels in RAM
 // Full array stays in EEPROM, cache holds ~10 most-used channels
 #define MR_CHANNELS_CACHE_SIZE 10
@@ -64,14 +68,6 @@ enum {
     VFO_CONFIGURE,
     VFO_CONFIGURE_RELOAD
 };
-
-enum AlarmState_t {
-    ALARM_STATE_OFF = 0,
-    ALARM_STATE_TXALARM,
-    ALARM_STATE_SITE_ALARM,
-    ALARM_STATE_TX1750
-};
-typedef enum AlarmState_t AlarmState_t;
 
 enum ReceptionMode_t {
     RX_MODE_NONE = 0,   // squelch close ?
@@ -167,10 +163,6 @@ extern bool                  gSetting_ScrambleEnable;
 
 extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 
-#ifdef ENABLE_AM_FIX
-    extern bool              gSetting_AM_fix;
-#endif
-
 #ifdef ENABLE_FEAT_F4HWN_SLEEP 
     extern uint8_t           gSetting_set_off;
     extern bool              gWakeUp;
@@ -231,9 +223,6 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern uint8_t            gDW;
     extern uint8_t            gCB;
     extern bool               gSaveRxMode;
-    extern uint8_t            crc[15];
-    extern uint8_t            lErrorsDuringAirCopy;
-    extern uint8_t            gAircopyStep;
     extern uint8_t            gAircopyCurrentMapIndex;
     extern bool               gAirCopyBootMode;
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
@@ -354,6 +343,7 @@ extern volatile bool         gTxTimeoutReached;
     #endif
     #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
         extern volatile uint8_t  gUART_LockK5Viewer; // lock the K5Viewer stream if Chirp is used
+        #define K5VIEWER_LOCK_HELD 0xFFu              // held, no countdown: an overlay app owns the USB port
         extern bool gUSB_K5ViewerEnabled;
 
         bool K5VIEWER_IsLocked(void);
@@ -367,7 +357,7 @@ extern volatile uint16_t     gTailNoteEliminationCountdown_10ms;
 #endif
 extern bool                  gEnableSpeaker;
 extern uint8_t               gKeyInputCountdown;
-extern uint8_t               gKeyLockCountdown;
+extern uint16_t              gKeyLockCountdown;
 extern uint8_t               gRTTECountdown_10ms;
 extern bool                  bIsInLockScreen;
 extern uint8_t               gUpdateStatus;
@@ -396,7 +386,7 @@ enum
 extern volatile bool     gScheduleScanListen;
 extern volatile uint16_t gScanPauseDelayIn_10ms;
 
-extern AlarmState_t          gAlarmState;
+extern bool                  gTx1750Active;
 extern uint16_t              gMenuCountdown;
 extern bool                  gPttWasReleased;
 extern bool                  gPttWasPressed;
@@ -407,7 +397,7 @@ extern bool                  gFlagResetVfos;
 extern bool                  gRequestSaveVFO;
 extern uint16_t              gRequestSaveChannel;
 extern bool                  gRequestSaveSettings;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern bool              gRequestSaveFM;
 #endif
 extern uint8_t               gKeypadLocked;
@@ -416,7 +406,7 @@ extern bool                  gFlagPrepareTX;
 extern bool                  gFlagAcceptSetting;   // accept menu setting
 extern bool                  gFlagRefreshSetting;  // refresh menu display
 
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern bool              gFlagSaveFM;
 #endif
 extern bool                  g_CDCSS_Lost;
@@ -441,8 +431,6 @@ extern ReceptionMode_t       gRxReceptionMode;
 
  //TRUE when dual watch is momentarly suspended and RX_VFO is locked to either last TX or RX
 extern bool                  gRxVfoIsActive;
-extern uint8_t               gAlarmToneCounter;
-extern uint16_t              gAlarmRunningCounter;
 extern bool                  gKeyBeingHeld;
 extern bool                  gPttIsPressed;
 extern uint8_t               gPttDebounceCounter;
@@ -457,7 +445,7 @@ extern uint8_t               gFSKWriteIndex;
 extern volatile bool         gNextTimeslice;
 extern bool                  gUpdateDisplay;
 extern bool                  gF_LOCK;
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern uint8_t           gFM_ChannelPosition;
 #endif
 extern uint8_t               gShowChPrefix;
@@ -476,7 +464,7 @@ extern volatile uint8_t      gVFOStateResumeCountdown_500ms;
 #ifdef ENABLE_CW_MODULATOR
 extern volatile bool         gCW_PlayIndicatorOn;
 #endif
-#ifdef ENABLE_FMRADIO
+#ifdef ENABLE_FMRADIO_EMBEDDED
     extern volatile bool     gScheduleFM;
 #endif
 extern uint8_t               gIsLocked;

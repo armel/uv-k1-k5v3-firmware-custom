@@ -14,9 +14,11 @@
  *     limitations under the License.
  */
 
+#include <assert.h>
 #include <string.h>
 #include <stdlib.h>
 
+#include "../app/action.h"
 #include "../app/dtmf.h"
 #include "../app/menu.h"
 #ifdef ENABLE_CW_MODULATOR
@@ -46,6 +48,10 @@
 #include "menu.h"
 #include "ui.h"
 #include "welcome.h"
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    #include "driver/mb_flash.h"
+    #include "multiboot.h"
+#endif
 
 
 const t_menu_item MenuList[] =
@@ -110,9 +116,6 @@ const t_menu_item MenuList[] =
     {"STE",         MENU_STE           },
     {"RP STE",      MENU_RP_STE        },
     {"1 Call",      MENU_1_CALL        },
-#ifdef ENABLE_ALARM
-    {"AlarmT",      MENU_AL_MOD        },
-#endif
 #ifdef ENABLE_DTMF_CALLING
     {"ANI ID",      MENU_ANI_ID        },
 #endif
@@ -130,11 +133,6 @@ const t_menu_item MenuList[] =
     {"D List",      MENU_D_LIST        },
 #endif
     {"D Live",      MENU_D_LIVE_DEC    }, // live DTMF decoder
-#ifndef ENABLE_FEAT_F4HWN
-    #ifdef ENABLE_AM_FIX
-        {"AM Fix",      MENU_AM_FIX        },
-    #endif
-#endif
     {"VOX",         MENU_VOX           },
 #ifdef ENABLE_FEAT_F4HWN
     {"SysInf",      MENU_VOL           }, // was "VOL"
@@ -177,6 +175,9 @@ const t_menu_item MenuList[] =
 #endif
 #ifdef ENABLE_FEAT_F4HWN_LOGO_SAV
     {"SetSav",      MENU_SET_SAV       },
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    {"SetCfg",      MENU_SET_CFG       }, // load another settings bank
 #endif
 #endif
 #ifdef ENABLE_CW_MODULATOR
@@ -279,7 +280,11 @@ const char* const gSubMenu_RXMode[] =
     "MAIN\nONLY",       // TX and RX on main only
     "DUAL RX\nRESPOND", // Watch both and respond
     "CROSS\nBAND",      // TX on main, RX on secondary
-    "MAIN TX\nDUAL RX"  // always TX on main, but RX on both
+    "MAIN TX\nDUAL RX", // always TX on main, but RX on both
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    "FULL RX\nRESPOND", // Watch A, B and priority channels, then respond on the promoted channel
+    "MAIN TX\nFULL RX"  // Watch all channels, but always transmit on the selected VFO
+#endif
 };
 
 #ifdef ENABLE_VOICE
@@ -298,14 +303,6 @@ const char* const gSubMenu_MDF[] =
     "NAME",
     "NAME\n+\nFREQ"
 };
-
-#ifdef ENABLE_ALARM
-    const char* const gSubMenu_AL_MOD[] =
-    {
-        "SITE",
-        "TONE"
-    };
-#endif
 
 #ifdef ENABLE_DTMF_CALLING
 const char* const gSubMenu_D_RSP[] =
@@ -519,78 +516,88 @@ const char* const gSubMenu_SCRAMBLER[] =
     #endif
 #endif
 
-const t_sidefunction gSubMenu_SIDEFUNCTIONS[] =
-{
-    {"NONE",            ACTION_OPT_NONE},
-#ifdef ENABLE_FLASHLIGHT
-    {"FLASH\nLIGHT",    ACTION_OPT_FLASHLIGHT},
-#endif
-    {"POWER",           ACTION_OPT_POWER},
-    {"MONITOR",         ACTION_OPT_MONITOR},
-    {"SCAN",            ACTION_OPT_SCAN},
-#ifdef ENABLE_VOX
-    {"VOX",             ACTION_OPT_VOX},
-#endif
-#ifdef ENABLE_ALARM
-    {"ALARM",           ACTION_OPT_ALARM},
-#endif
-#ifdef ENABLE_FMRADIO
-    {"FM RADIO",        ACTION_OPT_FM},
-#endif
-#ifdef ENABLE_TX1750
-    {"1750Hz",          ACTION_OPT_1750},
-#endif
-    {"LOCK\nKEYPAD",    ACTION_OPT_KEYLOCK},
-    {"VFO A\nVFO B",    ACTION_OPT_A_B},
-    {"VFO\nMEM",        ACTION_OPT_VFO_MR},
-    {"MODE",            ACTION_OPT_SWITCH_DEMODUL},
-#ifdef ENABLE_BLMIN_TMP_OFF
-    {"BLMIN\nTMP OFF",  ACTION_OPT_BLMIN_TMP_OFF},      //BackLight Minimum Temporary OFF
-#endif
 #ifdef ENABLE_CW_MODULATOR
-	{"CW KEY\nINPUT", ACTION_OPT_CW_KEY_INPUT},
-	{"CW KEYER\nMODE", ACTION_OPT_CW_KEYER_MODE},
-	{"CW SPEED", ACTION_OPT_CW_SPEED},
-	{"CW\nBREAK-IN", ACTION_OPT_CW_BREAK_IN},
-    #ifdef ENABLE_CODE_PRACTICE
-        {"CODE\nPRACTICE", ACTION_OPT_CPO},
-    #endif
-	{"PLAY\nCW MSG1", ACTION_OPT_PLAY_CWMSG1},
-	{"PLAY\nCW MSG2", ACTION_OPT_PLAY_CWMSG2},
-	{"PLAY\nCW MSG3", ACTION_OPT_PLAY_CWMSG3},
-	{"PLAY\nCW MSG4", ACTION_OPT_PLAY_CWMSG4},
-	{"REPEAT\nCW MSG1", ACTION_OPT_REPEAT_CWMSG1},
-	{"REPEAT\nCW MSG2", ACTION_OPT_REPEAT_CWMSG2},
-	{"REPEAT\nCW MSG3", ACTION_OPT_REPEAT_CWMSG3},
-	{"REPEAT\nCW MSG4", ACTION_OPT_REPEAT_CWMSG4},
-	{"PROPER\nROGER", ACTION_OPT_CW_PROPER_ROGER},
+    // The bit is not a wide/narrow pair on CW and USB, see RADIO_ResolveFilter()
+    #define SIDEFUNCTION_WN_NAME "FILTER\nWIDTH"
+    #define SIDEFUNCTION_CW_NAMES(X) \
+        X(ACTION_OPT_CW_KEY_INPUT,     "CW KEY\nINPUT") \
+        X(ACTION_OPT_CW_KEYER_MODE,    "CW KEYER\nMODE") \
+        X(ACTION_OPT_CW_SPEED,         "CW SPEED") \
+        X(ACTION_OPT_CW_BREAK_IN,      "CW\nBREAK-IN") \
+        X(ACTION_OPT_CPO,              "CODE\nPRACTICE") \
+        X(ACTION_OPT_PLAY_CWMSG1,      "PLAY\nCW MSG1") \
+        X(ACTION_OPT_PLAY_CWMSG2,      "PLAY\nCW MSG2") \
+        X(ACTION_OPT_PLAY_CWMSG3,      "PLAY\nCW MSG3") \
+        X(ACTION_OPT_PLAY_CWMSG4,      "PLAY\nCW MSG4") \
+        X(ACTION_OPT_REPEAT_CWMSG1,    "REPEAT\nCW MSG1") \
+        X(ACTION_OPT_REPEAT_CWMSG2,    "REPEAT\nCW MSG2") \
+        X(ACTION_OPT_REPEAT_CWMSG3,    "REPEAT\nCW MSG3") \
+        X(ACTION_OPT_REPEAT_CWMSG4,    "REPEAT\nCW MSG4") \
+        X(ACTION_OPT_CW_PROPER_ROGER,  "PROPER\nROGER")
+    #define SIDEFUNCTION_CW_MASK \
+        ((1ull << ACTION_OPT_CW_END) - (1ull << ACTION_OPT_CW_FIRST))
+#else
+    #define SIDEFUNCTION_WN_NAME "WIDE\nNARROW"
+    #define SIDEFUNCTION_CW_NAMES(X)
+    #define SIDEFUNCTION_CW_MASK 0ull
 #endif
-#ifdef ENABLE_FEAT_F4HWN
-    {"RX MODE",         ACTION_OPT_RXMODE},
-    {"MAIN ONLY",       ACTION_OPT_MAINONLY},
-    {"PTT",             ACTION_OPT_PTT},
-    {"FILTER\nWIDTH",   ACTION_OPT_WN},
-    {"MUTE",            ACTION_OPT_MUTE},
-    #ifdef ENABLE_FEAT_F4HWN_AUDIO
-        {"RxA",            ACTION_OPT_RXA},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
-        {"POWER\nHIGH",    ACTION_OPT_POWER_HIGH},
-        {"REMOVE\nOFFSET",  ACTION_OPT_REMOVE_OFFSET},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_BEAM
-        {"BEAM",            ACTION_OPT_BEAM},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-        {"RF LOG",          ACTION_OPT_RXTX_LOG},
-    #endif
-    #ifdef ENABLE_FEAT_F4HWN_FOXHUNT
-        {"FOX HUNT\nBEACON", ACTION_OPT_FOXHUNT},
-    #endif
-#endif
-};
 
-const uint8_t gSubMenu_SIDEFUNCTIONS_size = ARRAY_SIZE(gSubMenu_SIDEFUNCTIONS);
+#define SIDEFUNCTION_NAMES(X) \
+    X(ACTION_OPT_NONE,           "NONE") \
+    X(ACTION_OPT_FLASHLIGHT,     "FLASH\nLIGHT") \
+    X(ACTION_OPT_POWER,          "POWER") \
+    X(ACTION_OPT_MONITOR,        "MONITOR") \
+    X(ACTION_OPT_SCAN,           "SCAN") \
+    X(ACTION_OPT_VOX,            "VOX") \
+    X(ACTION_OPT_FM,             "FM RADIO") \
+    X(ACTION_OPT_1750,           "1750Hz") \
+    X(ACTION_OPT_KEYLOCK,        "LOCK\nKEYPAD") \
+    X(ACTION_OPT_A_B,            "VFO A\nVFO B") \
+    X(ACTION_OPT_VFO_MR,         "VFO\nMEM") \
+    X(ACTION_OPT_SWITCH_DEMODUL, "MODE") \
+    X(ACTION_OPT_RXMODE,         "RX MODE") \
+    X(ACTION_OPT_MAINONLY,       "MAIN ONLY") \
+    X(ACTION_OPT_PTT,            "PTT") \
+    X(ACTION_OPT_WN,             SIDEFUNCTION_WN_NAME) \
+    X(ACTION_OPT_MUTE,           "MUTE") \
+    X(ACTION_OPT_RXA,            "RxA") \
+    X(ACTION_OPT_RXTX_LOG,       "RF LOG") \
+    X(ACTION_OPT_BEAM,           "BEAM") \
+    X(ACTION_OPT_POWER_HIGH,     "POWER\nHIGH") \
+    X(ACTION_OPT_REMOVE_OFFSET,  "REMOVE\nOFFSET") \
+    X(ACTION_OPT_FOXHUNT,        "FOX HUNT") \
+    X(ACTION_OPT_BEACON,         "BEACON") \
+    X(ACTION_OPT_TONECALL,       "TONE CALL") \
+    SIDEFUNCTION_CW_NAMES(X)
+
+#define SIDEFUNCTION_NAME_ENTRY(action, name) [action] = name,
+const char *const gSubMenu_SIDEFUNCTIONS[ACTION_OPT_LEN] =
+{
+    SIDEFUNCTION_NAMES(SIDEFUNCTION_NAME_ENTRY)
+};
+#undef SIDEFUNCTION_NAME_ENTRY
+
+// Every defined action has exactly one name and nothing else does: the IDs
+// between upstream's actions and the CW block stay NULL (ACTION_OPT_IS_DEFINED).
+// 64-bit since the CW block runs past bit 31; the M long press keeps 7 bits.
+#define SIDEFUNCTION_COUNT_ENTRY(action, name) + 1u
+#define SIDEFUNCTION_MASK_ENTRY(action, name) | (1ull << (action))
+#define SIDEFUNCTION_NAME_COUNT (0 SIDEFUNCTION_NAMES(SIDEFUNCTION_COUNT_ENTRY))
+#define SIDEFUNCTION_NAME_MASK  (0ull SIDEFUNCTION_NAMES(SIDEFUNCTION_MASK_ENTRY))
+
+static_assert(ACTION_OPT_LEN <= 64u && ACTION_OPT_LEN <= 0x7Fu);
+static_assert(SIDEFUNCTION_NAME_MASK ==
+              (((1ull << ACTION_OPT_UPSTREAM_END) - 1u) | SIDEFUNCTION_CW_MASK));
+static_assert(SIDEFUNCTION_NAME_COUNT == (unsigned)__builtin_popcountll(SIDEFUNCTION_NAME_MASK));
+
+#undef SIDEFUNCTION_COUNT_ENTRY
+#undef SIDEFUNCTION_MASK_ENTRY
+#undef SIDEFUNCTION_NAME_COUNT
+#undef SIDEFUNCTION_NAME_MASK
+#undef SIDEFUNCTION_NAMES
+#undef SIDEFUNCTION_CW_NAMES
+#undef SIDEFUNCTION_CW_MASK
+#undef SIDEFUNCTION_WN_NAME
 
 #ifdef ENABLE_CW_MODULATOR
 const char* gSubMenu_CW_KEYER_MODE[] =
@@ -700,6 +707,9 @@ static const uint8_t CatChannels[] = {
 #endif
     MENU_BCL, MENU_COMPAND, MENU_AM, MENU_TX_LOCK, MENU_PTT_ID, MENU_LIST_CH,
     MENU_MEM_CH, MENU_DEL_CH, MENU_MEM_NAME,
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+    MENU_SET_CFG,
+#endif
 };
 static const uint8_t CatScan[]    = {
     MENU_S_LIST, MENU_S_PRI, MENU_S_PRI_CH_1, MENU_S_PRI_CH_2, MENU_SC_REV,
@@ -893,7 +903,7 @@ bool    edit_is_uppercase = false;
 static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t line, const bool center_in_area, const uint8_t area_x1, const uint8_t area_x2)
 {
     const size_t length = strlen(text);
-    const size_t char_pitch = ARRAY_SIZE(gFontSmall[0]) + 1u;
+    const size_t char_pitch = FONT_SMALL_WIDTH + 1u;
     const size_t text_width = length * char_pitch;
     const size_t capsule_span = text_width + 1u; // matches UI_PrintStringSmallNormalInverse x_end computation
     uint8_t text_x;
@@ -947,6 +957,79 @@ static void UI_MENU_DrawTopRightRoundedBadge(const char *text, const uint8_t lin
     UI_PrintStringSmallNormalInverse(text, text_x, 0, line);
 }
 
+/* Draw `text` (3x5 font) centred inside a fixed-width rounded inverse capsule:
+ * left edge `cap_left`, inclusive width `cap_w`, on framebuffer page `line`. Same
+ * capsule pattern as GUI_DisplaySmallestInverse (0x3E rounded ends, 0x7F body) but
+ * with the width decoupled from the text length, so two labels of different
+ * lengths (e.g. "SLOT 2" / "CFG 4") share one width and each stays centred. */
+static void UI_MENU_DrawFixedCapsule(const char *text, uint8_t cap_left,
+                                     uint8_t cap_w, uint8_t line)
+{
+    const uint8_t cap_right = (uint8_t)(cap_left + cap_w - 1u);
+    const uint8_t text_w    = (uint8_t)(strlen(text) * 4u - 1u); /* 3x5 glyphs: 4 px/char, last one 3 px wide */
+    const uint8_t tx        = (uint8_t)(cap_left + (cap_w - text_w) / 2u);
+
+    GUI_DisplaySmallest(text, tx, (uint8_t)(line * 8u + 1u), false, true);
+
+    gFrameBuffer[line][cap_left] ^= 0x3Eu;
+    for (uint8_t x = (uint8_t)(cap_left + 1u); x < cap_right; x++)
+        gFrameBuffer[line][x] ^= 0x7Fu;
+    gFrameBuffer[line][cap_right] ^= 0x3Eu;
+}
+
+static void UI_MENU_DrawScanMixSummary(const uint8_t area_x1,
+                                       const uint8_t area_x2)
+{
+    const uint8_t label_w = 35u;
+    const uint8_t count_w = 23u;
+    const uint8_t gap = 4u;
+    const uint8_t pair_w = label_w + gap + count_w;
+    const uint8_t label_x = (uint8_t)(area_x1 +
+                                      ((area_x2 - area_x1 + 1u - pair_w) / 2u));
+    uint32_t mask = gEeprom.SCAN_LIST_MIX_MASK & SCAN_LIST_MIX_MASK_ALL;
+    uint8_t selected = 0;
+    char count[6];
+
+    while (mask != 0u) {
+        selected += (uint8_t)(mask & 1u);
+        mask >>= 1;
+    }
+
+    sprintf(count, "%02u/%02u", (unsigned)selected,
+            (unsigned)MR_CHANNELS_LIST);
+    UI_MENU_DrawFixedCapsule("SELECTED", label_x, label_w, 6);
+    UI_MENU_DrawFixedCapsule(count, (uint8_t)(label_x + label_w + gap),
+                             count_w, 6);
+}
+
+static void UI_MENU_DrawScanMixEditor(void)
+{
+    char text[9];
+
+    // Keep the cursor centred, with two neighbouring lists above and below.
+    for (int8_t row = -2; row <= 2; row++) {
+        const uint8_t index = (uint8_t)((gScanMixEditorCursor + row +
+                                        MR_CHANNELS_LIST) % MR_CHANNELS_LIST);
+        const uint8_t line = (uint8_t)(3 + row);
+        const char *name = gListName[index];
+
+        if (IsEmptyName(name, sizeof(gListName[0])))
+            sprintf(text, "%02u", (unsigned)(index + 1));
+        else
+            sprintf(text, "%02u (%.3s)", (unsigned)(index + 1), name);
+
+        // The longest label ends at x=109; the compact ON capsule stays right-aligned.
+        if (row == 0) {
+            UI_PrintStringSmallBold(text, 54, 0, line);
+        } else {
+            UI_PrintStringSmallNormal(text, 54, 0, line);
+        }
+
+        if (gScanMixEditorMask & (1u << index))
+            UI_MENU_DrawFixedCapsule("ON", 115, 11, line);
+    }
+}
+
 void UI_DisplayMenu(void)
 {
     const unsigned int menu_list_width = 6; // max no. of characters on the menu list (left side)
@@ -955,8 +1038,12 @@ void UI_DisplayMenu(void)
     unsigned int       i;
     char               String[64];  // bigger cuz we can now do multi-line in one string (use '\n' char)
     char               top_right_badge[16];
+    uint8_t            top_right_badge_line = 1;
 
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
+    // The status bar shows the menu level / category capsule: refresh it.
+    gUpdateStatus = true;
+
     if (gMenuLevel == MENU_LEVEL_CAT)
     {
         UI_MENU_DrawCategories();
@@ -1065,12 +1152,20 @@ void UI_DisplayMenu(void)
 
     bool already_printed = false;
     bool cw_text_first_line = false;  // first line of String is CW text: print zeros dotted
+    const char *const *choiceTable;
 
     /* Brightness is set to max in some entries of this menu. Return it to the configured brightness
        level the "next" time we enter here.I.e., when we move from one menu to another.
        It also has to be set back to max when pressing the Exit key. */
 
     BACKLIGHT_TurnOn();
+
+    if (gScanMixEditorActive)
+    {
+        UI_MENU_DrawScanMixEditor();
+        ST7565_BlitFullScreen();
+        return;
+    }
 
     //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
         uint8_t gaugeLine = 0;
@@ -1110,24 +1205,34 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_TXP:
-            if(gSubMenuSelection == 0)
+#ifdef ENABLE_FEAT_F4HWN
+        case MENU_SET_PWR:
+#endif
+        {
+            int32_t power = gSubMenuSelection;
+#ifdef ENABLE_FEAT_F4HWN
+            if (m == MENU_SET_PWR)
+                power++;
+#endif
+            if (power == 0)
             {
-                strcpy(String, gSubMenu_TXP[gSubMenuSelection]);
+                choiceTable = gSubMenu_TXP;
+                goto copy_menu_choice;
             }
-            else
-            {
-                sprintf(String, "%s\n%sW", gSubMenu_TXP[gSubMenuSelection], gSubMenu_SET_PWR[gSubMenuSelection - 1]);
-            }
+            sprintf(String, "%s\n%sW", gSubMenu_TXP[power], gSubMenu_SET_PWR[power - 1]);
             break;
+        }
 
         case MENU_R_DCS:
         case MENU_T_DCS:
             if (gSubMenuSelection == 0)
                 strcpy(String, gSubMenu_OFF_ON[0]);
-            else if (gSubMenuSelection < 105)
-                sprintf(String, "D%03oN", DCS_Options[gSubMenuSelection -   1]);
             else
-                sprintf(String, "D%03oI", DCS_Options[gSubMenuSelection - 105]);
+            {
+                const bool inverted = gSubMenuSelection >= 105;
+                const unsigned index = gSubMenuSelection - (inverted ? 105 : 1);
+                sprintf(String, inverted ? "D%03oI" : "D%03oN", DCS_GetOption(index));
+            }
             break;
 
         case MENU_R_CTCS:
@@ -1141,8 +1246,8 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_SFT_D:
-            strcpy(String, gSubMenu_SFT_D[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SFT_D;
+            goto copy_menu_choice;
 
         case MENU_OFFSET:
             if (!gIsInSubMenu || gInputBoxIndex == 0)
@@ -1162,8 +1267,8 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_W_N:
-            strcpy(String, UI_MENU_FilterLabels()[gSubMenuSelection]);
-            break;
+            choiceTable = UI_MENU_FilterLabels();
+            goto copy_menu_choice;
 
 #ifndef ENABLE_FEAT_F4HWN
         case MENU_SCR:
@@ -1186,29 +1291,38 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_ABR:
-            if(gSubMenuSelection == 0)
+        case MENU_AUTOLK:
+        case MENU_TOT:
+        {
+            if (m != MENU_TOT && gSubMenuSelection == 0)
             {
                 strcpy(String, gSubMenu_OFF_ON[0]);
+                break;
             }
-            else if(gSubMenuSelection < 61)
-            {
-                sprintf(String, "%02dm:%02ds", (((gSubMenuSelection) * 5) / 60), (((gSubMenuSelection) * 5) % 60));
-                //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
-                //ST7565_Gauge(4, 1, 60, gSubMenuSelection);
-                gaugeLine = 4;
-                gaugeMin = 1;
-                gaugeMax = 60;
-                //#endif
-            }
-            else
+            if (m == MENU_ABR && gSubMenuSelection >= 61)
             {
                 strcpy(String, "ON");
+                break;
             }
 
-            // Obsolete ???
-            //if(BACKLIGHT_GetBrightness() < 4)
-            //    BACKLIGHT_SetBrightness(4);
+            int32_t seconds = gSubMenuSelection * 5;
+            gaugeLine = 4;
+            gaugeMin = 1;
+            gaugeMax = 60;
+            if (m == MENU_AUTOLK)
+            {
+                seconds *= 3;
+                gaugeMax = 40;
+            }
+            else if (m == MENU_TOT)
+            {
+                seconds += 5;
+                gaugeMin = 5;
+                gaugeMax = 179;
+            }
+            sprintf(String, "%02dm:%02ds", seconds / 60, seconds % 60);
             break;
+        }
 
         case MENU_ABR_MIN:
         case MENU_ABR_MAX:
@@ -1224,31 +1338,11 @@ void UI_DisplayMenu(void)
             strcpy(String, gModulationStr[gSubMenuSelection]);
             break;
 
-        case MENU_AUTOLK:
-            if (gSubMenuSelection == 0)
-                strcpy(String, gSubMenu_OFF_ON[0]);
-            else
-            {
-                sprintf(String, "%02dm:%02ds", ((gSubMenuSelection * 15) / 60), ((gSubMenuSelection * 15) % 60));
-                //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
-                //ST7565_Gauge(4, 1, 40, gSubMenuSelection);
-                gaugeLine = 4;
-                gaugeMin = 1;
-                gaugeMax = 40;
-                //#endif
-            }
-            break;
-
         case MENU_COMPAND:
         case MENU_ABR_ON_TX_RX:
-            strcpy(String, gSubMenu_RX_TX[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_RX_TX;
+            goto copy_menu_choice;
 
-        #ifndef ENABLE_FEAT_F4HWN
-            #ifdef ENABLE_AM_FIX
-                case MENU_AM_FIX:
-            #endif
-        #endif
         case MENU_BCL:
         case MENU_BEEP:
         case MENU_STE:
@@ -1273,13 +1367,13 @@ void UI_DisplayMenu(void)
         case MENU_SET_TMR:
         case MENU_S_PRI:
 #endif
-            strcpy(String, gSubMenu_OFF_ON[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_OFF_ON;
+            goto copy_menu_choice;
 
 #if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_LOGO_SAV)
         case MENU_SET_SAV:
-            strcpy(String, gSubMenu_SET_SAV[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_SAV;
+            goto copy_menu_choice;
 #endif
 
         case MENU_MEM_CH:
@@ -1379,18 +1473,8 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_TDR:
-            strcpy(String, gSubMenu_RXMode[gSubMenuSelection]);
-            break;
-
-        case MENU_TOT:
-            sprintf(String, "%02dm:%02ds", (((gSubMenuSelection + 1) * 5) / 60), (((gSubMenuSelection + 1) * 5) % 60));
-            //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
-            //ST7565_Gauge(4, 5, 179, gSubMenuSelection);
-            gaugeLine = 4;
-            gaugeMin = 5;
-            gaugeMax = 179;
-            //#endif
-            break;
+            choiceTable = gSubMenu_RXMode;
+            goto copy_menu_choice;
 
         #ifdef ENABLE_VOICE
             case MENU_VOICE:
@@ -1426,8 +1510,8 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_MDF:
-            strcpy(String, gSubMenu_MDF[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_MDF;
+            goto copy_menu_choice;
 
         case MENU_RP_STE:
             sprintf(String, gSubMenuSelection == 0 ? gSubMenu_OFF_ON[0] : "%u*100ms", gSubMenuSelection);
@@ -1435,7 +1519,9 @@ void UI_DisplayMenu(void)
 
         case MENU_LIST_CH:
         case MENU_S_LIST:
-            if (gSubMenuSelection == MR_CHANNELS_LIST + 1)
+            if (gSubMenuSelection == SCAN_LIST_MODE_MIX && m == MENU_S_LIST)
+                strcpy(String, "MIX");
+            else if (gSubMenuSelection == SCAN_LIST_MODE_ALL)
                 strcpy(String, "ALL");
             else if (gSubMenuSelection == 0 && m == MENU_LIST_CH)
                 strcpy(String, "OFF");
@@ -1450,37 +1536,27 @@ void UI_DisplayMenu(void)
             }
             break;
             
-        #ifdef ENABLE_ALARM
-            case MENU_AL_MOD:
-                sprintf(String, gSubMenu_AL_MOD[gSubMenuSelection]);
-                break;
-        #endif
-
 #ifdef ENABLE_DTMF_CALLING
         case MENU_ANI_ID:
             strcpy(String, gEeprom.ANI_DTMF_ID);
             break;
 #endif
         case MENU_UPCODE:
-            if (gEeprom.DTMF_UP_CODE[8] != '\0' && gEeprom.DTMF_UP_CODE[8] != 0xFF) {
-                sprintf(String, "%.8s\n%.8s", gEeprom.DTMF_UP_CODE, gEeprom.DTMF_UP_CODE + 8);
-            } else {
-                sprintf(String, "%.8s", gEeprom.DTMF_UP_CODE);
-            }
-            break;
-
         case MENU_DWCODE:
-            if (gEeprom.DTMF_DOWN_CODE[8] != '\0' && gEeprom.DTMF_DOWN_CODE[8] != 0xFF) {
-                sprintf(String, "%.8s\n%.8s", gEeprom.DTMF_DOWN_CODE, gEeprom.DTMF_DOWN_CODE + 8);
+        {
+            const char *code = m == MENU_UPCODE ? gEeprom.DTMF_UP_CODE : gEeprom.DTMF_DOWN_CODE;
+            if (code[8] != '\0' && code[8] != 0xFF) {
+                sprintf(String, "%.8s\n%.8s", code, code + 8);
             } else {
-                sprintf(String, "%.8s", gEeprom.DTMF_DOWN_CODE);
+                sprintf(String, "%.8s", code);
             }
             break;
+        }
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_RSP:
-            strcpy(String, gSubMenu_D_RSP[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_D_RSP;
+            goto copy_menu_choice;
 
         case MENU_D_HOLD:
             sprintf(String, "%ds", gSubMenuSelection);
@@ -1491,12 +1567,12 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_PTT_ID:
-            strcpy(String, gSubMenu_PTT_ID[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_PTT_ID;
+            goto copy_menu_choice;
 
         case MENU_BAT_TXT:
-            strcpy(String, gSubMenu_BAT_TXT[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_BAT_TXT;
+            goto copy_menu_choice;
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -1509,12 +1585,12 @@ void UI_DisplayMenu(void)
 #endif
 
         case MENU_PONMSG:
-            strcpy(String, gSubMenu_PONMSG[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_PONMSG;
+            goto copy_menu_choice;
 
         case MENU_ROGER:
-            strcpy(String, gSubMenu_ROGER[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_ROGER;
+            goto copy_menu_choice;
 
         case MENU_VOL: {
             // SysInf is paginated. Pages appear in this order, only when their
@@ -1532,7 +1608,46 @@ void UI_DisplayMenu(void)
                 // Page 0: firmware identity.
 #ifdef ENABLE_FEAT_F4HWN
                 sprintf(String, "%s\n%s", AUTHOR_STRING_2, DISPLAY_VERSION_STRING_2);
+#ifdef UPSTREAM_SHORT_STRING
+                UI_PrintStringSmallNormal(UPSTREAM_SHORT_STRING, menu_item_x1 - 1, menu_item_x2, 6);
+#else
                 UI_PrintStringSmallNormal(Edition, menu_item_x1 - 1, menu_item_x2, 6);
+#endif
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+                /* Two 3x5 inverse-capsule labels on one line (scan-list "label"
+                 * style): the running firmware slot (M = Main) and the active
+                 * config bank. They match unless SetCfg has pointed the bank at a
+                 * different bank (e.g. SLOT 2 / CFG 4). */
+                const uint8_t fw_slot = MB_GetRunningSlot();
+                const uint8_t bank    = MB_GetActiveBank();
+                char slot_lbl[8];
+                char cfg_lbl[8];
+
+                /* Only the last glyph varies (M / digit / ?), so poke it in place
+                 * instead of pulling sprintf for a single character. */
+                strcpy(slot_lbl, "SLOT ?");
+                if (fw_slot == 0u)
+                    slot_lbl[5] = 'M';
+                else if (fw_slot < MB_SLOT_COUNT)
+                    slot_lbl[5] = (char)('0' + fw_slot);
+                strcpy(cfg_lbl, "CFG M");            /* bank 0 = base config, like SLOT M */
+                if (bank != 0u)
+                    cfg_lbl[4] = (char)('0' + bank);
+
+                /* Both capsules share the wider label's width (6-char "SLOT x" ->
+                 * 4*6+3 = 27 px); the shorter CFG text is centred inside its own.
+                 * The two are drawn as one centred pair with a small gap, centred in
+                 * the space between the separator bar (x=48) and the right screen
+                 * edge, so they line up with the centred identity lines above. */
+                const uint8_t cap_w     = (uint8_t)(4u * 6u + 3u);                     /* 27 */
+                const uint8_t cap_gap   = 4u;
+                const uint8_t pair_w    = (uint8_t)(2u * cap_w + cap_gap);             /* 58 */
+                const uint8_t slot_left = (uint8_t)((48u + LCD_WIDTH - pair_w) / 2u);  /* 59 */
+                const uint8_t cfg_left  = (uint8_t)(slot_left + cap_w + cap_gap);      /* 90 */
+
+                UI_MENU_DrawFixedCapsule(slot_lbl, slot_left, cap_w, 5);
+                UI_MENU_DrawFixedCapsule(cfg_lbl,  cfg_left,  cap_w, 5);
+#endif
 #else
                 sprintf(String, "%u.%02uV\n%u%%",
                     gBatteryVoltageAverage / 100, gBatteryVoltageAverage % 100,
@@ -1610,8 +1725,8 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_RESET:
-            strcpy(String, gSubMenu_RESET[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_RESET;
+            goto copy_menu_choice;
 
         case MENU_F_LOCK:
 #ifdef ENABLE_FEAT_F4HWN
@@ -1647,20 +1762,35 @@ void UI_DisplayMenu(void)
         }
 
         case MENU_BATTYP:
-            strcpy(String, gSubMenu_BATTYP[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_BATTYP;
+            goto copy_menu_choice;
 
         case MENU_SET_NAV:
-            strcpy(String, gSubMenu_SET_NAV[gSubMenuSelection]);
+            choiceTable = gSubMenu_SET_NAV;
+            goto copy_menu_choice;
+
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+        case MENU_SET_CFG:
+            strcpy(String, "CFG M");         /* bank 0 = base config, like SysInfo */
+            if (gSubMenuSelection != 0)
+                String[4] = (char)('0' + gSubMenuSelection);
             break;
+#endif
 
         case MENU_F1SHRT:
         case MENU_F1LONG:
         case MENU_F2SHRT:
         case MENU_F2LONG:
         case MENU_MLONG:
-            strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection].name);
+        {
+            const uint8_t action = gSubMenuSelection;
+            strcpy(String, gSubMenu_SIDEFUNCTIONS[gSubMenuSelection]);
+            if (!ACTION_IsAvailable(action)) {
+                strcpy(top_right_badge, "N/A");
+                top_right_badge_line = 5;
+            }
             break;
+        }
 
 #ifdef ENABLE_CW_MODULATOR
 		case MENU_CW_FREQ:
@@ -1768,18 +1898,14 @@ void UI_DisplayMenu(void)
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN
-        case MENU_SET_PWR:
-            sprintf(String, "%s\n%sW", gSubMenu_TXP[gSubMenuSelection + 1], gSubMenu_SET_PWR[gSubMenuSelection]);
-            break;
-    
         case MENU_SET_PTT:
-            strcpy(String, gSubMenu_SET_PTT[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_PTT;
+            goto copy_menu_choice;
 
         case MENU_SET_TOT:
         case MENU_SET_EOT:
-            strcpy(String, gSubMenu_SET_TOT[gSubMenuSelection]); // Same as SET_TOT
-            break;
+            choiceTable = gSubMenu_SET_TOT;
+            goto copy_menu_choice;
 
         case MENU_SET_CTR:
             #ifdef ENABLE_FEAT_F4HWN_CTR
@@ -1812,18 +1938,18 @@ void UI_DisplayMenu(void)
             break;
 
         case MENU_SET_LCK:
-            strcpy(String, gSubMenu_SET_LCK[gSubMenuSelection]);
-            break;
+            choiceTable = gSubMenu_SET_LCK;
+            goto copy_menu_choice;
 
         case MENU_SET_MET:
         case MENU_SET_GUI:
-            strcpy(String, gSubMenu_SET_MET[gSubMenuSelection]); // Same as SET_MET
-            break;
+            choiceTable = gSubMenu_SET_MET;
+            goto copy_menu_choice;
 
         #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
             case MENU_SET_SCN:
-                strcpy(String, gSubMenu_SET_SCN[gSubMenuSelection]);
-                break;
+                choiceTable = gSubMenu_SET_SCN;
+                goto copy_menu_choice;
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_AUDIO
@@ -1845,8 +1971,8 @@ void UI_DisplayMenu(void)
 
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
             case MENU_SET_NFM:
-                strcpy(String, gSubMenu_SET_NFM[gSubMenuSelection]);
-                break;
+                choiceTable = gSubMenu_SET_NFM;
+                goto copy_menu_choice;
         #endif
 
         #ifdef ENABLE_FEAT_F4HWN_VOL
@@ -1877,6 +2003,9 @@ void UI_DisplayMenu(void)
         #endif
 #endif
 
+        copy_menu_choice:
+            strcpy(String, choiceTable[gSubMenuSelection]);
+            break;
     }
 
     //#if !defined(ENABLE_SPECTRUM) || !defined(ENABLE_FMRADIO)
@@ -1991,12 +2120,20 @@ void UI_DisplayMenu(void)
 #endif
 
     if (top_right_badge[0] != '\0') {
-        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, 1, true, menu_item_x1, menu_item_x2);
+        UI_MENU_DrawTopRightRoundedBadge(top_right_badge, top_right_badge_line, true, menu_item_x1, menu_item_x2);
+    }
+
+    if (m == MENU_S_LIST &&
+        gSubMenuSelection == SCAN_LIST_MODE_MIX) {
+        UI_MENU_DrawScanMixSummary(menu_item_x1, menu_item_x2);
     }
 
     if ((m == MENU_RESET    ||
          m == MENU_MEM_CH   ||
          m == MENU_MEM_NAME ||
+#ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
+         m == MENU_SET_CFG  ||
+#endif
          m == MENU_DEL_CH) && gAskForConfirmation)
     {   // display confirmation
         char *pPrintStr = (gAskForConfirmation == 1) ? "SURE?" : "WAIT!";

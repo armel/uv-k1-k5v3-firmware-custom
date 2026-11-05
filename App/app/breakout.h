@@ -47,24 +47,17 @@
 typedef struct {
     uint8_t x;       // x
     uint8_t y;       // y
-    uint8_t w;       // width
-    uint8_t h;       // height
     bool destroy;    // active, if true, check this button, else bypass
 } Brick;
 
 typedef struct {
     int8_t x;   // x
-    uint8_t y;  // y
-    uint8_t w;  // width
-    uint8_t h;  // height
     uint8_t p;  // previous x
 } Racket;
 
 typedef struct {
     int16_t x;  // x
     int8_t y;   // y
-    uint8_t w;  // width
-    uint8_t h;  // height
     int8_t dx;  // move x
     int8_t dy;  // move y
 } Ball;

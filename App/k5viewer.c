@@ -15,10 +15,18 @@
  */
 
 #include "debugging.h"
+#ifdef ENABLE_AIRCOPY_UART
+#include "app/aircopy.h"
+#endif
 #include "driver/st7565.h"
 #include "k5viewer.h"
 #include "misc.h"
+#ifdef ENABLE_UART
+#include "driver/uart.h"
+#endif
+#ifdef ENABLE_USB
 #include "driver/vcp.h"
+#endif
 #include "driver/keyboard.h"
 #include "driver/bk4819.h"
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
@@ -64,29 +72,49 @@ static uint16_t K5VIEWER_Hash(const uint8_t *data)
 
 void K5VIEWER_ParseInput(void)
 {
+#ifdef ENABLE_AIRCOPY_UART
+    if (gAircopyState == AIRCOPY_TRANSFER && AIRCOPY_UsesUart())
+        return;
+#endif
+
     if (K5VIEWER_IsLocked())
         return;
 
+#ifdef ENABLE_UART
     if (UART_IsCableConnected()) {
         keepAlive = 15;
         hasConnectionPing = true;
         gUSB_K5ViewerEnabled = false;
+        return;
     }
-    else if (VCP_K5ViewerPing()) {
+#endif
+
+#ifdef ENABLE_USB
+    if (VCP_K5ViewerPing()) {
         keepAlive = 15;
         hasConnectionPing = true;
         gUSB_K5ViewerEnabled = true;
     }
+#endif
 
 }
 
 static void K5VIEWER_Send(const uint8_t *buf, uint16_t len)
 {
+#if defined(ENABLE_UART) && defined(ENABLE_USB)
     if (gUSB_K5ViewerEnabled) {
         cdc_acm_data_send_with_dtr(buf, len);
     } else {
         UART_Send(buf, len);
     }
+#elif defined(ENABLE_USB)
+    cdc_acm_data_send_with_dtr(buf, len);
+#elif defined(ENABLE_UART)
+    UART_Send(buf, len);
+#else
+    (void)buf;
+    (void)len;
+#endif
 }
 
 enum {
@@ -222,6 +250,11 @@ static void K5VIEWER_Chunk(uint8_t chunkIdx, uint8_t *dest)
 
 void K5VIEWER_Update(bool force)
 {
+#ifdef ENABLE_AIRCOPY_UART
+    if (gAircopyState == AIRCOPY_TRANSFER && AIRCOPY_UsesUart())
+        return;
+#endif
+
     if (K5VIEWER_IsLocked())
         return;
 

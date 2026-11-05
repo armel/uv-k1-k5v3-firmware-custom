@@ -17,6 +17,9 @@
 #ifndef APP_ACTION_H
 #define APP_ACTION_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "driver/keyboard.h"
 
 void ACTION_Power(void);
@@ -32,12 +35,12 @@ void ACTION_Scan(bool bRestart);
 void ACTION_SwitchDemodul(void);
 void ACTION_SwitchFilter(void);
 
-#ifdef ENABLE_BLMIN_TMP_OFF
-    void ACTION_BlminTmpOff(void);
-#endif
-
 #ifdef ENABLE_FEAT_F4HWN
     void ACTION_RxMode(void);
+#ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
+    uint8_t ACTION_GetRxMode(void);
+    void ACTION_SetRxMode(uint8_t mode);
+#endif
     void ACTION_MainOnly(void);
     void ACTION_Ptt(void);
     void ACTION_Wn(void);
@@ -63,6 +66,10 @@ extern uint8_t gActionPickerSelection[2];
 extern uint8_t gActionPickerTimeout_500ms;
 bool ACTION_PickerProcessKey(KEY_Code_t key, bool isPressed, bool isHeld);
 #endif
+bool ACTION_IsAvailable(uint8_t action);
+// The next defined action from `action` in `direction`, wrapping within
+// [first, ACTION_OPT_LEN): the side-key menus pass 0, the picker 1 (no NONE)
+uint8_t ACTION_Step(uint8_t action, int8_t direction, uint8_t first);
 void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld);
 
 #endif

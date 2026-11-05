@@ -31,6 +31,7 @@ void VCP_Init();
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 bool VCP_K5ViewerPing(void);
+void VCP_K5ViewerSync(void);
 #endif
 
 static inline void VCP_Send(const uint8_t *Buf, uint32_t Size)

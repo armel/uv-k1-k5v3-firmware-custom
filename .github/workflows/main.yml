@@ -21,26 +21,26 @@ jobs:
 
     - name: Build CW firmware
       run: |
-        chmod +x compile-with-docker.sh
-        ./compile-with-docker.sh CW -DVERSION_STRING_2=${{ github.ref_name }}
+        chmod +x compile-firmware.sh
+        ./compile-firmware.sh CW -DVERSION_STRING_2=${{ github.ref_name }}
 
     - name: Rename release artifacts
       run: |
         TAG=${{ github.ref_name }}
-        cp build/CW/nr7y.cw.bin nr7y.k1-k5v3.${TAG}.bin
-        cp build/CW/nr7y.cw.uf2 nr7y.k1-k5v3.${TAG}.uf2
+        cp build/CW/brass.cw.bin brass.k1-k5v3.${TAG}.bin
+        cp build/CW/brass.cw.uf2 brass.k1-k5v3.${TAG}.uf2
         # Ship the CHIRP module named for this firmware release, with its
         # version string stamped to match. The module is stored generically
-        # in the repo (chirp/nr7y.k1-k5v3.chirp.py); the version lives only in
+        # in the repo (chirp/brass.k1-k5v3.chirp.py); the version lives only in
         # the released copy so the two never drift.
-        cp chirp/nr7y.k1-k5v3.chirp.py nr7y.k1-k5v3.chirp.${TAG}.py
-        sed -i "s/@NR7Y_VERSION@/${TAG}/g" nr7y.k1-k5v3.chirp.${TAG}.py
+        cp chirp/brass.k1-k5v3.chirp.py brass.k1-k5v3.chirp.${TAG}.py
+        sed -i "s/@NR7Y_VERSION@/${TAG}/g" brass.k1-k5v3.chirp.${TAG}.py
 
     - name: Upload release artifacts
       uses: softprops/action-gh-release@v2
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         files: |
-          nr7y.k1-k5v3.${{ github.ref_name }}.bin
-          nr7y.k1-k5v3.${{ github.ref_name }}.uf2
-          nr7y.k1-k5v3.chirp.${{ github.ref_name }}.py
+          brass.k1-k5v3.${{ github.ref_name }}.bin
+          brass.k1-k5v3.${{ github.ref_name }}.uf2
+          brass.k1-k5v3.chirp.${{ github.ref_name }}.py

@@ -32,20 +32,25 @@
 #define CW_MACRO_BLOCK_SIZE 48
 
 // Signature is stored in the length byte (high bit). Checksum is stored in the
-// extra byte at the end of the 42-byte block (offset 41).
+// last byte of the block.
 #define CW_MACRO_SIG 0x80
 #define CW_MACRO_CHECKSUM_OFFSET (CW_MACRO_BLOCK_SIZE - 1)
 
-// EEPROM addresses for macros (each uses CW_MACRO_BLOCK_SIZE bytes)
-// We reuse the DTMF contacts region (0x1C00..0x1CFF), DTMF calling must be disabled
-#if defined(ENABLE_DTMF_CALLING) && defined(ENABLE_CW_MODULATOR)
-#error "ENABLE_DTMF_CALLING and ENABLE_CW_MODULATOR both enabled; CW macros overlap DTMF contacts (0x1C00). Disable one or change CW macro base."
-#endif
+// Logical EEPROM addresses (eeprom_compat.c maps 0xD000-0xD0FF to flash
+// 0x00B000, a sector of its own). CHIRP uses the same addresses.
+//   0xD000  16-byte header: 'C','W','M', version, macro count, block size, 0xFF...
+//   0xD010  CW_MACRO_COUNT blocks of CW_MACRO_BLOCK_SIZE
+//   0xD0D0  spare, room for a 5th macro
+#define CW_MACRO_HDR_EEPROM_ADDR 0xD000
+#define CW_MACRO_HDR_SIZE        16
+#define CW_MACRO_HDR_VERSION     1
+#define CW_MACRO_HDR_SIG         "CWM"   // first 3 bytes, no terminator stored
+#define CW_MACRO_FLASH_SECTOR    0x00B000
 
-#define CW_MACRO1_EEPROM_ADDR 0x1C00
-#define CW_MACRO2_EEPROM_ADDR (CW_MACRO1_EEPROM_ADDR + CW_MACRO_BLOCK_SIZE)  /* 0x1C30 */
-#define CW_MACRO3_EEPROM_ADDR (CW_MACRO2_EEPROM_ADDR + CW_MACRO_BLOCK_SIZE)  /* 0x1C60 */
-#define CW_MACRO4_EEPROM_ADDR (CW_MACRO3_EEPROM_ADDR + CW_MACRO_BLOCK_SIZE)  /* 0x1C90 */
+#define CW_MACRO1_EEPROM_ADDR 0xD010
+#define CW_MACRO2_EEPROM_ADDR (CW_MACRO1_EEPROM_ADDR + CW_MACRO_BLOCK_SIZE)  /* 0xD040 */
+#define CW_MACRO3_EEPROM_ADDR (CW_MACRO2_EEPROM_ADDR + CW_MACRO_BLOCK_SIZE)  /* 0xD070 */
+#define CW_MACRO4_EEPROM_ADDR (CW_MACRO3_EEPROM_ADDR + CW_MACRO_BLOCK_SIZE)  /* 0xD0A0 */
 
 // Encoding/Decoding helper macros
 #define CW_MACRO_ENCODE(ch, hasSpace) ((hasSpace) ? ((ch) | 0x80) : (ch))
@@ -75,6 +80,14 @@ void CW_SaveMacro(uint8_t macroIndex, const char *buffer, uint8_t length);
 
 // Get the character count for a macro (reads length byte from EEPROM)
 uint8_t CW_GetMacroLength(uint8_t macroIndex);
+
+// Payload length of a raw CW_MACRO_BLOCK_SIZE block, or 0 if it is empty or
+// fails the signature, length or checksum check
+uint8_t CW_MacroBlockLength(const uint8_t *block);
+
+// Macro area header at CW_MACRO_HDR_EEPROM_ADDR
+bool CW_MacroHeaderValid(void);
+void CW_WriteMacroHeader(void);
 
 // Validate if a character is allowed in CW macros (A-Z, 0-9, + , - . / = ? ( & and the prosigns)
 bool CW_ValidateChar(char ch);
