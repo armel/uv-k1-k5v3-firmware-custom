@@ -392,12 +392,16 @@ void CW_StartMacroPlayback(uint8_t macroIndex, bool repeat)
 }
 
 // Proper roger: R with the dah held for CWrgr dits (default 9) and 3 dits of space
-// before it, di---daaaaaaaaah-dit. CWrtyp picks what leads into it: nothing, E S
-// (skipping: dit dididit di---daaaaaaaaah-dit) or E E (stuttering: dit dit
+// before it, di---daaaaaaaaah-dit. CWrtyp picks what leads into it: nothing, E E
+// (stuttering: dit dit di---daaaaaaaaah-dit) or E S (skipping: dit dididit
 // di---daaaaaaaaah-dit).
 void CW_StartProperRoger(void)
 {
-    static const char *const roger_text[CW_ROGER_TYPE_COUNT] = { "R", "ESR", "EER" };
+    static const char *const roger_text[CW_ROGER_TYPE_COUNT] = {
+        [CW_ROGER_TYPE_NORMAL]     = "R",
+        [CW_ROGER_TYPE_STUTTERING] = "EER",
+        [CW_ROGER_TYPE_SKIPPING]   = "ESR",
+    };
 
     if (gCW_Recording || gCW_PlaybackActive) return;
 

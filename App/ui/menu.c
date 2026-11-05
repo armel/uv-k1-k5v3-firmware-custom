@@ -610,11 +610,11 @@ const char* gSubMenu_CW_KEYER_MODE[] =
 };
 
 // indexed by CW_ROGER_TYPE_*; 9 characters fit
-const char* gSubMenu_CW_ROGER_TYPE[] =
+const char* gSubMenu_CW_ROGER_TYPE[CW_ROGER_TYPE_COUNT] =
 {
-	"Normal",
-	"Skipping",
-	"Stutter"
+	[CW_ROGER_TYPE_NORMAL]     = "Normal",
+	[CW_ROGER_TYPE_STUTTERING] = "Stutter",
+	[CW_ROGER_TYPE_SKIPPING]   = "Skipping",
 };
 
 const char* gSubMenu_CW_KEY_INPUT[] =

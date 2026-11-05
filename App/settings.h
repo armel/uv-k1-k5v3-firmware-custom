@@ -101,8 +101,8 @@ typedef enum CW_IambicMode_t CW_IambicMode_t;
 // Proper roger type (CWrtyp menu), the last CW settings byte. Every type leaves
 // 3 dits of space before its long dah (CW_ROGER_EXTRA_GAP_DITS).
 #define CW_ROGER_TYPE_NORMAL      0  // di-daaaah-dit (R)
-#define CW_ROGER_TYPE_SKIPPING    1  // dit dididit di-daaaah-dit (E S R)
-#define CW_ROGER_TYPE_STUTTERING  2  // dit dit di-daaaah-dit (E E R)
+#define CW_ROGER_TYPE_STUTTERING  1  // dit dit di-daaaah-dit (E E R)
+#define CW_ROGER_TYPE_SKIPPING    2  // dit dididit di-daaaah-dit (E S R)
 #define CW_ROGER_TYPE_COUNT       3
 
 // Sidetone level (CWvol menu): 0 = off; see CW_ApplySidetoneGain for the gain curve

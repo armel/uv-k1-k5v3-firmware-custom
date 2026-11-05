@@ -997,7 +997,7 @@ _NR7Y_CW_ROGER_DITS_MAX = 20
 _NR7Y_CW_ROGER_DITS_DEFAULT = 9
 
 # Proper roger type, indexed like CW_ROGER_TYPE_* in App/settings.h
-_NR7Y_CW_ROGER_TYPES = ["Normal", "Skipping", "Stuttering"]
+_NR7Y_CW_ROGER_TYPES = ["Normal", "Stuttering", "Skipping"]
 
 # Break-in hang time in 10 ms units, mirrors CW_HANG_10MS_* in App/settings.h
 _NR7Y_CW_HANG_10MS_MIN = 1
@@ -4376,8 +4376,8 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
                                  RadioSettingValueList(_NR7Y_CW_ROGER_TYPES,
                                                        _NR7Y_CW_ROGER_TYPES[rt]))
             rs_rt.set_doc("What the PROPER ROGER key action sends. Normal: "
-                          "di-daaaah-dit (R). Skipping: dit dididit di-daaaah-dit "
-                          "(E S R). Stuttering: dit dit di-daaaah-dit (E E R). Each "
+                          "di-daaaah-dit (R). Stuttering: dit dit di-daaaah-dit "
+                          "(E E R). Skipping: dit dididit di-daaaah-dit (E S R). Each "
                           "holds the dah for Proper Roger Dah dits, with 3 dits "
                           "of space before it.")
             cw.append(rs_rt)
