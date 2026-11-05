@@ -6,7 +6,7 @@
 # continuous carriers, blips, the trigger threshold, inherited VHF/AM/USB
 # profiles, the documented 3 kHz ambiguity, AUTO/WATCH alarm timing, EPIRB 406
 # missing, a strong beacon leaking into every channel, a late 70 cm test
-# transmitter and the bench mode. Needs a host C compiler and python3.
+# transmitter, the bench mode and the 121.5 MHz siren watch. Needs a host C compiler and python3.
 set -euo pipefail
 cd "$(dirname "$0")"
 CC=${HOSTCC:-clang}
@@ -53,6 +53,32 @@ python3 - "$A/nosync.u16" <<'PY'
 import sys, numpy as np
 rng = np.random.default_rng(3)                     # 0.5 s of plain carrier: DC and a little noise
 np.clip(2048 + rng.normal(0, 3, 4800), 0, 4095).astype("<u2").tofile(sys.argv[1])
+PY
+# 121.5 MHz watch: PA4 audio of a homing siren (1600 to 300 Hz, 2.7 sweeps a
+# second, as the LimeSDR bench of 03/11/2026), looped by the test; and what
+# must not raise the alarm: a plain carrier, voice-like tones, a rising sweep.
+python3 - "$A" <<'PY'
+import sys, numpy as np
+d = sys.argv[1]; fs = 9600; rng = np.random.default_rng(7)
+t = np.arange(int(fs * 370 * 27 / 1000)) / fs          # 27 whole sweeps: loops cleanly
+def sweep(rate, hi, lo, rising=False):
+    frac = (t * rate) % 1.0
+    f = lo + (hi - lo) * frac if rising else hi - (hi - lo) * frac
+    return np.sin(2 * np.pi * np.cumsum(f) / fs)
+def out(name, x):
+    np.clip(2048 + x, 0, 4095).astype("<u2").tofile(f"{d}/{name}.u16")
+out("siren", 500 * sweep(1 / 0.37, 1600, 300) + rng.normal(0, 40, len(t)))
+out("sirenweak", 200 * sweep(1 / 0.37, 1600, 300) + rng.normal(0, 150, len(t)))
+out("siren2hz", 500 * sweep(2.0, 1500, 350) + rng.normal(0, 40, len(t)))
+out("carrier", rng.normal(0, 30, len(t)))
+out("rising", 500 * sweep(1 / 0.37, 1600, 300, rising=True) + rng.normal(0, 40, len(t)))
+v = np.zeros(len(t)); k = 0                             # voice-like: tones of 80 to 300 ms
+while k < len(t):
+    n = int(fs * rng.uniform(.08, .3)); f = rng.uniform(150, 1200)
+    if rng.random() < .75:
+        v[k:k + n] = 450 * np.sin(2 * np.pi * f * np.arange(min(n, len(t) - k)) / fs)
+    k += n
+out("voice", v + rng.normal(0, 40, len(t)))
 PY
 cp host_app.c "$T/apps/scan406/test/"
 $CC -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -o "$T/host_app" "$T/apps/scan406/test/host_app.c"

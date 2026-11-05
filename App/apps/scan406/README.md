@@ -11,9 +11,114 @@ EPIRB 406 on its own listens on one frequency: 406.031 MHz with the wide filter
 covers the 406.025 to 406.040 MHz channels. Beacons type approved since 2025
 transmit on 406.076 MHz, outside that window. Scan 406 covers both.
 
+Key 1 adds a watch of 121.500 MHz and 121.375 MHz (SAR exercise beacons) for
+the homing siren of an ELT or a PLB (off by default, see below).
+
 Needs a Fusion firmware with app API level 3 (`handoff`, `vfo_stage`) and the
 `APP_CAP_BEAM2` receive-profile bridge. EPIRB 406 must be installed for the
 hand-off.
+
+## Version 1.8: FM broadcast overload and off-frequency beacons
+
+Field report (03/11/2026, ADRASEC 73, Nagoya UT-109A airband antenna on a
+car): an exercise beacon on 121.375 MHz was found up to about 500 m only,
+while 406 MHz bursts were found 5 km away. FM broadcast (88-108 MHz) overloads
+the UV-K1 front end on the airband; the operator heard it on 121.5 MHz AM,
+covering the beacon beyond 500 m. A 406 MHz beacon transmits about 20 dB more
+than a 121.375 MHz exercise beacon, which alone is a factor 10 in range. The
+first remedy is a FM band-stop filter (88-108 MHz) between antenna and radio:
+it keeps both 121 and 406 MHz, which an airband band-pass would not.
+
+- **Low fixed gain on one VHF visit in two.** REG_7E bit 15 fixes the AGC,
+  bits 14-12 pick an entry of the REG_10..REG_14 gain table; 1.8 uses entry 0
+  (REG_10 `0x0318`, lowest LNA and PGA) on every other visit and the AGC on
+  the others, each with its own floors. Back to UHF, REG_7E is written back:
+  the 406 MHz scan keeps the AGC. Bench: two FM carriers (SSTV test pictures
+  `F4WAT TEST`) on 144.040 and 144.070 MHz, whose third-order product falls
+  on the siren at 144.100 MHz, no attenuator. With the AGC, a siren found
+  without them was lost under them; with entry 0 it was found with the
+  carriers 20 dB stronger. The AGC visits still hear a siren 6 kHz off, which
+  the low gain loses.
+- **The siren's own frequency.** After two positive listens, the RSSI is read
+  from 10 kHz below to 10 kHz above the point in 1 kHz steps (AGC, the watch's
+  RF filter: on the bench these found +3 and +6 kHz with 8 to 9 dB above the
+  ends, where the stock AM filter or the low gain gave 2 to 5 dB). The
+  strongest step is kept when it stands 6 dB above the two ends, else the
+  nominal frequency. The alarm shows it (`ELT 121.504 0S AGO`) and AUTO hands
+  it to Sig Finder, whose AM narrow filter (3.5 kHz) would lose a beacon 6 kHz
+  off. Bench: +3 kHz read 144.102, -3 kHz 144.096, +6 kHz 144.104, -6 kHz
+  144.095 MHz (1 to 2 kHz).
+- **406 MHz sensitivity.** Same build, TEST mode, T.001 bursts set digitally
+  around the threshold, 8 bursts a step: 7 to 8 of 8 at -10 and -12 dB with
+  the watch off or on. At -14 dB, at the threshold, 15/24 with the watch off
+  and 10/24 with it on: not significant on that many bursts, but a small loss
+  right at the limit cannot be excluded (the watch takes about 35 ms a
+  second). Turn the watch off where 406 MHz alone matters.
+
+4088 B of code (8 B left), 408 B of assets.
+
+## Version 1.7: 121.375 MHz as well
+
+The siren watch also looks at 121.375 MHz, the frequency of SAR exercise
+beacons, right after 121.500 MHz: 125 kHz away on the same VHF LNA, 10 ms for
+the RSSI, so a look takes about 35 ms a second. Each frequency keeps its own
+floor; the alarm says which one (`ELT 121.375 nS AGO`), and AUTO opens Sig
+Finder on that frequency, AM narrow. A siren on each frequency gives one alarm
+each, 121.500 MHz first. With the watch on, the top line reads
+`ELT 121.500 121.375` (TEST: `ELT 433.695`; TEST keeps a single point). Bench
+build with the two points moved to 144.225 and 144.100 MHz, AM siren on
+144.100 MHz: alarm `ELT 144.100` 2.9 to 3.7 s after the siren starts from
+LimeSDR gain 30 down to 15 dB, none at 12 dB, the same limit as the first
+point. 3876 B of code, 392 B of assets.
+
+## Version 1.6: the 121.5 MHz siren watch
+
+With key 1 (saved), Scan 406 also looks at 121.500 MHz once a second for the
+homing signal of a beacon: an AM carrier with a siren, a tone swept down from
+about 1600 to 300 Hz two to four times a second. This catches 121.5 MHz-only
+ELTs and PLBs, a beacon whose 406 MHz transmitter has failed, and exercise
+beacons. A modern 406 MHz beacon is still heard further on 406 MHz (5 W)
+than on 121.5 MHz (about 100 mW).
+
+- Each look: the VHF LNA, the AM demodulator and 121.500 MHz (REG_33,
+  REG_31 bit 0, REG_42, REG_2A, the values `RADIO_SetModulation` and
+  `BK4819_PickRXFilterPathBasedOnFrequency` use on the BK4829), 20 ms for the
+  RSSI to settle, then back to UHF FM. About 25 ms a second, 2.5 % of the
+  406 MHz watch.
+- A reading 5 dB above the 121.5 MHz floor (kept as a channel's) starts 1.2 s
+  of audio capture: band-pass 300 to 1700 Hz, zero crossings per 20 ms, and a
+  correlation of that series with a falling sawtooth of 240 to 500 ms. A fit
+  of r² 0.40 or more over a sweep of 300 Hz or more, twice in a row (2.4 s),
+  raises the alarm `ELT 121.500 nS AGO`. Anything else there (a plain carrier,
+  voice) becomes the floor, so it is not listened to again until it drops.
+- A 406 MHz burst that starts during a 2.4 s listen can be missed; the beacon
+  repeats about 50 s later.
+- After the alarm: WATCH goes on scanning; AUTO sets the VFO to 121.500 MHz AM
+  narrow and opens Sig Finder with the launch VFO as its message, as EPIRB 406
+  key 8 does, so EXIT in Sig Finder brings that VFO back. A siren still on
+  after the acknowledgement does not raise the alarm again.
+- The RF filter stays the `beam_prepare` one (FM narrow, REG_43 `0x4048`): on
+  the bench the stock AM filter (`0x345C`) lost a siren 6 kHz off, and an ELT
+  may be that far off.
+- TEST mode: the siren is looked for in FM on channel S, 433.695 MHz. The top
+  line shows the watched frequencies while the watch is on.
+
+Bench of 03/11/2026 (LimeSDR siren behind a 30 dB attenuator, 2 m away; never
+transmitted on 121.5 MHz):
+
+| Test | Result |
+|---|---|
+| TEST mode, FM siren on 433.695 MHz, LimeSDR gain 34 down to 5 dB | alarm 3.5 to 4.6 s after the siren starts, every time; none again while it goes on |
+| Bench build with the point on 144.100 MHz (2 m band, VHF LNA, AM): AM siren, gain 30 down to 15 dB (about -67 to -79 dBm) | alarm 2.9 to 4.2 s after the siren starts |
+| Same, gain 12 dB and below | no alarm: the limit is about 3 to 4 dB above the RSSI floor |
+| No transmission, 90 s (TEST) and 120 s (144.100 AM) | no false alarm |
+
+The same bench, with a measurement app, found the RSSI settled 16 to 18.5 ms
+after a jump from UHF to VHF and 7 ms after a jump back; a siren 3 kHz off
+with either filter; and the correlation score at 51 to 92 % for a siren 3 dB or
+more above the floor, 7 to 12 % on noise alone. It also showed that a
+longer `STEP_MS` (5 or 7 ms instead of 3) does not detect weaker 406 MHz
+bursts: the trigger stays about 11 dB above the floor.
 
 ## Version 1.5: strong beacons close by
 
@@ -99,11 +204,14 @@ reference) and the channels reserved "not to be assigned" (E, H, I, L, M, P, Q).
 |---|---|
 | * | AUTO / WATCH (saved) |
 | 0 | 406 MHz / TEST 433 MHz (saved) |
+| 1 | ELT siren watch on 121.500 and 121.375 MHz, on / off (saved) |
 | MENU | the help page: these keys (no scanning while it is shown) |
 | any | acknowledges an alarm; leaves the help page |
 | EXIT | quit |
 
 The status bar shows the mode (`AUTO` or `WATCH`) and `TEST` in TEST mode.
+With the siren watch on, the top line reads `ELT 121.500 121.375` (TEST:
+`ELT 433.695`).
 The two bottom rows:
 
 - the last burst: its kind (see below), its channel and how long ago it ended,
@@ -127,9 +235,11 @@ filter. A trigger starts a localisation pass over the 11 channels, which keeps
 the one furthest above its floor; between two channels 3 kHz apart, the
 displayed and staged frequency may still be the neighbour of the transmitter.
 Both decode (bench, LimeSDR at -53 dBm on 433.695 MHz). The RSSI read 3 ms
-after a retune saturates near -85 dBm on a UV-K1 (the main screen shows -53
-dBm for the same signal), which does not matter for the localisation: the
-beacon's channel stays more than 20 dB above the leak.
+after a retune reads about 30 dB under its final value on a UV-K1 (it starts
+from about -130 dBm after the RX restart and settles in about 7 ms; first seen
+as a saturation near -85 dBm while the main screen showed -53 dBm), which
+does not matter for the localisation: the differences between channels are
+kept, and the beacon's channel stays more than 20 dB above the leak.
 
 A first-generation burst starts with 160 ms of plain carrier, then 15 bits of
 bit sync and 9 bits of frame sync. A burst is detected within about 35 ms of
@@ -199,7 +309,10 @@ The 1.3 changes still need these bench checks:
 ## Size
 
 The code is limited to the 4 KiB overlay; the build script reports the exact
-1.5 footprint (2528 B of code, 324 B of assets). The decoder and BCH checks were about 870 B in 1.2, and the
+1.8 footprint (4088 B of code, 8 B left, 408 B of assets; 1.5 was 2528 B
+and 324 B, the siren watch adds about 1.5 KB: front-end switch, filters, the sawtooth
+correlation, all integer, divisions through the resident `uidivmod`; about
+the 4 KiB overlay is full). The decoder and BCH checks were about 870 B in 1.2, and the
 help page about 80 B, plus the read-only assets. The channels are an 11-byte
 table (kHz above 406.000 MHz). The noise floors start at 0 (the loader zeroes
 the overlay) and fall to the first readings, so there is no first-pass flag.
@@ -233,7 +346,25 @@ to 60 kHz away (without its audio there), which must be localised on its own
 channel in WATCH and AUTO; and the late test transmitter timing (184 or 204 ms of
 carrier, 48 more bit sync ones, then 3.5 s of CW ID on the same carrier),
 which must decode with a single alarm. With the 1.4 logic, these 18 checks
-fail.
+fail. Since 1.6, the 121.5 MHz watch: the stub models the LNA switches
+(REG_33) and the AM demodulator (REG_31 bit 0), a VHF emitter is heard on the
+VHF LNA only and its audio with AM only; looped PA4 audio of a siren (2.7 and
+2 sweeps a second, a weak one), a plain carrier, voice-like tones and a rising
+sweep. Checked: the watch off never tunes 121.5; WATCH alarm within 4 s,
+shown, UHF FM back, about one look a second; AUTO to Sig Finder on 121.500 AM
+narrow with the launch VFO; no alarm for the carrier, voice, rising sweep or
+noise; 406 MHz bursts still caught at any phase of the looks; TEST on 433.695
+FM; key 1 saved. Since 1.7: 121.375 MHz visited as often, its alarm, shown,
+UHF FM back, AUTO to Sig Finder on 121.375; sirens on both frequencies give
+two alarms; voice on 121.375 does not hide a siren on 121.500; both points on
+the top line. Since 1.8: the stub models REG_43 and REG_7E, an emitter off
+its frequency (2 dB per kHz on the watch's filter, out beyond 7 kHz) and
+intermodulation heard with the AGC only: low-gain and AGC visits both seen,
+REG_7E and REG_43 back afterwards; +4.5, -3 and +6 kHz sirens shown and
+handed over on their own frequency, a flat search keeps the nominal one; a
+siren under intermodulation is found by the low-gain visits. These checks
+fail with the detector off, with a detector that
+accepts anything, or without the switch back to UHF.
 
 ## Sources
 
@@ -248,6 +379,12 @@ fail.
   `test/frame406.py` (burst audio and frames for the host test)
 - `App/apps/epirb406/` (RSSI trigger, `tune()`, hand-off to Sig Finder),
   `App/apps/app_api.h` (`handoff`, `vfo_stage`, `beam_prepare`, `beam_get`)
-- `App/driver/bk4829.c` (`BK4819_PickRXFilterPathBasedOnFrequency`)
+- `App/driver/bk4829.c` (`BK4819_PickRXFilterPathBasedOnFrequency`,
+  `BK4819_SetFilterBandwidth`, `BK4819_InitAGC`), `App/radio.c`
+  (`RADIO_SetModulation`: the BK4829 AM registers), `App/apps/app_overlay.c`
+  (`app_beam_prepare`: the FM narrow profile; `app_rssi_dbm`)
+- Bench of 03/11/2026, evening: LimeSDR homing siren (AM and FM) on 433.695 and
+  144.100 MHz behind a 30 dB attenuator, a measurement app for the RSSI after
+  a band jump and the PA4 audio in AM, and the Scan 406 1.6 runs above
 - `App/app/spectrum.c` (`SetFScan()`: retuning without waiting),
   `App/board.c` (PC13, the flashlight, an output from boot)

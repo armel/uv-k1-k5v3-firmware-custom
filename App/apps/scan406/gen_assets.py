@@ -27,6 +27,8 @@ UI = [
     ("T_BURSTS", "BURSTS GEN1 "),  # the counts row; "1G" would read "16" in the
     ("T_2G",    "GEN2 "),          # tiny font, whose G looks like a 6
     ("T_TST",   "TST "),         # after the kind: self-test frame sync
+    ("T_EM",    "ELT 121.500 121.375"),        # the siren watch is on: T_EM + test * EM_STRIDE
+    ("T_EMT",   "ELT 433.695" + "\0" * 8),     # (TEST: channel S), padded to T_EM's size
     ("T_KEYS",  "MENU HELP"),
 ]
 
@@ -39,12 +41,13 @@ for name, s in UI:
     offs[name] = ui_size
     ui_size += len(s) + 1 + pad
 a.const("MODE_STRIDE", offs["T_WATCH"] - offs["T_AUTO"])
-# g.type - 1 (K_1G, K_CUT, K_ERR, K_OK, K_2G), fixed stride, part of the UI block
-KIND = ["GEN1 ? ", "GEN1 CUT ", "GEN1 ERR ", "GEN1 OK ", "GEN2 "]
+# g.type - 1 (K_1G, K_CUT, K_ERR, K_OK, K_2G, K_ELT), fixed stride, part of the UI block
+KIND = ["GEN1 ? ", "GEN1 CUT ", "GEN1 ERR ", "GEN1 OK ", "GEN2 ", "ELT "]
 stride = -(-max(len(k) + 1 for k in KIND) // 4) * 4
 a.table("T_KIND", KIND, stride)
 ui_size += stride * len(KIND)
 a.const("MHZ_STRIDE", offs["T_MHZT"] - offs["T_MHZ"])
+a.const("EM_STRIDE", offs["T_EMT"] - offs["T_EM"])
 a.const("UI_SIZE", ui_size)
 a.const("T_TITLE_CHARS", len(TITLE))
 a.const("T_KEYS_CHARS", len(dict(UI)["T_KEYS"]))
@@ -52,6 +55,7 @@ a.const("T_KEYS_CHARS", len(dict(UI)["T_KEYS"]))
 HELP = [                             # the keys only: the rest is in README.md
     "*     AUTO (EPIRB 406) / WATCH",
     "0     406 MHZ / TEST 433 MHZ",
+    "1     121.5 + 121.375 ELT WATCH",
     "MENU  THIS HELP",
     "EXIT  QUIT",
     "ANY   ACKNOWLEDGE ALARM",

@@ -44,6 +44,8 @@ typedef struct {
     uint32_t f; int dbm; uint32_t start, period, dur, count;   /* ms */
     const uint16_t *audio; uint32_t n;                           /* PA4 samples at 9.6 kHz */
     int leak;                  /* dB below dbm on every frequency up to 60 kHz away, 0 none */
+    bool loop;                 /* audio repeated (a continuous ELT siren) */
+    bool im;                   /* intermodulation: only with the AGC, gone on the low fixed gain */
 } emitter_t;
 
 static struct {
@@ -53,7 +55,12 @@ static struct {
     uint64_t us;
     uint32_t now, endMs, vfo, tuned, staged, stagedAt;   /* now: ms, from us */
     uint8_t  cfgIn, cfgOut, bw, mod, rxMod;
-    bool uhfPath, prepared;
+    bool uhfPath, prepared, vhfLna, am;   /* REG_33 LNA bits, REG_31 bit 0 */
+    uint16_t reg33, reg31, reg43, reg7e;
+    bool vhfGainLow, vhfGainAgc;   /* REG_7E seen on VHF visits: index 0 fixed / AGC */
+    unsigned eltTunes, exTunes;   /* REG_38 writes of 121.500 / 121.375 MHz */
+    char handedTo[16];
+    bool handMsg;
     bool installed, led, ledEver, handed, alarm, torchFlashed;
     unsigned beeps, acks;
     uint32_t ackMs, alarmAt, torch0;
@@ -83,6 +90,21 @@ static const emitter_t *heard(uint64_t *into, int *lvl, bool *leaky){
         const uint32_t df = S.tuned > e->f ? S.tuned - e->f : e->f - S.tuned;
         int l = e->dbm;
         if (S.now < e->start) continue;
+        /* the front end: a VHF emitter needs the VHF LNA, a UHF one the UHF LNA */
+        if ((e->f < 28000000u) != (S.vhfLna && !(S.reg33 & 0x08u))) continue;
+        if (e->im && (S.reg7e & 0x8000u)) continue;
+        if (e->f < 28000000u) {    /* the RF filter: 0x4048 hears +-7 kHz, 0x345C +-3.5 kHz, 2 or 4 dB/kHz down */
+            const bool am = S.reg43 == 0x345Cu;
+            if (e->leak) { if (df > 1500u) continue; }   /* leak on VHF: flat over +-15 kHz */
+            else {
+                if (df > (am ? 350u : 700u)) continue;
+                l -= (int)(df / (am ? 25u : 50u));
+            }
+            if (S.now < e->start) continue;
+            const uint64_t t = S.us - (uint64_t)e->start * 1000u;
+            if (!best || l > *lvl) { best = e; *lvl = l; *into = t; *leaky = false; }
+            continue;
+        }
         if (df > S.win) {
             if (!e->leak || df > 6000u) continue;
             l -= e->leak;
@@ -108,13 +130,21 @@ static uint16_t s_sample(void){
     const emitter_t *e = heard(&t, &l, &leaky);
     if (e && e->audio && !leaky) {
         const uint64_t i = t * 9600u / 1000000u;
+        /* an AM emitter is heard only with the AM demodulator, an FM one without */
+        if ((e->f < 28000000u) != S.am) return (uint16_t)(2048u - 400u + rnd() % 801u);
+        if (e->loop) return e->audio[i % e->n];
         if (i < e->n) return e->audio[i];
     }
     return (uint16_t)(2048u - 400u + rnd() % 801u);   /* no carrier: noise */
 }
 static uint32_t s_cycles(void){ advance(2); return (uint32_t)(S.us * 48u); }
 static void s_bk_write(uint8_t reg, uint16_t v){
-    if (reg == 0x38) { S.tuned = (S.tuned & 0xFFFF0000u) | v; S.tunes++; }
+    if (reg == 0x33) { S.reg33 = v; S.vhfLna = (v & 0x04u) != 0; }
+    if (reg == 0x31) { S.reg31 = v; S.am = v & 1u; }
+    if (reg == 0x43) S.reg43 = v;
+    if (reg == 0x7E) S.reg7e = v;
+    if (reg == 0x38 && S.vhfLna) { S.vhfGainLow |= (S.reg7e & 0xF000u) == 0x8000u; S.vhfGainAgc |= !(S.reg7e & 0x8000u); }
+    if (reg == 0x38) { S.tuned = (S.tuned & 0xFFFF0000u) | v; S.tunes++; S.eltTunes += v == (uint16_t)12150000u; S.exTunes += v == (uint16_t)12137500u; }
     if (reg == 0x39) S.tuned = (S.tuned & 0xFFFFu) | ((uint32_t)v << 16);
 }
 static void s_delay(uint32_t ms){ advance((uint64_t)ms * 1000u); }
@@ -139,7 +169,9 @@ static void s_led(bool on){ S.led = on; S.ledEver |= on; }
 static void s_nop(void){}
 static void s_nop_b(bool b){ (void)b; }
 static void s_blit_full(void){ advance(12000); }
-static uint16_t s_bk_read(uint8_t reg){ (void)reg; return 0; }
+static uint16_t s_bk_read(uint8_t reg){
+    return reg == 0x33 ? S.reg33 : reg == 0x31 ? S.reg31 : reg == 0x43 ? S.reg43 : reg == 0x7E ? S.reg7e : 0;
+}
 static void s_set_af(uint8_t m){ (void)m; }
 static uint32_t s_rx_freq(void){ return S.vfo; }
 static void s_cfg_load(uint8_t *b, uint8_t n){ (void)n; *b = S.cfgIn; }
@@ -168,8 +200,8 @@ static char *s_append_u32(char *o, uint32_t u){
     return o + sprintf(o, "%u", u);
 }
 static bool s_handoff(const char *name, const void *m, uint8_t len){
-    (void)m; (void)len;
-    S.handed = S.installed && !strcmp(name, "EPIRB 406");
+    S.handed = S.installed && (!strcmp(name, "EPIRB 406") || !strcmp(name, "Sig Finder"));
+    if (S.handed) { snprintf(S.handedTo, sizeof S.handedTo, "%s", name); S.handMsg = m && len; }
     return S.handed;
 }
 static void s_beam_get(app_beam_channel_t *ch){
@@ -179,6 +211,10 @@ static void s_beam_get(app_beam_channel_t *ch){
 static void s_beam_prepare(void){
     S.prepared = S.uhfPath = true;
     S.rxMod = 0;
+    S.reg33 = 0x9008u;         /* UHF LNA, as RADIO_SetupRegisters leaves it */
+    S.reg31 = 0; S.vhfLna = S.am = false;
+    S.reg43 = 0x4048u;         /* FM narrow (app_beam_prepare) */
+    S.reg7e = 0x303Eu;         /* AGC on, as BK4819_Init leaves it */
     S.tuned = 43450000u;
 }
 static bool s_vfo_stage(const app_beam_channel_t *ch){
@@ -222,12 +258,12 @@ static void setup(uint32_t vfo, uint8_t cfg, uint32_t endMs){
     torch_odr = S.torch0 = 0x2000u * (cfg == 1u);   /* flashlight on before WATCH runs */
 }
 static void emit(uint32_t f, int dbm, uint32_t start, uint32_t period, uint32_t dur, uint32_t count){
-    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, dur, count, NULL, 0, 0 };
+    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, dur, count, NULL, 0, 0, false, false };
 }
 /* A burst with its audio (gen406.py, from the carrier start): its length is the file's */
 typedef struct { uint16_t *s; uint32_t n; } clip_t;
 static void emitAudio(uint32_t f, int dbm, uint32_t start, uint32_t period, uint32_t count, clip_t c){
-    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, (uint32_t)(c.n * 1000u / 9600u), count, c.s, c.n, 0 };
+    S.em[S.nEm++] = (emitter_t){ f, dbm, start, period, (uint32_t)(c.n * 1000u / 9600u), count, c.s, c.n, 0, false, false };
 }
 static clip_t load(const char *dir, const char *name){
     char path[512];
@@ -522,6 +558,176 @@ int main(int argc, char **argv){
         run();
         CHECK("verified 1G: hand-off", g.type == K_OK && S.handed && S.staged == F(49));
         free(c.s);
+    }
+
+    /* 121.5 MHz watch (cfg bit 2, key 1). A continuous AM emitter on 121.500
+     * MHz, heard on the VHF LNA with the AM demodulator only, its PA4 audio
+     * looped from the clip. */
+#define ELT 12150000u
+#define ELT_ON 4u
+    {
+        const clip_t siren = load(argv[2], "siren"), weak = load(argv[2], "sirenweak"),
+                     two = load(argv[2], "siren2hz"), car = load(argv[2], "carrier"),
+                     voice = load(argv[2], "voice"), rise = load(argv[2], "rising");
+#define EMIT_LOOP(f, dbm, start, c) do { emitAudio(f, dbm, start, NEVER, 1, c); \
+        S.em[S.nEm - 1].dur = NEVER; S.em[S.nEm - 1].loop = true; } while (0)
+
+        /* off (the default): 121.5 never tuned, a siren there changes nothing */
+        setup(VFO406, 1, 30000);
+        EMIT_LOOP(ELT, -100, 2000, siren);
+        run();
+        CHECK("ELT off: 121.5 never tuned", S.eltTunes == 0 && !S.acks && !g.type);
+
+        /* WATCH: the siren alarm, shown, the UHF front end back afterwards */
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(ELT, -100, 5000, siren);
+        run();
+        CHECK("ELT watch: alarm", g.type == K_ELT && S.acks == 1 && !S.handed);
+        CHECK("ELT watch: alarm within 4 s", S.alarmAt >= 5000 && S.alarmAt < 9000);
+        CHECK("ELT watch: shown", !strncmp(S.lastText[0], "ELT 121.500 ", 12));
+        CHECK("ELT watch: UHF FM after", !S.vhfLna && (S.reg33 & 0x08u) && !S.am);
+        CHECK("ELT watch: low gain and AGC visits, AGC back", S.vhfGainLow && S.vhfGainAgc && S.reg7e == 0x303Eu);
+        CHECK("ELT watch: RF filter back", S.reg43 == 0x4048u);
+        CHECK("ELT watch: about once a second", S.eltTunes >= 20 && S.eltTunes <= 31);
+        CHECK("ELT watch: cfg kept", S.cfgOut == 5);
+        CHECK("ELT watch: points shown", !strcmp(S.helpLine, "ELT 121.500 121.375"));
+
+        /* 121.375 MHz (exercise beacons): its own alarm and hand-off */
+        CHECK("ELT watch: 121.375 visited too", S.exTunes + 3 >= S.eltTunes && S.exTunes > 15);
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(12137500u, -100, 5000, siren);
+        run();
+        CHECK("ELT 121.375 watch: alarm", g.type == K_ELT && S.acks == 1);
+        CHECK("ELT 121.375 watch: shown", !strncmp(S.lastText[0], "ELT 121.375 ", 12));
+        CHECK("ELT 121.375 watch: UHF FM after", !S.vhfLna && (S.reg33 & 0x08u) && !S.am);
+        setup(VFO406, ELT_ON, NEVER);
+        EMIT_LOOP(12137500u, -100, 4000, siren);
+        run();
+        CHECK("ELT 121.375 auto: Sig Finder there", S.handed && !strcmp(S.handedTo, "Sig Finder") && S.staged == 12137500u && S.mod == 1 && S.bw == 1);
+        /* both at once (hardly ever): 121.500 first, then 121.375, one alarm each */
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(ELT, -100, 5000, siren);
+        EMIT_LOOP(12137500u, -100, 5000, two);
+        run();
+        CHECK("ELT both: two alarms, 121.375 last", S.acks == 2 && !strncmp(S.lastText[0], "ELT 121.375 ", 12));
+        /* a non-siren on 121.375 does not hide a siren on 121.500 */
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(12137500u, -90, 2000, voice);
+        EMIT_LOOP(ELT, -100, 8000, siren);
+        run();
+        CHECK("ELT: voice on 121.375, siren on 121.500", !strncmp(S.lastText[0], "ELT 121.500 ", 12));
+
+        /* AUTO: Sig Finder on 121.500 MHz AM narrow, given the launch VFO */
+        setup(VFO406, ELT_ON, NEVER);
+        EMIT_LOOP(ELT, -100, 4000, siren);
+        run();
+        CHECK("ELT auto: Sig Finder", S.handed && !strcmp(S.handedTo, "Sig Finder") && S.handMsg);
+        CHECK("ELT auto: 121.500 AM narrow", S.staged == ELT && S.mod == 1 && S.bw == 1);
+
+        /* an ELT off its frequency: found, and its own frequency staged */
+        static const struct { int32_t off; const char *shown; } OFF[] = {
+            { 450, "ELT 121.504 " }, { -300, "ELT 121.497 " }, { 600, "ELT 121.506 " }, { 0, "ELT 121.500 " },
+        };
+        for (unsigned k = 0; k < 4u; k++) {
+            setup(VFO406, 1 | ELT_ON, 30000);
+            EMIT_LOOP((uint32_t)((int32_t)ELT + OFF[k].off), -100, 4000, siren);
+            run();
+            char n[48];
+            snprintf(n, sizeof n, "ELT %+d Hz: shown", OFF[k].off * 10);
+            CHECK(n, g.type == K_ELT && !strncmp(S.lastText[0], OFF[k].shown, 12));
+            CHECK(n, S.reg43 == 0x4048u && S.reg7e == 0x303Eu);
+        }
+        setup(VFO406, ELT_ON, NEVER);
+        EMIT_LOOP(ELT + 450u, -100, 4000, siren);
+        run();
+        CHECK("ELT +4.5 kHz auto: Sig Finder on 121.504", S.handed && S.staged == ELT + 400u && S.mod == 1);
+        /* a strong carrier over the whole search (a jammer): the nominal frequency */
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(ELT, -100, 4000, siren);
+        S.em[0].leak = 1;          /* heard the same over the whole search */
+        S.em[0].f = ELT + 300u;
+        run();
+        CHECK("ELT: flat search keeps 121.500", !strncmp(S.lastText[0], "ELT 121.500 ", 12));
+
+        /* FM overload (intermodulation on top of the siren, gone on the low
+         * fixed gain), both from the same moment: the low-gain visits find it */
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(ELT, -100, 4000, siren);
+        EMIT_LOOP(ELT, -90, 4000, voice);
+        S.em[1].im = true;
+        run();
+        CHECK("ELT under intermodulation: found", g.type == K_ELT && S.acks == 1);
+
+        /* a 2 Hz siren and a weak one are found as well */
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(ELT, -100, 3000, two);
+        run();
+        CHECK("ELT: 2 sweeps a second", g.type == K_ELT);
+        setup(VFO406, 1 | ELT_ON, 30000);
+        EMIT_LOOP(ELT, -110, 3000, weak);
+        run();
+        CHECK("ELT: weak siren", g.type == K_ELT);
+
+        /* not a siren: no alarm, and the level becomes the point's floor */
+        const struct { const char *name; const clip_t *c; } NOT[] = {
+            { "ELT: plain carrier, no alarm", &car }, { "ELT: voice, no alarm", &voice },
+            { "ELT: rising sweep, no alarm", &rise },
+        };
+        for (unsigned k = 0; k < 3u; k++) {
+            setup(VFO406, 1 | ELT_ON, 40000);
+            EMIT_LOOP(ELT, -100, 3000, *NOT[k].c);
+            run();
+            CHECK(NOT[k].name, !g.type && !S.acks);
+        }
+        /* noise only on 121.5: no listen beyond the first ones, no alarm */
+        setup(VFO406, 1 | ELT_ON, 40000);
+        run();
+        CHECK("ELT: noise, no alarm", !g.type && !S.acks);
+
+        /* 406 bursts keep being caught with the watch on */
+        setup(VFO406, 1 | ELT_ON, 160000);
+        emit(F(25), -100, 3000, 50000, 440, 3);
+        run();
+        CHECK("ELT on: three 406 bursts", g.n[0] == 3 && S.acks == 3);
+        {
+            const clip_t c = load(argv[2], "long");
+            for (uint32_t start = 3000; start < 6000; start += 251) {   /* any phase of the ELT check */
+                setup(VFO406, 1 | ELT_ON, start + 3000);
+                emitAudio(F(76), -95, start, 50000, 1, c);
+                run();
+                char n[48];
+                snprintf(n, sizeof n, "ELT on: 406 frame at %u ms", start);
+                CHECK(n, g.type == K_OK && g.n[0] == 1);
+            }
+            free(c.s);
+        }
+        setup(VFO406, ELT_ON, NEVER);
+        emit(F(76), -90, 5000, 50000, 440, 10);
+        run();
+        CHECK("ELT on, 406 auto: EPIRB 406", S.handed && !strcmp(S.handedTo, "EPIRB 406") && S.staged == F(76) && S.mod == 0);
+
+        /* TEST: the siren in FM on channel S (433.695), no VHF */
+        setup(VFO406, 1 | 2 | ELT_ON, 30000);
+        emitAudio(43369500u, -100, 3000, NEVER, 1, siren);
+        S.em[0].dur = NEVER; S.em[0].loop = true;
+        run();
+        CHECK("ELT TEST: 433.695 FM", g.type == K_ELT && !S.eltTunes && !S.exTunes);
+        CHECK("ELT TEST: shown", !strncmp(S.lastText[0], "ELT 433.695 ", 12));
+        CHECK("ELT TEST: point shown", !strcmp(S.helpLine, "ELT 433.695"));
+
+        /* key 1 turns it on and off, saved */
+        setup(VFO406, 0, 9000);
+        S.press[0].at = 2000; S.press[0].key = APP_KEY_1;
+        S.nPress = 1;
+        run();
+        CHECK("key 1: ELT on, saved", S.cfgOut == ELT_ON && S.eltTunes > 0);
+        setup(VFO406, ELT_ON, 9000);
+        S.press[0].at = 2000; S.press[0].key = APP_KEY_1;
+        S.nPress = 1;
+        run();
+        CHECK("key 1: ELT off, saved", S.cfgOut == 0 && S.eltTunes <= 3);
+
+        free(siren.s); free(weak.s); free(two.s); free(car.s); free(voice.s); free(rise.s);
     }
 
     printf(fails ? "%u FAILED\n" : "all scenarios pass\n", fails);
