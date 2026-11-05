@@ -374,6 +374,7 @@ void ACTION_Scan(bool bRestart)
         CHFRSCANNER_ManualResume(gScanStateDir);
     } else {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+        #ifdef ENABLE_SCAN_RANGES
         if(gScanRangeStart == 0) // No ScanRange
         {
             gEeprom.CURRENT_STATE = 1;
@@ -382,6 +383,9 @@ void ACTION_Scan(bool bRestart)
         {
             gEeprom.CURRENT_STATE = 2;
         }
+        #else
+        gEeprom.CURRENT_STATE = 1;
+        #endif
         SETTINGS_WriteCurrentState();
         #endif
         // start scanning

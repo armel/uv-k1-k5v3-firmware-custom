@@ -698,7 +698,7 @@ static void SetMemScanProgressChannel(uint16_t channel)
 }
 #endif
 
-#if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)
+#ifdef ENABLE_SCAN_RANGES
     void CHFRSCANNER_ScanRange(void) {
         if (gScanRangeStart) {
             gScanRangeStart = 0;

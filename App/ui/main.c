@@ -87,9 +87,11 @@ center_line_t center_line = CENTER_LINE_NONE;
 static bool     gScanProgressSessionActive;
 static bool     gScanProgressSessionIsMemory;
 static uint8_t  gScanProgressSessionScanList;
+#ifdef ENABLE_SCAN_RANGES
 static uint32_t gScanProgressSessionRangeStart;
 static uint32_t gScanProgressSessionRangeStop;
 static uint32_t gScanProgressSessionStep;
+#endif
 static uint16_t gScanProgressMemoryTotal;
 static uint8_t  gScanProgressMemoryMap[SCAN_PROGRESS_MR_CHANNEL_BYTES];
 static uint8_t  gScanProgressMemoryExcludeOrdinalMap[SCAN_PROGRESS_MR_CHANNEL_BYTES];
@@ -503,9 +505,9 @@ static void ScanProgress_SetPriorityFields(uint8_t label, uint8_t seen_mask, uin
         (uint8_t)((hold_frames << SCAN_PROGRESS_PRIORITY_HOLD_SHIFT) & SCAN_PROGRESS_PRIORITY_HOLD_MASK);
 }
 
+#ifdef ENABLE_SCAN_RANGES
 static bool ScanProgress_BuildRangeIndex(uint32_t *current_index_out, uint32_t *total_out)
 {
-#ifdef ENABLE_SCAN_RANGES
     uint32_t step = gScanProgressSessionStep ? gScanProgressSessionStep : 1;
     uint32_t total = ((gScanProgressSessionRangeStop - gScanProgressSessionRangeStart) / step) + 1;
     uint32_t current_freq = gRxVfo->freq_config_RX.Frequency;
@@ -530,12 +532,8 @@ static bool ScanProgress_BuildRangeIndex(uint32_t *current_index_out, uint32_t *
     *total_out = total;
 
     return true;
-#else
-    (void)current_index_out;
-    (void)total_out;
-    return false;
-#endif
 }
+#endif
 
 static bool UI_DrawScanProgress(void)
 {
