@@ -37,6 +37,16 @@ with the speaker off, so a beacon heard while the radio is in a pocket is not
 missed. The beeps are played after the burst (about 0.75 s, within the 1.5 s
 re-arm delay), and the next burst of a real beacon comes about 50 s later.
 
+Since v3.6 the flashlight (the white lamp on top, PC13, driven directly as in
+Scan 406) then blinks, about 4 main-loop passes on and 4 off, until a key is
+pressed: the first new key acknowledges it and does nothing else. It does not
+wait for the key and makes no sound of its own, so the next burst is still
+decoded while it blinks. The app turns the lamp off on exit (the loader does
+not touch PC13), so a lamp switched on before launching the app is off
+afterwards. (v3.3 to v3.5 also repeated the beeps; each beep group takes the
+receiver away for about 800 ms, and with the 3.4 timing a burst 50 s later
+was damaged. Dropped in 3.6.)
+
 Each burst is detected on RSSI (10 dB above the floor), sampled for up to 900 ms
 and decoded. The five latest messages stay in RAM, newest first. A new decode is
 shown immediately from its first detail row. The history is lost on exit.
@@ -65,6 +75,7 @@ Keys (UV-K5 and UV-K1):
 | 7 | Position as a QR code: after MENU confirms, QR Map shows the selected message's position, exactly as decoded; EXIT there brings you back (see [Position as a QR code](#position-as-a-qr-code)) |
 | 8 | Homing on 121.5 MHz: after MENU confirms, VFO on 121.500 MHz AM narrow and Sig Finder; EXIT there brings you back (see [Homing with Sig Finder](#homing-with-sig-finder)) |
 | 9 | Same on 243 MHz (military), VFO on 243.000 MHz AM wide |
+| any key, lamp blinking | Acknowledges the decode alarm (v3.6) and does nothing else |
 | MENU | Help: one page listing the keys; any key goes back to the messages |
 | EXIT | Quit (the firmware retunes to the VFO frequency) |
 
@@ -172,6 +183,22 @@ off, chosen one by one on the size they give: 76 bytes. The help page merges
 keys 4, 5 and 6 into one line to add key 7: its size is the stack buffer of
 `handleKey()`, and 8 more bytes there cost 24 bytes of code. **4,080 bytes,
 16 free.**
+
+v3.6 space: the decode alarm on the flashlight. The three decode beeps are
+`beep(n)` (kept from 3.5). Found in the
+existing code, without removing a feature: the noise floor at launch is one
+RSSI read instead of the mean of 16 (the loop tracks it within about 60 ms;
+20 bytes); the noise floor is divided by
+64 with `>> 6` instead of `/ 64` (no signed-division fix-up, three places, 32
+bytes; it rounds towards minus infinity, so the floor and the trigger can sit
+up to 1 dB lower); the three hand-off pages are
+consecutive assets of one size, read at `T_ASKQR + (key - 7) * ASK_SIZE` (8
+bytes); `draw()` no longer clears `g.lim` with no message (key 0 and the
+launch already do); no `backlight_on()` at launch (the main loop calls it on
+every pass); no guard against a re-arm deadline of exactly 0 (one tick in 49
+days); no 50 ms delay before the noise floor, which `tune()`'s `SETTLE_MS`
+already gives (RSSI settles in about 7 ms after a relock). **4,084 bytes, 12
+free.** Scan 406's screen inversion would need more.
 
 ## Signal path on the radio
 
@@ -516,4 +543,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current source: **v3.0** (key 7, the position to QR Map): 4,080 of 4,096 bytes (v2.9: 4,072; v2.6, three decode beeps: 4,092; v2.5, one beep: 4,088; v2.4: 4,072).
+Current source: **v3.6** (decode alarm: the flashlight blinks until a key): 4,084 of 4,096 bytes (v3.0, key 7, the position to QR Map: 4,080; v2.9: 4,072; v2.6, three decode beeps: 4,092; v2.5, one beep: 4,088; v2.4: 4,072).
