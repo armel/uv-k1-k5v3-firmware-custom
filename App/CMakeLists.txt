@@ -21,7 +21,6 @@ target_sources(App INTERFACE
     app/action.c
     app/app.c
     app/chFrScanner.c
-    app/scan_skip.c
     app/common.c
     app/dtmf.c
     app/generic.c
@@ -240,6 +239,7 @@ enable_feature(ENABLE_FEAT_F4HWN_NARROWER)
 enable_feature(ENABLE_FEAT_F4HWN_INV)
 enable_feature(ENABLE_FEAT_F4HWN_CTR)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_PROGRESS)
+enable_feature(ENABLE_FEAT_F4HWN_SCAN_SKIP app/scan_skip.c)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_FASTER)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_RSSI)
 enable_feature(ENABLE_FEAT_F4HWN_SCAN_SUBAUDIBLE)

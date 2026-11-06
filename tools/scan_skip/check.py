@@ -14,6 +14,8 @@ OUT = ROOT / 'build/scan-skip-tests'
 OUT.mkdir(parents=True, exist_ok=True)
 commands = json.loads((ROOT / 'build/Fusion/compile_commands.json').read_text())
 command = next(c for c in commands if c['file'].endswith('/App/app/chFrScanner.c'))
+if '-DENABLE_FEAT_F4HWN_SCAN_SKIP' not in shlex.split(command['command']):
+    sys.exit('Fusion compile commands do not enable temporary skips; rebuild Fusion with ENABLE_FEAT_F4HWN_SCAN_SKIP=ON.')
 includes = [a.replace('/src/', str(ROOT) + '/') for a in shlex.split(command['command']) if a.startswith('-I')]
 flags = ['-std=gnu11', '-O1', '-g', '-DENABLE_FEAT_F4HWN', '-DENABLE_FEAT_F4HWN_SCAN_SKIP', '-DENABLE_FEAT_F4HWN_SCAN_PROGRESS', '-DPRINTF_INCLUDE_CONFIG_H',
          '-DPY32F071x8', '-include', 'tools/scan_skip/host_gpio.h',
