@@ -26,6 +26,7 @@
 #define GPS_UART_RX          GPIO_NUM_54  /* white: GPS unit TX */
 #define GPS_UART_BAUD        9600
 #define GPS_UART_RX_BYTES    512
+#define GPS_BAUD_TRY_MS      3000u  /* per rate while no valid sentence */
 #define GPS_LINE_BYTES       128
 #define GPS_TASK_STACK_BYTES 4096
 #define GPS_TASK_PRIORITY    4
@@ -384,7 +385,30 @@ static void gps_task(void *arg)
     gps_status_t status = {0};
     gsv_tracker_t gsv_tracker = {0};
 
+    /* The unit's rate: the Mini GPS/BDS (AT6558) ships at 9600, the GPS/BDS
+     * Unit v1.1 (AT6668) at 115200, and a unit set up elsewhere may keep
+     * another one. No valid sentence for GPS_BAUD_TRY_MS: the next rate. */
+    static const int bauds[] = {GPS_UART_BAUD, 115200, 38400, 57600, 19200, 4800};
+    uint8_t baud_index = 0;
+    uint32_t baud_valid = 0;
+    bool baud_found = false;
+    TickType_t baud_tick = xTaskGetTickCount();
+
     while (true) {
+        if (!baud_found && status.valid_sentences >= baud_valid + 3u) {
+            baud_found = true;
+            ESP_LOGI(TAG, "NMEA at %d baud", bauds[baud_index]);
+        } else if (!baud_found &&
+                   xTaskGetTickCount() - baud_tick >= pdMS_TO_TICKS(GPS_BAUD_TRY_MS)) {
+            baud_index = (uint8_t)((baud_index + 1u) % (sizeof(bauds) / sizeof(bauds[0])));
+            uart_set_baudrate(GPS_UART, (uint32_t)bauds[baud_index]);
+            uart_flush_input(GPS_UART);
+            collecting = false;
+            length = 0;
+            baud_valid = status.valid_sentences;
+            baud_tick = xTaskGetTickCount();
+            ESP_LOGI(TAG, "No NMEA, trying %d baud", bauds[baud_index]);
+        }
         const int received = uart_read_bytes(GPS_UART, input, sizeof(input),
                                              pdMS_TO_TICKS(200));
         if (received > 0) {
@@ -483,6 +507,7 @@ esp_err_t gps_unit_start(gps_status_callback_t callback, void *context)
         return ESP_ERR_NO_MEM;
     }
 
-    ESP_LOGI(TAG, "Mini GPS/BDS listening on Grove UART at %d baud", GPS_UART_BAUD);
+    ESP_LOGI(TAG, "GPS unit listening on Grove UART at %d baud (other rates tried if no NMEA)",
+             GPS_UART_BAUD);
     return ESP_OK;
 }
