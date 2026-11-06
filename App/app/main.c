@@ -19,6 +19,9 @@
 #include "app/action.h"
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#endif
 #include "app/common.h"
 #ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
@@ -47,6 +50,9 @@
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "scheduler.h"
+#endif
 #include "ui/inputbox.h"
 #include "ui/main.h"
 #include "ui/menu.h"
@@ -92,6 +98,14 @@ static void toggle_chan_scanlist(void)
     }
     
     ChannelAttributes_t *att = MR_GetChannelAttributes(gTxVfo->CHANNEL_SAVE);
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    if (SCAN_SKIP_Remove(gTxVfo->CHANNEL_SAVE)) {
+        UI_MAIN_NotifyScanProgressDataChanged();
+        gUpdateDisplay = true;
+        return;
+    }
+#endif
 
     // Remove exclude
     if(att->exclude == true)
@@ -796,6 +810,15 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
                     }
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+                    if (IS_MR_CHANNEL(gNextMrChannel)) {
+                        SCAN_SKIP_Add(gNextMrChannel, SCHEDULER_GetTick10ms());
+                        UI_MAIN_NotifyScanProgressDataChanged();
+                        lastFoundFrqOrChan = lastFoundFrqOrChanOld;
+                        // Abort this reception before advancing, even without a tone.
+                        CHFRSCANNER_ManualResume(gScanStateDir);
+                    }
+#else
                     ChannelAttributes_t *att = MR_GetChannelAttributes(lastFoundFrqOrChan);
                     att->exclude = true;
 
@@ -808,6 +831,7 @@ static void MAIN_Key_MENU(bool bKeyPressed, bool bKeyHeld)
                     lastFoundFrqOrChan = lastFoundFrqOrChanOld;
 
                     CHFRSCANNER_ContinueScanning();
+#endif
                 }
 
                 return;

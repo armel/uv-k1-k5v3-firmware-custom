@@ -20,6 +20,10 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 enable_language(C ASM)
 
 option(DEV "Prepare the rolling Fusion development firmware" OFF)
+option(ENABLE_FEAT_F4HWN_SCAN_SKIP "Include session and timed memory scan skips" OFF)
+if(ENABLE_FEAT_F4HWN_SCAN_SKIP AND NOT ENABLE_FEAT_F4HWN)
+    message(FATAL_ERROR "ENABLE_FEAT_F4HWN_SCAN_SKIP requires ENABLE_FEAT_F4HWN")
+endif()
 
 find_package(Git QUIET)
 set(BUILD_COMMIT "unknown")

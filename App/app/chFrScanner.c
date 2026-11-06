@@ -4,6 +4,9 @@
 
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#endif
 #include "audio.h"
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
 #include "driver/systick.h"
@@ -11,12 +14,18 @@
 #include "functions.h"
 #include "misc.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "scheduler.h"
+#endif
 #include "ui/main.h"
 //#include "debugging.h"
 
 int8_t            gScanStateDir;
 bool              gScanKeepResult;
 bool              gScanPauseMode;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+bool              gScanMemoryBlocked;
+#endif
 
 #ifdef ENABLE_SCAN_RANGES
 uint32_t          gScanRangeStart;
@@ -719,6 +728,11 @@ static void SetMemScanProgressChannel(uint16_t channel)
 
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction)
 {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    gScanMemoryBlocked = false;
+    if (SCAN_SKIP_Update(SCHEDULER_GetTick10ms()))
+        UI_MAIN_NotifyScanProgressDataChanged();
+#endif
     if (storeBackupSettings) {
         initialCROSS_BAND_RX_TX = gEeprom.CROSS_BAND_RX_TX;
         gEeprom.CROSS_BAND_RX_TX = CROSS_BAND_OFF;
@@ -927,6 +941,11 @@ void CHFRSCANNER_Stop(void)
     }
     
     gScanStateDir = SCAN_OFF;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    gScanMemoryBlocked = false;
+    if (SCAN_SKIP_EndSession())
+        UI_MAIN_NotifyScanProgressDataChanged();
+#endif
 #if defined(ENABLE_FEAT_F4HWN_SCAN_FASTER) && defined(ENABLE_FEAT_F4HWN_SCAN_RSSI)
     ScanRssiSparklineReset();
 #endif
@@ -1021,6 +1040,9 @@ static void NextFreqChannel(void)
 
 static void NextMemChannel(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    gScanMemoryBlocked = false;
+#endif
     static uint16_t prev_mr_chan = 0;
     const bool      enabled      = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= SCAN_LIST_MODE_MIX) ? gEeprom.SCAN_LIST_ENABLED : true;
     const int16_t   chan1        = (gEeprom.SCAN_LIST_DEFAULT > 0 && gEeprom.SCAN_LIST_DEFAULT <= SCAN_LIST_MODE_MIX && gEeprom.SCANLIST_PRIORITY_CH[0] != MR_CHANNELS_MAX) ? gEeprom.SCANLIST_PRIORITY_CH[0] : -1;
@@ -1042,7 +1064,11 @@ static void NextMemChannel(void)
 
                 if (chan1 >= 0)
                 {
-                    if (RADIO_CheckValidChannel(chan1, false, gEeprom.SCAN_LIST_DEFAULT))
+                    if (RADIO_CheckValidChannel(chan1, false, gEeprom.SCAN_LIST_DEFAULT)
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+                        && !SCAN_SKIP_Contains(chan1)
+#endif
+                    )
                     {
                         currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
                         gNextMrChannel   = chan1;
@@ -1058,7 +1084,11 @@ static void NextMemChannel(void)
 
                 if (chan2 >= 0)
                 {
-                    if (RADIO_CheckValidChannel(chan2, false, gEeprom.SCAN_LIST_DEFAULT))
+                    if (RADIO_CheckValidChannel(chan2, false, gEeprom.SCAN_LIST_DEFAULT)
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+                        && !SCAN_SKIP_Contains(chan2)
+#endif
+                    )
                     {
                         currentScanList = SCAN_NEXT_CHAN_SCANLIST2;
                         gNextMrChannel   = chan2;
@@ -1110,6 +1140,26 @@ static void NextMemChannel(void)
         const uint16_t searchStart = gNextMrChannel;
 #endif
         chan = RADIO_FindNextChannel(gNextMrChannel + gScanStateDir, gScanStateDir, true, gEeprom.SCAN_LIST_DEFAULT);
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+        // Stop after one full pass if every eligible channel is skipped.
+        // The RAM list bounds this to at most 32 skipped candidates.
+        const uint16_t firstCandidate = chan;
+        while (chan != 0xFFFF && SCAN_SKIP_Contains(chan)) {
+            chan = RADIO_FindNextChannel(chan + gScanStateDir, gScanStateDir, true, gEeprom.SCAN_LIST_DEFAULT);
+            if (chan == firstCandidate) {
+                chan = 0xFFFF;
+                break;
+            }
+        }
+        if (chan == 0xFFFF) {
+            // Keep the session alive and retry; do not receive a skipped channel.
+            gScanMemoryBlocked = true;
+            gNextMrChannel = prev_chan;
+            currentScanList = SCAN_NEXT_CHAN_SCANLIST1;
+            gScanPauseDelayIn_10ms = 50;
+            return;
+        }
+#endif
         if (chan == 0xFFFF)
         {   // no valid channel found -> wrapping back to the first channel
             chan = MR_CHANNEL_FIRST;

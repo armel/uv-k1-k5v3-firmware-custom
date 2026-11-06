@@ -28,7 +28,7 @@ static void inline SCHEDULER_Disable()
     NVIC_DisableIRQ(SysTick_IRQn);
 }
 
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_SCAN_SKIP)
 /* Free-running 10 ms SysTick counter (wraps after ~497 days). */
 uint32_t SCHEDULER_GetTick10ms(void);
 #endif

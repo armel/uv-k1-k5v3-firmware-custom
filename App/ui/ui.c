@@ -24,6 +24,9 @@
 #endif
 #include "driver/keyboard.h"
 #include "misc.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#endif
 #ifdef ENABLE_AIRCOPY
     #include "ui/aircopy.h"
 #endif
@@ -94,6 +97,12 @@ void GUI_SelectNextDisplay(GUI_DisplayType_t Display)
         gIsInSubMenu         = false;
         gCssBackgroundScan   = false;
         gScanStateDir        = SCAN_OFF;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+        // Changing screens also ends a scan, without going through Stop().
+        gScanMemoryBlocked = false;
+        if (SCAN_SKIP_EndSession())
+            UI_MAIN_NotifyScanProgressDataChanged();
+#endif
         #ifdef ENABLE_FMRADIO_EMBEDDED
             gFM_ScanState    = FM_SCAN_OFF;
         #endif

@@ -162,7 +162,10 @@ enum
     MENU_MLONG,
     MENU_BATTYP,
 #if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_LOGO_SAV)
-    MENU_SET_SAV
+    MENU_SET_SAV,
+#endif
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    MENU_SKIP_TIME,
 #endif
 };
 

@@ -54,6 +54,9 @@
 #endif
 #include "ui/inputbox.h"
 #include "ui/menu.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#endif
 #include "ui/ui.h"
 
 

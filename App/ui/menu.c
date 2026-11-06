@@ -81,6 +81,9 @@ const t_menu_item MenuList[] =
     {"PriCh1",       MENU_S_PRI_CH_1   },
     {"PriCh2",       MENU_S_PRI_CH_2   },
     {"ScnRev",      MENU_SC_REV        },
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    {"SkipTm",      MENU_SKIP_TIME     },
+#endif
 #ifndef ENABLE_FEAT_F4HWN
     #ifdef ENABLE_NOAA
         {"NOAA-S",      MENU_NOAA_S    },
@@ -595,6 +598,9 @@ static const uint8_t CatChannels[] = {
 };
 static const uint8_t CatScan[]    = {
     MENU_S_LIST, MENU_S_PRI, MENU_S_PRI_CH_1, MENU_S_PRI_CH_2, MENU_SC_REV,
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    MENU_SKIP_TIME,
+#endif
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
     MENU_SET_SCN,
 #endif
@@ -1632,6 +1638,14 @@ void UI_DisplayMenu(void)
         case MENU_BATTYP:
             choiceTable = gSubMenu_BATTYP;
             goto copy_menu_choice;
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+        case MENU_SKIP_TIME: {
+            static const char * const choices[] = {"SESSION", "1 MIN", "5 MIN", "10 MIN", "30 MIN"};
+            choiceTable = choices;
+            goto copy_menu_choice;
+        }
+#endif
 
         case MENU_SET_NAV:
             choiceTable = gSubMenu_SET_NAV;

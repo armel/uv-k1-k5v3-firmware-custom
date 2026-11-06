@@ -21,6 +21,7 @@ target_sources(App INTERFACE
     app/action.c
     app/app.c
     app/chFrScanner.c
+    app/scan_skip.c
     app/common.c
     app/dtmf.c
     app/generic.c

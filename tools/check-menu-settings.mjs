@@ -1,11 +1,11 @@
 // Source-level regression check only: does not compile or execute firmware.
-// Run from the repository root: rtk run "node tools/check-menu-settings.mjs"
+// Run from the repository root: node tools/check-menu-settings.mjs
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 
 const baseline = 'f7004b871abbe296981c5a8b990718e8243262d6';
-const original = execFileSync('rtk', ['run', `git show ${baseline}:App/app/menu.c`], {encoding: 'utf8'});
+const original = execFileSync('git', ['show', `${baseline}:App/app/menu.c`], {encoding: 'utf8'});
 const current = readFileSync('App/app/menu.c', 'utf8');
 const definitions = readFileSync('App/app/menu_settings.def', 'utf8');
 const presets = JSON.parse(readFileSync('CMakePresets.json', 'utf8')).configurePresets;
@@ -88,6 +88,13 @@ const migrated = new Set(entries.map(e => e[1]));
 assert.equal(migrated.size, entries.length, 'Duplicate descriptor');
 
 for (const [, id, value, minimum, maximum] of entries) {
+    if (id === 'MENU_SKIP_TIME') {
+        assert.equal(value, 'gScanSkipMode');
+        assert.equal(minimum, '0');
+        assert.equal(maximum, 'SCAN_SKIP_MODE_COUNT - 1');
+        for (const map of after) assert(!map.has(id), `${id}: duplicate switch entry`);
+        continue;
+    }
     const limits = before[0].get(id);
     assert(limits, `Missing baseline limits for ${id}`);
     const min = /\*pMin\s*=\s*([^;]+);/.exec(limits)?.[1] ?? '0';
@@ -131,5 +138,5 @@ assert(compact(current).includes(compact(`
     gSubMenuSelection = *setting->value;
     return;
 `)), 'Generic read contract changed');
-console.log(`PASS: ${entries.length} Fusion descriptors match the reference; ${preserved} special cases unchanged.`);
+console.log(`PASS: ${entries.length} Fusion descriptors validated (including SkipTm); ${preserved} special cases unchanged.`);
 console.log('Source equivalence check only; firmware compilation and device validation are still required.');

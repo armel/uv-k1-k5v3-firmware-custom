@@ -11,6 +11,9 @@
 extern int8_t            gScanStateDir;
 extern bool              gScanKeepResult;
 extern bool              gScanPauseMode;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+extern bool              gScanMemoryBlocked;
+#endif
 
 #ifdef ENABLE_SCAN_RANGES
 extern uint32_t          gScanRangeStart;

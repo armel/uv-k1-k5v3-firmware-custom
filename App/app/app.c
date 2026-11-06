@@ -28,6 +28,9 @@
 #endif
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#endif
 #include "app/dtmf.h"
 #ifdef ENABLE_FLASHLIGHT
     #include "app/flashlight.h"
@@ -42,6 +45,9 @@
     #include "app/rxtx_log.h"
 #endif
 #include "app/scanner.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "scheduler.h"
+#endif
 #if defined(ENABLE_UART) || defined(ENABLE_USB)
     #include "app/uart.h"
     #include "scheduler.h"
@@ -379,6 +385,10 @@ void APP_ModalScreenSaverExit(void)
 
 static void CheckForIncoming(void)
 {
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    if (gScanStateDir != SCAN_OFF && gScanMemoryBlocked)
+        return;
+#endif
     if (!g_SquelchLost)
         return;          // squelch is closed
 
@@ -2046,6 +2056,12 @@ void cancelUserInputModes(void)
 void APP_TimeSlice500ms(void)
 {
     gNextTimeslice_500ms = false;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    if (SCAN_SKIP_Update(SCHEDULER_GetTick10ms())) {
+        UI_MAIN_NotifyScanProgressDataChanged();
+        gUpdateDisplay = true;
+    }
+#endif
 #ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
     if (gActionPickerKey != 0 && gActionPickerTimeout_500ms > 0 &&
         --gActionPickerTimeout_500ms == 0)

@@ -44,7 +44,7 @@
 
 static volatile uint32_t gGlobalSysTickCounter;
 
-#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_SCAN_SKIP)
 uint32_t SCHEDULER_GetTick10ms(void)
 {
     return gGlobalSysTickCounter;

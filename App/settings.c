@@ -26,6 +26,10 @@
 #include "driver/py25q16.h"
 #include "misc.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#include "scheduler.h"
+#endif
 #include "ui/menu.h"
 
 #define SETTINGS_SCAN_MIX_ADDR 0x00A170u
@@ -380,6 +384,12 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
     } else {
         gEeprom.SCAN_LIST_MIX_MASK = SCAN_LIST_MIX_MASK_ALL;
     }
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    // Last byte of the existing MIX block stores only the skip preference.
+    gScanSkipMode = SCAN_SKIP_DecodeMode(Data[7]);
+    SCAN_SKIP_Reset(SCHEDULER_GetTick10ms()); // Power-up/config bank reload.
+#endif
 
     // 0F40..0F47
     PY25Q16_ReadBuffer(0x00A150, Data, 8);
@@ -1222,6 +1232,9 @@ void SETTINGS_SaveSettings(void)
     SecBuf[4] = 'I';
     SecBuf[5] = 'X';
     SecBuf[6] = 1;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+    SecBuf[7] = SCAN_SKIP_EncodeMode(gScanSkipMode);
+#endif
     PY25Q16_WriteBuffer(SETTINGS_SCAN_MIX_ADDR, SecBuf, 8, false);
 }
 

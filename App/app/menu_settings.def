@@ -26,6 +26,9 @@ MENU_SETTING(MENU_D_HOLD, gEeprom.DTMF_auto_reset_time, 5, 60)
 #if defined(ENABLE_FEAT_F4HWN)
 MENU_SETTING(MENU_SET_NAV, gEeprom.SET_NAV, 0, 1)
 #endif
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+MENU_SETTING(MENU_SKIP_TIME, gScanSkipMode, 0, SCAN_SKIP_MODE_COUNT - 1)
+#endif
 #if defined(ENABLE_FEAT_F4HWN_SLEEP)
 MENU_SETTING(MENU_SET_OFF, gSetting_set_off, 0, 120)
 #endif

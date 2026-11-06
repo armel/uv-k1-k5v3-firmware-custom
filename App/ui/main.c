@@ -22,6 +22,9 @@
     #include "app/action.h"
 #endif
 #include "app/chFrScanner.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+#include "app/scan_skip.h"
+#endif
 #include "app/dtmf.h"
 
 #ifdef ENABLE_FEAT_F4HWN_BEAM
@@ -348,7 +351,11 @@ static void ScanProgress_RebuildMemoryMap(uint8_t scan_list)
         ScanProgress_SetBit(gScanProgressMemoryMap, ch);
         ordinal++;
 
-        if (att->exclude) {
+        if (att->exclude
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+            || SCAN_SKIP_Contains(ch)
+#endif
+        ) {
             ScanProgress_SetBit(gScanProgressMemoryExcludeOrdinalMap, (uint16_t)(ordinal - 1));
         }
 
@@ -1892,7 +1899,11 @@ void UI_DisplayMain(void)
                 const char *displayStr;
                 uint8_t xStart = 113; // 3-char name aligned left
 
-                if(att->exclude == false)
+                if (!att->exclude
+#ifdef ENABLE_FEAT_F4HWN_SCAN_SKIP
+                    && !SCAN_SKIP_Contains(displayChannel)
+#endif
+                )
                 {
                     // show the scan list assigment symbols
                     uint8_t countList = att->scanlist;
