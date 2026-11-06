@@ -4,10 +4,11 @@
  * burst is 320 bytes including the 8-byte sync. Bytes after reception are
  * de-whitened with the protocol's repeating 64-byte mask. This compact first
  * version validates the STATUS and GPS sub-block CRCs but deliberately omits
- * Reed-Solomon correction to stay inside the 4 KiB overlay. Two layouts
- * share the STATUS block at 0x39: the classic one (GPS position 0x7B at
- * 0x112) and the multi-GNSS firmware (rs41mod: fw 0x50dd), which drops the
- * GPS blocks for a 0x82 position block at 0xA1.
+ * Reed-Solomon correction to stay inside the 4 KiB overlay. Two layouts:
+ * the classic one (STATUS 0x79 at 0x39, GPS position 0x7B at 0x112) and the
+ * multi-GNSS firmware (rs41mod: fw 0x50dd, RSM415 mainboards), which opens
+ * with a 0x96 block at 0x39, so STATUS follows at 0x47, and drops the GPS
+ * blocks for a 0x82 position block at 0xA1 (as received from Y2642669).
  *
  * The RAW audio path cuts the low frequencies (corner near 1 kHz, as found
  * with POCSAG RX): a high-passed NRZ level droops back to zero within a few
@@ -109,12 +110,15 @@ bool decrs41_busy(const decrs41_t *d)
 }
 
 /* No slicer reading a frame, or each one inside the bytes the parser ignores,
- * between the STATUS block (ends at 0x65) and the classic GPS block (starts
- * at 0x112), less the multi-GNSS position block (0xA1 to 0xCB), 3 bytes of
- * margin each: a held sample costs one bit at most there. With two windows,
- * the longest stretch without a key poll stays the 0x60 bytes from the sync
- * word to HOLD_LO, as with the classic layout alone. */
-#define HOLD_LO     0x68u
+ * 3 bytes of margin around each parsed block: a held sample costs one bit at
+ * most there. The layout is not known before the parse, so the windows avoid
+ * the blocks of both: the Reed-Solomon parity before STATUS (0x39 classic,
+ * 0x47 multi-GNSS, so 0x39 to 0x72 together), then from HOLD_LO to the
+ * classic GPS block (0x112), less the multi-GNSS position block (0xA1 to
+ * 0xCA). The longest stretch without a key poll is the 0x40 bytes from
+ * HOLD_RS to HOLD_LO (107 ms). */
+#define HOLD_RS     0x36u
+#define HOLD_LO     0x76u
 #define HOLD_HI     0x10Fu
 #define HOLD_GAP_LO 0x9Eu
 #define HOLD_GAP_HI 0xCEu
@@ -122,9 +126,9 @@ bool decrs41_holdOk(const decrs41_t *d)
 {
     for (unsigned k = 0; k < RS41_NSL; k++) {
         const rs41sl_t *s = &d->sl[k];
-        unsigned b = (unsigned)s->nbit >> 3;  /* byte being read */
-        if (s->state == ST_DATA && (b - HOLD_LO >= HOLD_HI - HOLD_LO ||
-                                    b - HOLD_GAP_LO < HOLD_GAP_HI - HOLD_GAP_LO))
+        unsigned b = (unsigned)s->nbit >> 3;  /* byte being read, 8 on */
+        if (s->state == ST_DATA && b >= HOLD_RS &&
+            (b - HOLD_LO >= HOLD_HI - HOLD_LO || b - HOLD_GAP_LO < HOLD_GAP_HI - HOLD_GAP_LO))
             return false;
     }
     return true;
@@ -325,9 +329,11 @@ static bool ecef(const uint8_t *p, sonde_info_t *out, const uint32_t *arc)
 /* De-whiten one frame and read it; out is valid only on success. */
 static bool frameOk(const decrs41_t *d, uint8_t *f, sonde_info_t *out)
 {
-    const uint16_t statusPos = 0x39u;
-    unsigned gpsPos = 0x112u, gpsId = 0x7Bu, gpsLen = 21u;
+    unsigned statusPos = 0x39u, gpsPos = 0x112u, gpsId = 0x7Bu, gpsLen = 21u;
     for (unsigned i = 8u; i < RS41_FRAME_LEN; i++) f[i] ^= d->mask[i & 63u];
+    /* Multi-GNSS firmware: the 0x96 block (10 bytes, likely an authentication
+     * tag, not checked) comes first and STATUS follows it. */
+    if (f[0x39u] == 0x96u) statusPos = 0x47u;
     if (!blockOk(f, statusPos, 0x79u, 40u)) return false;
     for (unsigned i = 0; i < 8u; i++) {
         unsigned c = f[statusPos + 4u + i];
@@ -335,7 +341,7 @@ static bool frameOk(const decrs41_t *d, uint8_t *f, sonde_info_t *out)
         out->id[i] = (char)c;
     }
     out->id[8] = 0;
-    out->batt_dv = f[statusPos + 12u];     /* 0x45: battery, 0.1 V (rs41mod) */
+    out->batt_dv = f[statusPos + 12u];     /* 0x45 classic: battery, 0.1 V (rs41mod) */
     out->flags = SONDE_HAS_ID;
     /* Without the classic block's ID at 0x112, the multi-GNSS block 0x82 at
      * 0xA1 (38 bytes, rs41mod: 0x8226), which starts with the same ECEF

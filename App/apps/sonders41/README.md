@@ -7,15 +7,25 @@ speed, the horizontal speed and heading, and the sonde's battery voltage.
 
 ## Status
 
-Version 0.6 implements the common 320-byte RS41 frame at 4800 bit/s, in its
-classic GPS layout and in the newer multi-GNSS layout, and opens GeoNav on
-`MENU`. The parser, CRC path,
+Version 0.8 implements the common 320-byte RS41 frame at 4800 bit/s, in its
+classic GPS layout and in the newer multi-GNSS layout, opens GeoNav on
+`MENU`, and shows the position as a QR code with QR Map on `7`. The parser,
+CRC path,
 normal RF polarity, and inverted RF polarity have synthetic host tests, and
 `test/model_rx.py` runs the demodulator through a model of the radio's RAW
 audio path. Reception of the classic layout on a UV-K1 or UV-K5 V3 has been
 validated with the generated Flipper Zero files in both RF polarities, and
-real RS41 signals have been decoded in the field. The multi-GNSS layout is
-checked on synthetic frames only: no reception on a radio yet.
+real RS41 signals have been decoded in the field.
+
+Versions 0.5 to 0.7 placed the multi-GNSS STATUS block at `0x39`, and so
+decoded none of these sondes: RSM415 mainboards with firmware 20701
+(`0x50dd`), every Sofia (15614) launch since April 2026 for example. Version
+0.8 follows the layout of a real one, Y2642669, launched from Sofia on
+2026-11-03 and recorded off-air with an RTL-SDR: the 88 frames recorded intact
+all share it, and the host tests include two of them. Through the RAW audio
+model, the recording gives 76 to 89 of 89 frames depending on the audio
+corners (version 0.7: none), and a position in 67 to 85 % of them. It has not
+yet been received on a radio.
 
 To fit the 4 KiB overlay, this first version deliberately does not implement:
 
@@ -74,9 +84,10 @@ phase-only DPLL failed from 2 %) and moderate noise; receiver noise alone
 gives no false sync.
 
 While a frame is read, keys are polled only where a held sample cannot touch
-a parsed block (3 bytes of margin): bytes `0x68`–`0x9D` and `0xCE`–`0x10E`.
-The longest stretch without a poll is the 96 bytes after the sync, 160 ms, as
-before the multi-GNSS layout.
+a parsed block of either layout (3 bytes of margin): bytes `0x08`–`0x35`
+(Reed-Solomon parity), `0x76`–`0x9D` and `0xCE`–`0x10E`. The longest stretch
+without a poll is the 64 bytes from `0x36` to `0x75`, 107 ms (160 ms in
+version 0.7).
 
 ## Keys
 
@@ -87,6 +98,7 @@ before the multi-GNSS layout.
 | `3` / `F`+`3` | Cycle attenuation forward / backward |
 | `4` | Restore the VFO frequency |
 | `5` | Decode beep on/off, saved |
+| `7` | Show the position as a QR code in QR Map (Google Maps, Apple Maps, `geo:`, OpenStreetMap or text; the serial beside it) once a position is decoded; its `EXIT` starts this app again, with an empty screen |
 | `MENU` | Open GeoNav (bearing, distance from the APRS position) once a position is decoded; its `EXIT` comes back here with the last frame |
 | `EXIT` | Quit |
 
@@ -96,14 +108,17 @@ before the multi-GNSS layout.
 - 320-bit alternating preamble;
 - 64-byte repeating whitening mask;
 - common 320-byte frame;
-- CRC-16/CCITT-FALSE STATUS (`0x79`, at `0x39`) and position sub-blocks;
-- two frame layouts, sharing the STATUS block:
-  - classic: GPS position `0x7B` at `0x112`;
+- CRC-16/CCITT-FALSE STATUS (`0x79`) and position sub-blocks;
+- two frame layouts:
+  - classic: STATUS at `0x39`, GPS position `0x7B` at `0x112`;
   - multi-GNSS firmware (u-blox M10, `fw 0x50dd` in `rs41mod`), seen on
-    sondes flown from MW51 stations: the GPS blocks are replaced by a `0x82`
-    position block at `0xA1`, with the same ECEF position and velocity first.
-    It is read only when the classic block's ID is missing at `0x112`, so a
-    classic frame is decoded exactly as before;
+    sondes flown from MW51 stations: a `0x96` block (10 bytes, not checked)
+    comes first at `0x39`, so STATUS follows at `0x47`, then PTU `0x7A` at
+    `0x73`. The GPS blocks are replaced by a `0x82` position block at `0xA1`,
+    with the same ECEF position and velocity first. STATUS is read at `0x47`
+    only when the frame opens with `0x96`, and `0x82` only when the classic
+    block's ID is missing at `0x112`, so a classic frame is decoded exactly as
+    before;
 - eight-character sonde serial number;
 - ECEF position converted to WGS84 latitude, longitude, and height above
   the ellipsoid, in 32-bit integers: within about 3 m horizontally and 4 m in
@@ -114,7 +129,8 @@ before the multi-GNSS layout.
 - the same velocity projected on the local east and north, in integers
   without trigonometry: horizontal speed (`HS`, whole m/s) and heading
   (`HDG`, degrees from north);
-- battery voltage, STATUS byte `0x45` in 0.1 V (as `rs41mod`).
+- battery voltage, STATUS byte 12 (`0x45` classic, `0x53` multi-GNSS) in
+  0.1 V (as `rs41mod`).
 
 Screen body, four fixed rows: the position (4 decimals, about 11 m, so it
 always fits one row), `ALT …m VS±…`, `HS …m/s HDG …`, `BAT …V`.
@@ -163,4 +179,4 @@ Use only a frequency permitted by the Flipper's configured region.
 
 ## Version
 
-Current: **v0.6**.
+Current: **v0.8**.
