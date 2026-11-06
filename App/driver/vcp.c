@@ -17,6 +17,8 @@
 #include "driver/vcp.h"
 #include "usb_config.h"
 #include "py32f071_ll_bus.h"
+#include "py32f071_ll_gpio.h"
+#include "driver/system.h"
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "driver/keyboard.h"
@@ -29,6 +31,21 @@ void VCP_Init()
 {
     LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_SYSCFG);
     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA); // PA12:11
+
+    /* Leave the bus before enumerating. The bootloader can hand over with its
+     * own USB device (36b7:0001) still attached: a host that sees no
+     * disconnect keeps that device and never enumerates this firmware's
+     * (36b7:ffff), so UV Studio cannot reach it until the radio is switched
+     * off and on. Reset the USB peripheral (its address and pull-up) and hold
+     * D+ low: the host sees the radio unplugged, then plugged again. Boot
+     * only, so a running session is never dropped. */
+    LL_APB1_GRP1_ForceReset(LL_APB1_GRP1_PERIPH_USBD);
+    LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_12);
+    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_12, LL_GPIO_MODE_OUTPUT);
+    SYSTEM_DelayMs(50);
+    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_12, LL_GPIO_MODE_ANALOG);
+    LL_APB1_GRP1_ReleaseReset(LL_APB1_GRP1_PERIPH_USBD);
+
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USBD);
 
     cdc_acm_rx_buf_t rx_buf = {
