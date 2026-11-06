@@ -2536,30 +2536,19 @@ void UI_DisplayMain(void)
 #if ENABLE_FEAT_F4HWN
         const uint8_t displayBandwidth = vfoInfo->CHANNEL_BANDWIDTH;
 
-        // CW and SSB always run the 6.25k filter, so name it instead of W/N.
-        // A RIT/XIT tag takes its place while an offset is applied.
-        if (!RADIO_HasFilterChoice(vfoInfo))
-        {
-        #ifdef ENABLE_CW_MODULATOR
-            if (!(isMainVFO && vfoInfo->Modulation == MODULATION_CW && CW_RIT_TagVisible()))
-        #endif
-            {
-                if (gSetting_set_gui)
-                    UI_PrintStringSmallNormal("6k", LCD_WIDTH + 80, 0, line + 1);
-                else
-                    GUI_DisplaySmallest("6k", 91, line == 0 ? 17 : 49, false, true);
-            }
-        }
-        else
+        // W/N in every mode. On the main VFO in CW, a RIT/XIT tag takes its
+        // place while an offset is applied.
+    #ifdef ENABLE_CW_MODULATOR
+        if (!(isMainVFO && vfoInfo->Modulation == MODULATION_CW && CW_RIT_TagVisible()))
+    #endif
         {
         #ifdef ENABLE_FEAT_F4HWN_NARROWER
             // SetNFM upgrades FM's narrow to 6.25k, so "N+" says something
-            // here. CW/SSB never reach this branch when the extra filter is
-            // compiled in; without it they share the FM widths and the upgrade
-            // applies to them too, so no modulation test is needed either way.
+            // there. It doesn't move AM, CW or SSB.
             bool narrower = 0;
 
-            if (displayBandwidth == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
+            if (displayBandwidth == BANDWIDTH_NARROW && gSetting_set_nfm == 1 &&
+                vfoInfo->Modulation == MODULATION_FM)
             {
                 narrower = 1;
             }

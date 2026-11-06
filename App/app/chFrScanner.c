@@ -519,14 +519,8 @@ static void ScanFastApplyChannelShape(ModulationMode_t modulation)
     if (modulationChanged)
         RADIO_SetModulation(modulation);
 
-    if (modulation == MODULATION_AM)
-    {
-        BK4819_SetFilterBandwidth(RADIO_ResolveFilter(gRxVfo), true);
-    }
-    else
-    {
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, false);
-    }
+    // Wide for every modulation: 25k for FM and AM, 6k for CW and USB
+    RADIO_ApplyFilter(modulation, BANDWIDTH_WIDE);
 
     if (modulationChanged)
     {

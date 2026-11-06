@@ -312,7 +312,6 @@
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "ENABLE_SWD": false,
                 "ENABLE_F_CAL_MENU": true,
-                "ENABLE_EXTRA_FILTER": true,
                 "ENABLE_USB": true
             }
         }

@@ -344,8 +344,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 
         case MENU_W_N:
             //*pMin = 0;
-            // CW and USB have one filter, shown as the only choice
-            *pMax = RADIO_HasFilterChoice(gTxVfo) ? ARRAY_SIZE(gSubMenu_W_N) - 1 : 0;
+            *pMax = BANDWIDTH_NARROW;
             break;
 
         case MENU_RESET:
@@ -705,11 +704,8 @@ void MENU_AcceptSetting(void)
             return;
 
         case MENU_W_N:
-            // leave the bit alone where it does nothing, so FM and AM keep their width
-            if (RADIO_HasFilterChoice(gTxVfo)) {
-                gTxVfo->CHANNEL_BANDWIDTH = gSubMenuSelection;
-                gRequestSaveChannel       = 1;
-            }
+            gTxVfo->CHANNEL_BANDWIDTH = gSubMenuSelection;
+            gRequestSaveChannel       = 1;
             return;
 
 #ifndef ENABLE_FEAT_F4HWN
@@ -908,6 +904,9 @@ void MENU_AcceptSetting(void)
             break;
 
         case MENU_AM:
+            // A new modulation starts at its own default filter
+            if (gTxVfo->Modulation != gSubMenuSelection)
+                gTxVfo->CHANNEL_BANDWIDTH = RADIO_DefaultBandwidth(gSubMenuSelection);
             gTxVfo->Modulation     = gSubMenuSelection;
             gRequestSaveChannel = 1;
             return;
@@ -1295,7 +1294,7 @@ void MENU_ShowCurrentSetting(void)
             break;
 
         case MENU_W_N:
-            gSubMenuSelection = RADIO_HasFilterChoice(gTxVfo) ? gTxVfo->CHANNEL_BANDWIDTH : 0;
+            gSubMenuSelection = gTxVfo->CHANNEL_BANDWIDTH;
             break;
 
 #ifndef ENABLE_FEAT_F4HWN

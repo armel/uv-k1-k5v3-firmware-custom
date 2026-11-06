@@ -242,31 +242,35 @@ const char* const gSubMenu_SFT_D[] =
     "-"
 };
 
-// Which labels apply depends on the modulation of the VFO being edited. FM and AM
-// pick wide or narrow; CW and SSB have the one 6.25k filter, shown as the only
-// choice. UI_MENU_FilterLabels() picks the list.
-const char* const gSubMenu_W_N[] =
+// Filter menu labels, indexed by the stored bit (0 wide, 1 narrow). Which pair
+// applies depends on the modulation of the VFO being edited; the widths come
+// from RADIO_FilterFor(). The status line stays at short W/N; this is the
+// picking context, so it says more where the width is known.
+static const char* const gSubMenu_W_N_FM[] =
 {
 	"25k FM",
 	"12k FM",
 };
 
-#ifdef ENABLE_EXTRA_FILTER
-const char* const gSubMenu_W_N_SSB[] =
+static const char* const gSubMenu_W_N_AM[] =
 {
-	"6.25k",
+	"WIDE AM",
+	"NARR AM",
 };
-#endif
 
-// Label pair for the filter menu, chosen from the modulation. The status line
-// stays at plain W/N; this is the picking context, so it shows the real widths.
+static const char* const gSubMenu_W_N_BASEBAND[] =
+{
+	"WIDE",
+	"NARROW",
+};
+
 const char* const *UI_MENU_FilterLabels(void)
 {
-#ifdef ENABLE_EXTRA_FILTER
-	if (!RADIO_HasFilterChoice(gTxVfo))
-		return gSubMenu_W_N_SSB;
-#endif
-	return gSubMenu_W_N;
+	if (RADIO_IsBaseband(gTxVfo->Modulation))
+		return gSubMenu_W_N_BASEBAND;
+	if (gTxVfo->Modulation == MODULATION_AM)
+		return gSubMenu_W_N_AM;
+	return gSubMenu_W_N_FM;
 }
 
 const char* const gSubMenu_OFF_ON[] =
@@ -521,7 +525,7 @@ const char* const gSubMenu_SCRAMBLER[] =
 #endif
 
 #ifdef ENABLE_CW_MODULATOR
-    // The bit is not a wide/narrow pair on CW and USB, see RADIO_ResolveFilter()
+    // Wide/narrow in every mode, see RADIO_FilterFor()
     #define SIDEFUNCTION_WN_NAME "FILTER\nWIDTH"
     #define SIDEFUNCTION_CW_NAMES(X) \
         X(ACTION_OPT_CW_KEY_INPUT,     "CW KEY\nINPUT") \

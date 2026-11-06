@@ -46,6 +46,26 @@ This is the regression test for two shipped bugs:
 
 The two go together. Do not add one without the other.
 
+## `test_filter.py` — the per-channel filter
+
+```
+python3 tools/chirp-test/test_filter.py [path/to/module.py]
+```
+
+Bit 1 of the flags byte is wide (0) or narrow (1) in every mode, shown in the
+Filter column. FM and AM also show it in the mode name (NFM/NAM), which CHIRP
+needs to import narrow channels from other radios. Covers:
+
+- reading each mode and bit;
+- edits through either the mode name or the Filter column;
+- changing modulation, where a channel new to CW starts narrow as in the
+  firmware;
+- new channels, from the editor or a bare CSV-style memory;
+- a foreign extra that happens to be called `filter`;
+- every valid mode reading back as itself;
+- pre-v2.0 images: v1.4 and pre-v1.4 CW channels come up narrow and USB wide,
+  in channels and VFO slots, and a second load leaves the user's choice alone.
+
 ## `test_legacy_image.py` — the v2.0 CW storage conversion
 
 ```

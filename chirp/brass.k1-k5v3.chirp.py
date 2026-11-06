@@ -556,8 +556,7 @@ SET_NFM_LIST = ["NARROW", "NARROWER"]
 # NARROWEST selector on CW/USB channels, so TX_LOCK could never be set there.
 # Schema 2 gives bit 6 back to TX_LOCK and keeps the filter in bit 1 as a plain
 # wide/narrow flag, with the firmware deciding what those mean per modulation
-# (FM 25k/12.5k, AM its own pair). CW and SSB have a single 6.25k filter and
-# ignore the bit.
+# (see the filter tables below).
 #
 # Schema 1 is read-only: an image is upgraded in memory on load and only ever
 # written back as schema 2. Pre-v1.4 firmware never wrote the marker, so it
@@ -600,25 +599,81 @@ def _nr7y_schema_from_image(img):
         schema = legacy[0]
     return NR7Y_SCHEMA_LEGACY if schema == 0xFF else schema
 
-# modulation -> (wide name, narrow name). CW and USB have a single filter, so both
-# entries are the same name.
+# ---- Channel filter -------------------------------------------------------
+# Bit 1 of the flags byte: 0 wide and 1 narrow in every modulation. The
+# firmware decides the width per modulation (RADIO_FilterFor in radio.c):
+#
+#   FM       25k     / 12.5k (6.25k with SetNFM)
+#   AM       25k     / its AM preset
+#   CW, USB  6.25k   / the BK4829's narrowest preset (width unmeasured)
+#
+# The Filter column (the "filter" extra) shows the bit for every mode. FM and
+# AM also carry it in the mode name, NFM and NAM, because that is how CHIRP
+# moves narrow between radios: CHIRP refuses to import a mode the radio does
+# not list, so an NFM channel from another radio or RepeaterBook would be
+# dropped. USB and CW have no narrow names (CHIRP has NCW but no NUSB), so the
+# column is the only place for theirs.
+NR7Y_FILTER_LIST = ["Wide", "Narrow"]
+NR7Y_MOD_USB = 2
+NR7Y_MOD_CW = 3
+
+# modulation -> (wide mode name, narrow mode name)
 _NR7Y_MODE_NAME = {
     0: ("FM", "NFM"),
     1: ("AM", "NAM"),
-    2: ("USB", "USB"),
-    3: ("CW", "CW"),
+    NR7Y_MOD_USB: ("USB", "USB"),
+    NR7Y_MOD_CW: ("CW", "CW"),
 }
 
-# mode name -> (modulation, bandwidth). A bandwidth of None means the bit does
-# nothing for that mode (USB and CW), so it's stored as wide.
+# mode name -> (modulation, the filter bit the name fixes, or None where the
+# name says nothing about it)
 _NR7Y_MODE_BITS = {
     "FM":  (0, 0),
     "NFM": (0, 1),
     "AM":  (1, 0),
     "NAM": (1, 1),
-    "USB": (2, None),
-    "CW":  (3, None),
+    "USB": (NR7Y_MOD_USB, None),
+    "CW":  (NR7Y_MOD_CW, None),
 }
+
+
+def _nr7y_resolve_filter(mod, name_bit, column_bit, stored):
+    """Filter bit to store for a memory being written.
+
+    mod and name_bit come from the mode name (_NR7Y_MODE_BITS), column_bit from
+    the Filter column (None if the memory has no such extra), and stored is the
+    record's current (modulation, bit), or None if it is empty.
+
+    A channel that is new, or new to its modulation, starts where the firmware
+    starts it (RADIO_DefaultBandwidth): CW narrow. FM and AM take the mode
+    name, and USB the column. Otherwise whichever of the mode name and the
+    column differs from what is stored is the one the user changed.
+    """
+    if stored is None or stored[0] != mod:
+        if name_bit is not None:
+            return name_bit
+        if mod == NR7Y_MOD_CW:
+            return 1
+        return column_bit or 0
+
+    stored_bit = stored[1]
+    if name_bit is not None and name_bit != stored_bit:
+        return name_bit
+    if column_bit is not None and column_bit != stored_bit:
+        return column_bit
+    return stored_bit
+
+
+def _nr7y_filter_setting(bit):
+    """The per-memory Filter column, showing the stored bit."""
+    val = RadioSettingValueList(NR7Y_FILTER_LIST, current_index=bit & 1)
+    rs = RadioSetting("filter", "Filter", val)
+    rs.set_doc('Filter: wide or narrow receive filter. The width depends on '
+               'the mode: FM 25k / 12.5k, AM 25k / narrow AM, CW and USB '
+               'the two narrowest the radio has. FM and AM also show narrow '
+               'as NFM and NAM.')
+    return rs
+
 
 # Set RxA value
 SET_RXA_FM_LIST = ["FLAT", "CLEAN", "MID", "BOOST", "MAX"]
@@ -1814,16 +1869,31 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
     # ---------------------------------------------------------------- mode bits
 
     def _nr7y_apply_mode(self, _mem_chan, memory):
-        """Write modulation and bandwidth for the memory's mode.
+        """Write modulation and filter bit for the memory being set.
 
-        The mode string fixes the bandwidth bit for FM and AM, where FM/NFM
-        and AM/NAM are the ordinary CHIRP convention. USB and CW have a single
-        6.25 kHz filter on this firmware, so their bit does nothing and is
-        stored as wide.
+        Call it before anything else is written to the record: it reads what
+        is stored now to tell which of the mode name and the Filter column
+        changed. See _nr7y_resolve_filter().
         """
-        mod, bw = _NR7Y_MODE_BITS.get(memory.mode, (0, 0))
+        mod, name_bit = _NR7Y_MODE_BITS.get(memory.mode, (0, 0))
+
+        # A memory from CSV or another radio may have no such column, or one
+        # of its own under the same name; only ours counts
+        column_bit = None
+        if "filter" in memory.extra:
+            try:
+                if str(memory.extra["filter"].value) in NR7Y_FILTER_LIST:
+                    column_bit = int(memory.extra["filter"].value)
+            except (TypeError, ValueError):
+                pass
+
+        stored = None
+        if int(_mem_chan.freq) not in (0, 0xFFFFFFFF):
+            stored = (int(_mem_chan.modulation), int(_mem_chan.bandwidth))
+
         _mem_chan.modulation = mod
-        _mem_chan.bandwidth = 0 if bw is None else bw
+        _mem_chan.bandwidth = _nr7y_resolve_filter(mod, name_bit, column_bit,
+                                                   stored)
 
     # Extract a high-level memory object from the low-level memory map
     # This is called to populate a memory in the UI
@@ -1871,6 +1941,10 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
             # set some sane defaults:
             mem.power = UVK5_POWER_LEVELS[2]
             mem.extra = RadioSettingGroup("Extra", "extra")
+
+            # First, so it is the first extra column, the closest CHIRP puts
+            # it to Mode
+            mem.extra.append(_nr7y_filter_setting(0))
 
             val = RadioSettingValueList(SET_OFF_ON_LIST)
             rs = RadioSetting("txLock", "TXLock", val)
@@ -1938,8 +2012,8 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
         # only works while every modulation has a narrow variant in valid_modes.
         # It does not: CHIRP has no NUSB string (chirp_common.MODES has NCW but
         # not NUSB), so the list is ragged and the stride runs off the end at
-        # index 5. An explicit table sidesteps it entirely, and lets the
-        # bandwidth bit stay meaningful for USB/CW instead of being pinned.
+        # index 5. An explicit table sidesteps it entirely. The bit itself is
+        # also shown, for every mode, in the Filter column below.
         modulation = int(_mem.modulation)
         bandwidth = int(_mem.bandwidth)
 
@@ -1989,6 +2063,11 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
             mem.empty = False
 
         mem.extra = RadioSettingGroup("Extra", "extra")
+
+        # Filter, first so it is the first extra column, the closest CHIRP
+        # puts it to Mode. Read after the mode table above, which may have
+        # reset an invalid record.
+        mem.extra.append(_nr7y_filter_setting(int(_mem.bandwidth)))
 
         # TXLock
         enc = list_def(_mem.txLock, SET_OFF_ON_LIST, 0)
@@ -3649,8 +3728,9 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
         append_label(help_group,"(H) = High TX power" , "Under each VFO" )
         append_label(help_group,"(M) = Medium TX power" , "Under each VFO" )
         append_label(help_group,"(Lx) = Low TX power, with x = level 1 to 5" , "Under each VFO" )
-        append_label(help_group,"(W) = Wide BF filter: 12.5kHz (WIDE)" , "Under each VFO" )
-        append_label(help_group,"(N) = Narrow BF filter: 6.25kHz (NARROW)" , "Under each VFO" )
+        append_label(help_group,"(W) = Wide filter (FM: 25kHz)" , "Under each VFO" )
+        append_label(help_group,"(N) = Narrow filter (FM: 12.5kHz)" , "Under each VFO" )
+        append_label(help_group,"(N+) = Narrow FM at 6.25kHz (SetNFM)" , "Under each VFO" )
 
         append_label(help_group,"" , "" )
 
@@ -3663,8 +3743,9 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
         append_label(help_group,"(CT x) = RX CTCSS active, with x = value" , "Under each VFO" )
         append_label(help_group,"(DC x) = RX CTCSS active, with x = value" , "Under each VFO" )
         append_label(help_group,"(x.xxK) = no incrementation of the frequency" , "Under each VFO" )
-        append_label(help_group,"(WIDE) = Wide BF filter: 12.5kHz" , "Under each VFO" )
-        append_label(help_group,"(NAR) = Narrow BF filter: 6.25kHz" , "Under each VFO" )
+        append_label(help_group,"(WIDE) = Wide filter (FM: 25kHz)" , "Under each VFO" )
+        append_label(help_group,"(NAR) = Narrow filter (FM: 12.5kHz)" , "Under each VFO" )
+        append_label(help_group,"(NAR+) = Narrow FM at 6.25kHz (SetNFM)" , "Under each VFO" )
                
         append_label(help_group,"" , "" )
 
@@ -3697,7 +3778,7 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
 
         append_label(help_group,"","" )
         append_label(help_group,"(4 FC) = long press: start the CTCSS & frequency scan " , "Same as long press " )
-        append_label(help_group,"(4 FC) = F then LONG press: toggle the RX filter bandwidth of the active VFO " , "FM/AM only: CW & USB have one filter " )
+        append_label(help_group,"(4 FC) = F then LONG press: toggle the RX filter bandwidth of the active VFO " , "Wide / narrow, in every mode " )
         append_label(help_group,"(4 FC) = short press: digit 4  "," " )
 
 
@@ -3948,8 +4029,9 @@ class UVK5RadioEgzumer(chirp_common.CloneModeRadio):
         band = self._find_band(memory.freq)
 
         # ---- NR7Y: mode by table --------------------------------------------
-        # Upstream forced bandwidth = 1 for USB. USB and CW have a single filter
-        # on this firmware, so the bit is stored as wide - see _nr7y_apply_mode().
+        # Upstream forced bandwidth = 1 for USB. Here the bit is the channel's
+        # filter in every mode - see _nr7y_apply_mode(). It reads the record as
+        # stored, so it has to come before the frequency is written.
         self._nr7y_apply_mode(_mem_chan, memory)
 
         # frequency/offset
@@ -4091,10 +4173,11 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
     def _nr7y_upgrade_schema(self):
         """Bring a schema 1 image up to schema 2, in memory.
 
-        The firmware does not migrate this itself. On CW and USB records
-        the old NARROWEST flag in bit 6 becomes the filter bit, and bit 6 goes
-        back to being TX_LOCK, set on. Schema 1 is read-only - this module
-        never writes it back.
+        The firmware does not migrate this itself. On CW and USB records bit 6
+        goes back to being TX_LOCK, set on. The old NARROWEST flag it held is
+        dropped: a schema 1 image is always a pre-v2.0 layout, so
+        _nr7y_default_legacy_filters() sets those records' filter after this.
+        Schema 1 is read-only - this module never writes it back.
         """
         migrated = 0
 
@@ -4107,8 +4190,6 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
             if mod not in (2, 3):
                 continue
 
-            was_narrowest = int(record.txLock) & 1
-            record.bandwidth = was_narrowest
             record.txLock = 1
             migrated += 1
 
@@ -4150,6 +4231,8 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
     def _nr7y_convert_legacy_layout(self):
         """Bring an image without a CW block header into the v2.0 layout, in memory.
 
+        Returns True if it converted one, False if the image was already v2.0.
+
         This is the only migration path from v1.x: the firmware resets what it
         would misread and moves nothing. Valid macros go from 0x1C00 to the
         macro area, CW settings from 0xA140 to the CW block, key actions are
@@ -4160,7 +4243,7 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         raw = bytearray(self._mmap.get_packed())
         hdr = raw[NR7Y_CW_BLOCK_ADDR:NR7Y_CW_BLOCK_ADDR + 8]
         if _nr7y_cw_block_version(hdr):
-            return
+            return False
         raw += b"\xFF" * (MEM_SIZE - len(raw))
 
         schema = _nr7y_schema_from_image(raw)
@@ -4216,6 +4299,33 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
         LOG.warning('Image predates the v2.0 CW storage layout and has been '
                     'converted (macros moved: %s). Upload it only to v2.0 or '
                     'later firmware.', moved or 'none')
+        return True
+
+    def _nr7y_default_legacy_filters(self):
+        """Give CW and USB channels from a pre-v2.0 image their v2.0 filter.
+
+        v1.4-v1.x ignored the filter bit on CW and USB records, so whatever it
+        holds there is noise, and pre-v1.4 kept its 2k choice in bit 6, which
+        _nr7y_upgrade_schema() has already handed back to TX_LOCK. Both start
+        at the firmware's default instead: CW narrow and USB wide.
+        FM and AM records keep their bit, which always meant what it means now.
+        """
+        counts = {NR7Y_MOD_CW: 0, NR7Y_MOD_USB: 0}
+
+        for record in list(self._memobj.channel) + list(self._memobj.vfo_channel):
+            try:
+                mod = int(record.modulation)
+            except Exception:
+                continue
+            # An erased record decodes to modulation 0xF and matches neither.
+            if mod not in counts:
+                continue
+            record.bandwidth = 1 if mod == NR7Y_MOD_CW else 0
+            counts[mod] += 1
+
+        LOG.warning('Pre-v2.0 image: %d CW channels set to the narrow filter '
+                    'and %d USB channels to wide.',
+                    counts[NR7Y_MOD_CW], counts[NR7Y_MOD_USB])
 
     def _nr7y_macro_header_valid(self):
         hdr = bytes(self._mmap[CW_MACRO_START:CW_MACRO_START + 6])
@@ -4223,11 +4333,15 @@ class UVK5_NR7Y_Fusion(UVK5RadioEgzumer):
                 and hdr[5] == _NR7Y_CW_MACRO_SIZE)
 
     def process_mmap(self):
-        self._nr7y_convert_legacy_layout()
+        legacy = self._nr7y_convert_legacy_layout()
         super().process_mmap()
         self._check_schema_at_load()
         if self._nr7y_read_schema() < NR7Y_SCHEMA_CURRENT:
             self._nr7y_upgrade_schema()
+        # After the schema upgrade, which must not overwrite it. A second load
+        # sees the v2.0 header and leaves the filters alone.
+        if legacy:
+            self._nr7y_default_legacy_filters()
 
     # ------------------------------------------------------------------ key actions helper
 

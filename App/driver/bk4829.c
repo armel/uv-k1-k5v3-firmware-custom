@@ -710,6 +710,14 @@ void BK4819_SetFilterBandwidth(const BK4819_FilterBandwidth_t Bandwidth, const b
             val = 0x2058;
             break;
 
+        case BK4819_FILTER_BW_NARROWEST: // 2.0kHz RF, CW/USB narrow
+            // 0x0058 = (0b000 << 12) | (0b000 << 9) | (0b001 << 6) |
+            //          (0b01 << 4)  | (1 << 3)
+            //        = RF 2.0 kHz and weak-RF 2.0 kHz, the smallest codes the
+            //          chip has, AF Tx LPF2 2.5 kHz, 6.25k mode, FM gain 0 dB.
+            val = 0x0058;
+            break;
+
         case BK4819_FILTER_BW_AM:   // Stock AM preset
             // 0x345C = (0b011 << 12) | (0b010 << 9) | (0b001 << 6) |
             //          (0b01 << 4)  | (1 << 3)     | (1 << 2)
