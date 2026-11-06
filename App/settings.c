@@ -530,7 +530,11 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gSetting_set_tmr = ((Data[4] & 1) < 2) ? (Data[4] & 1): 0;
         */
 
-        int tmp = (Data[5] & 0xF0) >> 4;
+        const uint8_t display_settings = Data[5];
+        // Bit 5 is reserved and cleared by SETTINGS_SaveSettings().
+        // If it is set, the display settings byte is not initialized.
+        const bool display_settings_valid = (display_settings & 0x20u) == 0u;
+        int tmp = display_settings_valid ? (display_settings >> 4) : 0;
 
 #ifdef ENABLE_FEAT_F4HWN_INV
         gSetting_set_inv = (tmp >> 0) & 0x01;
@@ -547,8 +551,8 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN_CTR
-        int ctr_value = Data[5] & 0x0F;
-        gSetting_set_ctr = (ctr_value > 0 && ctr_value < 16) ? ctr_value : 10;
+        int ctr_value = display_settings & 0x0F;
+        gSetting_set_ctr = (display_settings_valid && ctr_value > 0 && ctr_value < 16) ? ctr_value : 10;
 #else
         gSetting_set_ctr = 10;
 #endif
