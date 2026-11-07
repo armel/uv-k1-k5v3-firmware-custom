@@ -18,6 +18,41 @@ Needs a Fusion firmware with app API level 3 (`handoff`, `vfo_stage`) and the
 `APP_CAP_BEAM2` receive-profile bridge. EPIRB 406 must be installed for the
 hand-off.
 
+## Version 1.9: deaf under interference
+
+A bench of 07/11/2026 with the same scan (local interference near -105 dBm
+on 433 MHz) missed about half the bursts. A channel's floor followed a fall at once: one low
+reading took it 8 to 10 dB under the noise, the noise itself then crossed
+the 10 dB trigger and every trigger held the radio, 35 ms for the
+localisation pass, up to 400 ms looking for a frame sync, up to 1.3 s timing
+the "burst". An interferer lifting several channels set these holds off one
+channel after the other. 1.9:
+
+- the floor falls by 1/4 per pass (it still rises by 1/16): it sits near the
+  noise, under its mean;
+- a trigger is read again 2 ms later; the localisation pass, 35 ms later,
+  goes back to the sweep when no channel is still above the trigger;
+- every channel above the trigger in the localisation pass takes that reading
+  as its floor, so an interferer sets off one hold, not one per channel. A
+  beacon's floors fall back within about 0.5 s, its next burst is ~50 s away.
+  This also replaces the reading after the alarm (a carrier still there).
+
+Bench of 08/11/2026 (LimeSDR on 433.656 MHz, UV-K1 in WATCH + TEST, ELT watch
+off, the alarms counted on the K5Viewer screen and acknowledged by key):
+
+| Signal | 1.8 | 1.9 |
+|---|---|---|
+| bursts alone, gain 30 | 20 / 20 | 20 / 20 |
+| bursts alone, gain 0 | 9 / 10 | 10 / 10 |
+| weak bursts, gain -4, -8, -12 | 7 / 30 | 7 / 30 |
+| bursts in noise -10 dB (65 kHz over the channels, level re-drawn every 10 ms, 0 to -15 dB) | 11 / 20 | 20 / 20 |
+| same, noise -5 dB | | 10 / 10 |
+| noise alone, 60 s | no alarm | no alarm |
+
+In noise, 1.8 also drew its screen less often (327 frames against 532 for
+1.9 over the same run), a sign it was held on noise. Same sensitivity on weak
+bursts. Code 4092 B (1.8: 4088 B).
+
 ## Version 1.8: FM broadcast overload and off-frequency beacons
 
 Field report (03/11/2026, ADRASEC 73, Nagoya UT-109A airband antenna on a
@@ -227,8 +262,10 @@ looks like a 6, and "1G 0 2G 0" read "16 0 26 0".
 
 Each channel takes about 3 ms (frequency written to REG_38/39, RX restarted,
 RSSI read), so the 11 channels take about 35 ms. Each channel keeps its own
-noise floor. It follows a fall at once and a rise slowly (1/16 per pass, about
-0.6 s). A reading 10 dB above it parks the receiver on that channel.
+noise floor. It follows a fall by 1/4 per pass and a rise by 1/16 (about 0.6
+s), so it sits near the noise (1.9; it followed a fall at once before). A
+reading 10 dB above it, still there 2 ms later, parks the receiver on that
+channel.
 
 The channels are sometimes only 3 kHz apart, closer than the inherited receive
 filter. A trigger starts a localisation pass over the 11 channels, which keeps

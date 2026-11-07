@@ -54,12 +54,14 @@
  *   MIN_2G_MS .. LONG_MS     GEN2: second generation (1 s, not decodable here);
  *   LONG_MS and more         a continuous carrier (interferer): the
  *                            channel's floor takes its level, so it does not
- *                            trigger again; no alarm;
+ *                            trigger again (the others it lifted took theirs
+ *                            in the localisation pass); no alarm;
  *   shorter than MIN_1G_MS   ignored.
  * Every other case raises the alarm. Then, for any 1G, AUTO puts the VFO on
  * the channel (vfo_stage, FM wide) and opens EPIRB 406 (handoff); WATCH, or
  * EPIRB 406 not installed, goes on scanning. A carrier still there after the
- * alarm gives the channel's floor its level, as a continuous one.
+ * alarm is under the trigger: the localisation pass gave the channel's floor
+ * the burst's level.
  *
  * Alarm: a beep every second, the flashlight (PC13, driven directly: no API
  * service) and the green LED blinking, the screen inverted, every ALARM_MS.
@@ -279,18 +281,27 @@ __attribute__((noinline)) static unsigned verify(int16_t lim){
 /* A reading above the trigger on channel i: the channel furthest above its
  * floor (a strong burst leaks into all of them), then verify the burst, time
  * it. Above the floor, not the highest RSSI: an interferer on another channel
- * has its floor at its own level. */
+ * has its floor at its own level.
+ * The localisation pass, about 35 ms after the trigger, confirms it: nothing
+ * left above the trigger, a noise spike, back to the sweep (it held the radio
+ * up to 440 ms before 1.9). Every channel still above the trigger takes its
+ * reading as the floor: an interferer lifting several channels then sets off
+ * one hold, not one per channel (406 Link bench of 07/11/2026). A beacon's
+ * floors fall back within about 0.5 s (sweep()), its next burst is ~50 s
+ * away. */
 __attribute__((noinline)) static void burst(unsigned i){
     const app_api_t *A = g.A;
     const uint32_t t0 = A->ticks_ms();
-    int32_t top = INT32_MIN;
+    int32_t top = INT32_MIN, fl = 0;
     for (unsigned j = 0; j < N_CH; j++) {
         tune(j);
-        const int32_t d = A->rssi_dbm() * 16 - g.floorQ[j];
-        if (d > top) { top = d; i = j; }
+        const int32_t r = A->rssi_dbm() * 16, d = r - g.floorQ[j];
+        if (d > top) { top = d; i = j; fl = g.floorQ[j]; }
+        if (d >= TRIG_DB * 16) g.floorQ[j] = (int16_t)r;
     }
+    if (top < TRIG_DB * 16) return;
     tune(i);
-    const int16_t lim = (int16_t)((g.floorQ[i] >> 4) + REARM_DB);
+    const int16_t lim = (int16_t)((fl >> 4) + REARM_DB);
     unsigned k = verify(lim);
     uint32_t d;
     int16_t r;
@@ -310,17 +321,20 @@ __attribute__((noinline)) static void burst(unsigned i){
     g.n[k == K_2G]++;
     const bool autoExit = k != K_2G && !(g.mode & MODE_WATCH);
     alarm(autoExit);
-    if (autoExit && handOff(freq(i), false)) return;
     /* Still a carrier after the acknowledgement (a test transmitter keeping
-     * its CW ID on the frame's carrier): its rest would time as a new burst. The
-     * floor takes its level and falls back at once when it ends. */
-    tune(i);
-    r = A->rssi_dbm();
-    if (r >= lim) g.floorQ[i] = (int16_t)(r * 16);
+     * its CW ID on the frame's carrier) does not time as a new burst: the
+     * localisation pass gave the channel's floor the burst's level, and no
+     * sweep ran during the alarm. It falls back once the carrier ends. */
+    if (autoExit) handOff(freq(i), false);
 }
 
-/* One pass over the channels. A floor follows a fall at once and a rise
- * slowly (1/16 per pass, about 0.6 s). */
+/* One pass over the channels. A floor follows a fall by 1/4 per pass and a
+ * rise by 1/16 (about 0.6 s): it sits near the noise, under its mean. It
+ * followed a fall at once until 1.8: a single low reading took it 8 to 10 dB
+ * under the noise, the noise itself then crossed TRIG_DB and held the radio
+ * up to LONG_MS on a channel, again and again (406 Link, same scan, bench of
+ * 07/11/2026: 11 bursts out of 20 missed, the radio deaf about 80 % of the
+ * time). */
 static void sweep(void){
     for (unsigned i = 0; i < N_CH && g.running; i++) {
         tune(i);
@@ -328,8 +342,15 @@ static void sweep(void){
         int32_t fl = g.floorQ[i];
         const int32_t d = (r - fl) >> 4;
         if (d > (int32_t)g.peak[i]) g.peak[i] = (uint8_t)(d > (int32_t)BASE_Y ? (int32_t)BASE_Y : d);
-        if (d >= TRIG_DB) { burst(i); continue; }
-        g.floorQ[i] = (int16_t)(r < fl ? r : fl + ((r - fl) >> 4));
+        if (d >= TRIG_DB) {
+            /* confirmed 2 ms later: a beacon starts with 160 ms of carrier,
+             * a noise spike does not last (and does not cost a localisation
+             * pass, about 35 ms) */
+            g.A->delay_ms(2);
+            if ((g.A->rssi_dbm() * 16 - fl) >> 4 >= TRIG_DB) burst(i);
+            continue;
+        }
+        g.floorQ[i] = (int16_t)(r < fl ? fl - ((fl - r) >> 2) : fl + ((r - fl) >> 4));
     }
 }
 
