@@ -31,13 +31,18 @@ set_sdkconfig_value()
 {
     local key="$1"
     local value="$2"
+    local setting="${key}=${value}"
     local temporary_path="${SDKCONFIG_PATH}.tmp"
+
+    if [[ "${value}" == "n" ]]; then
+        setting="# ${key} is not set"
+    fi
 
     # No file yet on a first build: idf.py creates it from sdkconfig.defaults.
     [[ -f "${SDKCONFIG_PATH}" ]] || return 0
-    grep -qx "${key}=${value}" "${SDKCONFIG_PATH}" && return
+    grep -Fqx "${setting}" "${SDKCONFIG_PATH}" && return
 
-    awk -v key="${key}" -v setting="${key}=${value}" '
+    awk -v key="${key}" -v setting="${setting}" '
         BEGIN { updated = 0 }
         $0 == "# " key " is not set" || index($0, key "=") == 1 {
             if (!updated) print setting
@@ -152,9 +157,10 @@ case "${IDF_VERSION_OUTPUT}" in
 esac
 
 set_sdkconfig_value CONFIG_LV_FONT_UNSCII_16 y
-# Display refresh in step with the 20 ms render loop, rotation by the PPA.
+# Display refresh in step with the 20 ms render loop. Keep PPA rotation off:
+# it can produce artifacts at 90 and 270 degrees on the Tab5 MIPI-DSI panel.
 set_sdkconfig_value CONFIG_LV_DEF_REFR_PERIOD 20
-set_sdkconfig_value CONFIG_LVGL_PORT_ENABLE_PPA y
+set_sdkconfig_value CONFIG_LVGL_PORT_ENABLE_PPA n
 
 if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]] &&
    { ! grep -Fqx "CMAKE_PROJECT_NAME:STATIC=tab5_k1viewer" \

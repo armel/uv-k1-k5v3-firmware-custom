@@ -16,7 +16,8 @@ not flash this image on ESP32-P4 revision 3.x hardware.
 
 - M5Stack Tab5 with an ESP32-P4 revision 1.x
 - USB-C data cable for flashing
-- USB-A to USB-C data cable for connecting the Tab5 to the K1
+- USB-A to USB-C data cable, or a K-plug programming cable using a supported
+  CH340/CH341, CP210x, PL2303, FT231/FT232 or CDC-ACM USB-to-UART converter
 - Fusion firmware from the `feature_update_v7` branch installed on the K1
 - Optional: M5Stack Mini GPS/BDS Unit (U032) or Unit GPS v1.1 (U032-V11) on
   the Tab5 Grove port
@@ -66,12 +67,16 @@ application. It must be flashed at address `0x0`.
 
 ## Connect the K1
 
-After restarting, connect the Tab5 USB-A host port to the K1 USB-C port. Do not
-use the Tab5 USB-C programming port for this connection.
+After restarting, connect the Tab5 USB-A host port either to the K1 USB-C port
+with a data cable or to the K1 accessory connector with a supported K-plug
+programming cable. K-plug communication is fixed at 38400 baud. Do not use the
+Tab5 USB-C programming port for either connection.
 
 Until a radio is detected, the Tab5 shows a black screen asking to connect the
 UV-K1, with the author, the GPL license and the application version at the
-bottom. The version is set by `project()` in `CMakeLists.txt`. It fades out to the radio as soon as the K1 is plugged in, and comes
+bottom. Its radio drawing breathes slowly and shows, in turn, the USB-C cable
+and the K-plug programming cable, with the matching message.
+The version is set by `project()` in `CMakeLists.txt`. It fades out to the radio as soon as the K1 is plugged in, and comes
 back if the cable is removed. While the radio is in deep sleep, its screen
 darkens as if the backlight were off.
 
@@ -242,9 +247,10 @@ python3 scripts/gen_uv_k1_skin.py --render
 - The USB protocol allows up to 75 received frames per second.
 - The Tab5 renderer displays up to 50 updates per second.
 - The three skins take 5.5 MB of the application partition, which is 8 MB.
-- Landscape and upside-down portrait are turned by the PPA of the ESP32-P4
-  (`CONFIG_LVGL_PORT_ENABLE_PPA`, set by `build-local.sh`). Only the LCD rows
-  that the radio changed are redrawn.
+- Landscape and upside-down portrait are rotated in software. The ESP32-P4 PPA
+  rotation is deliberately disabled because it can produce display artifacts
+  at 90 and 270 degrees on the Tab5 MIPI-DSI panel. Only the LCD rows that the
+  radio changed are redrawn.
 
 ## License
 

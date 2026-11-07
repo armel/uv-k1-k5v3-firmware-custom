@@ -27,8 +27,10 @@ Outputs, relative to the tab5-k1viewer folder:
   assets/uv-k1-landscape-skin.svg  landscape firmware background
   assets/uv-k1-screen.svg     screen-only (1280x720) showcase: the LCD alone, very large
   assets/uv-k1-screen-skin.svg     screen-only firmware background
-  assets/k1-connect-icon.svg  "connect the radio" icon, shown on black when no K1
-  assets/k1-connect-text.svg  "connect the radio" message under the icon
+  assets/k1-connect-icon.svg  "connect the radio" icon, shown on black when no K1:
+                              USB-C cable, then K-plug cable (-kplug), in turn
+  assets/k1-connect-text.svg  "connect the radio" message under the icon, and its
+                              K-plug version (-kplug)
   assets/k1-connect-credit.svg  author and license, at the bottom of that screen
   assets/k1-toast-*.svg       toasts after a touch on the plate: orientation lock,
                               key beep, brightness gauge
@@ -108,6 +110,11 @@ TORCH_HALO = 24
 TORCH_BEAM_SPREAD = 1.0               # beam half-width growth per pixel of rise
 CONNECT_ICON = (160, 360, 400, 360)  # screen coordinates of the "connect" icon and message
 CONNECT_TEXT = (60, 760, 600, 130)
+# In the message, the cable name ends here and the rest of the line starts
+# here, at the same place for "USB-C" and "K-plug". Measured in Chrome at 25 px:
+# 79.2 px for "USB-C", 75.0 px for "K-plug", 303.3 px for the rest, so this
+# centres the line with a name of average width (within 1 px for both).
+CONNECT_CABLE_NAME_END = 187
 # Author and license at the bottom of the screen; the viewer writes the
 # application version on one more line, 18 px tall, right under it.
 CONNECT_CREDIT = (60, 1178, 600, 56)
@@ -615,8 +622,9 @@ def build_svg(lcd, led_lit):
     return '\n'.join(out) + '\n'
 
 
-def build_connect_icon_svg():
-    """Stylised UV-K1 with a USB cable heading for the Tab5, on black."""
+def build_connect_icon_svg(cable):
+    """Stylised UV-K1 with a cable heading for the Tab5, on black: 'usb-c' or
+    'k-plug' (programming cable), shown in turn by the viewer."""
     _, _, w, h = CONNECT_ICON
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">',
            '''<defs>
@@ -677,25 +685,56 @@ def build_connect_icon_svg():
                 o(f'<text x="{cx}" y="{cy + (2.5 if label == "*" else 0):g}" {FONT} font-size="{size}" font-weight="700" fill="#f5f6f7" '
                   f'text-anchor="middle" dominant-baseline="central">{label}</text>')
     o('<rect x="53" y="336" width="144" height="5" fill="#8d9096" opacity=".5"/>')
-    # USB-C plug in the right rail, cable and USB-A plug.
-    o(f'<rect x="206" y="246" width="16" height="12" rx="3" fill="{CONNECT_METAL}"/>')
-    o(f'<path d="M222 252 C282 252 270 160 324 160" fill="none" stroke="{CONNECT_BLUE}" stroke-width="8" '
-      'stroke-linecap="round"/>')
-    o(f'<rect x="320" y="146" width="34" height="28" rx="5" fill="{CONNECT_BLUE}"/>')
-    o(f'<rect x="352" y="151" width="30" height="18" rx="2" fill="none" stroke="{CONNECT_METAL}" stroke-width="3.5"/>')
-    o(f'<rect x="357" y="156" width="20" height="4" fill="{CONNECT_METAL}"/>')
+    if cable == 'usb-c':
+        # USB-C plug in the right rail, cable and USB-A plug.
+        o(f'<rect x="206" y="246" width="16" height="12" rx="3" fill="{CONNECT_METAL}"/>')
+        o(connect_cable('M222 252 C282 252 270 160 324 160'))
+        connect_usb_a(o, 320, 160)
+    else:
+        # K-plug in the MIC/SP jacks, high on the right side: the end of its
+        # strain relief is level with the top of the radio. Both pins are hidden
+        # in the radio, the 2.5 mm one on top (y 122) and the 3.5 mm one below
+        # (y 144). The rounded cap is at the 3.5 mm end, so the ribbed strain
+        # relief and the cable leave upwards, in line with the plug.
+        o(connect_cable('M226 81 C226 54 262 50 318 50'))
+        o(f'<path d="M210 113 H230 Q234 113 234 117 V142 Q234 155 221 155 H210 Z" fill="{CONNECT_BLUE}"/>')
+        o('<path d="M231.5 119 V141 Q231.5 151 222 152" fill="none" stroke="#7db8f0" stroke-width="1.6" '
+          'stroke-linecap="round" opacity=".7"/>')
+        o('<path d="M218.5 114 L221 79 H231 L233.5 114 Z" fill="#2b7fd6"/>')
+        for y in range(83, 112, 5):
+            hw = 5 + (y + 0.9 - 79) / 35 * 2.5    # the ribs follow the taper of the relief
+            o(f'<rect x="{226 - hw:.2f}" y="{y}" width="{2 * hw:.2f}" height="1.8" fill="#1d5ea3"/>')
+        connect_usb_a(o, 318, 50)
     o('</svg>')
     return '\n'.join(out) + '\n'
 
 
-def build_connect_text_svg():
+def connect_cable(d):
+    return f'<path d="{d}" fill="none" stroke="{CONNECT_BLUE}" stroke-width="8" stroke-linecap="round"/>'
+
+
+def connect_usb_a(o, x, cy):
+    """USB-A plug of the connect icon, pointing right, its body from x, centred on cy."""
+    o(f'<rect x="{x}" y="{cy - 14}" width="34" height="28" rx="5" fill="{CONNECT_BLUE}"/>')
+    o(f'<rect x="{x + 32}" y="{cy - 9}" width="30" height="18" rx="2" fill="none" stroke="{CONNECT_METAL}" '
+      'stroke-width="3.5"/>')
+    o(f'<rect x="{x + 37}" y="{cy - 4}" width="20" height="4" fill="{CONNECT_METAL}"/>')
+
+
+def build_connect_text_svg(cable):
+    """Message under the connect icon. The cable name ends at a fixed point
+    where the rest of the line starts, so the rest stays put while the viewer
+    fades from one version to the other: only the name seems to change."""
     _, _, w, h = CONNECT_TEXT
+    name = {'usb-c': 'USB-C', 'k-plug': 'K-plug'}[cable]
+    x = CONNECT_CABLE_NAME_END
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">\n'
             f'<rect width="{w}" height="{h}" fill="#000"/>\n'
             f'<text x="{w / 2:g}" y="52" {FONT} font-size="42" font-weight="600" text-anchor="middle" '
             'fill="#f4f5f6">Connect your UV-K1</text>\n'
-            f'<text x="{w / 2:g}" y="104" {FONT} font-size="25" text-anchor="middle" fill="#8b9097">'
-            'USB-C on the radio  \u203a  USB-A on the Tab5</text>\n'
+            f'<text x="{x}" y="104" {FONT} font-size="25" text-anchor="end" fill="#8b9097">{name}</text>\n'
+            f'<text x="{x}" y="104" {FONT} font-size="25" fill="#8b9097" xml:space="preserve">'
+            ' cable \u203a USB-A on the Tab5</text>\n'
             '</svg>\n')
 
 
@@ -1263,8 +1302,10 @@ def main():
         assets / 'uv-k1-landscape-skin.svg': (build_landscape_svg(None, led_lit=False), (LW, LH)),
         assets / 'uv-k1-screen.svg': (build_screen_svg(lcd, led_lit=True), (LW, LH)),
         assets / 'uv-k1-screen-skin.svg': (build_screen_svg(None, led_lit=False), (LW, LH)),
-        assets / 'k1-connect-icon.svg': (build_connect_icon_svg(), CONNECT_ICON[2:]),
-        assets / 'k1-connect-text.svg': (build_connect_text_svg(), CONNECT_TEXT[2:]),
+        assets / 'k1-connect-icon.svg': (build_connect_icon_svg('usb-c'), CONNECT_ICON[2:]),
+        assets / 'k1-connect-icon-kplug.svg': (build_connect_icon_svg('k-plug'), CONNECT_ICON[2:]),
+        assets / 'k1-connect-text.svg': (build_connect_text_svg('usb-c'), CONNECT_TEXT[2:]),
+        assets / 'k1-connect-text-kplug.svg': (build_connect_text_svg('k-plug'), CONNECT_TEXT[2:]),
         assets / 'k1-connect-credit.svg': (build_connect_credit_svg(), CONNECT_CREDIT[2:]),
         assets / 'k1-toast-locked.svg': (toast_lock_svg(True), TOAST),
         assets / 'k1-toast-unlocked.svg': (toast_lock_svg(False), TOAST),

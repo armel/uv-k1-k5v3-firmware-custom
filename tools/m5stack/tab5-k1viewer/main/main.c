@@ -43,7 +43,11 @@
 #include "lvgl.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "pl2303_vcp.h"
 #include "usb/cdc_acm_host.h"
+#include "usb/vcp_ch34x.h"
+#include "usb/vcp_cp210x.h"
+#include "usb/vcp_ftdi.h"
 #include "uv_k1_skin_layout.h"
 
 #define K1_USB_VID             0x36B7u
@@ -53,7 +57,8 @@
 #define RADIO_FRAME_BYTES      ((RADIO_WIDTH * RADIO_HEIGHT) / 8u)
 #define K1VIEWER_MAX_PAYLOAD   2048u
 #define K1VIEWER_KEEPALIVE_MS  200u
-#define USB_OPEN_TIMEOUT_MS    1000u
+#define K1_UART_BAUD           38400u
+#define USB_OPEN_ATTEMPT_MS    200u
 #define USB_TX_TIMEOUT_MS      100u
 #define AUTO_ROTATE            1            /* follow the Tab5 orientation with its IMU */
 #define FIXED_ROTATION         LV_DISPLAY_ROTATION_0    /* used when AUTO_ROTATE is 0 */
@@ -294,8 +299,12 @@ extern const uint8_t uv_k1_screen_skin_rgb565_start[];
 extern const uint8_t uv_k1_screen_skin_rgb565_end[];
 extern const uint8_t k1_connect_icon_rgb565_start[];
 extern const uint8_t k1_connect_icon_rgb565_end[];
+extern const uint8_t k1_connect_icon_kplug_rgb565_start[];
+extern const uint8_t k1_connect_icon_kplug_rgb565_end[];
 extern const uint8_t k1_connect_text_rgb565_start[];
 extern const uint8_t k1_connect_text_rgb565_end[];
+extern const uint8_t k1_connect_text_kplug_rgb565_start[];
+extern const uint8_t k1_connect_text_kplug_rgb565_end[];
 extern const uint8_t k1_connect_credit_rgb565_start[];
 extern const uint8_t k1_connect_credit_rgb565_end[];
 extern const uint8_t k1_toast_locked_rgb565_start[];
@@ -327,8 +336,10 @@ static TaskHandle_t volatile click_task_handle;    /* set once the speaker is re
 static viewer_parser_t parser;
 static viewer_state_t viewer;
 static lv_display_t *display;
-static lv_image_dsc_t connect_icon_image;
+static lv_image_dsc_t connect_icon_image;                   /* USB-C cable */
+static lv_image_dsc_t connect_icon_kplug_image;             /* K-plug cable */
 static lv_image_dsc_t connect_text_image;
+static lv_image_dsc_t connect_text_kplug_image;
 static lv_image_dsc_t connect_credit_image;
 static lv_image_dsc_t toast_lock_images[2];                 /* unlocked, locked */
 static lv_image_dsc_t toast_beep_images[2];                 /* off, on */
@@ -431,6 +442,7 @@ static void viewer_apply_frame(void)
     }
 
     if (valid) {
+        viewer.usb_connected = true;
         viewer.flags = parser.flags;
         viewer.frame_count++;
         viewer.frame_dirty = true;
@@ -964,6 +976,58 @@ static void connect_screen_faded_out(lv_anim_t *anim)
 static void connect_icon_pulse_cb(void *obj, int32_t value)
 {
     lv_obj_set_style_image_opa(obj, (lv_opa_t)value, 0);
+}
+
+static void connect_pulse_start(lv_obj_t *icon, lv_obj_t *text_kplug, bool dim);
+
+/* The icon has dimmed: the cable changes here, where the swap blends into the
+ * breathing, and the K-plug message fades in or out over the USB-C one. Both
+ * messages share their title, so only the cable name seems to change. */
+static void connect_pulse_dimmed(lv_anim_t *anim)
+{
+    lv_obj_t *icon = anim->var;
+    lv_obj_t *text_kplug = lv_anim_get_user_data(anim);
+
+    if (connect_icon_kplug_image.data != NULL) {
+        const bool to_kplug = lv_image_get_src(icon) != &connect_icon_kplug_image;
+        lv_image_set_src(icon, to_kplug ? &connect_icon_kplug_image : &connect_icon_image);
+
+        if (text_kplug != NULL) {
+            lv_anim_t fade;
+            lv_anim_init(&fade);
+            lv_anim_set_var(&fade, text_kplug);
+            lv_anim_set_exec_cb(&fade, connect_screen_opa_cb);
+            lv_anim_set_values(&fade, lv_obj_get_style_opa(text_kplug, 0),
+                               to_kplug ? LV_OPA_COVER : LV_OPA_TRANSP);
+            lv_anim_set_duration(&fade, CONNECT_FADE_MS);
+            lv_anim_set_path_cb(&fade, lv_anim_path_ease_in_out);
+            lv_anim_start(&fade);
+        }
+    }
+    connect_pulse_start(icon, text_kplug, false);
+}
+
+static void connect_pulse_brightened(lv_anim_t *anim)
+{
+    connect_pulse_start(anim->var, lv_anim_get_user_data(anim), true);
+}
+
+/* Slow breathing of the icon while waiting for the radio, one half at a time
+ * (down to CONNECT_PULSE_MIN_OPA, then back up) so that the cable can change
+ * at the dim point of every breath. */
+static void connect_pulse_start(lv_obj_t *icon, lv_obj_t *text_kplug, bool dim)
+{
+    lv_anim_t pulse;
+    lv_anim_init(&pulse);
+    lv_anim_set_var(&pulse, icon);
+    lv_anim_set_user_data(&pulse, text_kplug);
+    lv_anim_set_exec_cb(&pulse, connect_icon_pulse_cb);
+    lv_anim_set_values(&pulse, dim ? LV_OPA_COVER : CONNECT_PULSE_MIN_OPA,
+                       dim ? CONNECT_PULSE_MIN_OPA : LV_OPA_COVER);
+    lv_anim_set_duration(&pulse, CONNECT_PULSE_MS);
+    lv_anim_set_path_cb(&pulse, lv_anim_path_ease_in_out);
+    lv_anim_set_completed_cb(&pulse, dim ? connect_pulse_dimmed : connect_pulse_brightened);
+    lv_anim_start(&pulse);
 }
 
 /* Fade the black "connect the radio" screens in or out over the radio, in
@@ -1527,6 +1591,67 @@ static esp_err_t usb_send(cdc_acm_dev_hdl_t device, const uint8_t *packet, size_
     return result;
 }
 
+static bool usb_open_can_retry(esp_err_t result)
+{
+    return result == ESP_ERR_NOT_FOUND || result == ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t usb_open_radio(const cdc_acm_host_device_config_t *config,
+                                cdc_acm_dev_hdl_t *device,
+                                const char **transport)
+{
+    esp_err_t result = cdc_acm_host_open(K1_USB_VID, K1_USB_PID, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = "native USB-C";
+        return ESP_OK;
+    }
+    if (!usb_open_can_retry(result)) {
+        return result;
+    }
+
+    result = ch34x_vcp_open(CH34X_PID_AUTO, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = "K cable (CH34x)";
+        return ESP_OK;
+    }
+    if (!usb_open_can_retry(result)) {
+        return result;
+    }
+
+    result = cp210x_vcp_open(CP210X_PID_AUTO, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = "K cable (CP210x)";
+        return ESP_OK;
+    }
+    if (!usb_open_can_retry(result)) {
+        return result;
+    }
+
+    result = pl2303_vcp_open(PL2303_PID, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = "K cable (PL2303)";
+        return ESP_OK;
+    }
+    if (!usb_open_can_retry(result)) {
+        return result;
+    }
+
+    result = ftdi_vcp_open(FTDI_PID_AUTO, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = "K cable (FTDI)";
+        return ESP_OK;
+    }
+    if (!usb_open_can_retry(result)) {
+        return result;
+    }
+
+    result = cdc_acm_host_open(CDC_HOST_ANY_VID, CDC_HOST_ANY_PID, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = "K cable (CDC-ACM)";
+    }
+    return result;
+}
+
 static void write_i32_le(uint8_t *destination, int32_t value)
 {
     const uint32_t bits = (uint32_t)value;
@@ -1564,7 +1689,7 @@ static void usb_task(void *arg)
     (void)arg;
     static const uint8_t keepalive[] = {0x55, 0xAA, 0x00, 0x00};
     const cdc_acm_host_device_config_t device_config = {
-        .connection_timeout_ms = USB_OPEN_TIMEOUT_MS,
+        .connection_timeout_ms = USB_OPEN_ATTEMPT_MS,
         .out_buffer_size = 64,
         .in_buffer_size = 2048,
         .user_arg = NULL,
@@ -1577,10 +1702,10 @@ static void usb_task(void *arg)
 
     while (true) {
         cdc_acm_dev_hdl_t device = NULL;
-        ESP_LOGI(TAG, "Waiting for K1 USB CDC %04X:%04X", K1_USB_VID, K1_USB_PID);
+        const char *transport = NULL;
+        ESP_LOGI(TAG, "Waiting for K1 USB-C or K cable");
 
-        const esp_err_t open_result =
-            cdc_acm_host_open(K1_USB_VID, K1_USB_PID, 0, &device_config, &device);
+        const esp_err_t open_result = usb_open_radio(&device_config, &device, &transport);
         if (open_result != ESP_OK) {
             vTaskDelay(pdMS_TO_TICKS(250));
             continue;
@@ -1589,24 +1714,38 @@ static void usb_task(void *arg)
         parser_reset();
         xSemaphoreTake(disconnected_sem, 0);
         xQueueReset(outbound_queue);
+        vTaskDelay(pdMS_TO_TICKS(10));
 
         const cdc_acm_line_coding_t line_coding = {
-            .dwDTERate = 38400,
+            .dwDTERate = K1_UART_BAUD,
             .bCharFormat = 0,
             .bParityType = 0,
             .bDataBits = 8,
         };
-        ESP_ERROR_CHECK_WITHOUT_ABORT(cdc_acm_host_line_coding_set(device, &line_coding));
-        ESP_ERROR_CHECK_WITHOUT_ABORT(
-            cdc_acm_host_set_control_line_state(device, true, false));
+        const esp_err_t line_result =
+            cdc_acm_host_line_coding_set(device, &line_coding);
+        if (line_result != ESP_OK) {
+            ESP_LOGW(TAG, "%s cannot be configured at %u baud: %s", transport,
+                     (unsigned)K1_UART_BAUD, esp_err_to_name(line_result));
+            cdc_acm_host_desc_print(device);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(cdc_acm_host_close(device));
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
 
-        xSemaphoreTake(state_mutex, portMAX_DELAY);
-        viewer.usb_connected = true;
-        viewer.frame_dirty = true;
-        xSemaphoreGive(state_mutex);
+        const esp_err_t control_result =
+            cdc_acm_host_set_control_line_state(device, true, false);
+        if (control_result != ESP_OK && control_result != ESP_ERR_NOT_SUPPORTED) {
+            ESP_LOGW(TAG, "%s control-line setup failed: %s", transport,
+                     esp_err_to_name(control_result));
+        }
 
-        ESP_LOGI(TAG, "K1 connected");
-        usb_send(device, keepalive, sizeof(keepalive));
+        ESP_LOGI(TAG, "USB transport opened through %s at %u baud", transport,
+                 (unsigned)K1_UART_BAUD);
+        if (usb_send(device, keepalive, sizeof(keepalive)) != ESP_OK) {
+            ESP_LOGW(TAG, "%s opened but rejected its first transfer", transport);
+            cdc_acm_host_desc_print(device);
+        }
 
         /* Only this task writes to the K1: touch keys and GPS fixes arrive
          * through the queue, with a keepalive whenever neither was sent. */
@@ -1688,28 +1827,31 @@ static lv_obj_t *create_connect_screen(const view_t *view)
     lv_obj_set_scrollable(screen, false);
     lv_obj_set_click_focusable(screen, false);
 
+    lv_obj_t *icon = NULL;
     if (connect_icon_image.data != NULL) {
-        lv_obj_t *icon = lv_image_create(screen);
+        icon = lv_image_create(screen);
         lv_image_set_src(icon, &connect_icon_image);
         lv_obj_set_pos(icon, layout->connect_icon_x, layout->connect_icon_y);
-
-        /* Slow breathing while waiting for the radio. */
-        lv_anim_t pulse;
-        lv_anim_init(&pulse);
-        lv_anim_set_var(&pulse, icon);
-        lv_anim_set_exec_cb(&pulse, connect_icon_pulse_cb);
-        lv_anim_set_values(&pulse, LV_OPA_COVER, CONNECT_PULSE_MIN_OPA);
-        lv_anim_set_duration(&pulse, CONNECT_PULSE_MS);
-        lv_anim_set_reverse_duration(&pulse, CONNECT_PULSE_MS);
-        lv_anim_set_repeat_count(&pulse, LV_ANIM_REPEAT_INFINITE);
-        lv_anim_set_path_cb(&pulse, lv_anim_path_ease_in_out);
-        lv_anim_start(&pulse);
     }
 
     if (connect_text_image.data != NULL) {
         lv_obj_t *text = lv_image_create(screen);
         lv_image_set_src(text, &connect_text_image);
         lv_obj_set_pos(text, layout->connect_text_x, layout->connect_text_y);
+    }
+
+    /* The K-plug message lies over the USB-C one, transparent until the icon
+     * shows the K-plug cable. */
+    lv_obj_t *text_kplug = NULL;
+    if (connect_text_kplug_image.data != NULL) {
+        text_kplug = lv_image_create(screen);
+        lv_image_set_src(text_kplug, &connect_text_kplug_image);
+        lv_obj_set_pos(text_kplug, layout->connect_text_x, layout->connect_text_y);
+        lv_obj_set_style_opa(text_kplug, LV_OPA_TRANSP, 0);
+    }
+
+    if (icon != NULL) {
+        connect_pulse_start(icon, text_kplug, true);
     }
 
     if (connect_credit_image.data != NULL) {
@@ -2046,8 +2188,14 @@ static void display_init(void)
     rgb565_image_init(&connect_icon_image, "connect icon",
                       k1_connect_icon_rgb565_start, k1_connect_icon_rgb565_end,
                       SKIN_CONNECT_ICON_W, SKIN_CONNECT_ICON_H);
+    rgb565_image_init(&connect_icon_kplug_image, "connect K-plug icon",
+                      k1_connect_icon_kplug_rgb565_start, k1_connect_icon_kplug_rgb565_end,
+                      SKIN_CONNECT_ICON_W, SKIN_CONNECT_ICON_H);
     rgb565_image_init(&connect_text_image, "connect text",
                       k1_connect_text_rgb565_start, k1_connect_text_rgb565_end,
+                      SKIN_CONNECT_TEXT_W, SKIN_CONNECT_TEXT_H);
+    rgb565_image_init(&connect_text_kplug_image, "connect K-plug text",
+                      k1_connect_text_kplug_rgb565_start, k1_connect_text_kplug_rgb565_end,
                       SKIN_CONNECT_TEXT_W, SKIN_CONNECT_TEXT_H);
     rgb565_image_init(&connect_credit_image, "connect credit",
                       k1_connect_credit_rgb565_start, k1_connect_credit_rgb565_end,
