@@ -619,13 +619,13 @@ const char* gSubMenu_CW_KEYER_MODE[] =
 const char* gSubMenu_CW_KEY_INPUT[] =
 {
 	"PTT\nHandKey",
-	"Port\nHandKey",
+	"TRS\nHandKey",
 	"Side Btn\nIambic",
 	"Side Btn\nIambic\nReversed",
-	"Port\nIambic",
-	"Port\nIambic\nReversed",
-	"Port+Btn\nIambic",
-	"Port+Btn\nIambic\nReversed",
+	"TRS\nIambic",
+	"TRS\nIambic\nReversed",
+	"TRS+Btn\nIambic",
+	"TRS+Btn\nIambic\nReversed",
 	"USB Port\nIambic",
 	"USB Port\nIambic\nReversed",
 	"USB Port\nHandKey",

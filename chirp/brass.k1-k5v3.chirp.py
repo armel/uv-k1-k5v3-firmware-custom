@@ -1013,13 +1013,13 @@ _NR7Y_CW_MACRO_TEXT_MAX = _NR7Y_CW_MACRO_MAX_LEN * 6
 # CW key input mode display strings, by menu index
 _NR7Y_CW_KEY_INPUT_MODES = [
     "PTT HandKey",           # 0: 0x08
-    "Port HandKey",          # 1: 0x18
+    "TRS HandKey",           # 1: 0x18
     "Side Btn Iambic",       # 2: 0x04
     "Side Btn Iambic Rev",   # 3: 0x05
-    "Port Iambic",           # 4: 0x12
-    "Port Iambic Reversed",  # 5: 0x13
-    "Port and Btn Iambic",       # 6: 0x16
-    "Port and Btn Iambic Rev",   # 7: 0x17
+    "TRS Iambic",            # 4: 0x12
+    "TRS Iambic Reversed",   # 5: 0x13
+    "TRS and Btn Iambic",        # 6: 0x16
+    "TRS and Btn Iambic Rev",    # 7: 0x17
     "USB Port Iambic",           # 8: 0x20
     "USB Port Iambic Rev",       # 9: 0x21
     "USB Port HandKey",          # 10: 0x28

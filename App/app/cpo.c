@@ -73,6 +73,7 @@ void CPO_Enter(void)
 	s_needs_redraw = true;
 	gRequestDisplayScreen = DISPLAY_CPO;
 	gUpdateDisplay = true;
+	gUpdateStatus = true;   // drop the BK indicator and RX timer from the status bar
 	s_entry_wpm = gEeprom.CW_KEY_WPM;
 	s_entry_farnsworth_wpm = gEeprom.CW_FARNSWORTH_WPM;
 	s_entry_farnsworth_auto = gEeprom.CW_FARNSWORTH_AUTO;

@@ -18,6 +18,9 @@
 
 #include "app/app.h"
 #include "app/chFrScanner.h"
+#ifdef ENABLE_CODE_PRACTICE
+#include "app/cpo.h"
+#endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
 #include "app/rxtx_log.h"
 #endif
@@ -62,6 +65,37 @@ static void convertTime(uint8_t *line, uint8_t type)
     UI_PrintStringSmallBufferNormal(str, line);
 }
 #endif
+#endif
+
+#ifdef ENABLE_CW_MODULATOR
+// The CW key input as up to three letters: the source (P = PTT button, T = TRS port,
+// S = side buttons, B = TRS port and buttons, U = USB port), H for handkey or I for
+// iambic, then R when the paddles are reversed. The letters are packed tighter than
+// the small font's usual pitch, with a narrow I, so "SIR" fits in 17 columns.
+static void DrawCwKeyInput(uint8_t *p)
+{
+    const uint8_t in = gEeprom.CW_KEY_INPUT;
+    const char code[3] = {
+        (in & CW_KEY_FLAG_USB_PORT)    ? 'U'
+      : (in & CW_KEY_FLAG_SIDE1)       ? ((in & CW_KEY_FLAG_PORT_RING) ? 'B' : 'S')
+      : (in & CW_KEY_FLAG_PORT_GROUND) ? 'T' : 'P',
+        (in & CW_KEY_FLAG_NO_KEYER)    ? 'H' : 'I',
+        (in & CW_KEY_FLAG_REVERSED)    ? 'R' : '\0',
+    };
+
+    for (uint8_t i = 0; i < 3 && code[i]; i++) {
+        if (code[i] == 'I') {
+            p[0] = 0x41;
+            p[1] = 0x7F;
+            p[2] = 0x41;
+            p += 4;
+        } else {
+            const char s[2] = {code[i], '\0'};
+            UI_PrintStringSmallBufferNormal(s, p - 1);  // it draws one column in
+            p += (code[i] == 'T') ? 6 : 7;              // T's last column is blank
+        }
+    }
+}
 #endif
 
 #if defined(ENABLE_FEAT_F4HWN_FOXHUNT) || defined(ENABLE_FEAT_F4HWN_BEACON) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
@@ -117,11 +151,14 @@ void UI_DisplayStatus()
 
 #if defined(ENABLE_FEAT_F4HWN_RX_TX_TIMER) && !defined(ENABLE_FEAT_F4HWN_DEBUG)
     bool isTransmit = gCurrentFunction == FUNCTION_TRANSMIT;
+    bool showTimer = gSetting_set_tmr && (isTransmit || FUNCTION_IsRx());
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG
-    if (!isRxTxLogScreen && gSetting_set_tmr && (isTransmit || FUNCTION_IsRx())) {
-#else
-    if (gSetting_set_tmr && (isTransmit || FUNCTION_IsRx())) {
+    showTimer = showTimer && !isRxTxLogScreen;
 #endif
+#ifdef ENABLE_CODE_PRACTICE
+    showTimer = showTimer && !gCW_CpoActive;  // practice never transmits, a TX/RX timer means nothing
+#endif
+    if (showTimer) {
         convertTime(line, !isTransmit);
         x += 35u;
     } else {
@@ -251,7 +288,12 @@ void UI_DisplayStatus()
         #endif
 
         if (gScanStateDir == SCAN_OFF && !SCANNER_IsScanning()) {
-            if(!gAirCopyBootMode) {
+            // MO/DW/XB describe the receiver setup, which practice parks
+            if(!gAirCopyBootMode
+#ifdef ENABLE_CODE_PRACTICE
+               && !gCW_CpoActive
+#endif
+            ) {
                 uint8_t *const modeLine = line + x - 1u;
                 const void *src = NULL;
                 size_t sSize = 0;
@@ -301,9 +343,14 @@ void UI_DisplayStatus()
 #if defined(ENABLE_VOX) || defined(ENABLE_CW_MODULATOR)
     // VOX / BK indicator — shared position
     #ifdef ENABLE_CW_MODULATOR
-    if (gCurrentVfo->Modulation == MODULATION_CW && gEeprom.CW_BREAKIN_ENABLE) {
-        memcpy(line + x, gFontBK, sizeof(gFontBK));
-        x1 = x + sizeof(gFontBK) + 1;
+    if (gCurrentVfo->Modulation == MODULATION_CW && gEeprom.CW_BREAKIN_ENABLE
+    #ifdef ENABLE_CODE_PRACTICE
+        && !gCW_CpoActive  // practice never sends RF, so BK would only confuse
+    #endif
+    ) {
+        // Two columns in, so it doesn't crowd the last digit of the TX/RX timer
+        memcpy(line + x + 2u, gFontBK, sizeof(gFontBK));
+        x1 = x + 2u + sizeof(gFontBK) + 1u;
     } else
     #endif
     #ifdef ENABLE_VOX
@@ -319,9 +366,22 @@ void UI_DisplayStatus()
     x += sizeof(gFontVox) + 5u;  // gFontBK is the same width as gFontVox
 #endif
 
+#ifdef ENABLE_CW_MODULATOR
+    // In CW the keyer owns PTT, so the main PTT handler (and with it the
+    // Classic/OnePush distinction) never runs. Its slot shows the key input
+    // instead, starting two columns early since it can be 17 wide.
+    const bool showKeyInput = !gAirCopyBootMode && gTxVfo->Modulation == MODULATION_CW;
+    if (showKeyInput) {
+        DrawCwKeyInput(line + x - 2u);
+        x1 = x + 16u;
+    }
+#else
+    const bool showKeyInput = false;
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     // PTT indicator
-    if(!gAirCopyBootMode) {
+    if(!gAirCopyBootMode && !showKeyInput) {
         const void *src = gSetting_set_ptt_session
                         ? (const void *)gFontPttOnePush
                         : (const void *)gFontPttClassic;
@@ -330,6 +390,8 @@ void UI_DisplayStatus()
         x1 = x + sizeof(gFontPttClassic) + 1u;
     }
     x += sizeof(gFontPttClassic) + 5u;
+#else
+    (void)showKeyInput;
 #endif
 
     x = MAX(x1, 69u);

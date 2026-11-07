@@ -3029,6 +3029,7 @@ Skip:
 
 #ifdef ENABLE_CW_MODULATOR
 		CW_KeyerReconfigure(gTxVfo->Modulation==MODULATION_CW);
+		gUpdateStatus = true;   // the key input shows on the status bar
 		gMonitor = (gRxVfo->Modulation == MODULATION_CW ||
 		            gRxVfo->Modulation == MODULATION_USB);
 #endif

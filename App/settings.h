@@ -57,13 +57,13 @@ typedef enum POWER_OnDisplayMode_t POWER_OnDisplayMode_t;
 
 // for reference, from ui/menu.c:
 	// "PTT\nHandKey",
-	// "Port\nHandKey",
+	// "TRS\nHandKey",
 	// "Side Btn\nIambic",
 	// "Side Btn\nIambic\nReversed",
-	// "Port\nIambic",
-	// "Port\nIambic\nReversed",
-	// "Port+Btn\nIambic",
-	// "Port+Btn\nIambic\nReversed",
+	// "TRS\nIambic",
+	// "TRS\nIambic\nReversed",
+	// "TRS+Btn\nIambic",
+	// "TRS+Btn\nIambic\nReversed",
 	// "USB Port\nIambic",
 	// "USB Port\nIambic\nReversed",
 	// "USB Port\nHandKey",
