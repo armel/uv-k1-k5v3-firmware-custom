@@ -16,7 +16,7 @@ To carry your channels and settings over:
 1. **Before flashing v2.x**, while the radio still runs v1.x, open CHIRP with the CHIRP module from your current v1.x release (for example `nr7y.k1-k5v3.chirp.v1.4.py`), download from the radio and **save the image** (`.img`). This file is your backup; keep it.
 2. Flash v2.0 (see [Flashing the Firmware with UV Studio](#flashing-the-firmware-with-uv-studio)).
 3. On the radio, run **Reset → ALL** and let it restart. This clears the old layout so nothing left over from v1. Calibration is not affected.
-4. In CHIRP, load the CHIRP module attached to the [v2.0 release](https://github.com/briand/uv-k1-k5v3-firmware-custom/releases) (`brass.k1-k5v3.chirp.v2.0.py`; the firmware is named Brass from v2.0), then **open the image you saved in step 1**. The module converts it to the v2.x layout as it loads: channels, settings, CW settings, macros and key assignments. Images from before v1.4 also get their CW/USB filter settings converted.
+4. In CHIRP, load the CHIRP module attached to the [v2.0 release](https://github.com/briand/uv-k1-k5v3-firmware-custom/releases) (`brass.k1-k5v3.chirp.v2.0.py`; the firmware is named Brass from v2.0), then **open the image you saved in step 1**. The module converts it to the v2.x layout as it loads: channels, settings, CW settings, macros and key assignments. CW and USB channels start at the v2.0 filter defaults: CW narrow, USB wide.
 5. Upload to the radio.
 
 Notes:
