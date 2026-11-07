@@ -43,6 +43,9 @@
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+    #include "app/scan_list_picker.h"
+#endif
 #include "ui/helper.h"
 #include "ui/inputbox.h"
 #include "ui/main.h"
@@ -1470,6 +1473,15 @@ void UI_DisplayMain(void)
         ST7565_BlitFullScreen();
         return;
     }
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+    // The picker replaces the main screen while open; the scan goes on.
+    if (gScanListPickerOpen) {
+        SCAN_LIST_PICKER_Draw();
+        ST7565_BlitFullScreen();
+        return;
+    }
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
     if (gActionPickerKey != 0) {

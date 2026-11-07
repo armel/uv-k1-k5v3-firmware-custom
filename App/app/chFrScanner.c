@@ -717,6 +717,12 @@ static void SetMemScanProgressChannel(uint16_t channel)
     }
 #endif
 
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+/* Set by CHFRSCANNER_ResumeAt(): the memory scan goes on from this channel
+ * instead of the current one. -1 when unused. */
+static int32_t resumeFrom = -1;
+#endif
+
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction)
 {
     if (storeBackupSettings) {
@@ -760,6 +766,12 @@ void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_directi
             initialFrqOrChan = gRxVfo->CHANNEL_SAVE;
             lastFoundFrqOrChan = initialFrqOrChan;
         }
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+        if (resumeFrom >= 0) {
+            gNextMrChannel = (uint16_t)resumeFrom;   /* NextMemChannel() steps from here */
+            resumeFrom = -1;
+        }
+#endif
         NextMemChannel();
     }
     else
@@ -790,6 +802,16 @@ void CHFRSCANNER_ManualResume(const int8_t scan_direction)
         : 1;
     gScheduleScanListen    = false;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+/* As CHFRSCANNER_ManualResume(), but the scan goes on at memory channel
+ * (the first one it scans), not after the current one. */
+void CHFRSCANNER_ResumeAt(const uint16_t channel, const int8_t scan_direction)
+{
+    resumeFrom = (uint16_t)(channel - scan_direction);   /* wraps like the scanner */
+    CHFRSCANNER_ManualResume(scan_direction);
+}
+#endif
 
 /*
 void CHFRSCANNER_ContinueScanning(void)
