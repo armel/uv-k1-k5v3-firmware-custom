@@ -30,7 +30,6 @@
 #include "bmi270.h"
 #include "bsp/esp-bsp.h"
 #include "esp_app_desc.h"
-#include "driver/i2c_master.h"
 #include "esp_check.h"
 #include "esp_codec_dev.h"
 #include "esp_err.h"
@@ -1561,48 +1560,30 @@ static void usb_send_message(cdc_acm_dev_hdl_t device,
     usb_send(device, packet, sizeof(packet));
 }
 
-#define BATTERY_INA226_ADDR    0x41                       /* battery voltage and current */
 #define CHARGE_ENABLE_PIN      IO_EXPANDER_PIN_NUM_7      /* expander 0x44: charger enable */
+#define CHARGE_ENABLE_TRIES    3
 
 /* The charger is off at power-up and the battery never charges unless it is
- * enabled. Enable it when a battery is there: the INA226 bus voltage in the
- * range of the 2S pack. The outputs of expander 0x44 start high-impedance with
- * a pull-down, so the level only reaches the pin in push-pull mode. Called
- * once the BSP has set up that expander for the USB-A power. */
+ * enabled, and it only charges while the Tab5 is on. Enable it at start-up,
+ * whatever the battery voltage, as M5Stack's firmware does: a pack below 6 V
+ * is in protection and the charger trickle-charges it back. The outputs of
+ * expander 0x44 start high-impedance with a pull-down, so the level only
+ * reaches the pin in push-pull mode. */
 static void battery_charge_enable(void)
 {
-    i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
-    i2c_master_dev_handle_t ina = NULL;
-    const i2c_device_config_t config = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = BATTERY_INA226_ADDR,
-        .scl_speed_hz = 400000,
-    };
-    if (bus == NULL || i2c_master_probe(bus, BATTERY_INA226_ADDR, 50) != ESP_OK ||
-        i2c_master_bus_add_device(bus, &config, &ina) != ESP_OK) {
-        ESP_LOGW(TAG, "No INA226: battery charging left off");
-        return;
+    for (int attempt = 1; attempt <= CHARGE_ENABLE_TRIES; attempt++) {
+        esp_io_expander_handle_t expander = bsp_io_expander1_init();
+        if (expander != NULL &&
+            esp_io_expander_set_dir(expander, CHARGE_ENABLE_PIN, IO_EXPANDER_OUTPUT) == ESP_OK &&
+            esp_io_expander_set_level(expander, CHARGE_ENABLE_PIN, 1) == ESP_OK &&
+            esp_io_expander_set_output_mode(expander, CHARGE_ENABLE_PIN,
+                                            IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) == ESP_OK) {
+            ESP_LOGI(TAG, "Battery charging enabled");
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
-    const uint8_t reg = 0x02;                           /* bus voltage, 1.25 mV per bit */
-    uint8_t raw[2] = {0};
-    const bool read = i2c_master_transmit_receive(ina, &reg, 1, raw, 2, 50) == ESP_OK;
-    i2c_master_bus_rm_device(ina);
-    const float volts = read ? (float)((raw[0] << 8) | raw[1]) * 1.25e-3f : 0.0f;
-    if (volts < 5.0f || volts > 9.0f) {
-        ESP_LOGW(TAG, "No battery seen (%.2f V): charging left off", volts);
-        return;
-    }
-
-    esp_io_expander_handle_t expander = bsp_io_expander1_init();
-    if (expander == NULL ||
-        esp_io_expander_set_dir(expander, CHARGE_ENABLE_PIN, IO_EXPANDER_OUTPUT) != ESP_OK ||
-        esp_io_expander_set_level(expander, CHARGE_ENABLE_PIN, 1) != ESP_OK ||
-        esp_io_expander_set_output_mode(expander, CHARGE_ENABLE_PIN,
-                                        IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) != ESP_OK) {
-        ESP_LOGW(TAG, "Could not enable battery charging");
-        return;
-    }
-    ESP_LOGI(TAG, "Battery %.2f V: charging enabled", volts);
+    ESP_LOGW(TAG, "Could not enable battery charging");
 }
 
 static void usb_task(void *arg)
@@ -1619,7 +1600,6 @@ static void usb_task(void *arg)
     };
 
     ESP_ERROR_CHECK(bsp_usb_host_start(BSP_USB_HOST_POWER_MODE_USB_DEV, true));
-    battery_charge_enable();
     ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
 
     while (true) {
@@ -2276,6 +2256,7 @@ void app_main(void)
     /* The IMU starts while the display is set up: both use the BSP I2C bus,
      * created once here. */
     ESP_ERROR_CHECK(bsp_i2c_init());
+    battery_charge_enable();
     const esp_err_t gps_result = gps_unit_start(gps_status_received, NULL);
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     viewer.gps_started = gps_result == ESP_OK;
