@@ -515,6 +515,11 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 			*pMax = CW_ROGER_DAH_DITS_MAX;
 			break;
 
+		case MENU_CW_ROGER_TYPE:
+			*pMin = 0;
+			*pMax = CW_ROGER_TYPE_COUNT - 1;
+			break;
+
 		case MENU_CW_BKIN:
 			*pMin = 0;  // off
 			*pMax = 1;  // on
@@ -1149,6 +1154,10 @@ void MENU_AcceptSetting(void)
 		case MENU_CW_ROGER_DITS:
 			gEeprom.CW_ROGER_DAH_DITS = gSubMenuSelection;
 			break;
+
+		case MENU_CW_ROGER_TYPE:
+			gEeprom.CW_ROGER_TYPE = gSubMenuSelection;
+			break;
 #endif
 
     }
@@ -1570,6 +1579,10 @@ void MENU_ShowCurrentSetting(void)
 
 		case MENU_CW_ROGER_DITS:
 			gSubMenuSelection = gEeprom.CW_ROGER_DAH_DITS;
+			break;
+
+		case MENU_CW_ROGER_TYPE:
+			gSubMenuSelection = gEeprom.CW_ROGER_TYPE;
 			break;
 #endif
 
