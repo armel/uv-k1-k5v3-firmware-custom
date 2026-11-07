@@ -114,7 +114,9 @@ static void BEAM_SendPacket(void)
     payload->output_power = vfo->OUTPUT_POWER;
     payload->channel_bandwidth = vfo->CHANNEL_BANDWIDTH;
     payload->frequency_reverse = vfo->FrequencyReverse;
-    payload->dtmf_ptt_id_mode = vfo->DTMF_PTT_ID_TX_MODE;
+#ifdef ENABLE_DTMF
+    payload->dtmf_ptt_id_mode = vfo->DTMF_PTT_ID_TX_MODE;  // else left 0: PTT ID off
+#endif
 #ifdef ENABLE_DTMF_CALLING
     payload->dtmf_decoding_enable = vfo->DTMF_DECODING_ENABLE;
 #endif
@@ -184,7 +186,9 @@ static void BEAM_SavePayloadToFirstFreeChannel(const BEAM_Payload_t *payload)
     vfo.OUTPUT_POWER = payload->output_power;
     vfo.CHANNEL_BANDWIDTH = payload->channel_bandwidth;
     vfo.FrequencyReverse = payload->frequency_reverse;
+#ifdef ENABLE_DTMF
     vfo.DTMF_PTT_ID_TX_MODE = payload->dtmf_ptt_id_mode;
+#endif
 #ifdef ENABLE_DTMF_CALLING
     vfo.DTMF_DECODING_ENABLE = payload->dtmf_decoding_enable;
 #endif

@@ -119,8 +119,10 @@ void Main(void)
 
     // Not implementing authentic device checks
 
+#ifdef ENABLE_DTMF
     memset(gDTMF_String, '-', sizeof(gDTMF_String));
     gDTMF_String[sizeof(gDTMF_String) - 1] = 0;
+#endif
 
     BK4819_Init();
 
@@ -350,8 +352,10 @@ void Main(void)
     }
 
     #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+        #ifdef ENABLE_SCAN_RANGES
         if (gEeprom.CURRENT_STATE == 2 || gEeprom.CURRENT_STATE == 5)
             CHFRSCANNER_ScanRange();
+        #endif
 
         switch (gEeprom.CURRENT_STATE) {
             case 1:

@@ -33,6 +33,7 @@
                 "ENABLE_VOX": true,
                 "ENABLE_TX1750": true,
                 "ENABLE_PWRON_PASSWORD": false,
+                "ENABLE_DTMF": true,
                 "ENABLE_DTMF_CALLING": false,
                 "ENABLE_FLASHLIGHT": true,
                 "ENABLE_SPECTRUM": false,
@@ -288,6 +289,8 @@
                 "VERSION_STRING_2": "",
                 "UPSTREAM_STRING": "F4HWN v6.3.0",
                 "ENABLE_FMRADIO": true,
+                "ENABLE_DTMF": false,
+                "ENABLE_SCAN_RANGES": false,
                 "ENABLE_FEAT_F4HWN_GMRS_FRS_MURS": false,
                 "ENABLE_FEAT_NR7Y_CW": true,
                 "ENABLE_FEAT_NR7Y_CPO": true,
@@ -309,7 +312,6 @@
                 "ENABLE_FEAT_F4HWN_EXT_FLASH_RW": true,
                 "ENABLE_SWD": false,
                 "ENABLE_F_CAL_MENU": true,
-                "ENABLE_EXTRA_FILTER": true,
                 "ENABLE_USB": true
             }
         }

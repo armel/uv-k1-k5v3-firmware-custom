@@ -2574,7 +2574,9 @@ void APP_RunSpectrum()
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
             gEeprom.CURRENT_STATE = 4;
         #endif
+#ifdef ENABLE_SCAN_RANGES
     }
+#endif
 
     #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
         SETTINGS_WriteCurrentState();

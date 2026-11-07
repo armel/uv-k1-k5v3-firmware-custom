@@ -519,14 +519,8 @@ static void ScanFastApplyChannelShape(ModulationMode_t modulation)
     if (modulationChanged)
         RADIO_SetModulation(modulation);
 
-    if (modulation == MODULATION_AM)
-    {
-        BK4819_SetFilterBandwidth(RADIO_ResolveFilter(gRxVfo), true);
-    }
-    else
-    {
-        BK4819_SetFilterBandwidth(BK4819_FILTER_BW_WIDE, false);
-    }
+    // Wide for every modulation: 25k for FM and AM, 6k for CW and USB
+    RADIO_ApplyFilter(modulation, BANDWIDTH_WIDE);
 
     if (modulationChanged)
     {
@@ -698,7 +692,7 @@ static void SetMemScanProgressChannel(uint16_t channel)
 }
 #endif
 
-#if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)
+#ifdef ENABLE_SCAN_RANGES
     void CHFRSCANNER_ScanRange(void) {
         if (gScanRangeStart) {
             gScanRangeStart = 0;

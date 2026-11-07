@@ -29,9 +29,9 @@ enum {
     RADIO_CHANNEL_DOWN = 0xFFu,
 };
 
-// Stored per-channel filter selection. Schema 2 keeps this to a single bit:
-// it means "wide" or "narrow" and nothing more. What those resolve to in
-// kilohertz is decided per modulation by RADIO_ResolveFilter().
+// Stored per-channel filter selection: a single bit, 0 wide and 1 narrow in
+// every modulation. What those resolve to in kilohertz is decided per
+// modulation by RADIO_FilterFor().
 enum {
 	BANDWIDTH_WIDE = 0,
 	BANDWIDTH_NARROW,
@@ -128,7 +128,9 @@ typedef struct VFO_Info_t
 #ifdef ENABLE_DTMF_CALLING
     uint8_t        DTMF_DECODING_ENABLE;
 #endif
+#ifdef ENABLE_DTMF
     PTT_ID_t       DTMF_PTT_ID_TX_MODE;
+#endif
 
     uint8_t        BUSY_CHANNEL_LOCK;
 
@@ -174,12 +176,10 @@ void     RADIO_SetupRegisters(bool switchToForeground);
 #ifdef ENABLE_NOAA
     void RADIO_ConfigureNOAA(void);
 #endif
-BK4819_FilterBandwidth_t RADIO_ResolveFilter(const VFO_Info_t *pVfo);
-#ifdef ENABLE_EXTRA_FILTER
-bool     RADIO_HasFilterChoice(const VFO_Info_t *pVfo);  // false for CW and USB, which have one filter
-#else
-static inline bool RADIO_HasFilterChoice(const VFO_Info_t *pVfo) { (void)pVfo; return true; }
-#endif
+bool     RADIO_IsBaseband(ModulationMode_t mod);   // CW and USB
+BK4819_FilterBandwidth_t RADIO_FilterFor(ModulationMode_t mod, bool narrow);
+void     RADIO_ApplyFilter(ModulationMode_t mod, bool narrow);
+uint8_t  RADIO_DefaultBandwidth(ModulationMode_t mod);   // narrow for CW, else wide
 void     RADIO_SetTxParameters(void);
 void     RADIO_PrepareTx(void);   /* same setup, no FM waits, PA left off */
 void     RADIO_SetupAGC(bool listeningAM, bool disable);

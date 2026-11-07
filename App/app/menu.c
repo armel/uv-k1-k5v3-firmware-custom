@@ -344,8 +344,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 
         case MENU_W_N:
             //*pMin = 0;
-            // CW and USB have one filter, shown as the only choice
-            *pMax = RADIO_HasFilterChoice(gTxVfo) ? ARRAY_SIZE(gSubMenu_W_N) - 1 : 0;
+            *pMax = BANDWIDTH_NARROW;
             break;
 
         case MENU_RESET:
@@ -370,7 +369,9 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
 #endif
+#ifdef ENABLE_DTMF
         case MENU_D_LIVE_DEC:
+#endif
         #ifdef ENABLE_NOAA
             case MENU_NOAA_S:
         #endif
@@ -435,6 +436,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = SCAN_LIST_MODE_ALL;
             break;
 
+#ifdef ENABLE_DTMF
         case MENU_PTT_ID:
             //*pMin = 0;
             *pMax = ARRAY_SIZE(gSubMenu_PTT_ID) - 1;
@@ -444,6 +446,7 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMin = 3;
             *pMax = 99;
             break;
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -706,11 +709,8 @@ void MENU_AcceptSetting(void)
             return;
 
         case MENU_W_N:
-            // leave the bit alone where it does nothing, so FM and AM keep their width
-            if (RADIO_HasFilterChoice(gTxVfo)) {
-                gTxVfo->CHANNEL_BANDWIDTH = gSubMenuSelection;
-                gRequestSaveChannel       = 1;
-            }
+            gTxVfo->CHANNEL_BANDWIDTH = gSubMenuSelection;
+            gRequestSaveChannel       = 1;
             return;
 
 #ifndef ENABLE_FEAT_F4HWN
@@ -858,6 +858,7 @@ void MENU_AcceptSetting(void)
             gEeprom.SCAN_LIST_ENABLED = gSubMenuSelection;
             break;
 
+#ifdef ENABLE_DTMF
         case MENU_D_PRE:
             gEeprom.DTMF_PRELOAD_TIME = gSubMenuSelection * 10;
             break;
@@ -884,6 +885,7 @@ void MENU_AcceptSetting(void)
             gFlagReconfigureVfos     = true;
             gUpdateStatus            = true;
             break;
+#endif // ENABLE_DTMF
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_LIST:
@@ -907,6 +909,9 @@ void MENU_AcceptSetting(void)
             break;
 
         case MENU_AM:
+            // A new modulation starts at its own default filter
+            if (gTxVfo->Modulation != gSubMenuSelection)
+                gTxVfo->CHANNEL_BANDWIDTH = RADIO_DefaultBandwidth(gSubMenuSelection);
             gTxVfo->Modulation     = gSubMenuSelection;
             gRequestSaveChannel = 1;
             return;
@@ -1298,7 +1303,7 @@ void MENU_ShowCurrentSetting(void)
             break;
 
         case MENU_W_N:
-            gSubMenuSelection = RADIO_HasFilterChoice(gTxVfo) ? gTxVfo->CHANNEL_BANDWIDTH : 0;
+            gSubMenuSelection = gTxVfo->CHANNEL_BANDWIDTH;
             break;
 
 #ifndef ENABLE_FEAT_F4HWN
@@ -1402,6 +1407,7 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gEeprom.SCANLIST_PRIORITY_CH[1];
             break;
 
+#ifdef ENABLE_DTMF
         case MENU_D_PRE:
             gSubMenuSelection = gEeprom.DTMF_PRELOAD_TIME / 10;
             break;
@@ -1409,6 +1415,7 @@ void MENU_ShowCurrentSetting(void)
         case MENU_PTT_ID:
             gSubMenuSelection = gTxVfo->DTMF_PTT_ID_TX_MODE;
             break;
+#endif
 
 #ifdef ENABLE_DTMF_CALLING
         case MENU_D_DCD:
@@ -1419,9 +1426,11 @@ void MENU_ShowCurrentSetting(void)
             gSubMenuSelection = gDTMF_chosen_contact + 1;
             break;
 #endif
+#ifdef ENABLE_DTMF
         case MENU_D_LIVE_DEC:
             gSubMenuSelection = gSetting_live_DTMF_decoder;
             break;
+#endif
 
         case MENU_PONMSG:
             gSubMenuSelection = gEeprom.POWER_ON_DISPLAY_MODE;
@@ -2099,6 +2108,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
             if (m != MENU_SCR)
                 gAnotherVoiceID = MenuList[gMenuIndices[gMenuCursor]].voice_id;
         #endif
+#ifdef ENABLE_DTMF
         if (m == MENU_UPCODE 
             || m == MENU_DWCODE 
 #ifdef ENABLE_DTMF_CALLING 
@@ -2106,6 +2116,7 @@ static void MENU_Key_MENU(const bool bKeyPressed, const bool bKeyHeld)
 #endif
             )
             return;
+#endif
         #if 1
             if (m == MENU_DEL_CH || m == MENU_MEM_NAME)
                 if (!RADIO_CheckValidChannel(gSubMenuSelection, false, 0))

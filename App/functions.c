@@ -161,9 +161,11 @@ void FUNCTION_Transmit()
     DTMF_clear_RX();
 #endif
 
+#ifdef ENABLE_DTMF
     // clear the DTMF RX live decoder buffer
     gDTMF_RX_live_timeout = 0;
     DTMF_clear_input_box_memory();
+#endif
 
 #if defined(ENABLE_FMRADIO_EMBEDDED)
     if (gFmRadioMode)
@@ -179,10 +181,12 @@ void FUNCTION_Transmit()
     // turn the RED LED on
     BK4819_ToggleGpioOut(BK4819_GPIO5_PIN1_RED, true);
 
+#ifdef ENABLE_DTMF
     DTMF_Reply();
 
     if (gCurrentVfo->DTMF_PTT_ID_TX_MODE == PTT_ID_APOLLO)
         BK4819_PlaySingleTone(2525, 250, 0, gEeprom.DTMF_SIDE_TONE);
+#endif
 
 #ifdef ENABLE_TX1750
     if (gTx1750Active) {

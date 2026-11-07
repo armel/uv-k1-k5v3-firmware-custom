@@ -336,8 +336,10 @@ void ACTION_Scan(bool bRestart)
 #ifdef ENABLE_DTMF_CALLING
     DTMF_clear_RX();
 #endif
+#ifdef ENABLE_DTMF
     gDTMF_RX_live_timeout = 0;
     DTMF_clear_input_box_memory();
+#endif
 
     RADIO_SelectVfos();
 
@@ -372,6 +374,7 @@ void ACTION_Scan(bool bRestart)
         CHFRSCANNER_ManualResume(gScanStateDir);
     } else {
         #ifdef ENABLE_FEAT_F4HWN_RESUME_STATE
+        #ifdef ENABLE_SCAN_RANGES
         if(gScanRangeStart == 0) // No ScanRange
         {
             gEeprom.CURRENT_STATE = 1;
@@ -380,6 +383,9 @@ void ACTION_Scan(bool bRestart)
         {
             gEeprom.CURRENT_STATE = 2;
         }
+        #else
+        gEeprom.CURRENT_STATE = 1;
+        #endif
         SETTINGS_WriteCurrentState();
         #endif
         // start scanning
@@ -410,6 +416,9 @@ void ACTION_SwitchDemodul(void)
     if(gTxVfo->Modulation == MODULATION_UKNOWN)
         gTxVfo->Modulation = MODULATION_FM;
 
+    // A new modulation starts at its own default filter
+    gTxVfo->CHANNEL_BANDWIDTH = RADIO_DefaultBandwidth(gTxVfo->Modulation);
+
 #ifdef ENABLE_CW_MODULATOR
 	// Arm/dearm keyer ownership immediately so a very quick PTT press after
 	// switching to CW cannot beat deferred reconfigure/save paths.
@@ -426,25 +435,10 @@ void ACTION_SwitchDemodul(void)
 
 }
 
-// CW and USB have a single filter, so there's nothing to switch
-static void RefuseFilterSwitch(void)
-{
-#ifdef ENABLE_CW_MODULATOR
-	CW_ErrorBeep();  // a sidetone dit in CW, the double beep elsewhere
-#else
-	gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
-#endif
-}
-
 void ACTION_SwitchFilter(void)
 {
-	if (!RADIO_HasFilterChoice(gTxVfo)) {
-		RefuseFilterSwitch();
-		return;
-	}
-
 	// One bit, so this is a straight toggle. What wide and narrow resolve to
-	// depends on the modulation - see RADIO_ResolveFilter().
+	// depends on the modulation - see RADIO_FilterFor().
 	gTxVfo->CHANNEL_BANDWIDTH = (gTxVfo->CHANNEL_BANDWIDTH == BANDWIDTH_WIDE)
 		? BANDWIDTH_NARROW : BANDWIDTH_WIDE;
 	gRequestSaveChannel  = 1;
@@ -574,6 +568,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 
     HideFKeyIcon();
 
+#ifdef ENABLE_DTMF
     if (gScreenToDisplay == DISPLAY_MAIN && gDTMF_InputMode){
          // entering DTMF code
 
@@ -602,6 +597,7 @@ void ACTION_Handle(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
 #endif
         return;
     }
+#endif
 
     enum ACTION_OPT_t func = ACTION_OPT_NONE;
     switch(Key) {
@@ -1018,37 +1014,10 @@ void ACTION_Ptt(void)
 
 void ACTION_Wn(void)
 {
-    const bool isRx = FUNCTION_IsRx();
-    VFO_Info_t *pVfo = isRx ? gRxVfo : gTxVfo;
-
-    if (!RADIO_HasFilterChoice(pVfo)) {
-        RefuseFilterSwitch();
-        return;
-    }
+    VFO_Info_t *pVfo = FUNCTION_IsRx() ? gRxVfo : gTxVfo;
 
     pVfo->CHANNEL_BANDWIDTH = !pVfo->CHANNEL_BANDWIDTH;
-
-    // These read the bit through RADIO_ResolveFilter()
-    if (pVfo->Modulation == MODULATION_AM || pVfo->Modulation == MODULATION_USB
-#ifdef ENABLE_CW_MODULATOR
-        || pVfo->Modulation == MODULATION_CW
-#endif
-    )
-    {
-        BK4819_SetFilterBandwidth(RADIO_ResolveFilter(pVfo), true);
-        return;
-    }
-
-    uint8_t bw = pVfo->CHANNEL_BANDWIDTH;
-
-    #ifdef ENABLE_FEAT_F4HWN_NARROWER
-        if (isRx && bw == BANDWIDTH_NARROW && gSetting_set_nfm == 1)
-        {
-            bw++; 
-        }
-    #endif
-
-    BK4819_SetFilterBandwidth(bw, false);
+    RADIO_ApplyFilter(pVfo->Modulation, pVfo->CHANNEL_BANDWIDTH);
 }
 
 void ACTION_BackLight(void)

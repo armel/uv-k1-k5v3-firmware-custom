@@ -41,7 +41,7 @@ uint8_t CHFRSCANNER_GetScanRssiSparklineLevel(uint8_t index);
 #endif
 #endif
 
-#if defined(ENABLE_FEAT_F4HWN_RESUME_STATE) || defined(ENABLE_SCAN_RANGES)
+#ifdef ENABLE_SCAN_RANGES
     void CHFRSCANNER_ScanRange(void);
 #endif
 

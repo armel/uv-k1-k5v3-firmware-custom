@@ -1002,6 +1002,7 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             return;
         }
 #endif
+#ifdef ENABLE_DTMF
         if (gScanStateDir == SCAN_OFF
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
             && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL
@@ -1023,6 +1024,7 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
             gRequestDisplayScreen = DISPLAY_MAIN;
         }
         else
+#endif
             gBeepToPlay = BEEP_500HZ_60MS_DOUBLE_BEEP_OPTIONAL;
     }
     else
@@ -1174,6 +1176,7 @@ void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         return;
 #endif
 
+#ifdef ENABLE_DTMF
     if (gDTMF_InputMode && bKeyPressed && !bKeyHeld) {
         const char Character = DTMF_GetCharacter(Key);
         if (Character != 0xFF)
@@ -1186,6 +1189,7 @@ void MAIN_ProcessKeys(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
             return;
         }
     }
+#endif
 
     // TODO: ???
 //  if (Key > KEY_PTT)
