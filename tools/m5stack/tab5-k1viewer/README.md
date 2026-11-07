@@ -18,7 +18,8 @@ not flash this image on ESP32-P4 revision 3.x hardware.
 - USB-C data cable for flashing
 - USB-A to USB-C data cable for connecting the Tab5 to the K1
 - Fusion firmware from the `feature_update_v7` branch installed on the K1
-- Optional: M5Stack Mini GPS/BDS Unit (U032) on the Tab5 Grove port
+- Optional: M5Stack Mini GPS/BDS Unit (U032) or Unit GPS v1.1 (U032-V11) on
+  the Tab5 Grove port
 
 ## Build
 
@@ -87,10 +88,13 @@ the viewer stream (bit 3 of the frame flags, `feature_update_v7` branch).
 
 ## GPS position
 
-Plug the M5Stack Mini GPS/BDS Unit directly into the Tab5 Grove Port.A. The
-Tab5 powers the port, reads the unit at 9600 baud and accepts valid RMC NMEA
-sentences (`GNRMC`, `GPRMC`, and other talker prefixes). No GPS setting is
-needed in K1Viewer.
+Plug the M5Stack Mini GPS/BDS Unit (U032) or Unit GPS v1.1 (U032-V11) directly
+into the Tab5 Grove Port.A. The Tab5 powers the port and automatically detects
+the older unit at 9600 baud or the v1.1 unit at 115200 baud. It also tries
+common alternative rates retained by a unit configured elsewhere. Valid RMC
+NMEA sentences (`GNRMC`, `GPRMC`, and other talker prefixes) are accepted, and
+no GPS setting is needed in K1Viewer. Restart the Tab5 after replacing or
+reconfiguring the GPS unit so that its rate is detected again.
 
 While the K1 is connected over USB, every valid fix is forwarded to the radio.
 The Fusion firmware keeps it in RAM for 15 seconds: **APRS TX** uses the latest

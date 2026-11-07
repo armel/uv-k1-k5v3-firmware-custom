@@ -1,5 +1,5 @@
 /*
- * M5Stack Mini GPS/BDS unit input for the Tab5 K1Viewer.
+ * M5Stack GPS unit input for the Tab5 K1Viewer.
  *
  * Copyright 2026 Armel F4HWN
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -385,29 +385,37 @@ static void gps_task(void *arg)
     gps_status_t status = {0};
     gsv_tracker_t gsv_tracker = {0};
 
-    /* The unit's rate: the Mini GPS/BDS (AT6558) ships at 9600, the GPS/BDS
-     * Unit v1.1 (AT6668) at 115200, and a unit set up elsewhere may keep
-     * another one. No valid sentence for GPS_BAUD_TRY_MS: the next rate. */
+    /* The Mini GPS/BDS (AT6558) ships at 9600, the Unit GPS v1.1 (AT6668)
+     * at 115200, and a unit set up elsewhere may retain another common rate.
+     * Try the next rate after GPS_BAUD_TRY_MS without a valid sentence. */
     static const int bauds[] = {GPS_UART_BAUD, 115200, 38400, 57600, 19200, 4800};
     uint8_t baud_index = 0;
-    uint32_t baud_valid = 0;
+    uint32_t baud_start_valid = 0;
+    uint32_t baud_last_valid = 0;
     bool baud_found = false;
     TickType_t baud_tick = xTaskGetTickCount();
 
     while (true) {
-        if (!baud_found && status.valid_sentences >= baud_valid + 3u) {
-            baud_found = true;
-            ESP_LOGI(TAG, "NMEA at %d baud", bauds[baud_index]);
-        } else if (!baud_found &&
-                   xTaskGetTickCount() - baud_tick >= pdMS_TO_TICKS(GPS_BAUD_TRY_MS)) {
-            baud_index = (uint8_t)((baud_index + 1u) % (sizeof(bauds) / sizeof(bauds[0])));
-            uart_set_baudrate(GPS_UART, (uint32_t)bauds[baud_index]);
-            uart_flush_input(GPS_UART);
-            collecting = false;
-            length = 0;
-            baud_valid = status.valid_sentences;
-            baud_tick = xTaskGetTickCount();
-            ESP_LOGI(TAG, "No NMEA, trying %d baud", bauds[baud_index]);
+        if (!baud_found) {
+            const TickType_t now = xTaskGetTickCount();
+            const uint32_t valid = status.valid_sentences;
+            if (valid - baud_start_valid >= 3u) {
+                baud_found = true;
+                ESP_LOGI(TAG, "NMEA at %d baud", bauds[baud_index]);
+            } else if (valid != baud_last_valid) {
+                baud_last_valid = valid;
+                baud_tick = now;
+            } else if (now - baud_tick >= pdMS_TO_TICKS(GPS_BAUD_TRY_MS)) {
+                baud_index = (uint8_t)((baud_index + 1u) % (sizeof(bauds) / sizeof(bauds[0])));
+                uart_set_baudrate(GPS_UART, (uint32_t)bauds[baud_index]);
+                uart_flush_input(GPS_UART);
+                collecting = false;
+                length = 0;
+                baud_start_valid = valid;
+                baud_last_valid = valid;
+                baud_tick = now;
+                ESP_LOGI(TAG, "No NMEA, trying %d baud", bauds[baud_index]);
+            }
         }
         const int received = uart_read_bytes(GPS_UART, input, sizeof(input),
                                              pdMS_TO_TICKS(200));

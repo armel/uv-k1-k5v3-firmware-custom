@@ -1,5 +1,5 @@
 /*
- * M5Stack Mini GPS/BDS unit input for the Tab5 K1Viewer.
+ * M5Stack GPS unit input for the Tab5 K1Viewer.
  *
  * Copyright 2026 Armel F4HWN
  * SPDX-License-Identifier: GPL-3.0-or-later
