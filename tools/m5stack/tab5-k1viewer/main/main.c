@@ -34,6 +34,7 @@
 #include "esp_codec_dev.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
+#include "esp_io_expander.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -1684,6 +1685,32 @@ static void usb_send_message(cdc_acm_dev_hdl_t device,
     usb_send(device, packet, sizeof(packet));
 }
 
+#define CHARGE_ENABLE_PIN      IO_EXPANDER_PIN_NUM_7      /* expander 0x44: charger enable */
+#define CHARGE_ENABLE_TRIES    3
+
+/* The charger is off at power-up and the battery never charges unless it is
+ * enabled, and it only charges while the Tab5 is on. Enable it at start-up,
+ * whatever the battery voltage, as M5Stack's firmware does: a pack below 6 V
+ * is in protection and the charger trickle-charges it back. The outputs of
+ * expander 0x44 start high-impedance with a pull-down, so the level only
+ * reaches the pin in push-pull mode. */
+static void battery_charge_enable(void)
+{
+    for (int attempt = 1; attempt <= CHARGE_ENABLE_TRIES; attempt++) {
+        esp_io_expander_handle_t expander = bsp_io_expander1_init();
+        if (expander != NULL &&
+            esp_io_expander_set_dir(expander, CHARGE_ENABLE_PIN, IO_EXPANDER_OUTPUT) == ESP_OK &&
+            esp_io_expander_set_level(expander, CHARGE_ENABLE_PIN, 1) == ESP_OK &&
+            esp_io_expander_set_output_mode(expander, CHARGE_ENABLE_PIN,
+                                            IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) == ESP_OK) {
+            ESP_LOGI(TAG, "Battery charging enabled");
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    ESP_LOGW(TAG, "Could not enable battery charging");
+}
+
 static void usb_task(void *arg)
 {
     (void)arg;
@@ -2377,6 +2404,7 @@ void app_main(void)
     /* The IMU starts while the display is set up: both use the BSP I2C bus,
      * created once here. */
     ESP_ERROR_CHECK(bsp_i2c_init());
+    battery_charge_enable();
     const esp_err_t gps_result = gps_unit_start(gps_status_received, NULL);
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     viewer.gps_started = gps_result == ESP_OK;

@@ -86,6 +86,9 @@ on the plate when it wakes up.
 Without a radio, it fades down after 2 minutes without a touch on the screen,
 and a touch brings it back (`BACKLIGHT_*` at the top of `main/main.c`).
 
+The battery charges from the USB-C port only while the Tab5 is on: the viewer
+enables the charger at start-up, and it stays off when the Tab5 is switched off.
+
 When the flashlight of the radio is on, the torch between the antenna and the
 knob lights up and casts a beam upwards. It follows the real LED, so the blink
 and SOS modes show too. This needs a K1 firmware that reports the flashlight in
