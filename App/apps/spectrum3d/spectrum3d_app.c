@@ -41,8 +41,8 @@
  *       5 all the defaults (span, speed, view), centred on the VFO again ·
  *       0 listen to the strongest peak (FM, speaker icon; the
  *       landscape goes on with that station alone) · STAR speed · MENU hold ·
- *       EXIT quit. Behind the screen saver the spectrum stops (no sweep, no
- *       audio) until a key wakes it.
+ *       EXIT quit. Behind the screen saver audio closes; with listening
+ *       armed, muted sweeps continue and wake it on a signal.
  */
 
 #include <stdint.h>
@@ -86,8 +86,9 @@
  * display's NOISE_GATE is too low for this: noise alone crosses it on many
  * points and each crossing cost two full waits. */
 #define SIGNAL_DB       10u
+#define GLITCH_NO_SIGNAL 200u
 /* Listening to the strongest peak: audio path settle (as FoxHunt) and how
- * many quiet RSSI checks in a row close it (about a second: a check, also a
+ * many no-signal checks in a row close it (about a second: a check, also a
  * landscape line as a sweep would be, comes every four frames). */
 #define AUDIO_SETTLE_MS 60u
 #define LISTEN_HANG     8u
@@ -114,6 +115,7 @@
 #define REG_GLITCH  0x63u
 #define REG_RSSI    0x67u
 #define REG_RX_BW   0x43u
+#define CFG_MAGIC_V1 0x40u                    /* config without listen */
 #define CTRL_AF_DAC (1u << 9)               /* REG_30: AF DAC enable        */
 #define BUF_LEN     12u                     /* a text, or "1300.00000"       */
 
@@ -133,10 +135,10 @@ struct globals {
     int32_t shift;                          /* centre - VFO, 10 Hz units */
     uint8_t magic, span, speed;
     int8_t yaw;
-    uint8_t pitch;
+    uint8_t pitch, listen;
     uint8_t head, sweeps, prev_key, gate, close_lvl, quiet, peak_bin;
     uint8_t page;                           /* next page feed() sends, PAGES = status line */
-    bool running, hold, saver, abort_sweep, farm, listen, listening;
+    bool running, hold, saver, abort_sweep, farm, listening;
     uint8_t listen_ref;                     /* first listening level, 0 = none */
     /* the span's SPAN_REC record, read whole: same order and sizes */
     uint16_t step, scan_bw;
@@ -161,7 +163,7 @@ static struct globals g;
 #define A (g.api)
 #define S (g.st)
 
-_Static_assert(offsetof(struct globals, pitch) + 1u - offsetof(struct globals, shift)
+_Static_assert(offsetof(struct globals, listen) + 1u - offsetof(struct globals, shift)
                == CFG_DEFAULT_LEN, "saved settings do not match CFG_DEFAULT");
 _Static_assert(offsetof(struct globals, label) + SPAN_LABEL_LEN + 1u
                - offsetof(struct globals, step) == SPAN_REC_SIZE,
@@ -261,7 +263,8 @@ static uint8_t measure(uint8_t ms)
     if (ms != PARKED) {
         if (ms)
             a->delay_ms(ms);
-        for (uint8_t guard = 50u; guard && (a->bk_read(REG_GLITCH) & 0xFFu) >= 200u; guard--)
+        for (uint8_t guard = 50u; guard &&
+             (a->bk_read(REG_GLITCH) & 0xFFu) >= GLITCH_NO_SIGNAL; guard--)
             ;
         a->bk_read(REG_RSSI);               /* first read may still move */
     }
@@ -387,12 +390,12 @@ static void sweep(void)
     for (uint8_t b = 0; b < BINS; b++) {
         if (!(b & 15u)) {
             poll_keys();
-            if (g.abort_sweep || g.hold || g.saver || !g.running) {
+            if (g.abort_sweep || g.hold || !g.running) {
                 g.peak_f = 0;               /* an unfinished sweep is not listened to */
                 park_start();               /* the window may have moved too */
                 return;
             }
-            if (b)                          /* (the saver returned above) */
+            if (b && !g.saver)
                 draw(b >> 4);               /* in-between frame: 1/4, 2/4, 3/4 */
         }
         /* past the region's edge nothing is measured: the point stays flat */
@@ -516,7 +519,9 @@ static void feed(void)
     }
     uint8_t *const f = g.front + p * W, *const fb = A->fb[p];
     swap(f, fb, W);
-    A->blit_line(p);
+    /* The page transfer must not publish a Viewer frame: feed() runs fourteen
+       times per rendered frame while listening. */
+    A->blit_page(p + 1u);
     swap(f, fb, W);
 }
 
@@ -694,7 +699,9 @@ static void draw(uint8_t quarter)
     capsule(g.label, (uint8_t)(W - 2u - SPAN_LABEL_LEN * 4u), false);
 
     if (g.listening) {
-        /* the frame is complete: feed() sends it from its first page on */
+        /* Publish the completed buffer once, then keep it for feed(). */
+        if (!quarter)
+            A->viewer_update();
         swap(g.front, A->fb[0], PAGES * W);
         g.page = 0;
     } else {
@@ -842,6 +849,10 @@ static void refine(void)
  * that point alone. */
 static void start_listen(void)
 {
+    if (g.saver) {
+        A->backlight_on();
+        g.saver = false;
+    }
     /* Keep the station's shape from the sweep that found it (ACC while the
      * line still gathers sweeps, else the newest line): its points from the
      * peak outwards while they stand above the noise gate. Only its own point
@@ -902,10 +913,16 @@ void app_main(const app_api_t *api)
     /* The setup calls go through the parameter, which stays in a register:
        through A, each call would reload the table pointer first. */
     api->cfg_load((uint8_t *)&g.shift, CFG_DEFAULT_LEN);
-    if (g.magic != CFG_MAGIC || g.span >= SPAN_COUNT || g.speed >= SPEED_COUNT ||
+    if ((g.magic != CFG_MAGIC && g.magic != CFG_MAGIC_V1) ||
+        g.span >= SPAN_COUNT || g.speed >= SPEED_COUNT ||
         (uint8_t)(g.yaw + YAW_MAX) > 2u * YAW_MAX ||
-        (uint8_t)(g.pitch - PITCH_MIN) > PITCH_MAX - PITCH_MIN)
+        (uint8_t)(g.pitch - PITCH_MIN) > PITCH_MAX - PITCH_MIN ||
+        (g.magic == CFG_MAGIC && g.listen > 1u))
         asset(CFG_DEFAULT, &g.shift, CFG_DEFAULT_LEN);
+    else if (g.magic == CFG_MAGIC_V1) {
+        g.magic = CFG_MAGIC;
+        g.listen = false;
+    }
     g.running = true;                       /* the rest of g starts zeroed (.bss) */
     view();
     g.prev_key = api->get_key();
@@ -924,15 +941,21 @@ void app_main(const app_api_t *api)
 
     while (g.running) {
         if (g.saver) {
-            /* Behind the screen saver the spectrum stops, as the other apps
-               pause: no sweep and no audio (a sweep aborts and listening
-               closes when the saver starts). Only the saver's animation is
-               kept running, every 10 ms, until a key wakes it. */
+            /* Listening stays muted but keeps scanning behind the saver. */
             poll_keys();
-            A->delay_ms(10);
+            if (g.saver && g.listen) {
+                sweep();
+                if (g.peak_f)
+                    start_listen();
+            } else if (g.saver) {
+                A->delay_ms(10);
+            }
+            if (g.saver) {
+                A->backlight_update();
+                continue;
+            }
+            draw(0);                        /* key or signal woke the saver */
             A->backlight_update();
-            if (!g.saver)
-                draw(0);                    /* woken: status line included */
             continue;
         }
         if (g.listening) {
@@ -942,13 +965,12 @@ void app_main(const app_api_t *api)
             for (uint8_t q = 1u; q < 4u; q++)
                 draw(q);
             poll_keys();
-            /* Close only after the app's measured level stays below its
-               filter-adjusted threshold for the configured hang time. The
-               receiver stays parked: a plain RSSI read, with no settling to
-               wait for (on a noisy station, the glitch wait can spin up to
-               50 register reads, a burst on the BK4829 bus). */
+            /* Close only after RSSI or the glitch indicator sees no signal
+               for the configured hang time. The receiver stays parked. */
             const uint8_t m = measure(PARKED);
-            g.quiet = m > g.close_lvl ? 0u : (uint8_t)(g.quiet + 1u);
+            const bool no_signal = m <= g.close_lvl ||
+                (A->bk_read(REG_GLITCH) & 0xFFu) >= GLITCH_NO_SIGNAL;
+            g.quiet = no_signal ? (uint8_t)(g.quiet + 1u) : 0u;
             if (g.quiet >= LISTEN_HANG || !g.listen || g.hold || g.saver || g.abort_sweep) {
                 stop_listen();
             } else {
