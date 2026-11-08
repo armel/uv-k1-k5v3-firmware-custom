@@ -21,6 +21,7 @@
  */
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -29,6 +30,7 @@
 
 #include "bmi270.h"
 #include "bsp/esp-bsp.h"
+#include "cdc_rx_recovery.h"
 #include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_codec_dev.h"
@@ -61,6 +63,9 @@
 #define K1_UART_BAUD           38400u
 #define USB_OPEN_ATTEMPT_MS    200u
 #define USB_TX_TIMEOUT_MS      100u
+#define USB_REOPEN_MIN_MS      100u
+#define USB_REOPEN_MAX_MS      2000u
+#define USB_REOPEN_STABLE_MS   5000u
 #define AUTO_ROTATE            1            /* follow the Tab5 orientation with its IMU */
 #define FIXED_ROTATION         LV_DISPLAY_ROTATION_0    /* used when AUTO_ROTATE is 0 */
 /* Landscape rotation that puts the USB-A port on the left: it shows the screen
@@ -116,6 +121,7 @@
 #define CONNECT_PULSE_MIN_OPA  LV_OPA_40
 #define CONNECT_VERSION_COLOR  0x5A5F66u    /* as the license line above it */
 #define GPS_DEBUG_REFRESH_MS   250u
+#define USB_FPS_PERIOD_MS      1000u
 #define GPS_DATA_TIMEOUT_MS    3000u
 #define GPS_SEARCH_BLINK_MS    500u
 #define GPS_STATUS_SIZE        10
@@ -128,6 +134,11 @@
 #define GPS_FIX_COLOR          0x6BE585u
 #define GPS_DATA_COLOR         0x3D93E6u
 #define GPS_ERROR_COLOR        0xFF6B6Bu
+#define USB_CONSOLE_LINES      10
+#define USB_CONSOLE_LINE_SIZE  72
+#define USB_CONSOLE_PREFIX_RESERVE 14
+#define USB_PANEL_WIDTH        620
+#define USB_PANEL_HEIGHT       360
 #define BACKGROUND_COLOR       0x0C0D0Fu
 #define KEY_PRESSED_COLOR      0xFFFFFFu
 #define KEY_LONG_COLOR         0x3D93E6u
@@ -214,6 +225,19 @@ typedef struct {
 } settings_t;
 
 typedef struct {
+    char lines[USB_CONSOLE_LINES][USB_CONSOLE_LINE_SIZE];
+    uint8_t next_line;
+    uint8_t line_count;
+    uint32_t recovery_attempts;
+    uint32_t recovery_successes;
+    uint32_t full_reopens;
+    int last_error;
+    esp_err_t last_result;
+    bool recovery_pending;
+    bool transport_open;
+} usb_diagnostics_t;
+
+typedef struct {
     uint8_t framebuffer[RADIO_FRAME_BYTES];
     uint64_t dirty_rows;        /* bit n: LCD row n changed since the last render */
     uint8_t flags;
@@ -228,6 +252,7 @@ typedef struct {
     TickType_t gps_last_sentence_tick;
     bool gps_started;
     bool gps_error;
+    usb_diagnostics_t usb_diag;
 } viewer_state_t;
 
 typedef struct {
@@ -239,6 +264,12 @@ typedef enum {
     OUTBOUND_KEY,
     OUTBOUND_GPS,
 } outbound_type_t;
+
+typedef enum {
+    USB_LINK_EVENT_NONE,
+    USB_LINK_EVENT_STOP,
+    USB_LINK_EVENT_ERROR,
+} usb_link_event_t;
 
 typedef struct {
     outbound_type_t type;
@@ -273,6 +304,8 @@ typedef struct {
     lv_obj_t *gps_status_dot;
     lv_obj_t *gps_debug_panel;
     lv_obj_t *gps_debug_label;
+    lv_obj_t *usb_debug_panel;
+    lv_obj_t *usb_debug_label;
 } view_t;
 
 static const char *TAG = "tab5-k1viewer";
@@ -329,6 +362,9 @@ static SemaphoreHandle_t state_mutex;
 static SemaphoreHandle_t disconnected_sem;
 static SemaphoreHandle_t orientation_ready;
 static QueueHandle_t outbound_queue;
+static portMUX_TYPE usb_link_mux = portMUX_INITIALIZER_UNLOCKED;
+static usb_link_event_t usb_link_event;
+static int usb_link_error;
 static nvs_handle_t settings_nvs;
 static bool settings_ready;
 #if KEY_CLICK
@@ -350,6 +386,7 @@ static lv_obj_t *toast_image;
 static lv_timer_t *plate_tap_timer;
 static bool plate_tap_pending;          /* a first tap waits for a second one */
 static bool gps_debug_visible;
+static volatile bool usb_debug_visible;
 static view_t views[VIEW_COUNT] = {
     [VIEW_PORTRAIT] = {
         .layout = &skin_portrait,
@@ -514,8 +551,16 @@ static void parser_push(uint8_t byte)
         break;
 
     case PARSER_PAYLOAD:
+        /* Never trust position against length alone: an inconsistent state
+         * drops the frame instead of writing past the payload buffer. */
+        if (parser.position >= parser.length ||
+            parser.position >= K1VIEWER_MAX_PAYLOAD) {
+            parser_reset();
+            parser_seek(byte);
+            break;
+        }
         parser.payload[parser.position++] = byte;
-        if (parser.position == parser.length) {
+        if (parser.position >= parser.length) {
             parser.state = PARSER_END;
         }
         break;
@@ -539,6 +584,107 @@ static bool usb_rx_callback(const uint8_t *data, size_t data_len, void *user_arg
     return true;
 }
 
+static void viewer_set_disconnected(void)
+{
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    viewer.usb_connected = false;
+    memset(viewer.framebuffer, 0, sizeof(viewer.framebuffer));
+    viewer.dirty_rows = UINT64_MAX;
+    viewer.frame_dirty = true;
+    xSemaphoreGive(state_mutex);
+}
+
+static void usb_link_reset(void)
+{
+    taskENTER_CRITICAL(&usb_link_mux);
+    usb_link_event = USB_LINK_EVENT_NONE;
+    usb_link_error = USB_TRANSFER_STATUS_COMPLETED;
+    taskEXIT_CRITICAL(&usb_link_mux);
+}
+
+static void usb_link_stop(void)
+{
+    taskENTER_CRITICAL(&usb_link_mux);
+    usb_link_event = USB_LINK_EVENT_STOP;
+    taskEXIT_CRITICAL(&usb_link_mux);
+}
+
+/* Transfer errors that flushing and resubmitting the endpoint can clear. A
+ * STALL comes from the device and needs more than that. */
+static bool usb_endpoint_error_is_recoverable(int error)
+{
+    return error == USB_TRANSFER_STATUS_ERROR ||
+           error == USB_TRANSFER_STATUS_TIMED_OUT ||
+           error == USB_TRANSFER_STATUS_OVERFLOW;
+}
+
+/* When several errors are queued before usb_task runs, keep the one that the
+ * endpoint recovery cannot clear. */
+static uint8_t usb_link_error_priority(int error)
+{
+    return usb_endpoint_error_is_recoverable(error) ? 1u : 2u;
+}
+
+static bool usb_link_queue_error(int error)
+{
+    bool queued = false;
+    taskENTER_CRITICAL(&usb_link_mux);
+    if (usb_link_event != USB_LINK_EVENT_STOP) {
+        if (usb_link_event != USB_LINK_EVENT_ERROR ||
+            usb_link_error_priority(error) >=
+                usb_link_error_priority(usb_link_error)) {
+            usb_link_error = error;
+        }
+        usb_link_event = USB_LINK_EVENT_ERROR;
+        queued = true;
+    }
+    taskEXIT_CRITICAL(&usb_link_mux);
+    return queued;
+}
+
+static usb_link_event_t usb_link_take_event(int *error)
+{
+    taskENTER_CRITICAL(&usb_link_mux);
+    const usb_link_event_t event = usb_link_event;
+    if (error != NULL) {
+        *error = usb_link_error;
+    }
+    if (event != USB_LINK_EVENT_STOP) {
+        usb_link_event = USB_LINK_EVENT_NONE;
+    }
+    taskEXIT_CRITICAL(&usb_link_mux);
+    return event;
+}
+
+static usb_link_event_t usb_link_peek_event(void)
+{
+    taskENTER_CRITICAL(&usb_link_mux);
+    const usb_link_event_t event = usb_link_event;
+    taskEXIT_CRITICAL(&usb_link_mux);
+    return event;
+}
+
+static void usb_console_add(const char *format, ...)
+{
+    char message[USB_CONSOLE_LINE_SIZE - USB_CONSOLE_PREFIX_RESERVE];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(message, sizeof(message), format, args);
+    va_end(args);
+
+    const uint32_t uptime_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    usb_diagnostics_t *diag = &viewer.usb_diag;
+    snprintf(diag->lines[diag->next_line], USB_CONSOLE_LINE_SIZE,
+             "%5lu.%03lu  %s", (unsigned long)(uptime_ms / 1000u),
+             (unsigned long)(uptime_ms % 1000u), message);
+    diag->next_line = (uint8_t)((diag->next_line + 1u) % USB_CONSOLE_LINES);
+    if (diag->line_count < USB_CONSOLE_LINES) {
+        diag->line_count++;
+    }
+    xSemaphoreGive(state_mutex);
+}
+
 static void usb_event_callback(const cdc_acm_host_dev_event_data_t *event,
                                void *user_ctx)
 {
@@ -547,18 +693,29 @@ static void usb_event_callback(const cdc_acm_host_dev_event_data_t *event,
     switch (event->type) {
     case CDC_ACM_HOST_DEVICE_DISCONNECTED:
         ESP_LOGI(TAG, "K1 disconnected");
-        ESP_ERROR_CHECK_WITHOUT_ABORT(cdc_acm_host_close(event->data.cdc_hdl));
+        usb_link_stop();
         xSemaphoreTake(state_mutex, portMAX_DELAY);
-        viewer.usb_connected = false;
-        memset(viewer.framebuffer, 0, sizeof(viewer.framebuffer));
-        viewer.dirty_rows = UINT64_MAX;
-        viewer.frame_dirty = true;
+        viewer.usb_diag.transport_open = false;
+        if (viewer.usb_diag.recovery_pending) {
+            viewer.usb_diag.last_result = ESP_ERR_INVALID_STATE;
+            viewer.usb_diag.recovery_pending = false;
+        }
         xSemaphoreGive(state_mutex);
+        usb_console_add("K1 disconnected");
+        viewer_set_disconnected();
         xSemaphoreGive(disconnected_sem);
         break;
 
     case CDC_ACM_HOST_ERROR:
-        ESP_LOGW(TAG, "CDC-ACM error: %d", event->data.error);
+        if (!usb_link_queue_error(event->data.error)) {
+            ESP_LOGD(TAG, "Ignoring CDC error %d after link stop",
+                     event->data.error);
+            break;
+        }
+        ESP_LOGW(TAG, "CDC-ACM error %d queued for endpoint classification",
+                 event->data.error);
+        usb_console_add("CDC error %d queued", event->data.error);
+        xSemaphoreGive(disconnected_sem);
         break;
 
     case CDC_ACM_HOST_SERIAL_STATE:
@@ -1346,6 +1503,62 @@ static void gps_debug_update(const gps_status_t *status, bool started, bool erro
     }
 }
 
+static void usb_debug_update(uint32_t fps_tenths)
+{
+    char text[USB_CONSOLE_LINES * USB_CONSOLE_LINE_SIZE + 256];
+    char last_error[12] = "--";
+    const char *result = "--";
+
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    const usb_diagnostics_t *diag = &viewer.usb_diag;
+    if (diag->recovery_attempts != 0u || diag->full_reopens != 0u) {
+        snprintf(last_error, sizeof(last_error), "%d", diag->last_error);
+    }
+    if (diag->recovery_pending) {
+        result = "PENDING";
+    } else if (diag->recovery_attempts != 0u || diag->full_reopens != 0u) {
+        result = esp_err_to_name(diag->last_result);
+    }
+
+    size_t used = (size_t)snprintf(
+        text, sizeof(text),
+        "Link: %s    RX FPS: %lu.%lu\n"
+        "Recoveries: %lu/%lu    Full reopens: %lu\n"
+        "Last transfer error: %s    Last recovery: %s\n\n",
+        diag->transport_open ? "OPEN" : "CLOSED",
+        (unsigned long)(fps_tenths / 10u),
+        (unsigned long)(fps_tenths % 10u),
+        (unsigned long)diag->recovery_successes,
+        (unsigned long)diag->recovery_attempts,
+        (unsigned long)diag->full_reopens,
+        last_error, result);
+
+    if (diag->line_count == 0u) {
+        snprintf(text + used, sizeof(text) - used, "No USB event yet");
+    } else {
+        const uint8_t first = (uint8_t)(
+            (diag->next_line + USB_CONSOLE_LINES - diag->line_count) %
+            USB_CONSOLE_LINES);
+        for (uint8_t i = 0; i < diag->line_count && used < sizeof(text); i++) {
+            const uint8_t line = (uint8_t)((first + i) % USB_CONSOLE_LINES);
+            const int written = snprintf(text + used, sizeof(text) - used,
+                                         "%s%s", diag->lines[line],
+                                         i + 1u == diag->line_count ? "" : "\n");
+            if (written < 0 || (size_t)written >= sizeof(text) - used) {
+                break;
+            }
+            used += (size_t)written;
+        }
+    }
+    xSemaphoreGive(state_mutex);
+
+    for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+        if (views[i].usb_debug_label != NULL) {
+            lv_label_set_text(views[i].usb_debug_label, text);
+        }
+    }
+}
+
 static void render_task(void *arg)
 {
     (void)arg;
@@ -1363,6 +1576,9 @@ static void render_task(void *arg)
     int backlight = 0;
     TickType_t connected_tick = xTaskGetTickCount();
     TickType_t gps_refresh_tick = 0;
+    TickType_t fps_tick = xTaskGetTickCount();
+    uint32_t fps_frame_count = 0;
+    uint32_t fps_tenths = 0;
 
 #if AUTO_ROTATE
     /* The backlight stays off until the IMU gives the orientation of the Tab5,
@@ -1377,6 +1593,8 @@ static void render_task(void *arg)
         TickType_t gps_last_sentence;
         bool gps_started;
         bool gps_error;
+        uint32_t frame_count;
+        bool usb_transport_open;
 
         xSemaphoreTake(state_mutex, portMAX_DELAY);
         gps_status = viewer.gps;
@@ -1384,6 +1602,8 @@ static void render_task(void *arg)
         gps_last_sentence = viewer.gps_last_sentence_tick;
         gps_started = viewer.gps_started;
         gps_error = viewer.gps_error;
+        frame_count = viewer.frame_count;
+        usb_transport_open = viewer.usb_diag.transport_open;
         if (viewer.frame_dirty) {
             memcpy(framebuffer, viewer.framebuffer, sizeof(framebuffer));
             rows |= viewer.dirty_rows;
@@ -1399,6 +1619,19 @@ static void render_task(void *arg)
 
         const bool asleep = (flags & K1VIEWER_FLAG_DEEP_SLEEP) != 0;
         const bool gps_refresh = now - gps_refresh_tick >= pdMS_TO_TICKS(GPS_DEBUG_REFRESH_MS);
+        const uint32_t fps_elapsed_ms = pdTICKS_TO_MS(now - fps_tick);
+        if (!usb_transport_open) {
+            fps_frame_count = frame_count;
+            fps_tenths = 0;
+            fps_tick = now;
+        } else if (fps_elapsed_ms >= USB_FPS_PERIOD_MS) {
+            const uint32_t frames = frame_count - fps_frame_count;
+            fps_tenths = (uint32_t)(((uint64_t)frames * 10000u +
+                                     fps_elapsed_ms / 2u) /
+                                    fps_elapsed_ms);
+            fps_frame_count = frame_count;
+            fps_tick = now;
+        }
 
         if ((redraw || gps_refresh) && bsp_display_lock(1000)) {
             if (redraw) {
@@ -1445,6 +1678,9 @@ static void render_task(void *arg)
             if (gps_refresh) {
                 gps_debug_update(&gps_status, gps_started, gps_error,
                                  gps_last_data, gps_last_sentence, now);
+                if (usb_debug_visible) {
+                    usb_debug_update(fps_tenths);
+                }
                 gps_refresh_tick = now;
             }
             bsp_display_unlock();
@@ -1597,58 +1833,136 @@ static bool usb_open_can_retry(esp_err_t result)
     return result == ESP_ERR_NOT_FOUND || result == ESP_ERR_TIMEOUT;
 }
 
+typedef esp_err_t (*usb_transport_open_t)(uint16_t pid, uint8_t interface_idx,
+                                          const cdc_acm_host_device_config_t *config,
+                                          cdc_acm_dev_hdl_t *device);
+
+/* The K1 is CDC compliant: the generic CDC-ACM driver opens it by its IDs. */
+static esp_err_t usb_k1_native_open(uint16_t pid, uint8_t interface_idx,
+                                    const cdc_acm_host_device_config_t *config,
+                                    cdc_acm_dev_hdl_t *device)
+{
+    return cdc_acm_host_open(K1_USB_VID, pid, interface_idx, config, device);
+}
+
+#define USB_TRANSPORT_PIDS     3
+
+/* Every transport the viewer knows, in detection order: the K1 itself, then
+ * the USB-serial converters of the K cable. probe_pid is the PID given to the
+ * driver while waiting for a device; vid and pids recognise a device that the
+ * generic CDC probe caught instead. */
+typedef struct {
+    const char *name;
+    usb_transport_open_t open;
+    uint16_t probe_pid;
+    uint16_t vid;
+    uint16_t pids[USB_TRANSPORT_PIDS];  /* 0 ends a shorter list */
+} usb_transport_t;
+
+static const usb_transport_t usb_transports[] = {
+    {"native USB-C", usb_k1_native_open, K1_USB_PID,
+     K1_USB_VID, {K1_USB_PID}},
+    {"K cable (CH34x)", ch34x_vcp_open, CH34X_PID_AUTO,
+     NANJING_QINHENG_MICROE_VID, {CH340_PID, CH340_PID_1, CH341_PID}},
+    {"K cable (CP210x)", cp210x_vcp_open, CP210X_PID_AUTO,
+     SILICON_LABS_VID, {CP210X_PID, CP2105_PID, CP2108_PID}},
+    {"K cable (PL2303)", pl2303_vcp_open, PL2303_PID,
+     PL2303_VID, {PL2303_PID}},
+    {"K cable (FTDI)", ftdi_vcp_open, FTDI_PID_AUTO,
+     FTDI_VID, {FT232_PID, FT231_PID}},
+};
+
+#define USB_TRANSPORT_COUNT    (sizeof(usb_transports) / sizeof(usb_transports[0]))
+
+static const usb_transport_t *usb_known_transport(uint16_t vid, uint16_t pid)
+{
+    for (size_t i = 0; i < USB_TRANSPORT_COUNT; i++) {
+        const usb_transport_t *known = &usb_transports[i];
+        if (known->vid != vid) {
+            continue;
+        }
+        for (size_t j = 0; j < USB_TRANSPORT_PIDS && known->pids[j] != 0u; j++) {
+            if (known->pids[j] == pid) {
+                return known;
+            }
+        }
+    }
+    return NULL;
+}
+
 static esp_err_t usb_open_radio(const cdc_acm_host_device_config_t *config,
                                 cdc_acm_dev_hdl_t *device,
                                 const char **transport)
 {
-    esp_err_t result = cdc_acm_host_open(K1_USB_VID, K1_USB_PID, 0, config, device);
-    if (result == ESP_OK) {
-        *transport = "native USB-C";
-        return ESP_OK;
+    esp_err_t result;
+    for (size_t i = 0; i < USB_TRANSPORT_COUNT; i++) {
+        const usb_transport_t *candidate = &usb_transports[i];
+        result = candidate->open(candidate->probe_pid, 0, config, device);
+        if (result == ESP_OK) {
+            *transport = candidate->name;
+            return ESP_OK;
+        }
+        if (!usb_open_can_retry(result)) {
+            return result;
+        }
     }
-    if (!usb_open_can_retry(result)) {
+
+    result = cdc_acm_host_open(CDC_HOST_ANY_VID, CDC_HOST_ANY_PID, 0,
+                               config, device);
+    if (result != ESP_OK) {
         return result;
     }
 
-    result = ch34x_vcp_open(CH34X_PID_AUTO, 0, config, device);
-    if (result == ESP_OK) {
-        *transport = "K cable (CH34x)";
-        return ESP_OK;
-    }
-    if (!usb_open_can_retry(result)) {
-        return result;
-    }
-
-    result = cp210x_vcp_open(CP210X_PID_AUTO, 0, config, device);
-    if (result == ESP_OK) {
-        *transport = "K cable (CP210x)";
-        return ESP_OK;
-    }
-    if (!usb_open_can_retry(result)) {
-        return result;
-    }
-
-    result = pl2303_vcp_open(PL2303_PID, 0, config, device);
-    if (result == ESP_OK) {
-        *transport = "K cable (PL2303)";
-        return ESP_OK;
-    }
-    if (!usb_open_can_retry(result)) {
-        return result;
-    }
-
-    result = ftdi_vcp_open(FTDI_PID_AUTO, 0, config, device);
-    if (result == ESP_OK) {
-        *transport = "K cable (FTDI)";
-        return ESP_OK;
-    }
-    if (!usb_open_can_retry(result)) {
-        return result;
-    }
-
-    result = cdc_acm_host_open(CDC_HOST_ANY_VID, CDC_HOST_ANY_PID, 0, config, device);
-    if (result == ESP_OK) {
+    uint16_t vid = 0;
+    uint16_t pid = 0;
+    result = cdc_rx_get_device_id(*device, &vid, &pid);
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "Cannot identify generic CDC transport: %s",
+                 esp_err_to_name(result));
         *transport = "K cable (CDC-ACM)";
+        return ESP_OK;
+    }
+
+    const usb_transport_t *known = usb_known_transport(vid, pid);
+    if (known == NULL) {
+        *transport = "K cable (CDC-ACM)";
+        ESP_LOGI(TAG, "Generic CDC transport identified as %04x:%04x",
+                 (unsigned)vid, (unsigned)pid);
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "Generic CDC probe matched %04x:%04x -> %s",
+             (unsigned)vid, (unsigned)pid, known->name);
+    usb_console_add("DETECT %04X:%04X -> %s",
+                    (unsigned)vid, (unsigned)pid, known->name);
+    if (known->open == usb_k1_native_open) {
+        /* The generic CDC handle is already the right driver for the K1. */
+        *transport = known->name;
+        return ESP_OK;
+    }
+
+    result = cdc_acm_host_close(*device);
+    *device = NULL;
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot close generic CDC probe for %04x:%04x: %s",
+                 (unsigned)vid, (unsigned)pid, esp_err_to_name(result));
+        return result;
+    }
+
+    /* A generic probe can catch a known converter that appeared after its
+     * dedicated probe. Reopen the already enumerated device with the correct
+     * driver before line coding or transfers are attempted. */
+    xSemaphoreTake(disconnected_sem, 0);
+    usb_link_reset();
+    result = known->open(pid, 0, config, device);
+    if (result == ESP_OK) {
+        *transport = known->name;
+    } else {
+        ESP_LOGW(TAG, "Dedicated reopen of %04x:%04x as %s failed: %s",
+                 (unsigned)vid, (unsigned)pid, known->name,
+                 esp_err_to_name(result));
+        usb_console_add("DETECT %04X:%04X reopen FAILED",
+                        (unsigned)vid, (unsigned)pid);
     }
     return result;
 }
@@ -1711,10 +2025,221 @@ static void battery_charge_enable(void)
     ESP_LOGW(TAG, "Could not enable battery charging");
 }
 
+static uint32_t usb_data_recovery_begin(int transfer_error)
+{
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    usb_diagnostics_t *diag = &viewer.usb_diag;
+    diag->recovery_attempts++;
+    diag->last_error = transfer_error;
+    diag->last_result = ESP_ERR_INVALID_STATE;
+    diag->recovery_pending = true;
+    const uint32_t recovery = diag->recovery_attempts;
+    xSemaphoreGive(state_mutex);
+    return recovery;
+}
+
+static void usb_data_recovery_finish(esp_err_t result)
+{
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    if (result == ESP_OK) {
+        viewer.usb_diag.recovery_successes++;
+    }
+    viewer.usb_diag.last_result = result;
+    viewer.usb_diag.recovery_pending = false;
+    xSemaphoreGive(state_mutex);
+}
+
+static void usb_full_reopen_record(int transfer_error, esp_err_t result)
+{
+    xSemaphoreTake(state_mutex, portMAX_DELAY);
+    viewer.usb_diag.last_error = transfer_error;
+    viewer.usb_diag.last_result = result;
+    viewer.usb_diag.full_reopens++;
+    viewer.usb_diag.recovery_pending = false;
+    viewer.usb_diag.transport_open = false;
+    xSemaphoreGive(state_mutex);
+    viewer_set_disconnected();
+}
+
+/* Keepalive frame, sent whenever no key or GPS frame went to the K1. */
+static const uint8_t usb_keepalive[] = {0x55, 0xAA, 0x00, 0x00};
+
+typedef enum {
+    USB_RECOVERY_DONE,          /* the link goes on */
+    USB_RECOVERY_STOPPED,       /* the K1 left meanwhile: close, no backoff */
+    USB_RECOVERY_REOPEN,        /* an endpoint cannot restart: full reopen */
+} usb_recovery_outcome_t;
+
+/* Restart the data endpoint that a transfer error halted. When its pipe is
+ * still active, the error belongs to the notification endpoint: the DATA bit
+ * is dropped from *stopped and nothing is done. *result keeps the cause of a
+ * REOPEN outcome. */
+static usb_recovery_outcome_t usb_recover_data_endpoint(
+    cdc_acm_dev_hdl_t device, int transfer_error,
+    cdc_rx_endpoint_mask_t *stopped, esp_err_t *result)
+{
+    /* Check the pipe before judging the error: a frame may still be in its
+     * callback on the other core, poll flag clear, while the notification
+     * endpoint reports a STALL that must not reopen the whole link. */
+    bool halted = false;
+    esp_err_t recovery_result =
+        cdc_rx_endpoint_halted(device, CDC_RX_ENDPOINT_DATA, &halted);
+    if (recovery_result != ESP_OK) {
+        *result = recovery_result;
+        ESP_LOGE(TAG, "Cannot check data endpoint after error %d: %s",
+                 transfer_error, esp_err_to_name(recovery_result));
+        usb_console_add("Data check FAILED: %s",
+                        esp_err_to_name(recovery_result));
+        return USB_RECOVERY_REOPEN;
+    }
+    if (!halted) {
+        *stopped = (cdc_rx_endpoint_mask_t)(*stopped & ~CDC_RX_ENDPOINT_DATA);
+        ESP_LOGI(TAG, "Data endpoint still active after error %d",
+                 transfer_error);
+        usb_console_add("Data still active, no recovery");
+        return USB_RECOVERY_DONE;
+    }
+
+    if (!usb_endpoint_error_is_recoverable(transfer_error)) {
+        *result = ESP_ERR_NOT_SUPPORTED;
+        ESP_LOGE(TAG, "Data endpoint error %d requires a full reopen",
+                 transfer_error);
+        usb_console_add("Data error %d -> full reopen", transfer_error);
+        return USB_RECOVERY_REOPEN;
+    }
+
+    /* parser_reset() runs inside the recovery, once the pipe is flushed:
+     * until then the data callback may still own the parser on the other
+     * core. */
+    recovery_result = cdc_rx_recover_bulk_in(device, parser_reset);
+    if (usb_link_peek_event() == USB_LINK_EVENT_STOP) {
+        return USB_RECOVERY_STOPPED;
+    }
+
+    const uint32_t recovery = usb_data_recovery_begin(transfer_error);
+    ESP_LOGW(TAG, "Data endpoint error %d, recovery #%lu",
+             transfer_error, (unsigned long)recovery);
+    usb_console_add("Data error %d -> recovery #%lu",
+                    transfer_error, (unsigned long)recovery);
+
+    if (recovery_result == ESP_OK) {
+        const esp_err_t dtr_result =
+            cdc_acm_host_set_control_line_state(device, true, false);
+        if (dtr_result != ESP_OK && dtr_result != ESP_ERR_NOT_SUPPORTED) {
+            recovery_result = dtr_result;
+        }
+    }
+    if (recovery_result == ESP_OK) {
+        recovery_result = usb_send(device, usb_keepalive, sizeof(usb_keepalive));
+    }
+
+    if (usb_link_peek_event() == USB_LINK_EVENT_STOP) {
+        usb_data_recovery_finish(ESP_ERR_NOT_FINISHED);
+        ESP_LOGI(TAG, "Data endpoint recovery #%lu interrupted by disconnect",
+                 (unsigned long)recovery);
+        usb_console_add("Recovery #%lu interrupted by disconnect",
+                        (unsigned long)recovery);
+        return USB_RECOVERY_STOPPED;
+    }
+
+    usb_data_recovery_finish(recovery_result);
+    if (recovery_result == ESP_OK) {
+        ESP_LOGI(TAG, "Data endpoint recovery #%lu completed, DTR restored",
+                 (unsigned long)recovery);
+        usb_console_add("Recovery #%lu OK, DTR restored",
+                        (unsigned long)recovery);
+        return USB_RECOVERY_DONE;
+    }
+
+    *result = recovery_result;
+    ESP_LOGE(TAG, "Data endpoint recovery #%lu failed: %s",
+             (unsigned long)recovery, esp_err_to_name(recovery_result));
+    usb_console_add("Recovery #%lu FAILED: %s", (unsigned long)recovery,
+                    esp_err_to_name(recovery_result));
+    return USB_RECOVERY_REOPEN;
+}
+
+/* Restart the notification endpoint, or stop polling it when it cannot be
+ * restarted: the viewer ignores serial-state notifications anyway. */
+static usb_recovery_outcome_t usb_recover_notification_endpoint(
+    cdc_acm_dev_hdl_t device, int transfer_error, bool *disabled)
+{
+    bool halted = false;
+    esp_err_t result =
+        cdc_rx_endpoint_halted(device, CDC_RX_ENDPOINT_NOTIFICATION, &halted);
+    if (result == ESP_OK && !halted) {
+        /* A notification was only in its callback: nothing to restart. */
+        return USB_RECOVERY_DONE;
+    }
+    if (result == ESP_OK) {
+        result = usb_endpoint_error_is_recoverable(transfer_error)
+                     ? cdc_rx_recover_notification(device)
+                     : ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (usb_link_peek_event() == USB_LINK_EVENT_STOP) {
+        ESP_LOGI(TAG, "Notification recovery interrupted by disconnect");
+        usb_console_add("Notification recovery interrupted");
+        return USB_RECOVERY_STOPPED;
+    }
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "Notification endpoint recovered");
+        usb_console_add("Notification recovery OK");
+        return USB_RECOVERY_DONE;
+    }
+
+    *disabled = true;
+    ESP_LOGW(TAG, "Notification endpoint error %d: %s, polling disabled",
+             transfer_error, esp_err_to_name(result));
+    usb_console_add("Notif error %d, polling disabled", transfer_error);
+    return USB_RECOVERY_DONE;
+}
+
+/* Handle a queued CDC transfer error: find which IN endpoint stopped and
+ * restart it. *notification_disabled lasts for the whole link; *result keeps
+ * the cause of a REOPEN outcome. */
+static usb_recovery_outcome_t usb_recover_link(cdc_acm_dev_hdl_t device,
+                                               int transfer_error,
+                                               bool *notification_disabled,
+                                               esp_err_t *result)
+{
+    usb_recovery_outcome_t outcome = USB_RECOVERY_DONE;
+    cdc_rx_endpoint_mask_t stopped = CDC_RX_ENDPOINT_NONE;
+    *result = cdc_rx_stopped_endpoints(device, &stopped);
+    if (*result != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot classify CDC error %d: %s",
+                 transfer_error, esp_err_to_name(*result));
+        usb_console_add("Classify error %d FAILED", transfer_error);
+        outcome = USB_RECOVERY_REOPEN;
+    } else if (stopped == CDC_RX_ENDPOINT_NONE) {
+        *result = ESP_ERR_NOT_FOUND;
+        ESP_LOGE(TAG, "CDC error %d has no stopped IN endpoint",
+                 transfer_error);
+        usb_console_add("Error %d: no stopped endpoint", transfer_error);
+        outcome = USB_RECOVERY_REOPEN;
+    } else {
+        if ((stopped & CDC_RX_ENDPOINT_DATA) != 0) {
+            outcome = usb_recover_data_endpoint(device, transfer_error,
+                                                &stopped, result);
+        }
+        if (outcome == USB_RECOVERY_DONE && !*notification_disabled &&
+            (stopped & CDC_RX_ENDPOINT_NOTIFICATION) != 0) {
+            outcome = usb_recover_notification_endpoint(device, transfer_error,
+                                                        notification_disabled);
+        }
+    }
+
+    /* A disconnection reported meanwhile wins over any outcome: the device
+     * is closed and detected again without backoff. */
+    if (usb_link_peek_event() == USB_LINK_EVENT_STOP) {
+        return USB_RECOVERY_STOPPED;
+    }
+    return outcome;
+}
+
 static void usb_task(void *arg)
 {
     (void)arg;
-    static const uint8_t keepalive[] = {0x55, 0xAA, 0x00, 0x00};
     const cdc_acm_host_device_config_t device_config = {
         .connection_timeout_ms = USB_OPEN_ATTEMPT_MS,
         .out_buffer_size = 64,
@@ -1727,9 +2252,14 @@ static void usb_task(void *arg)
     ESP_ERROR_CHECK(bsp_usb_host_start(BSP_USB_HOST_POWER_MODE_USB_DEV, true));
     ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
 
+    uint32_t reopen_delay_ms = USB_REOPEN_MIN_MS;
     while (true) {
         cdc_acm_dev_hdl_t device = NULL;
         const char *transport = NULL;
+        /* Discard a previous link event before opening, never after: the new
+         * device may report an error as soon as its IN polling starts. */
+        xSemaphoreTake(disconnected_sem, 0);
+        usb_link_reset();
         ESP_LOGI(TAG, "Waiting for K1 USB-C or K cable");
 
         const esp_err_t open_result = usb_open_radio(&device_config, &device, &transport);
@@ -1739,7 +2269,6 @@ static void usb_task(void *arg)
         }
 
         parser_reset();
-        xSemaphoreTake(disconnected_sem, 0);
         xQueueReset(outbound_queue);
         vTaskDelay(pdMS_TO_TICKS(10));
 
@@ -1767,24 +2296,100 @@ static void usb_task(void *arg)
                      esp_err_to_name(control_result));
         }
 
-        ESP_LOGI(TAG, "USB transport opened through %s at %u baud", transport,
-                 (unsigned)K1_UART_BAUD);
-        if (usb_send(device, keepalive, sizeof(keepalive)) != ESP_OK) {
+        ESP_LOGI(TAG, "USB transport opened through %s at %u baud",
+                 transport, (unsigned)K1_UART_BAUD);
+        xSemaphoreTake(state_mutex, portMAX_DELAY);
+        viewer.usb_diag.transport_open = true;
+        xSemaphoreGive(state_mutex);
+        usb_console_add("OPEN %s @ %u", transport, (unsigned)K1_UART_BAUD);
+        if (usb_send(device, usb_keepalive, sizeof(usb_keepalive)) != ESP_OK) {
             ESP_LOGW(TAG, "%s opened but rejected its first transfer", transport);
             cdc_acm_host_desc_print(device);
         }
 
+        const TickType_t opened_tick = xTaskGetTickCount();
+        bool error_reopen = false;
+        bool notification_disabled = false;
         /* Only this task writes to the K1: touch keys and GPS fixes arrive
          * through the queue, with a keepalive whenever neither was sent. */
-        while (xSemaphoreTake(disconnected_sem, 0) != pdTRUE) {
+        while (true) {
+            if (xSemaphoreTake(disconnected_sem, 0) == pdTRUE) {
+                /* Wait until the CDC transfer callback has returned before
+                 * issuing blocking endpoint commands. */
+                vTaskDelay(pdMS_TO_TICKS(10));
+                int transfer_error = USB_TRANSFER_STATUS_COMPLETED;
+                const usb_link_event_t event =
+                    usb_link_take_event(&transfer_error);
+                if (event == USB_LINK_EVENT_STOP) {
+                    break;
+                }
+                if (event != USB_LINK_EVENT_ERROR) {
+                    continue;
+                }
+
+                esp_err_t recovery_result = ESP_OK;
+                const usb_recovery_outcome_t outcome =
+                    usb_recover_link(device, transfer_error,
+                                     &notification_disabled, &recovery_result);
+                if (outcome == USB_RECOVERY_DONE) {
+                    continue;
+                }
+                if (outcome == USB_RECOVERY_REOPEN) {
+                    error_reopen = true;
+                    usb_link_stop();
+                    usb_full_reopen_record(transfer_error, recovery_result);
+                    ESP_LOGE(TAG, "CDC error %d falling back to a full reopen",
+                             transfer_error);
+                    usb_console_add("Error %d -> full reopen", transfer_error);
+                }
+                break;
+            }
+
             outbound_message_t message;
             if (xQueueReceive(outbound_queue, &message,
                               pdMS_TO_TICKS(K1VIEWER_KEEPALIVE_MS)) == pdTRUE) {
                 usb_send_message(device, &message);
             } else {
-                usb_send(device, keepalive, sizeof(keepalive));
+                usb_send(device, usb_keepalive, sizeof(usb_keepalive));
             }
         }
+
+        /* Close outside the USB callback, after its transfer handler has
+         * returned, then let the outer loop detect and reopen the device. */
+        ESP_LOGI(TAG, "USB transport through %s stopped, closing before retry",
+                 transport);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        const esp_err_t close_result = cdc_acm_host_close(device);
+        if (close_result == ESP_OK) {
+            ESP_LOGI(TAG, "USB transport closed, restarting detection");
+            usb_console_add("Transport closed, detecting");
+        } else {
+            ESP_LOGW(TAG, "USB transport close failed: %s",
+                     esp_err_to_name(close_result));
+            usb_console_add("Close FAILED: %s", esp_err_to_name(close_result));
+        }
+
+        uint32_t retry_delay_ms = USB_REOPEN_MIN_MS;
+        if (error_reopen) {
+            const uint32_t open_ms =
+                pdTICKS_TO_MS(xTaskGetTickCount() - opened_tick);
+            if (open_ms >= USB_REOPEN_STABLE_MS) {
+                reopen_delay_ms = USB_REOPEN_MIN_MS;
+            }
+            retry_delay_ms = reopen_delay_ms;
+            if (open_ms < USB_REOPEN_STABLE_MS &&
+                reopen_delay_ms < USB_REOPEN_MAX_MS) {
+                reopen_delay_ms *= 2u;
+                if (reopen_delay_ms > USB_REOPEN_MAX_MS) {
+                    reopen_delay_ms = USB_REOPEN_MAX_MS;
+                }
+            }
+        } else {
+            reopen_delay_ms = USB_REOPEN_MIN_MS;
+        }
+        ESP_LOGI(TAG, "Restarting USB detection in %lu ms",
+                 (unsigned long)retry_delay_ms);
+        vTaskDelay(pdMS_TO_TICKS(retry_delay_ms));
     }
 }
 
@@ -1902,10 +2507,16 @@ static lv_obj_t *create_connect_screen(const view_t *view)
 
 static void gps_debug_set_visible(bool visible)
 {
+    if (visible) {
+        usb_debug_visible = false;
+    }
     gps_debug_visible = visible;
     for (uint8_t i = 0; i < VIEW_COUNT; i++) {
         if (views[i].gps_debug_panel != NULL) {
             lv_obj_set_hidden(views[i].gps_debug_panel, !visible);
+        }
+        if (visible && views[i].usb_debug_panel != NULL) {
+            lv_obj_set_hidden(views[i].usb_debug_panel, true);
         }
     }
 }
@@ -2056,6 +2667,119 @@ static lv_obj_t *create_gps_debug_panel(lv_obj_t *parent, lv_obj_t **label_out)
     return panel;
 }
 
+static void usb_debug_set_visible(bool visible)
+{
+    if (visible) {
+        gps_debug_visible = false;
+    }
+    usb_debug_visible = visible;
+    for (uint8_t i = 0; i < VIEW_COUNT; i++) {
+        if (views[i].usb_debug_panel != NULL) {
+            lv_obj_set_hidden(views[i].usb_debug_panel, !visible);
+        }
+        if (visible && views[i].gps_debug_panel != NULL) {
+            lv_obj_set_hidden(views[i].gps_debug_panel, true);
+        }
+    }
+}
+
+static void mic_button_event_callback(lv_event_t *event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_SHORT_CLICKED) {
+        usb_debug_set_visible(!usb_debug_visible);
+    }
+}
+
+static void usb_debug_event_callback(lv_event_t *event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_SHORT_CLICKED) {
+        usb_debug_set_visible(false);
+    }
+}
+
+static void create_mic_button(lv_obj_t *parent, const skin_rect_t *rect)
+{
+    if (rect->w == 0 || rect->h == 0) {
+        return;
+    }
+
+    lv_obj_t *button = lv_obj_create(parent);
+    lv_obj_remove_style_all(button);
+    lv_obj_set_pos(button, rect->x, rect->y);
+    lv_obj_set_size(button, rect->w, rect->h);
+    lv_obj_set_style_radius(button, rect->h / 3, 0);
+    lv_obj_set_style_bg_color(button, lv_color_hex(KEY_PRESSED_COLOR),
+                              LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button, LV_OPA_20, LV_STATE_PRESSED);
+    lv_obj_set_scrollable(button, false);
+    lv_obj_set_scroll_on_focus(button, false);
+    lv_obj_set_click_focusable(button, false);
+    lv_obj_set_clickable(button, true);
+    lv_obj_add_event_cb(button, mic_button_event_callback,
+                        LV_EVENT_SHORT_CLICKED, NULL);
+}
+
+static lv_obj_t *create_usb_debug_panel(lv_obj_t *parent, lv_obj_t **label_out)
+{
+    lv_obj_t *panel = lv_obj_create(parent);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, USB_PANEL_WIDTH, USB_PANEL_HEIGHT);
+    lv_obj_center(panel);
+    lv_obj_set_style_radius(panel, 12, 0);
+    lv_obj_set_style_bg_color(panel, lv_color_hex(GPS_PANEL_COLOR), 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_90, 0);
+    lv_obj_set_style_border_color(panel, lv_color_hex(GPS_PANEL_BORDER_COLOR), 0);
+    lv_obj_set_style_border_width(panel, 2, 0);
+    lv_obj_set_clickable(panel, true);
+    lv_obj_set_scrollable(panel, false);
+    lv_obj_add_event_cb(panel, usb_debug_event_callback,
+                        LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_set_hidden(panel, true);
+
+    lv_obj_t *title = lv_label_create(panel);
+    lv_obj_set_pos(title, 16, 14);
+    lv_obj_set_width(title, USB_PANEL_WIDTH - 32);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(GPS_PANEL_TEXT_COLOR), 0);
+    lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_clickable(title, false);
+    lv_label_set_text(title, "USB CONSOLE");
+
+    lv_obj_t *divider = lv_obj_create(panel);
+    lv_obj_remove_style_all(divider);
+    lv_obj_set_pos(divider, 16, 42);
+    lv_obj_set_size(divider, USB_PANEL_WIDTH - 32, 1);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(GPS_PANEL_BORDER_COLOR), 0);
+    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
+    lv_obj_set_clickable(divider, false);
+
+    lv_obj_t *console = lv_label_create(panel);
+    lv_obj_set_pos(console, 20, 54);
+    lv_obj_set_size(console, USB_PANEL_WIDTH - 40, USB_PANEL_HEIGHT - 92);
+    lv_obj_set_style_text_font(console, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(console, lv_color_hex(GPS_PANEL_TEXT_COLOR), 0);
+    lv_obj_set_style_text_line_space(console, 2, 0);
+    lv_label_set_long_mode(console, LV_LABEL_LONG_CLIP);
+    lv_obj_set_clickable(console, false);
+    lv_label_set_text(console,
+                      "Link: CLOSED    RX FPS: 0.0\n"
+                      "Recoveries: 0/0    Full reopens: 0\n"
+                      "Last transfer error: --    Last recovery: --\n\n"
+                      "No USB event yet");
+
+    lv_obj_t *footer = lv_label_create(panel);
+    lv_obj_set_pos(footer, 16, USB_PANEL_HEIGHT - 28);
+    lv_obj_set_width(footer, USB_PANEL_WIDTH - 32);
+    lv_obj_set_style_text_font(footer, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(footer, lv_color_hex(GPS_PANEL_LABEL_COLOR), 0);
+    lv_obj_set_style_text_align(footer, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_clickable(footer, false);
+    lv_label_set_text(footer, "Tap panel to close");
+
+    *label_out = console;
+    return panel;
+}
+
 /* Transparent key cover: white while pressed, blue once the long press is sent. */
 static lv_obj_t *create_key_overlay(lv_obj_t *parent, int32_t x, int32_t y,
                                     int32_t w, int32_t h, int32_t radius)
@@ -2177,8 +2901,13 @@ static void create_view(view_t *view)
     view->connect_screen = create_connect_screen(view);
     lv_obj_add_event_cb(view->connect_screen, gps_button_event_callback,
                         LV_EVENT_LONG_PRESSED, NULL);
+    /* Keep MIC above the connection overlay so USB diagnostics remain
+     * reachable while the transport is reopening. */
+    create_mic_button(view->screen, &layout->mic);
     view->gps_debug_panel = create_gps_debug_panel(view->screen,
                                                    &view->gps_debug_label);
+    view->usb_debug_panel = create_usb_debug_panel(view->screen,
+                                                   &view->usb_debug_label);
 }
 
 /* Hidden toast on the top layer, above every view: a rounded panel of the

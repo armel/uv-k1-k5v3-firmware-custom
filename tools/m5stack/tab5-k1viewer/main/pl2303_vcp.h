@@ -14,6 +14,7 @@
 #include "esp_err.h"
 #include "usb/cdc_acm_host.h"
 
+#define PL2303_VID 0x067Bu
 #define PL2303_PID 0x2303u
 
 esp_err_t pl2303_vcp_open(uint16_t pid, uint8_t interface_idx,

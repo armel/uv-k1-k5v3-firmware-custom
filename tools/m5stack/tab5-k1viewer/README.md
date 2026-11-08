@@ -150,6 +150,12 @@ count or SNR also confirms that the antenna receives satellites, even before a
 fix; zero visible satellites and no SNR outdoors point instead to the antenna
 or its sky view.
 
+Tap the `MIC` plate to open the USB diagnostic panel. The control remains
+available on the radio connection screen so reopen loops can be inspected.
+The fixed header shows link state, received-frame rate (`RX FPS`), data
+endpoint recoveries and full reopens, followed by the ten latest timestamped
+USB events. The GPS and USB diagnostic panels close each other.
+
 ## Orientation
 
 The Tab5 follows its orientation with its accelerometer:

@@ -17,7 +17,6 @@
 #include "pl2303_vcp.h"
 #include "usb/usb_types_ch9.h"
 
-#define PL2303_VID                       0x067Bu
 #define PL2303_CLASS_WRITE               0x21u
 #define PL2303_SET_LINE_CODING           0x20u
 #define PL2303_SET_CONTROL_LINE_STATE    0x22u

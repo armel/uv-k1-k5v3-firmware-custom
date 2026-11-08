@@ -94,6 +94,7 @@ typedef struct {
     skin_torch_t torch;
     skin_rect_t plate;          /* touch area of the QUANSHENG plate */
     skin_rect_t gps;            /* GPS plate; empty in screen-only layout */
+    skin_rect_t mic;            /* MIC plate; empty in screen-only layout */
     int16_t connect_icon_x;
     int16_t connect_icon_y;
     int16_t connect_text_x;
@@ -163,6 +164,7 @@ static const skin_layout_t skin_portrait = {
     },
     .plate = {149, 224, 422, 88},
     .gps = {375, 709, 109, 55},
+    .mic = {490, 709, 120, 55},
     .connect_icon_x = 160,
     .connect_icon_y = 360,
     .connect_text_x = 60,
@@ -232,6 +234,7 @@ static const skin_layout_t skin_landscape = {
     },
     .plate = {246, 12, 340, 73},
     .gps = {1008, 233, 93, 47},
+    .mic = {1106, 233, 103, 47},
     .connect_icon_x = 440,
     .connect_icon_y = 84,
     .connect_text_x = 340,
@@ -277,6 +280,7 @@ static const skin_layout_t skin_screen = {
     },
     .plate = {100, 149, 88, 422},
     .gps = {0, 0, 0, 0},
+    .mic = {0, 0, 0, 0},
     .connect_icon_x = 440,
     .connect_icon_y = 84,
     .connect_text_x = 340,

@@ -1,4 +1,4 @@
-idf_component_register(SRCS "main.c" "gps.c" "pl2303_vcp.c"
+idf_component_register(SRCS "main.c" "gps.c" "pl2303_vcp.c" "cdc_rx_recovery.c"
                        INCLUDE_DIRS ".")
 
 # PNGs from assets/ converted to raw RGB565 at build time and linked into

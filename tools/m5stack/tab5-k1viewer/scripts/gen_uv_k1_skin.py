@@ -868,9 +868,9 @@ def plate_hit(x, y, w, h):
     return (x0, y0, math.ceil(x + w + PLATE_HIT) - x0, math.ceil(y + h + PLATE_HIT) - y0)
 
 
-def gps_button_rect():
-    """Touch rectangle covering the GPS plate and its dark rim."""
-    x, y, w, _ = GPS_PLATE
+def feature_button_rect(plate):
+    """Touch rectangle covering a feature plate and its dark rim."""
+    x, y, w, _ = plate
     return x - 3, y - 3, w + 6, 55
 
 
@@ -878,7 +878,8 @@ def layout_data():
     """Screen geometry of the portrait, landscape and screen-only layouts, for the C header."""
     keys = [(label, code, x, y + DY, w, h) for label, code, x, y, w, h in key_rects()]
     px, py, pw, ph = PLATE
-    gpx, gpy, gpw, gph = gps_button_rect()
+    gpx, gpy, gpw, gph = feature_button_rect(GPS_PLATE)
+    mpx, mpy, mpw, mph = feature_button_rect(MIC_PLATE)
     portrait = dict(
         name='portrait', size=(W, H),
         glass=(GLASS[0], GLASS[1] + DY, GLASS[2], GLASS[3]),
@@ -891,6 +892,7 @@ def layout_data():
         torch=torch_geometry(TORCH_X, TORCH_Y + DY, TORCH_RX, TORCH_RY, TORCH_TOP + DY),
         plate=plate_hit(px, py + DY, pw, ph),
         gps=(gpx, gpy + DY, gpw, gph),
+        mic=(mpx, mpy + DY, mpw, mph),
         connect_icon=CONNECT_ICON[:2], connect_text=CONNECT_TEXT[:2], connect_credit=CONNECT_CREDIT[:2])
 
     glass, lcd = bezel_glass(L_BEZEL, L_LCD_CELL_W, L_LCD_ROW_NUM, L_LCD_ROW_DEN, L_GLASS_MARGIN)
@@ -917,6 +919,9 @@ def layout_data():
         gps=(round(kx + (gpx - L_PLATES_ORIGIN[0]) * s),
              round(plates_y + (gpy + DY - L_PLATES_ORIGIN[1]) * s),
              round(gpw * s), round(gph * s)),
+        mic=(round(kx + (mpx - L_PLATES_ORIGIN[0]) * s),
+             round(plates_y + (mpy + DY - L_PLATES_ORIGIN[1]) * s),
+             round(mpw * s), round(mph * s)),
         connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT, connect_credit=L_CONNECT_CREDIT)
 
     glass, lcd = bezel_glass(S_BEZEL, S_LCD_CELL_W, S_LCD_ROW_NUM, S_LCD_ROW_DEN, S_GLASS_MARGIN)
@@ -932,6 +937,7 @@ def layout_data():
         torch=torch_geometry(torch_x, torch_y, L_TORCH_RY, L_TORCH_RX, LH, beam=0.0),
         plate=plate_hit(scx + (py - 218) * ss, scy - (px + pw - 360) * ss, ph * ss, pw * ss),
         gps=(0, 0, 0, 0),
+        mic=(0, 0, 0, 0),
         connect_icon=L_CONNECT_ICON, connect_text=L_CONNECT_TEXT, connect_credit=L_CONNECT_CREDIT)
     return portrait, landscape, screen
 
@@ -1137,6 +1143,7 @@ def c_layout(d):
         '    },',
         f'    .plate = {c_rect(d["plate"])},',
         f'    .gps = {c_rect(d["gps"])},',
+        f'    .mic = {c_rect(d["mic"])},',
         f'    .connect_icon_x = {d["connect_icon"][0]},',
         f'    .connect_icon_y = {d["connect_icon"][1]},',
         f'    .connect_text_x = {d["connect_text"][0]},',
@@ -1212,6 +1219,7 @@ typedef struct {
     skin_torch_t torch;
     skin_rect_t plate;          /* touch area of the QUANSHENG plate */
     skin_rect_t gps;            /* GPS plate; empty in screen-only layout */
+    skin_rect_t mic;            /* MIC plate; empty in screen-only layout */
     int16_t connect_icon_x;
     int16_t connect_icon_y;
     int16_t connect_text_x;
