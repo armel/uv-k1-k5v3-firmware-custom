@@ -321,6 +321,7 @@ static void listen(const char *ui)
      * past the ldr immediate range. */
     uint32_t (*const clk)(void) = g.A->cycles_48mhz;
     uint16_t (*const sample)(void) = g.A->af_capture_sample;
+    bool (*const report)(const void *, uint8_t) = g.A->report_position;
     uint32_t next = clk();
     unsigned cnt = 0, refresh = 0;
     bool wantUi = false;
@@ -334,6 +335,8 @@ static void listen(const char *ui)
             if (decm20_parse(&m20, &info)) {
                 sensors(&info);
                 g.info = info;
+                if (info.flags & SONDE_HAS_POS)
+                    report(&info, APP_POS_SOURCE_SONDE);
                 g.nOk++;
                 g.led = 3u; g.ledCnt = 0; g.A->led(true);
                 g.tFrame = clk(); g.track = true;

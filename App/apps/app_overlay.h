@@ -205,6 +205,14 @@ uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header);
 uint8_t APP_SlotErase(uint8_t slot);
 uint8_t APP_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
 
+#if defined(ENABLE_FEAT_F4HWN_K5VIEWER) && defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
+/* Stage a K5Viewer GPS fix into the APRS TX mutable profile (the block APRS
+ * Edit shows).  The flash write is deferred until no overlay is running and
+ * is rate-limited; call APP_AprsHomeService() from the resident loop. */
+void APP_AprsHomeFromGps(int32_t lat_cas, int32_t lon_cas);
+void APP_AprsHomeService(void);
+#endif
+
 /* Change token used by the modal Apps selector.  A completed host install is
  * published after validation; erasing a slot publishes directly. */
 uint8_t APP_SlotRevision(void);

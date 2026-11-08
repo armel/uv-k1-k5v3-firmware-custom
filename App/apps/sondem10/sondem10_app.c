@@ -313,6 +313,8 @@ static void listen(const char *ui)
             if (decm10_parse(&m10, &info)) {
                 sensors(&info);
                 g.info = info;
+                if (info.flags & SONDE_HAS_POS)
+                    g.A->report_position(&info, APP_POS_SOURCE_SONDE);
                 g.nOk++;
                 g.led = 3u; g.ledCnt = 0; g.A->led(true);
                 g.tFrame = clk(); g.track = true;

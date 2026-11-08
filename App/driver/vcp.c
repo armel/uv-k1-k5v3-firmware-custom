@@ -83,6 +83,8 @@ bool VCP_K5ViewerPing(void)
     //   Short key press: 0xAA 0x55 0x03 <key>   → inject short press
     //   Long key press:  0xAA 0x55 0x04 <key>   → inject long press
     //   GPS position:    0xAA 0x55 0x07 <lat:i32 LE> <lon:i32 LE> <XOR>
+    //   Reported fix:    0xAA 0x55 0x08 <label[12]> <lat:i32 LE> <lon:i32 LE>
+    //                    <alt:i32 LE> <source:u8> <XOR>  (radio → host)
     //
     // State transitions:
     //   IDLE  → 0x55 → KA_1

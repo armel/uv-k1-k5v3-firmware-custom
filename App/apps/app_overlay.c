@@ -16,6 +16,9 @@
 
 #include "apps/app_overlay.h"
 #include "apps/app_config_proxy.h"
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "apps/aprs_profile.h"
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
 
@@ -130,6 +133,7 @@ static struct {
     uint8_t cfg_target_slot;
     uint8_t cfg_proxy_len;
     bool cfg_proxy;
+    bool overlay_busy;   /* true while app_main runs (overlay buffer = code) */
     bool allow_screen_saver;
     bool screen_saver_wake;
 #ifdef ENABLE_FMRADIO
@@ -1107,6 +1111,32 @@ static bool app_gps_position(app_gps_position_t *out)
     return false;
 }
 
+/* API level 4: overlay apps publish a decoded fix for the K5Viewer host. */
+static bool app_report_position(const void *fix24, uint8_t source)
+{
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    if (fix24 == NULL)
+        return false;
+    /* EPIRB keeps latS / lonS / id[16] contiguous for the QR Map hand-off;
+     * accept that layout so the overlay need not repack into label[12]+ll+alt. */
+    if (source == APP_POS_SOURCE_EPIRB) {
+        const int32_t *ll = (const int32_t *)fix24;
+        const char *id = (const char *)(ll + 2);
+        char lab[12];
+        for (uint8_t i = 0; i < 12u; i++)
+            lab[i] = id[i];
+        return K5VIEWER_SetReportedPosition(lab, ll[0], ll[1], 0, source);
+    }
+    const app_reported_position_t *p = (const app_reported_position_t *)fix24;
+    return K5VIEWER_SetReportedPosition(p->label, p->lat_cas, p->lon_cas,
+                                        p->alt_m, source);
+#else
+    (void)fix24;
+    (void)source;
+    return false;
+#endif
+}
+
 static void app_boot_callsign(char *buf, uint8_t len)
 {
     char raw[12]; uint8_t n = 0;
@@ -1535,6 +1565,7 @@ static const app_api_t app_api = {
     .mr                  = app_mr,
     .tx_power            = app_tx_power,
     .gps_position        = app_gps_position,
+    .report_position     = app_report_position,
 };
 
 /* Hand-off guards: a chain of apps that hand off to each other for ever (a
@@ -1545,6 +1576,146 @@ static const app_api_t app_api = {
  * a user reads a screen and presses a key. */
 #define APP_HANDOFF_FAST_10MS 30u   /* 300 ms */
 #define APP_HANDOFF_FAST_HOPS 8u
+
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+/* Persist a K5Viewer fix into APRS TX's mutable profile (APRS Edit's source).
+ * Never write while overlay_busy: the sector cache holds app code. */
+#define APP_APRS_HOME_MIN_10MS 6000u /* 60 s between flash writes */
+
+static struct {
+    int32_t  lat_cas;
+    int32_t  lon_cas;
+    uint32_t last_write_10ms;
+    bool     pending;
+} app_aprs_home;
+
+static void app_aprs_home_digits(uint8_t *d, uint32_t cas, bool longitude)
+{
+    uint32_t units = (cas + 30u) / 60u;
+    uint32_t degrees = units / 6000u, minutes = units % 6000u;
+    if (longitude) {
+        d[0] = (uint8_t)(degrees / 100u);
+        d[1] = (uint8_t)((degrees / 10u) % 10u);
+        d[2] = (uint8_t)(degrees % 10u);
+        d += 3;
+    } else {
+        d[0] = (uint8_t)(degrees / 10u);
+        d[1] = (uint8_t)(degrees % 10u);
+        d += 2;
+    }
+    d[0] = (uint8_t)(minutes / 1000u);
+    d[1] = (uint8_t)((minutes / 100u) % 10u);
+    d[2] = (uint8_t)((minutes / 10u) % 10u);
+    d[3] = (uint8_t)(minutes % 10u);
+}
+
+static void app_aprs_home_encode(uint8_t hemi_pos[1u + APRS_POS_DIGITS])
+{
+    const uint32_t lat = app_aprs_home.lat_cas < 0
+                             ? (uint32_t)-app_aprs_home.lat_cas
+                             : (uint32_t)app_aprs_home.lat_cas;
+    const uint32_t lon = app_aprs_home.lon_cas < 0
+                             ? (uint32_t)-app_aprs_home.lon_cas
+                             : (uint32_t)app_aprs_home.lon_cas;
+    hemi_pos[0] = (uint8_t)((app_aprs_home.lat_cas < 0 ? 1u : 0u) |
+                            (app_aprs_home.lon_cas < 0 ? 2u : 0u));
+    app_aprs_home_digits(hemi_pos + 1u, lat, false);
+    app_aprs_home_digits(hemi_pos + 1u + 6u, lon, true);
+}
+
+/* Fold a pending fix into a staged APRS Edit proxy buffer so cfg_commit does
+ * not restore the previous position.  Skip when the user edited the digits. */
+static void app_aprs_home_merge_staged(void)
+{
+    uint8_t flash[1u + APRS_POS_DIGITS];
+    uint8_t encoded[1u + APRS_POS_DIGITS];
+
+    if (!app_aprs_home.pending || !app_state.cfg_proxy ||
+        app_state.cfg_target_slot >= APP_SLOT_COUNT ||
+        app_state.cfg_target_magic != APRS_PROFILE_MAGIC ||
+        app_state.cfg_target_offset != 0u ||
+        app_state.cfg_len < APRS_PROFILE_POS + APRS_POS_DIGITS)
+        return;
+
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(app_state.cfg_target_slot) + APP_ASSET_OFFSET +
+                           APRS_PROFILE_HEMI,
+                       flash, sizeof(flash));
+    if (memcmp(app_state.cfg_buf + APRS_PROFILE_HEMI, flash, sizeof(flash)) != 0) {
+        app_aprs_home.pending = false; /* manual position edit wins */
+        return;
+    }
+
+    app_aprs_home_encode(encoded);
+    memcpy(app_state.cfg_buf + APRS_PROFILE_HEMI, encoded, sizeof(encoded));
+    app_aprs_home.pending = false;
+}
+
+static void app_aprs_home_commit(bool force)
+{
+    uint8_t encoded[1u + APRS_POS_DIGITS];
+    uint8_t *ws;
+    app_header_t h;
+    uint32_t magic;
+    uint16_t crc;
+    uint8_t slot;
+    uint32_t now;
+
+    if (!app_aprs_home.pending || app_state.overlay_busy)
+        return;
+
+    now = SCHEDULER_GetTick10ms();
+    if (!force && app_aprs_home.last_write_10ms != 0u &&
+        now - app_aprs_home.last_write_10ms < APP_APRS_HOME_MIN_10MS)
+        return;
+
+    app_aprs_home_encode(encoded);
+
+    for (slot = 0; slot < APP_SLOT_COUNT; slot++) {
+        if (app_read_validated_header(slot, &h) != APP_OK ||
+            h.asset_size < APRS_PROFILE_LEN || !app_name_is(h.name, APRS_TX_APP_NAME))
+            continue;
+
+        ws = PY25Q16_OverlayBuffer();
+        PY25Q16_ReadBuffer(APP_SLOT_BASE(slot) + APP_ASSET_OFFSET, ws, h.asset_size);
+        memcpy(&magic, ws, sizeof(magic));
+        if (magic != APRS_PROFILE_MAGIC) {
+            app_aprs_home.pending = false; /* TX/FW mismatch: nothing to write */
+            return;
+        }
+
+        if (memcmp(ws + APRS_PROFILE_HEMI, encoded, sizeof(encoded)) == 0) {
+            app_aprs_home.pending = false;
+            return;
+        }
+
+        memcpy(ws + APRS_PROFILE_HEMI, encoded, sizeof(encoded));
+        crc = (uint16_t)MB_Crc32Bytes(ws, h.asset_size);
+        PY25Q16_WriteBuffer(APP_SLOT_BASE(slot) + APP_ASSET_OFFSET + APRS_PROFILE_HEMI,
+                            encoded, sizeof(encoded), false);
+        PY25Q16_WriteBuffer(APP_SLOT_BASE(slot) + offsetof(app_header_t, asset_crc),
+                            &crc, sizeof(crc), false);
+        PY25Q16_InvalidateCache();
+        app_aprs_home.pending = false;
+        app_aprs_home.last_write_10ms = now;
+        return;
+    }
+
+    app_aprs_home.pending = false; /* APRS TX not installed */
+}
+
+void APP_AprsHomeFromGps(int32_t lat_cas, int32_t lon_cas)
+{
+    app_aprs_home.lat_cas = lat_cas;
+    app_aprs_home.lon_cas = lon_cas;
+    app_aprs_home.pending = true;
+    app_aprs_home_commit(false);
+}
+
+void APP_AprsHomeService(void)
+{
+    app_aprs_home_commit(false);
+}
+#endif /* ENABLE_FEAT_F4HWN_K5VIEWER */
 
 /* Commit the staged config of the app in slot, named name: to its own config
  * area, or to the bounded target asset selected by a validated proxy
@@ -1686,7 +1857,9 @@ static uint8_t app_launch(uint8_t slot)
 
     app_entry_t entry = (app_entry_t)(((uint32_t)ws + h.entry_off) | 1u);
     app_cyc_base = APP_CYC_DIAGNOSTIC_START - app_cycles_raw();
+    app_state.overlay_busy = true;
     entry(&app_api);
+    app_state.overlay_busy = false;
 
     /* A capture the app left open must not keep PA4 and the DAC. */
     app_af_capture_close();
@@ -1718,7 +1891,13 @@ static uint8_t app_launch(uint8_t slot)
 #endif
     app_mr_commit();
 
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    app_aprs_home_merge_staged();
+#endif
     app_cfg_commit(slot, h.name);
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    app_aprs_home_commit(true);
+#endif
 #ifdef ENABLE_FMRADIO
     /* Commit the FM config + 48 channels the app edited (shared with resident FM). */
     if (app_state.fm_dirty) {

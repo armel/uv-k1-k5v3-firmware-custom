@@ -228,6 +228,8 @@ static void listen(const char *ui)
             sonde_info_t info;
             if (decmrz_parse(&mrz, &info)) {
                 g.info = info;
+                if (info.flags & SONDE_HAS_POS)
+                    g.A->report_position(&info, APP_POS_SOURCE_SONDE);
                 g.nOk++;
                 g.led = 3u; g.ledCnt = 0; g.A->led(true);
                 wantUi = true;

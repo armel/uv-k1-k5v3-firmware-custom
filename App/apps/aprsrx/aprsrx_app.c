@@ -139,6 +139,7 @@ static struct {
     uint8_t  cw, spk;                  /* the saved settings, in cfg order: view (0 scroll,
                                             CW_COMPACT compact), speaker amplifier on (key 1) */
     uint8_t  refresh;                  /* housekeeping slots since the last redraw */
+    uint8_t  report;                   /* 1: publish the next drawn fix to K5Viewer */
     uint16_t vrow;                     /* y of the next body row before scrolling */
     uint16_t top, lim, nOk;            /* pixel scroll of the body, its limit, frames */
     const app_api_t *A;
@@ -217,6 +218,24 @@ static bool isUI(const uint8_t *f,uint16_t n){
     return (f[e]&1u) && e+2u<end && f[e+1]==0x03u && f[e+2]==0xF0u;
 }
 
+/* One K5Viewer publish per newly accepted frame (g.report), from the draw path. */
+static void reportFix(const uint8_t *f, int32_t lat, int32_t lon)
+{
+    app_reported_position_t rp;
+    unsigned k;
+    if (!g.report || !g.A->report_position) return;
+    for (k = 0; k < 12u; k++) rp.label[k] = 0;
+    for (k = 0; k < 6u; k++) {
+        char c = (char)(f[7 + k] >> 1);
+        if (c != ' ') rp.label[k] = c;
+    }
+    rp.lat_cas = lat;
+    rp.lon_cas = lon;
+    rp.alt_m = 0;
+    g.A->report_position(&rp, APP_POS_SOURCE_APRS);
+    g.report = 0;
+}
+
 /* ---- a good frame from a slicer: shown unless another slicer just gave it ---- */
 static void accept(const sl_t *m){
     const app_api_t *A=g.A;
@@ -236,6 +255,7 @@ static void accept(const sl_t *m){
         g.cur=0;                           /* show it, from its first row */
         g.top=0;
         g.redraw|=REDRAW_FRAME;
+        g.report=1;                    /* drawMicE / drawPos publish once */
     }
     g.tFrame=t;
 }
@@ -436,9 +456,19 @@ static void drawMicE(const uint8_t *f,unsigned i,unsigned end,const char *s){
     else if(deg>=190u && deg<=199u) deg-=190u;
     uint32_t mn=(uint8_t)(f[i+2]-28u);
     if(mn>=60u) mn-=60u;
-    o=put3(o,deg); *o++=' '; o=put2(o,mn); *o++='.'; o=put2(o,(uint8_t)(f[i+3]-28u));
+    uint32_t hun=(uint8_t)(f[i+3]-28u);
+    o=put3(o,deg); *o++=' '; o=put2(o,mn); *o++='.'; o=put2(o,hun);
     *o++=(c[5]&16u)?'W':'E';
     emit(o);
+    {
+        int32_t lat=(int32_t)(((c[0]&15u)*10u+(c[1]&15u))*360000u+
+                              ((c[2]&15u)*10u+(c[3]&15u))*6000u+
+                              ((c[4]&15u)*10u+(c[5]&15u))*60u);
+        int32_t lon=(int32_t)(deg*360000u+mn*6000u+hun*60u);
+        if(!(c[3]&16u)) lat=-lat;
+        if(c[5]&16u) lon=-lon;
+        reportFix(f,lat,lon);
+    }
 
     /* "12km/h 245 [/" / "En Route" (brk): speed in knots x 1.8525 (1897/1024) */
     uint32_t dc=(uint8_t)(f[i+5]-28u);
@@ -507,6 +537,17 @@ static bool drawPos(const uint8_t *f,unsigned i,unsigned end){
     }
     *o++=safe(q[8]); *o++=safe(q[18]); *o++=' ';
     g.symTable=q[8]; g.symCode=q[18];
+    {
+        int32_t lat=(int32_t)(((q[0]-'0')*10+(q[1]-'0'))*360000+
+                              ((q[2]-'0')*10+(q[3]-'0'))*6000+
+                              ((q[5]-'0')*10+(q[6]-'0'))*60);
+        int32_t lon=(int32_t)(((q[9]-'0')*100+(q[10]-'0')*10+(q[11]-'0'))*360000+
+                              ((q[12]-'0')*10+(q[13]-'0'))*6000+
+                              ((q[15]-'0')*10+(q[16]-'0'))*60);
+        if(q[7]=='S'||q[7]=='s') lat=-lat;
+        if(q[17]=='W'||q[17]=='w') lon=-lon;
+        reportFix(f,lat,lon);
+    }
     textRows(o,f,p+19u,end);
     return true;
 }
@@ -551,6 +592,7 @@ static void draw(void){
         unsigned i=e+3u;
         if(end>=i+9u && micType(f[i])) drawMicE(f,i,end,s);
         else if(i<end && !drawPos(f,i,end)) textRows(str,f,i,end);
+        g.report=0;                       /* drop if neither Mic-E nor plain pos */
 
         /* the source, fixed on line 0 over the body rows scrolled there */
         memset(b,0,128);

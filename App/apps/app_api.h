@@ -55,7 +55,8 @@
  *      (deferred update of the current VFO)
  *   4  mr: memory-channel query, scan-list name and deferred selection;
  *      tx_power (the PA setting of the app's own transmissions);
- *      gps_position: fresh position supplied by a connected K5Viewer host */
+ *      gps_position: fresh position supplied by a connected K5Viewer host;
+ *      report_position: overlay apps publish a decoded fix for K5Viewer hosts */
 #define APP_ABI_MAJOR  1u
 #define APP_API_LEVEL  4u
 
@@ -76,6 +77,31 @@
 #define APP_API_MEMORY 4u
 /* Minimum API level for the live K5Viewer GPS service. */
 #define APP_API_GPS    4u
+/* Minimum API level for publishing a decoded position to a K5Viewer host. */
+#define APP_API_REPORT_POS 4u
+
+/* Sources for app_reported_position_t (API level 4). */
+enum {
+    APP_POS_SOURCE_OTHER = 0,
+    APP_POS_SOURCE_SONDE = 1,
+    APP_POS_SOURCE_EPIRB = 2,
+    APP_POS_SOURCE_APRS  = 3,
+    APP_POS_SOURCE_AIS   = 4,
+};
+
+/* Decoded fix published by an overlay app (centi-arcseconds, +N/+E).
+ * The 24-byte prefix matches geonav_handoff_t / sonde_info_t. */
+typedef struct {
+    char    label[12];
+    int32_t lat_cas;
+    int32_t lon_cas;
+    int32_t alt_m;
+    uint8_t source;
+    uint8_t reserved[3];
+} app_reported_position_t;
+
+_Static_assert(sizeof(app_reported_position_t) == 28u,
+               "reported position layout must stay stable");
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -527,6 +553,16 @@ typedef struct app_api {
      * persisted: applications keep their own stored position as fallback. */
     bool     (*gps_position)(app_gps_position_t *out);
 
+    /* ---- API level 4: publish a decoded fix to a connected K5Viewer host ----
+     * For APP_POS_SOURCE_SONDE / APRS / OTHER, fix24 is 24 bytes with the
+     * geonav_handoff_t / sonde_info_t prefix (label[12], lat_cas, lon_cas,
+     * alt_m). For APP_POS_SOURCE_EPIRB, fix24 is the QR Map hand-off layout
+     * (latS, lonS, id[16]) so a full overlay can publish without packing.
+     * Stores the fix in resident RAM; when a viewer is linked, K5Viewer
+     * forwards packet type 0x08. Returns false when fix24 is NULL or the
+     * coordinates are out of range. */
+    bool     (*report_position)(const void *fix24, uint8_t source);
+
 } app_api_t;
 
 /* Serial ports and serial_ctl state bits (API level 3). */
@@ -550,7 +586,8 @@ _Static_assert(offsetof(app_api_t, handoff) == 356u &&
                offsetof(app_api_t, mr) == 396u &&
                offsetof(app_api_t, tx_power) == 400u &&
                offsetof(app_api_t, gps_position) == 404u &&
-               sizeof(app_api_t) == 408u,
+               offsetof(app_api_t, report_position) == 408u &&
+               sizeof(app_api_t) == 412u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter

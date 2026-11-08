@@ -183,4 +183,5 @@ The model is the executable specification for the integer demodulator in
 
 ## Version
 
-Current: **v0.1**.
+Current: **v0.4** (API level 4: each position report is published to a
+connected K5Viewer host via `report_position`).

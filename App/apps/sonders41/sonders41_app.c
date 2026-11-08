@@ -275,6 +275,8 @@ static void listen(const char *ui)
             info.flags = 0;
             if (decrs41_parse(&rs41, &info)) {
                 g.info = info;
+                if (info.flags & SONDE_HAS_POS)
+                    g.A->report_position(&info, APP_POS_SOURCE_SONDE);
                 g.nOk++;
                 g.led = 3u; g.ledCnt = 0; g.A->led(true);
                 g.tFrame = clk(); g.track = true;

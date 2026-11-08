@@ -27,6 +27,7 @@
 #endif
 #ifdef ENABLE_USB
 #include "driver/vcp.h"
+#include "usb/usb_config.h" /* cdc_acm_start_send / cancel, ep_tx_busy_flag */
 #endif
 #include "driver/keyboard.h"
 #include "driver/bk4819.h"
@@ -35,6 +36,9 @@
 #endif
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
 #include "app/rxtx_log.h"
+#endif
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+#include "apps/app_overlay.h"
 #endif
 
 // SRAM optimization: minimize static allocations
@@ -60,6 +64,13 @@ static int32_t gpsLatitudeCas;
 static int32_t gpsLongitudeCas;
 static uint32_t gpsUpdated10ms;
 static bool gpsValid;
+static char reportedLabel[12];
+static int32_t reportedLatCas;
+static int32_t reportedLonCas;
+static int32_t reportedAltM;
+static uint8_t reportedSource;
+static bool reportedValid;
+static bool reportedDirty;
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
 static uint32_t previousRfLogSignature = 0;
 static bool rfLogSent = false;
@@ -82,6 +93,9 @@ bool K5VIEWER_SetGps(int32_t lat_cas, int32_t lon_cas)
     gpsLongitudeCas = lon_cas;
     gpsUpdated10ms = SCHEDULER_GetTick10ms();
     gpsValid = true;
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    APP_AprsHomeFromGps(lat_cas, lon_cas);
+#endif
     return true;
 }
 
@@ -95,6 +109,34 @@ bool K5VIEWER_GetGps(int32_t *lat_cas, int32_t *lon_cas)
         *lat_cas = gpsLatitudeCas;
     if (lon_cas != NULL)
         *lon_cas = gpsLongitudeCas;
+    return true;
+}
+
+static void K5VIEWER_SendReportedPosition(void);
+
+bool K5VIEWER_SetReportedPosition(const char label[12], int32_t lat_cas,
+                                  int32_t lon_cas, int32_t alt_m, uint8_t source)
+{
+    if (lat_cas < -K5VIEWER_GPS_LAT_MAX_CAS || lat_cas > K5VIEWER_GPS_LAT_MAX_CAS ||
+        lon_cas < -K5VIEWER_GPS_LON_MAX_CAS || lon_cas > K5VIEWER_GPS_LON_MAX_CAS)
+        return false;
+
+    if (label != NULL) {
+        for (uint8_t i = 0; i < 12u; i++)
+            reportedLabel[i] = label[i];
+    } else {
+        for (uint8_t i = 0; i < 12u; i++)
+            reportedLabel[i] = 0;
+    }
+    reportedLatCas = lat_cas;
+    reportedLonCas = lon_cas;
+    reportedAltM = alt_m;
+    reportedSource = source;
+    reportedValid = true;
+    reportedDirty = true;
+    /* Flush at once: overlay apps may not blit for seconds while decoding. */
+    if (keepAlive > 0u && hasConnectionPing && !K5VIEWER_IsLocked())
+        K5VIEWER_SendReportedPosition();
     return true;
 }
 
@@ -163,11 +205,64 @@ enum {
     K5VIEWER_TYPE_DIFF = 0x02,
     K5VIEWER_TYPE_RXTX_LOG = 0x05,
     K5VIEWER_TYPE_RXTX_LOG_HISTORY = 0x06,
+    K5VIEWER_TYPE_REPORTED_POS = 0x08,
     K5VIEWER_FLAG_DEEP_SLEEP = 1 << 0,
     K5VIEWER_FLAG_LED_RED = 1 << 1,
     K5VIEWER_FLAG_LED_GREEN = 1 << 2,
     K5VIEWER_FLAG_FLASHLIGHT = 1 << 3,
 };
+
+/* AA 55 08 label[12] lat_cas lon_cas alt_m source XOR — same XOR style as GPS 0x07.
+ * Static buffer: USB TX is async; the stack frame must not vanish mid-transfer. */
+static uint8_t reportedPacket[29];
+
+static void K5VIEWER_SendReportedPosition(void)
+{
+    uint8_t i;
+    uint8_t xor = 0;
+
+    reportedPacket[0] = 0xAA;
+    reportedPacket[1] = 0x55;
+    reportedPacket[2] = K5VIEWER_TYPE_REPORTED_POS;
+    for (i = 0; i < 12u; i++)
+        reportedPacket[3 + i] = (uint8_t)reportedLabel[i];
+    reportedPacket[15] = (uint8_t)reportedLatCas;
+    reportedPacket[16] = (uint8_t)(reportedLatCas >> 8);
+    reportedPacket[17] = (uint8_t)(reportedLatCas >> 16);
+    reportedPacket[18] = (uint8_t)(reportedLatCas >> 24);
+    reportedPacket[19] = (uint8_t)reportedLonCas;
+    reportedPacket[20] = (uint8_t)(reportedLonCas >> 8);
+    reportedPacket[21] = (uint8_t)(reportedLonCas >> 16);
+    reportedPacket[22] = (uint8_t)(reportedLonCas >> 24);
+    reportedPacket[23] = (uint8_t)reportedAltM;
+    reportedPacket[24] = (uint8_t)(reportedAltM >> 8);
+    reportedPacket[25] = (uint8_t)(reportedAltM >> 16);
+    reportedPacket[26] = (uint8_t)(reportedAltM >> 24);
+    reportedPacket[27] = reportedSource;
+    for (i = 2; i < 28u; i++)
+        xor ^= reportedPacket[i];
+    reportedPacket[28] = xor;
+
+#ifdef ENABLE_USB
+    /* Position fixes must reach the phone even when DTR is clear or a prior
+     * screen-frame TX timed out and cleared dtr_enable. Screen mirroring can
+     * stay DTR-gated; a 29-byte bulk IN does not need that policy gate. */
+    if (gUSB_K5ViewerEnabled) {
+        uint32_t timeout = 100000u;
+        if (cdc_acm_start_send(reportedPacket, sizeof(reportedPacket))) {
+            while (ep_tx_busy_flag && --timeout)
+                ;
+            if (!timeout)
+                cdc_acm_cancel_send(); /* keep dtr_enable */
+            else
+                reportedDirty = false;
+        }
+        return;
+    }
+#endif
+    K5VIEWER_Send(reportedPacket, sizeof(reportedPacket));
+    reportedDirty = false;
+}
 
 static uint8_t K5VIEWER_StateFlags(void)
 {
@@ -262,6 +357,9 @@ bool K5VIEWER_HasPendingStateChange(void)
     if (gUART_LockK5Viewer > 0 || keepAlive == 0 || !hasConnectionPing)
         return false;
 
+    if (reportedValid && reportedDirty)
+        return true;
+
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
     if (K5VIEWER_HasPendingRfLogUpdate())
         return true;
@@ -295,6 +393,9 @@ static void K5VIEWER_Chunk(uint8_t chunkIdx, uint8_t *dest)
 
 void K5VIEWER_Update(bool force)
 {
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    APP_AprsHomeService();
+#endif
 #ifdef ENABLE_AIRCOPY_UART
     if (gAircopyState == AIRCOPY_TRANSFER && AIRCOPY_UsesUart())
         return;
@@ -354,7 +455,10 @@ void K5VIEWER_Update(bool force)
 
     forcedBlock = (forcedBlock + 1) % 128;
 
-    if (deltaLen == 0 && !stateChanged && !rfLogPending && !rfLogHistoryPending)
+    const bool reportedPending = reportedValid && reportedDirty;
+
+    if (deltaLen == 0 && !stateChanged && !rfLogPending && !rfLogHistoryPending &&
+        !reportedPending)
         return;
 
     // Skip transmission if a key is currently pressed
@@ -362,12 +466,21 @@ void K5VIEWER_Update(bool force)
     if (gKeyReading0 != KEY_INVALID)
         return;
 
+    /* Positions before screen frames: a slow/failed screen TX must not delay
+     * or suppress the 29-byte fix the Android map is waiting for. */
+    if (reportedPending)
+        K5VIEWER_SendReportedPosition();
+
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
-    // A pending RF log packet may be the only thing to send: skip the
-    // frame section when it carries nothing. Without the RF log stream
-    // the early return above already guarantees this condition.
-    if (deltaLen != 0 || stateChanged)
+    if (rfLogPending)
+        K5VIEWER_SendRfLog();
+    if (rfLogHistoryPending)
+        K5VIEWER_SendRfLogHistory();
 #endif
+
+    // A pending reported-position or RF log packet may be the only thing to
+    // send: skip the frame section when it carries nothing.
+    if (deltaLen != 0 || stateChanged)
     {
         // ==== Send version marker and state flags ====
         // 0xF0 keeps a resync-safe marker before the standard AA 55 header.
@@ -403,13 +516,6 @@ void K5VIEWER_Update(bool force)
         uint8_t end = 0x0A;
         K5VIEWER_Send(&end, 1);
     }
-
-#ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
-    if (rfLogPending)
-        K5VIEWER_SendRfLog();
-    if (rfLogHistoryPending)
-        K5VIEWER_SendRfLogHistory();
-#endif
 
     previousStateFlags = stateFlags;
     wasConnected = true;

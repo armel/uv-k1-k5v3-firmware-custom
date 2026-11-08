@@ -13,7 +13,7 @@ Status:
 | Flipper Zero bench frames | **Generated** (`test/flipper/`), radio validation pending |
 | AF bypass (REG_47 AF=9) required for 9600-chip Manchester | **Done** — stock FM AF low-passes ~3–4 kHz and wipes 1-chip runs |
 | Mid-sample DPLL (2 ADC samples/chip @ 19.2 kHz) | **Done** — needed for real UV-K1 captures (~9620 chip/s) |
-| Radio app (`sondem20_app.c`) | **v1.0** decodes a live M20 on a UV-K1 (ID, lat/lon, alt, T, P); **v1.1** adds the GPS velocity (VS, HS, heading), radio validation pending; **v1.2** adds the optional decode beep; **v1.3** shows the relative humidity instead of the pressure, rows in the common sonde order; **v1.4** opens GeoNav on `MENU` and shows the last frame again on return |
+| Radio app (`sondem20_app.c`) | **v1.0** decodes a live M20 on a UV-K1 (ID, lat/lon, alt, T, P); **v1.1** adds the GPS velocity (VS, HS, heading), radio validation pending; **v1.2** adds the optional decode beep; **v1.3** shows the relative humidity instead of the pressure, rows in the common sonde order; **v1.4** opens GeoNav on `MENU` and shows the last frame again on return; **v1.6** publishes each fix to a connected K5Viewer host (`report_position`, API level 4) |
 
 ## Using the app
 

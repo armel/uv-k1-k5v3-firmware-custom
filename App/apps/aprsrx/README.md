@@ -3,6 +3,11 @@
 Goal: an overlay app that receives APRS (AX.25 UI frames, Bell 202 AFSK 1200
 bauds) on the UV-K1 / UV-K5 v3 and keeps the last five frames, shown one at a time.
 
+From v1.2 the app requires API level 4 and publishes uncompressed (`!` `=`
+`/` `@`) fixes to a connected K5Viewer host (`report_position`, packet `0x08`).
+Mic-E and uncompressed (`!` `=` `/` `@`) fixes are forwarded; compressed
+positions stay display-only.
+
 Status:
 
 | Step | State |

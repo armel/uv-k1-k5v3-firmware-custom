@@ -112,4 +112,5 @@ Use only a frequency permitted by the Flipper's configured region.
 
 ## Version
 
-Current: **v0.6**.
+Current: **v0.8** (API level 4: each fix with a position is published to a
+connected K5Viewer host via `report_position`).

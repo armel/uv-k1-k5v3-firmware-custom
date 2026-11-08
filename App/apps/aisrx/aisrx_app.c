@@ -332,6 +332,16 @@ static void accept_message(const uint8_t *p, unsigned bytes)
         int32_t lat = get_signed(89u - d, 27);
         if (valid_position(lat, lon)) {
             e->lon = lon; e->lat = lat; e->flags |= HAS_POS;
+            /* AIS 1/10000' → centi-arcseconds (*3/5) for K5Viewer 0x08. */
+            {
+                app_reported_position_t rp;
+                char *o = putn(rp.label, mmsi, 9);
+                while (o < rp.label + 12) *o++ = '\0';
+                rp.lat_cas = (int32_t)g.A->idivmod(lat * 3, 5);
+                rp.lon_cas = (int32_t)g.A->idivmod(lon * 3, 5);
+                rp.alt_m = 0;
+                g.A->report_position(&rp, APP_POS_SOURCE_AIS);
+            }
         }
         e->sog = (uint16_t)get_bits(50u - d, 10);
         e->cog = (uint16_t)get_bits(116u - d, 12);

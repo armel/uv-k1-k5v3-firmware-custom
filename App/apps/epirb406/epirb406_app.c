@@ -111,7 +111,7 @@ static struct {
     uint32_t coolUntil;                /* wall-clock deadline for RSSI rearming    */
     int32_t  offSteps;                 /* tuning offset from the VFO, 5 kHz steps:
                                           a word, signed bytes have no ldrsb #imm */
-    uint8_t  count, cur, prevKey, lastErr; /* bytes up to offset 31: ldrb #imm */
+    uint8_t  count, cur, prevKey;          /* bytes up to offset 30: ldrb #imm */
     app_cfg_t cfg;
     bool     running;
     uint8_t  alarm;                    /* odd: a decode not acknowledged; counts
@@ -212,8 +212,8 @@ __attribute__((noinline)) static uint8_t capture(void){
         next+=CYC_PER_SAMPLE;
     }
 
-    if(!done){ g.nFail++; g.lastErr=d.state==DEC406_DATA?2u:1u; return APP_KEY_INVALID; }
-    g.nSync++; g.lastErr=0;
+    if(!done){ g.nFail++; return APP_KEY_INVALID; }
+    g.nSync++;
     frame_t *f=g.history[HISTORY-1u];
     for(unsigned k=HISTORY-1u;k;k--) g.history[k]=g.history[k-1u];
     g.history[0]=f;
@@ -224,6 +224,10 @@ __attribute__((noinline)) static uint8_t capture(void){
     g.alarm=1u;                  /* the flashlight blinks until a key */
     g.cur=0;
     g.top=0;
+    /* Publish a fix to a connected K5Viewer host (API level 4): the QR Map
+     * layout (latS, lonS, id) so the overlay stays within 4 KiB. */
+    if(f->info.hasPos)
+        g.A->report_position(&f->info.latS,APP_POS_SOURCE_EPIRB);
     /* Decode alert, even with the speaker off: three 150 ms beeps, 150 ms apart.
      * The gaps are 0 Hz "tones" (REG_71 = 0, no output): the same call as a beep,
      * cheaper than a delay. The burst is over and the next one is ~50 s away.
@@ -347,7 +351,6 @@ static void draw(void){
 
     o=put(str,s+T_FRAME); o=puti(o,g.nSync);
     o=put(o,s+T_ERROR); o=puti(o,g.nFail);
-    if(g.lastErr) o=put(o,g.lastErr==1u?s+T_NOSYNC:s+T_CUT);
     tiny(str,0,49,o);
 }
 
@@ -436,7 +439,7 @@ static void handleKey(uint8_t key){
         case APP_KEY_8:
         case APP_KEY_9:    handoff(b,key); break;
         case APP_KEY_MENU: page(b,T_HELP,HELP_SIZE,HELP_LINES); nextKey(); break;
-        case APP_KEY_0:    g.count=g.cur=0; g.top=g.lim=0; g.nSync=g.nFail=0; g.lastErr=0; break;
+        case APP_KEY_0:    g.count=g.cur=0; g.top=g.lim=0; g.nSync=g.nFail=0; break;
         case APP_KEY_5:    g.offSteps=0;
             /* fall through */
         case APP_KEY_4:

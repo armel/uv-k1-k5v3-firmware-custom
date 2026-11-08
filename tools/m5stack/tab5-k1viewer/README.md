@@ -104,12 +104,18 @@ NMEA sentences (`GNRMC`, `GPRMC`, and other talker prefixes) are accepted, and
 no GPS setting is needed in K1Viewer. Restart the Tab5 after replacing or
 reconfiguring the GPS unit so that its rate is detected again.
 
-While the K1 is connected over USB, every valid fix is forwarded to the radio.
-The Fusion firmware keeps it in RAM for 15 seconds: **APRS TX** uses the latest
-fix for each manual or timed transmission, and **GeoNav** uses it as its home
-position when opened. If reception is lost, both applications automatically
-fall back to the position saved in **APRS Edit**. Live fixes never overwrite
-that stored profile.
+While the K1 is connected over USB, every valid fix is forwarded to the radio
+as K5Viewer packet type `0x07` (lat/lon in centi-arcseconds). The Fusion
+firmware keeps it in RAM for 15 seconds: **APRS TX** uses the latest fix for
+each manual or timed transmission, and **GeoNav** uses it as its home position
+when opened. If reception is lost, both applications automatically fall back to
+the position saved in **APRS Edit**. Live fixes never overwrite that stored
+profile.
+
+Overlay apps that decode a position (Sonde M20 and the other sonde receivers,
+EPIRB 406, APRS RX) can publish it back to the host as packet type `0x08`
+(`AA 55 08` + label[12] + lat/lon/alt + source + XOR). The companion web map
+PWA (`uv-k1-map`) consumes that stream.
 
 The module may need a clear view of the sky for its first fix. K1Viewer and the
 touch controls continue to work normally when the module is absent or has no

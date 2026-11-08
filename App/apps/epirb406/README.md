@@ -28,8 +28,10 @@ Status:
    position as a QR code for a phone's map
    (see [Position as a QR code](#position-as-a-qr-code)).
 
-Needs a Labs or Fusion_ firmware v6.3.0 or later (app API level 3). Keys 8 / 9
-also need `vfo_stage` (v6.3.0, with the BEAM bridge) and Sig Finder 1.9 or
+Needs Fusion firmware with app API level 4 (`report_position`). Each decoded
+position is also forwarded to a connected K5Viewer host (packet `0x08`) for
+UV-K1 Map. Positions still reach a phone via QR Map (key 7). Keys 8 / 9
+also need `vfo_stage` (with the BEAM bridge) and Sig Finder 1.9 or
 later installed under its own name; key 7 needs QR Map 1.0 or later.
 
 Every decoded message plays three 1536 Hz beeps (150 ms on, 150 ms off), even
