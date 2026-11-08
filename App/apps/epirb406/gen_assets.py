@@ -62,23 +62,26 @@ for name, s in UI:
     ui_size += len(s) + 1 + pad
 a.const("UI_SIZE", ui_size)                 # the UI block read by draw()
 # Pages drawn by page(): NUL-separated lines, each block word-aligned.
-def page(name, lines, tail=()):
+def page(name, lines, tail=(), size=0):
     blob = "\0".join(list(lines) + list(tail)) + "\0"
     blob += "\0" * (-len(blob) % 4)
+    blob += "\0" * max(0, size - len(blob))   # pad a hand-off page to ASK_SIZE
     a.text("T_" + name, blob[:-1])          # text() adds the last NUL
     if name == "HELP":
         a.const("HELP_SIZE", len(blob))
         a.const("HELP_LINES", len(lines))
     return len(blob)
 
-# 8 / 9: the homing confirmations, then the handoff() name (as in
-# sigfind/build.sh). Same layout and size: homing() reads either with ASK_SIZE.
+# 7, 8, 9: the hand-off confirmations, then the handoff() name (as in
+# sigfind/build.sh), one after the other at the same size: handoff() reads
+# page key - 7 (7 QR Map, 8 / 9 Sig Finder 121.5 / 243) with ASK_SIZE.
 ASK = ["THEN SIG FINDER", "", "MENU OK   OTHER KEY NO"]
-ask_size = page("ASK121", ["121.500 MHZ AM NARROW"] + ASK, tail=["Sig Finder"])
-assert page("ASK243", ["243.000 MHZ AM WIDE  "] + ASK, tail=["Sig Finder"]) == ask_size
-# 7: the position to QR Map, same layout, read with ASK_SIZE as well.
-assert page("ASKQR", ["POSITION AS A QR CODE", "THEN QR MAP", "",
-                      "MENU OK   OTHER KEY NO"], tail=["QR Map"]) <= ask_size
+QR = ["POSITION AS A QR CODE", "THEN QR MAP", "", "MENU OK   OTHER KEY NO"]
+blob = lambda l, tl: len("\0".join(l + tl)) + 1 + (-(len("\0".join(l + tl)) + 1) % 4)
+ask_size = max(blob(QR, ["QR Map"]), blob(["121.500 MHZ AM NARROW"] + ASK, ["Sig Finder"]))
+page("ASKQR", QR, tail=["QR Map"], size=ask_size)
+page("ASK121", ["121.500 MHZ AM NARROW"] + ASK, tail=["Sig Finder"], size=ask_size)
+page("ASK243", ["243.000 MHZ AM WIDE  "] + ASK, tail=["Sig Finder"], size=ask_size)
 a.const("ASK_SIZE", ask_size)
 a.const("ASK_LINES", 1 + len(ASK))
 # MENU: the help page.

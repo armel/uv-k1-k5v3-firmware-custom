@@ -26,7 +26,8 @@
  * SysTick, from the moment RSSI shows a burst. Samples go straight into dec406
  * (see README.md); the last five decoded messages stay in RAM.
  *
- * A decoded message plays three beeps, whatever the speaker setting.
+ * A decoded message plays three beeps, whatever the speaker setting, then the
+ * flashlight blinks until a key acknowledges it (reception goes on meanwhile).
  * Keys (UV-K5 and UV-K1): UP/DOWN scroll, then select the newer / older message
  *   at an end · * normal / compact view · 4/6 tune -/+5 kHz (up to +/-50 kHz)
  *   · 5 back to the VFO frequency · 1 speaker on/off · 0 clear · MENU help
@@ -76,6 +77,10 @@
 #define SPK_X       59u
 #define VIEW_COMPACT 1u
 #define BODY_BOTTOM 39u
+/* The flashlight (PC13, an output from boot), its output data register, as in
+ * Scan 406: there is no API service for it. */
+#define GPIOC_ODR   (*(volatile uint32_t *)0x50000814u)
+#define TORCH       (1u << 13)
 #define BEEP_HZ     1536u   /* 3 << 9: a cheap Thumb constant */
 #define BEEP_MS     150u
 #define SETTLE_MS   50u     /* tune(): REG_30 cycle to amplifier on (5 ms clicked) */
@@ -109,9 +114,14 @@ static struct {
     uint8_t  count, cur, prevKey, lastErr; /* bytes up to offset 31: ldrb #imm */
     app_cfg_t cfg;
     bool     running;
+    uint8_t  alarm;                    /* odd: a decode not acknowledged; counts
+                                          main-loop passes (lamp blink)           */
     int16_t  rssi;                     /* current RSSI                             */
     uint16_t vrow, top, lim, nSync, nFail; /* UI and counters */
 } g;
+
+/* The flashlight on (1) or off (0): the decode alarm. */
+static void torch(uint32_t on){ GPIOC_ODR=(GPIOC_ODR&~TORCH)|(on<<13); }
 
 /* ---- formatting ---- */
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
@@ -168,6 +178,15 @@ static char *putFreq(char *o,uint32_t f){
     return o;
 }
 
+/* n 150 ms tones alternating 1536 Hz and 0 Hz (5: three beeps), even with the
+ * speaker off, then tune() brings RX, the AF and the speaker back. */
+__attribute__((noinline)) static void beep(unsigned n){
+    g.A->prepare_tone();
+    g.A->audio_path(true);
+    for(unsigned hz=BEEP_HZ; n; n--, hz^=BEEP_HZ) g.A->play_tone_raw((uint16_t)hz,BEEP_MS);
+    tune();
+}
+
 /* ---- one burst: sample PA4 at 9.6 kHz into the decoder ---- */
 /* Not inlined into app_main: smaller that way (4 KiB overlay). */
 __attribute__((noinline)) static uint8_t capture(void){
@@ -202,16 +221,14 @@ __attribute__((noinline)) static uint8_t capture(void){
     f->rssi=g.rssi;              /* RSSI at the trigger (not updated while sampling) */
     f->seq=g.nSync;
     if(g.count<HISTORY) g.count++;
+    g.alarm=1u;                  /* the flashlight blinks until a key */
     g.cur=0;
     g.top=0;
     /* Decode alert, even with the speaker off: three 150 ms beeps, 150 ms apart.
      * The gaps are 0 Hz "tones" (REG_71 = 0, no output): the same call as a beep,
      * cheaper than a delay. The burst is over and the next one is ~50 s away.
      * tune() then cuts the amplifier and brings RX, the AF and the speaker back. */
-    g.A->prepare_tone();
-    g.A->audio_path(true);
-    for(unsigned hz=BEEP_HZ, n=5u; n; n--, hz^=BEEP_HZ) g.A->play_tone_raw((uint16_t)hz,BEEP_MS);
-    tune();
+    beep(5u);
     return APP_KEY_INVALID;
 }
 
@@ -310,7 +327,6 @@ static void draw(void){
         }
     }
 
-    if(!g.count) g.lim=0;
 
     unsigned marks=0;
     if(g.top||g.cur) marks|=1u;
@@ -326,7 +342,7 @@ static void draw(void){
     if(g.offSteps){ *o++=' '; if(g.offSteps>0) *o++='+'; o=puti(o,g.offSteps*5); o=put(o,s+T_KHZ); }
     tiny(str,0,43,o);
 
-    o=puti(str,g.rssi); o=put(o,s+T_SEP); o=puti(o,g.floorQ/64); o=put(o,s+T_DBM);
+    o=puti(str,g.rssi); o=put(o,s+T_SEP); o=puti(o,g.floorQ>>6); o=put(o,s+T_DBM);
     tiny(str,(uint8_t)(128u-(unsigned)(o-str)*4u),43,o);
 
     o=put(str,s+T_FRAME); o=puti(o,g.nSync);
@@ -360,6 +376,10 @@ static const char *page(char *b,uint16_t at,unsigned size,unsigned lines){
     return p;
 }
 
+_Static_assert(T_ASK121==T_ASKQR+ASK_SIZE && T_ASK243==T_ASKQR+2u*ASK_SIZE &&
+               APP_KEY_8==APP_KEY_7+1 && APP_KEY_9==APP_KEY_7+2,
+               "hand-off pages: key - 7 must pick 7 QR, 8 121.5, 9 243");
+
 /* QR Map's message, sent from the record as it is: latitude, longitude, ID. */
 _Static_assert(offsetof(dec406_info_t,lonS)==offsetof(dec406_info_t,latS)+4u &&
                offsetof(dec406_info_t,id)==offsetof(dec406_info_t,latS)+8u &&
@@ -378,7 +398,7 @@ __attribute__((noinline)) static void handoff(char *b,uint8_t key){
     /* vfo_stage (API level 3, appended late): absent from older firmware */
     else if(A->api_size<offsetof(app_api_t,vfo_stage)+sizeof A->vfo_stage||!A->vfo_stage) return;
     const bool mil=key==APP_KEY_9;
-    const char *name=page(b,key==APP_KEY_7?T_ASKQR:mil?T_ASK243:T_ASK121,ASK_SIZE,ASK_LINES);
+    const char *name=page(b,(uint16_t)(T_ASKQR+(key-APP_KEY_7)*ASK_SIZE),ASK_SIZE,ASK_LINES);
     if(nextKey()!=APP_KEY_MENU) return;
     if(key==APP_KEY_7){ g.running=!A->handoff(name,&in->latS,8u+sizeof in->id); return; }
     app_beam_channel_t ch;
@@ -440,7 +460,6 @@ void app_main(const app_api_t *api){
     g.prevKey=APP_KEY_INVALID;   /* the rest of g starts at 0 (overlay zeroed by the loader) */
 
     g.A->af_capture_open();      /* PA4 bias and ADC channel 4, restored by close */
-    g.A->backlight_on();
     g.vfoFreq=g.A->rx_freq();
     g.A->bk_write(REG_2B,(uint16_t)((g.A->bk_read(REG_2B)|0x0700u)&~0x0007u));
     g.A->bk_write(REG_73,(uint16_t)(g.A->bk_read(REG_73)|0x0010u));
@@ -449,19 +468,16 @@ void app_main(const app_api_t *api){
     if(g.cfg.view!=VIEW_COMPACT) g.cfg.view=0;  /* normal view by default */
     g.offSteps=(int8_t)~g.cfg.offInv;           /* the saved offset, in range */
     if((uint32_t)(g.offSteps+OFF_MAX)>2u*OFF_MAX) g.offSteps=0;
-    tune();                                     /* PA4 is before the speaker amplifier */
-    g.A->delay_ms(50);
+    tune();      /* PA4 is before the speaker amplifier; its SETTLE_MS also settles RSSI */
 
-    int32_t f=0;
-    for(unsigned i=0;i<16;i++){ f+=g.A->rssi_dbm(); g.A->delay_ms(5); }
-    g.floorQ=f*4;
+    g.floorQ=g.A->rssi_dbm()*64;   /* one read: the loop tracks it within ~60 ms */
 
     g.running=true;
     while(g.running){
         uint8_t key=APP_KEY_INVALID;
         for(unsigned i=0;i<TICK_MS;i++){
             g.rssi=g.A->rssi_dbm();
-            int32_t fl=g.floorQ/64;          /* noise floor, dBm */
+            int32_t fl=g.floorQ>>6;          /* noise floor, dBm (>>6: no signed-division fix-up) */
             if(g.coolUntil){
                 uint32_t now=g.A->ticks_ms();
                 if(g.rssi < fl+REARM_DB || (int32_t)(now-g.coolUntil)>=0)
@@ -471,13 +487,21 @@ void app_main(const app_api_t *api){
             if(g.rssi>=fl+TRIG_DB){
                 key=capture();
                 g.coolUntil=g.A->ticks_ms()+COOL_MS;
-                if(!g.coolUntil) g.coolUntil=1u;
                 break;
             }
-            g.floorQ+=((int32_t)g.rssi*64-g.floorQ)/64;
+            g.floorQ+=((int32_t)g.rssi*64-g.floorQ)>>6;
             g.A->delay_ms(1);
         }
         if(key==APP_KEY_INVALID) key=g.A->get_key();
+        /* Decode alarm: the flashlight blinks (256 ms) until a new key, which
+         * acknowledges it and does nothing else (remembered as prevKey, so
+         * handleKey() takes it as a key still held). */
+        if(g.alarm){
+            uint8_t a=(uint8_t)(g.alarm+2u);   /* odd from 1: never 0 by itself */
+            if(key<APP_KEY_INVALID && key!=g.prevKey){ a=0; g.prevKey=key; }
+            g.alarm=a;
+            torch((a>>3)&1u);                   /* toggles every 4 passes */
+        }
         handleKey(key);
         if(!g.running) break;
         draw();
@@ -487,6 +511,7 @@ void app_main(const app_api_t *api){
         g.A->backlight_on();         /* keep the screen lit while waiting for bursts (and after a key) */
     }
 
+    torch(0);   /* the alarm may have left it on: the loader does not touch PC13 */
     g.A->af_capture_close();
     g.A->set_af(APP_AF_MUTE);    /* the loader's RADIO_SetupRegisters turns the amplifier off */
 }
