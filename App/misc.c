@@ -338,8 +338,8 @@ uint8_t           gIsLocked = 0xFF;
     uint8_t       gPttOnePushCounter = 0;
     uint32_t      gBlinkCounter = 0;
 
-    uint16_t gVfoSaveCountdown_10ms = 0;
-    bool gScheduleVfoSave = false;
+    volatile uint16_t gVfoSaveCountdown_10ms = 0;
+    volatile bool gScheduleVfoSave = false;
     bool gVfoStateChanged = false;
     char    gListName[MR_CHANNELS_LIST][4];
 #endif
