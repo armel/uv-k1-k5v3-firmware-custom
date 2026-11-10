@@ -115,7 +115,15 @@ target_compile_definitions(${EXE_NAME} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 target_link_libraries(${EXE_NAME} ${TOOLCHAIN_LINK_LIBRARIES})
 
 if(ENABLE_LTO)
+    # LTO runs at link time: the link step needs -flto too, or GCC falls back
+    # to an implicit, serial LTO driven by the link-line options only.
     target_compile_options(${EXE_NAME} PRIVATE -flto=auto)
+    target_link_options(${EXE_NAME} PRIVATE -flto=auto)
+    # The multiboot RAM stub must stay a plain object: check_mb_ramfunc.cmake
+    # inspects its .MBRamFunc input section in the map, and LTO would merge
+    # it into an ltrans unit.
+    set_source_files_properties(${CMAKE_SOURCE_DIR}/App/driver/mb_flash.c
+        PROPERTIES COMPILE_OPTIONS "-fno-lto")
 endif()
 
 # Generate map file

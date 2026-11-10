@@ -8,8 +8,10 @@
 
 #define STACK_WATERMARK 0xA5A5A5A5u
 
-extern uint32_t _ebss;
-extern uint32_t _estack;
+/* Linker symbols: only their addresses matter. Declared uint8_t as in
+ * welcome.c and app_overlay.c, so LTO sees a single type for _ebss. */
+extern uint8_t _ebss;
+extern uint8_t _estack;
 
 void STACK_WatermarkInit(void)
 {
@@ -17,7 +19,7 @@ void STACK_WatermarkInit(void)
     __disable_irq();
 
     /* The active frame starts at MSP. Only paint the unused gap below it. */
-    volatile uint32_t *cursor = &_ebss;
+    volatile uint32_t *cursor = (volatile uint32_t *)&_ebss;
     uintptr_t stack_pointer = (uintptr_t)__get_MSP() & ~(uintptr_t)3u;
     if (stack_pointer > (uintptr_t)&_estack)
         stack_pointer = (uintptr_t)&_estack;
@@ -37,8 +39,8 @@ uint32_t STACK_FreeNow(void)
 uint32_t STACK_FreeMinimum(void)
 {
     /* The first changed word is the lowest stack address observed since init. */
-    const volatile uint32_t *cursor = &_ebss;
-    const volatile uint32_t *const end = &_estack;
+    const volatile uint32_t *cursor = (volatile uint32_t *)&_ebss;
+    const volatile uint32_t *const end = (const volatile uint32_t *)&_estack;
     while (cursor < end && *cursor == STACK_WATERMARK)
         cursor++;
     return (uint32_t)((uintptr_t)cursor - (uintptr_t)&_ebss);

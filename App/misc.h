@@ -478,8 +478,8 @@ extern volatile uint8_t      boot_counter_10ms;
     extern uint8_t               gPttOnePushCounter;
     extern uint32_t              gBlinkCounter;
 
-    extern uint16_t gVfoSaveCountdown_10ms;
-    extern bool gScheduleVfoSave;
+    extern volatile uint16_t gVfoSaveCountdown_10ms;
+    extern volatile bool gScheduleVfoSave;
     extern bool gVfoStateChanged;
 
     extern char gListName[MR_CHANNELS_LIST][4];

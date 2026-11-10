@@ -1292,7 +1292,8 @@ void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO,
         
         State_t *State;
 
-        uint8_t Buf[0x10];
+        /* Written by words through State_t: must be word aligned. */
+        uint8_t Buf[0x10] __attribute__((aligned(4)));
 
         State = (State_t *)Buf;
         State -> _32[0] = pVFO->freq_config_RX.Frequency;
