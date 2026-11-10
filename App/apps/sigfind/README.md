@@ -85,8 +85,9 @@ the measured difference, so the readings stay comparable across steps.
 ### Serial output (key 7)
 
 Off by default. Key 7 turns it on: Sig Finder then sends one plain-text line
-per 50 ms tick (20 per second) on the USB-C serial port, for a phone, a
-computer or a small board to log or to pair with a compass heading:
+per loop tick (about 15 per second on a UV-K1, fewer in beep mode) on the
+USB-C serial port, for a phone, a computer or a small board to log or to pair
+with a compass heading:
 
     SF,<count>,<dBm>,<peak dBm>,<attenuator step>,<F|S>
 
