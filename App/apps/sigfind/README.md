@@ -82,6 +82,45 @@ step.
 Every step change re-measures the level and shifts the peak and the history by
 the measured difference, so the readings stay comparable across steps.
 
+### Serial output (key 7)
+
+Off by default. Key 7 turns it on: Sig Finder then sends one plain-text line
+per loop tick (about 15 per second on a UV-K1, fewer in beep mode) on the
+USB-C serial port, for a phone, a computer or a small board to log or to pair
+with a compass heading:
+
+    SF,<count>,<dBm>,<peak dBm>,<attenuator step>,<F|S>
+
+- `count`: 0 to 255, then wraps, so a host can spot lost lines.
+- `dBm` and `peak dBm`: the level and the peak, as on the screen.
+- `attenuator step`: 0 to 5, for `0dB` to `BYP+`.
+- `F` or `S`: FOLLOW or SWEEP.
+
+Lines are sent only while a host holds the port open (DTR set), between the
+tick's sampled windows, never inside them. If the host does not take a line
+within 50 ms, the output pauses for 1 s, so a stalled host holds the loop up at
+most once a second.
+
+While the output is on, a letter in the status bar tells its state:
+
+| Letter | State |
+|---|---|
+| `U` | Lines are being sent |
+| `H` | No host has the port open (DTR clear): no data cable, no OTG adapter on a phone, or the host app not connected |
+| `W` | A host had the port open but is not taking lines (for example a phone app in the background, or the cable was unplugged: the radio is not told the port closed) |
+| `N` | This firmware offers no USB serial service to apps |
+
+The USB-C cable keeps the speaker on, unlike a K-plug cable. Most phones need
+an OTG adapter (USB-C to USB-A) and a USB-A to USB-C cable: the radio does not
+connect over a plain USB-C to USB-C cable. Once the output has been turned on,
+Sig Finder keeps the USB port until you quit, so UV Studio's screen mirroring
+resumes only after leaving the app. While the output stays off, the USB port
+and K5Viewer are left alone.
+
+A USB cable can also raise the noise floor: up to 15 dB was seen on 433 MHz
+with a computer attached. Before a weak-signal hunt, compare the level with and
+without the cable; a short cable or a clip-on ferrite may help.
+
 ## Keys
 
 Identical on the UV-K5 and the UV-K1.
@@ -94,6 +133,7 @@ Identical on the UV-K5 and the UV-K1.
 | **4** | Automatic attenuator on / off |
 | **5** | FOLLOW decay rate: 0.5, 1, 2, 4 dB/s |
 | **6** | Keep the backlight on / normal backlight timeout |
+| **7** | Serial output on / off (USB-C) |
 | **UP / DOWN** | Attenuator step (manual; turns the automatic mode off) |
 | **MENU** | Reset the peak; in SWEEP mode, start a new sweep |
 | **F** (short press) | The next 2, 3 or 5 cycles backwards (F icon in the status bar) |
@@ -102,7 +142,7 @@ Identical on the UV-K5 and the UV-K1.
 
 While the keypad is locked, only UP / DOWN and MENU work; hold F to unlock
 before quitting. Mode, audio mode, attenuator step, automatic attenuator,
-decay rate and backlight setting are saved within 2 s of each key, even if the
+decay rate, backlight setting and serial output are saved within 2 s of each key, even if the
 radio is then switched off in the app; the step the automatic attenuator reached is saved
 when you quit.
 
@@ -133,7 +173,7 @@ wide): EXIT in Sig Finder brings it back on its 406 MHz VFO.
 
 | Area | Content |
 |---|---|
-| Status bar | `SIG DF`; lock or F icon; beep or speaker icon (audio on); `AM` / `FM` / `USB` (listen modes); `ELT` when a beacon sweep is confirmed; battery |
+| Status bar | `SIG DF`; lock or F icon; beep or speaker icon (audio on); `AM` / `FM` / `USB` (listen modes); `ELT` when a beacon sweep is confirmed; serial output state `U` / `H` / `W` / `N` (output on); battery |
 | Large number (left) | dB under the peak: `0` means you are on the peak |
 | Right, line 1 | Current level in dBm |
 | Right, line 2 | RX frequency in MHz |

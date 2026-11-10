@@ -132,7 +132,7 @@
 #define DECAY_DEF    1
 
 #define CFG_MAGIC    0xE5
-#define CFG_LEN      7
+#define CFG_LEN      8
 #define BL_HOLD_TICKS 20         /* backlight held on: re-armed every second      */
 
 /* No division is linked: numbers are printed by subtracting powers of ten and
@@ -157,7 +157,9 @@ _Static_assert(VFO_RET_LEN <= APP_HANDOFF_MAX, "the return VFO no longer fits a 
  * immediate. The loader zeroes the overlay at each launch. */
 struct globals {
     /* the saved config, in its stored order: loaded and saved in place */
-    uint8_t  cfgMagic, attStep, mode, audioMode, autoAtt, decayIdx, blHold;
+    uint8_t  cfgMagic, attStep, mode, audioMode, autoAtt, decayIdx, blHold, outOn;
+    uint8_t  outCount, outHold;   /* serial output: line counter, ticks to skip */
+    char     outSt[2];            /* status letter: U sent, H no host, W refused, N no serial service */
     uint8_t  blTick;
     bool     locked, fArm, fLongDone, quit, vfoAm, vfoUsb;
     uint8_t  audioTick, attHold, prevKey, histHead, histTick, histMax;
@@ -403,6 +405,7 @@ static void draw(void){
     }
     if(g.locked||g.fArm) asset(g.locked?BMP_LOCK:BMP_F,sl+29,BMP_F_LEN);
     if(sw_detected(&sw)) a->print_inverse(T(t,T_ELT),70,0,true,true,82);
+    if(g.outOn && g.outSt[0] && !sw_detected(&sw)) a->print_tiny(g.outSt,72,1,true,true);
 
     /* big: dB under the peak */
     int32_t dDb=qdb(g.dQ);
@@ -443,7 +446,35 @@ static void loadConfig(void){
     if(g.audioMode>=AUDIO_COUNT) g.audioMode=AUDIO_BEEP;
     if(g.decayIdx>=DECAY_COUNT) g.decayIdx=DECAY_DEF;
     if(g.blHold>1u)             g.blHold=0;
+    if(g.outOn>1u)              g.outOn=0;
 }
+/* ---- serial output (key 7, off by default, saved) ----
+ * While on, one plain-text line per tick on the USB-C serial port, and only
+ * while a host holds the port open:
+ *   SF,<count>,<dBm>,<peak dBm>,<attenuator step>,<F|S>\r\n
+ * count wraps at 256 so a host can spot lost lines. Sent between feedback()
+ * and tickSample(), never inside the sampled windows. A refused write (no
+ * host, or not taken within the firmware's 50 ms) pauses the output for 1 s,
+ * so a stalled host holds the loop up at most once a second. While off, no
+ * serial service is called: the USB port and K5Viewer are left alone.
+ * The status bar shows the state: U sent, H no host (DTR clear), W a line
+ * refused, N no serial service in this firmware. */
+static void serialOut(void){
+    const app_api_t *const a=A;
+    if(!g.outOn){ g.outSt[0]=0; return; }
+    if(!a->serial_write){ g.outSt[0]='N'; return; }
+    if(g.outHold){ g.outHold--; return; }
+    if(!(a->serial_ctl(APP_SERIAL_USB,0)&APP_SERIAL_HOST)){ g.outSt[0]='H'; return; }
+    char s[40], *o=put(s,"SF,");
+    o=a->append_u32(o,g.outCount++); *o++=',';
+    o=puti(o,qdb(g.smQ));            *o++=',';
+    o=puti(o,qdb(g.peakQ));          *o++=',';
+    o=a->append_u32(o,g.attStep);    *o++=',';
+    *o++=g.mode==MODE_SWEEP?'S':'F'; *o++='\r'; *o++='\n';
+    if(!a->serial_write(APP_SERIAL_USB,s,(uint16_t)(o-s))){ g.outHold=20; g.outSt[0]='W'; }
+    else g.outSt[0]='U';
+}
+
 static void saveConfig(void){
     g.cfgMagic=CFG_MAGIC;
     A->cfg_save(&g.cfgMagic,CFG_LEN);
@@ -480,6 +511,7 @@ static void handleKeys(void){
         case APP_KEY_4:    g.autoAtt=!g.autoAtt; g.attHold=0; break;
         case APP_KEY_5:    g.decayIdx=cycleIndex(g.decayIdx,DECAY_COUNT,dir); break;
         case APP_KEY_6:    g.blHold^=1u; break;
+        case APP_KEY_7:    g.outOn^=1u; g.outHold=0; break;
         default: break;
     } }
     g.fArm=false;
@@ -554,6 +586,7 @@ void app_main(const app_api_t *api){
         api->blit_full();
 
         feedback();
+        serialOut();
         /* backlight held on: backlight_on() re-arms the timeout (and the sleep
            timer); at full brightness already it changes nothing visible */
         if(g.blHold && ++g.blTick>=BL_HOLD_TICKS){ g.blTick=0; api->backlight_on(); }
