@@ -55,6 +55,14 @@ static uint8_t SectorCache[SECTOR_SIZE];
 static uint8_t BlackHole[4] __attribute__((aligned(4)));
 static volatile bool TC_Flag;
 
+/* Compiler barrier around each DMA transfer. The DMA reads or writes the
+ * buffer behind the compiler's back, and the TC_Flag wait is only a volatile
+ * load: it does not order plain memory accesses. Without a barrier, cross-file
+ * optimisation (LTO) may leave stores to the buffer pending after the DMA has
+ * started, or reuse buffer values read before the transfer ended. Emits no
+ * instruction. */
+#define DMA_BARRIER() __COMPILER_BARRIER()
+
 #ifdef ENABLE_FEAT_F4HWN_MULTIBOOT
 /* Active settings-bank base (see py25q16.h). 0 = bank 0 / historical
  * config region, i.e. an identity mapping. */
@@ -175,6 +183,7 @@ static void SPI_ReadBuf(uint8_t *Buf, uint32_t Size)
     LL_DMA_SetPeriphAddress(DMA1, CHANNEL_WR, LL_SPI_DMA_GetRegAddr(SPIx));
     LL_DMA_SetDataLength(DMA1, CHANNEL_WR, Size);
 
+    DMA_BARRIER();      // earlier CPU stores to Buf land before the DMA overwrites it
     TC_Flag = false;
     LL_DMA_EnableIT_TC(DMA1, CHANNEL_RD);
     LL_DMA_EnableChannel(DMA1, CHANNEL_RD);
@@ -186,6 +195,7 @@ static void SPI_ReadBuf(uint8_t *Buf, uint32_t Size)
 
     while (!TC_Flag)
         ;
+    DMA_BARRIER();      // Buf now holds the DMA data: read it from memory
 }
 
 static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
@@ -224,6 +234,7 @@ static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
     LL_DMA_SetPeriphAddress(DMA1, CHANNEL_WR, LL_SPI_DMA_GetRegAddr(SPIx));
     LL_DMA_SetDataLength(DMA1, CHANNEL_WR, Size);
 
+    DMA_BARRIER();      // Buf is complete in memory before the DMA reads it
     TC_Flag = false;
     LL_DMA_EnableIT_TC(DMA1, CHANNEL_RD);
     LL_DMA_EnableChannel(DMA1, CHANNEL_RD);
@@ -235,6 +246,7 @@ static void SPI_WriteBuf(const uint8_t *Buf, uint32_t Size)
 
     while (!TC_Flag)
         ;
+    DMA_BARRIER();      // the caller may change Buf once the DMA has read it
 }
 
 static uint8_t SPI_WriteByte(uint8_t Value)

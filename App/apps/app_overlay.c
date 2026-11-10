@@ -298,6 +298,7 @@ static uint16_t app_serial_read(uint8_t port, void *buf, uint16_t len)
     /* From the command parser's own read index, so the bytes an app consumed
      * are never parsed as commands once the main loop resumes. */
     const uint8_t w = (uint8_t)VCP_RxBufPointer;
+    __COMPILER_BARRIER();   // ISR-filled ring: read the bytes after w
     uint8_t r = (uint8_t)VCP_ReadIndex;
     uint8_t *p = buf;
     uint16_t n = 0;

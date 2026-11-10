@@ -102,6 +102,7 @@ bool VCP_K5ViewerPing(void)
     uint8_t  read_ptr  = k5v_read_ptr;
     bool     connected = false;
     uint8_t  write_ptr = VCP_RxBufPointer;  // snapshot once — ISR may update concurrently
+    __COMPILER_BARRIER();                   // ISR-filled ring: read the bytes after write_ptr
 
     // Cap bytes processed per call to VCP_RX_BUF_SIZE.
     // Prevents unbounded loop if the ISR write pointer laps read_ptr

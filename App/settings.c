@@ -1289,40 +1289,36 @@ void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO,
             uint8_t _8[8];
             uint32_t _32[2];
         } State_t;
-        
-        State_t *State;
 
-        /* Written by words through State_t: must be word aligned. */
-        uint8_t Buf[0x10] __attribute__((aligned(4)));
+        State_t State[2];
+        _Static_assert(sizeof(State) == 0x10, "16-byte channel record");
 
-        State = (State_t *)Buf;
-        State -> _32[0] = pVFO->freq_config_RX.Frequency;
-        State -> _32[1] = pVFO->TX_OFFSET_FREQUENCY;
+        State[0]._32[0] = pVFO->freq_config_RX.Frequency;
+        State[0]._32[1] = pVFO->TX_OFFSET_FREQUENCY;
 
-        State = (State_t *)(Buf + 0x8);
-        State -> _8[0] =  pVFO->freq_config_RX.Code;
-        State -> _8[1] =  pVFO->freq_config_TX.Code;
-        State -> _8[2] = (pVFO->freq_config_TX.CodeType << 4) | pVFO->freq_config_RX.CodeType;
-        State -> _8[3] = (pVFO->Modulation << 4) | pVFO->TX_OFFSET_FREQUENCY_DIRECTION;
-        State -> _8[4] = 0
+        State[1]._8[0] =  pVFO->freq_config_RX.Code;
+        State[1]._8[1] =  pVFO->freq_config_TX.Code;
+        State[1]._8[2] = (pVFO->freq_config_TX.CodeType << 4) | pVFO->freq_config_RX.CodeType;
+        State[1]._8[3] = (pVFO->Modulation << 4) | pVFO->TX_OFFSET_FREQUENCY_DIRECTION;
+        State[1]._8[4] = 0
             | (pVFO->TX_LOCK << 6)
             | (pVFO->BUSY_CHANNEL_LOCK << 5)
             | (pVFO->OUTPUT_POWER      << 2)
             | (pVFO->CHANNEL_BANDWIDTH << 1)
             | (pVFO->FrequencyReverse  << 0);
-        State -> _8[5] = ((pVFO->DTMF_PTT_ID_TX_MODE & 7u) << 1)
+        State[1]._8[5] = ((pVFO->DTMF_PTT_ID_TX_MODE & 7u) << 1)
 #ifdef ENABLE_DTMF_CALLING
             | ((pVFO->DTMF_DECODING_ENABLE & 1u) << 0)
 #endif
         ;
-        State -> _8[6] =  pVFO->STEP_SETTING;
+        State[1]._8[6] =  pVFO->STEP_SETTING;
 #ifdef ENABLE_FEAT_F4HWN
-        State -> _8[7] =  0;
+        State[1]._8[7] =  0;
 #else
-        State -> _8[7] =  pVFO->SCRAMBLING_TYPE;
+        State[1]._8[7] =  pVFO->SCRAMBLING_TYPE;
 #endif
 
-        PY25Q16_WriteBuffer(OffsetVFO, Buf, 0x10, false);
+        PY25Q16_WriteBuffer(OffsetVFO, State, sizeof(State), false);
 
         SETTINGS_UpdateChannel(Channel, pVFO, true);
 

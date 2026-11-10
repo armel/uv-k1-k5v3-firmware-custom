@@ -190,6 +190,7 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
         // DMA write position: NbData counts DOWN from 256
         uint8_t write_ptr = (uint8_t)(sizeof(UART_DMA_Buffer) - 
                                        LL_DMA_GetDataLength(DMA1, DMA_CHANNEL));
+        __COMPILER_BARRIER();   // DMA-filled ring: read the bytes after write_ptr
 
         uint8_t processed = 0;
         while (read_ptr != write_ptr && processed < sizeof(UART_DMA_Buffer))

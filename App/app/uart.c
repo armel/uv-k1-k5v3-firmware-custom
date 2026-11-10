@@ -771,6 +771,12 @@ bool UART_IsCommandAvailable(uint32_t Port)
         return false;
     }
 
+    /* The ring is filled by DMA (UART) or by the USB ISR (VCP) behind the
+     * compiler's back. Read its bytes only after the write position above, and
+     * never reuse values from an earlier call (this function also clears the
+     * bytes it consumed). Emits no instruction. */
+    __COMPILER_BARRIER();
+
     // Limit iterations to prevent long loops when buffer is full of non-command data
     uint16_t maxIterations = ReadBufSize + 1;
 
