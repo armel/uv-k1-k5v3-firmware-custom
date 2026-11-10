@@ -107,7 +107,7 @@ While the output is on, a letter in the status bar tells its state:
 |---|---|
 | `U` | Lines are being sent |
 | `H` | No host has the port open (DTR clear): no data cable, no OTG adapter on a phone, or the host app not connected |
-| `W` | A host has the port open but did not take the last line (for example a phone app in the background) |
+| `W` | A host had the port open but is not taking lines (for example a phone app in the background, or the cable was unplugged: the radio is not told the port closed) |
 | `N` | This firmware offers no USB serial service to apps |
 
 The USB-C cable keeps the speaker on, unlike a K-plug cable. Most phones need
@@ -116,6 +116,10 @@ connect over a plain USB-C to USB-C cable. Once the output has been turned on,
 Sig Finder keeps the USB port until you quit, so UV Studio's screen mirroring
 resumes only after leaving the app. While the output stays off, the USB port
 and K5Viewer are left alone.
+
+A USB cable can also raise the noise floor: up to 15 dB was seen on 433 MHz
+with a computer attached. Before a weak-signal hunt, compare the level with and
+without the cable; a short cable or a clip-on ferrite may help.
 
 ## Keys
 
