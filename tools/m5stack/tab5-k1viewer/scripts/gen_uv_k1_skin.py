@@ -25,6 +25,8 @@ Outputs, relative to the tab5-k1viewer folder:
   assets/uv-k1-skin.svg       firmware background: blank glass, RX/TX LED off
   assets/uv-k1-landscape.svg  landscape (1280x720) showcase: large LCD, keypad on the right
   assets/uv-k1-landscape-skin.svg  landscape firmware background
+  assets/M5Burner.svg         landscape showcase for the M5Burner catalog, LCD filled
+                              from assets/m5burner-lcd.png (K5Viewer capture)
   assets/uv-k1-screen.svg     screen-only (1280x720) showcase: the LCD alone, very large
   assets/uv-k1-screen-skin.svg     screen-only firmware background
   assets/k1-connect-icon.svg  "connect the radio" icon, shown on black when no K1:
@@ -54,6 +56,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 REPO_DIR = PROJECT_DIR.parent.parent.parent
 DEFAULT_SCREENSHOT = REPO_DIR / 'images' / 'PS_DW_OP_LOCK_PERCENT_BAT.png'
+M5BURNER_SCREENSHOT = PROJECT_DIR / 'assets' / 'm5burner-lcd.png'
 CHROME_CANDIDATES = (
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     'google-chrome',
@@ -1302,12 +1305,13 @@ def main():
 
     assets = PROJECT_DIR / 'assets'
     lcd = lcd_path(args.screenshot)
-    showcases = ('uv-k1-720x1280', 'uv-k1-landscape', 'uv-k1-screen')
+    showcases = ('uv-k1-720x1280', 'uv-k1-landscape', 'uv-k1-screen', 'M5Burner')
     images = {
         assets / 'uv-k1-720x1280.svg': (build_svg(lcd, led_lit=True), (W, H)),
         assets / 'uv-k1-skin.svg': (build_svg(None, led_lit=False), (W, H)),
         assets / 'uv-k1-landscape.svg': (build_landscape_svg(lcd, led_lit=True), (LW, LH)),
         assets / 'uv-k1-landscape-skin.svg': (build_landscape_svg(None, led_lit=False), (LW, LH)),
+        assets / 'M5Burner.svg': (build_landscape_svg(lcd_path(M5BURNER_SCREENSHOT), led_lit=True), (LW, LH)),
         assets / 'uv-k1-screen.svg': (build_screen_svg(lcd, led_lit=True), (LW, LH)),
         assets / 'uv-k1-screen-skin.svg': (build_screen_svg(None, led_lit=False), (LW, LH)),
         assets / 'k1-connect-icon.svg': (build_connect_icon_svg('usb-c'), CONNECT_ICON[2:]),
