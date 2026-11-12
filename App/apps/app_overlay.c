@@ -60,10 +60,15 @@
 #include "version.h"
 #include "stack_usage.h"
 #endif
-#ifdef ENABLE_USB
+#if defined(ENABLE_USB) || defined(ENABLE_UART)
 #define APP_SERIAL 1
 #include "app/uart.h"
+#endif
+#ifdef ENABLE_USB
 #include "driver/vcp.h"
+#endif
+#ifdef ENABLE_UART
+#include "driver/uart.h"
 #endif
 
 _Static_assert(sizeof(app_header_t) == 64u && _Alignof(app_header_t) == 4u,
@@ -151,6 +156,7 @@ static struct {
     bool    journal_ready;
     bool    journal_pending;
 #ifdef APP_SERIAL
+#ifdef ENABLE_USB
     /* USB serial port: the receive total at the app's read position, the
      * events serial_ctl has not reported yet, the host configuration count it
      * last saw, whether the app used the port. */
@@ -158,6 +164,13 @@ static struct {
     uint8_t  serial_evt;
     uint8_t  serial_enum;
     bool     serial_used;
+#endif
+#ifdef ENABLE_UART
+    /* K-plug UART: the baud rate the app set (0 = 38400 untouched), whether
+     * the app used the port. */
+    uint32_t kplug_baud;
+    bool     kplug_used;
+#endif
 #endif
     uint16_t journal_off;  /* next free byte of the journal */
     uint32_t journal_tick; /* when the last config was logged */
@@ -245,12 +258,16 @@ static void app_viewer_update(void)
 
 #ifdef APP_SERIAL
 /* ---- API level 3: serial ports ----
- * USB only for now: APP_SERIAL_KPLUG reports no port (serial_ctl 0).  The
- * first call drops what the main loop left unread, takes the current USB
- * counters as the reference and holds the K5Viewer lock until the app returns
- * (K5VIEWER_LOCK_HELD: the countdown CHIRP uses, frozen), so K5Viewer neither
- * reads the app's bytes as viewer commands nor mixes screen frames into the
- * app's stream, however rarely the app polls the port. */
+ * The first call on a port drops what the main loop left unread on it and
+ * holds the K5Viewer lock until the app returns (K5VIEWER_LOCK_HELD: the
+ * countdown CHIRP uses, frozen), so K5Viewer neither reads the app's bytes as
+ * viewer commands nor mixes screen frames into the app's stream, however
+ * rarely the app polls the port.
+ * USB: the first call also takes the current USB counters as the reference.
+ * K-plug: the app reads UART_DMA_Buffer from the command parser's own index,
+ * so the bytes it consumed are never parsed as commands; the baud rate it set
+ * is put back to 38400 when it returns. */
+#ifdef ENABLE_USB
 #define APP_SERIAL_WRITE_CYC (48000000u / 20u)   /* 50 ms for the host to take a write */
 
 _Static_assert(sizeof(VCP_RxBuf) == 256u, "the ring indexes wrap as uint8_t");
@@ -269,26 +286,73 @@ static void app_serial_flush(void)
     app_state.serial_read_total = cdc_acm_rx_total;
     __set_PRIMASK(primask);
 }
+#endif
+
+#ifdef ENABLE_UART
+#define APP_KPLUG_BAUD 38400u   /* UART_Init's rate, the CHIRP and K5Viewer one */
+
+_Static_assert(sizeof(UART_DMA_Buffer) == 256u, "the ring indexes wrap as uint8_t");
+
+/* UART_SetBaudRate waits about 1 ms for the last byte to leave the wire and
+ * gives up otherwise: a write just before can still hold two bytes, 2 ms at
+ * 9600 bauds. */
+static bool app_kplug_baud(uint32_t baud)
+{
+    for (uint8_t i = 0; i < 8u; i++)
+        if (UART_SetBaudRate(baud))
+            return true;
+    return false;
+}
+#endif
 
 static bool app_serial_claim(uint8_t port)
 {
-    if (port != APP_SERIAL_USB)
-        return false;
-    if (!app_state.serial_used) {
-        app_state.serial_used = true;
-        app_serial_flush();
-        app_state.serial_enum = cdc_acm_config_count;
+#ifdef ENABLE_USB
+    if (port == APP_SERIAL_USB) {
+        if (!app_state.serial_used) {
+            app_state.serial_used = true;
+            app_serial_flush();
+            app_state.serial_enum = cdc_acm_config_count;
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-        gUART_LockK5Viewer = K5VIEWER_LOCK_HELD;
+            gUART_LockK5Viewer = K5VIEWER_LOCK_HELD;
 #endif
+        }
+        return true;
     }
-    return true;
+#endif
+#ifdef ENABLE_UART
+    if (port == APP_SERIAL_KPLUG) {
+        if (!app_state.kplug_used) {
+            app_state.kplug_used = true;
+            gUART_WriteIndex = UART_RxHead();
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+            gUART_LockK5Viewer = K5VIEWER_LOCK_HELD;
+#endif
+        }
+        return true;
+    }
+#endif
+    return false;
 }
 
 static uint16_t app_serial_read(uint8_t port, void *buf, uint16_t len)
 {
     if (!app_serial_claim(port))
         return 0;
+    uint8_t *p = buf;
+    uint16_t n = 0;
+#ifdef ENABLE_UART
+    /* The DMA ring has no receive total: a lap goes unnoticed. */
+    if (port == APP_SERIAL_KPLUG) {
+        const uint8_t w = UART_RxHead();
+        uint8_t r = (uint8_t)gUART_WriteIndex;
+        while (n < len && r != w)
+            p[n++] = UART_DMA_Buffer[r++];
+        gUART_WriteIndex = r;
+        return n;
+    }
+#endif
+#ifdef ENABLE_USB
     /* 256 bytes or more since the app's position: the ISR lapped it. */
     const uint32_t total = cdc_acm_rx_total;
     if (total - app_state.serial_read_total >= sizeof(VCP_RxBuf)) {
@@ -300,18 +364,27 @@ static uint16_t app_serial_read(uint8_t port, void *buf, uint16_t len)
     const uint8_t w = (uint8_t)VCP_RxBufPointer;
     __COMPILER_BARRIER();   // ISR-filled ring: read the bytes after w
     uint8_t r = (uint8_t)VCP_ReadIndex;
-    uint8_t *p = buf;
-    uint16_t n = 0;
     while (n < len && r != w)
         p[n++] = VCP_RxBuf[r++];
     VCP_ReadIndex = r;
     app_state.serial_read_total += n;
+#endif
     return n;
 }
 
 static bool app_serial_write(uint8_t port, const void *buf, uint16_t len)
 {
-    if (!app_serial_claim(port) || !dtr_enable)
+    if (!app_serial_claim(port))
+        return false;
+#ifdef ENABLE_UART
+    /* At the baud rate, whoever listens. */
+    if (port == APP_SERIAL_KPLUG) {
+        UART_Send(buf, len);
+        return true;
+    }
+#endif
+#ifdef ENABLE_USB
+    if (!dtr_enable)
         return false;
     if (!len)
         return true;
@@ -325,15 +398,24 @@ static bool app_serial_write(uint8_t port, const void *buf, uint16_t len)
 timeout:
     cdc_acm_cancel_send();
     app_state.serial_evt |= APP_SERIAL_TIMEOUT;
+#endif
     return false;
 }
 
 static uint8_t app_serial_ctl(uint8_t port, uint32_t baud)
 {
-    (void)baud;
     if (!app_serial_claim(port))
         return 0;
-    uint8_t st = APP_SERIAL_OK | app_state.serial_evt;
+#ifdef ENABLE_UART
+    if (port == APP_SERIAL_KPLUG) {
+        if (baud && baud != app_state.kplug_baud && app_kplug_baud(baud))
+            app_state.kplug_baud = baud;
+        return APP_SERIAL_OK;
+    }
+#endif
+    uint8_t st = APP_SERIAL_OK;
+#ifdef ENABLE_USB
+    st |= app_state.serial_evt;
     app_state.serial_evt = 0;
     if (dtr_enable)
         st |= APP_SERIAL_HOST;
@@ -342,6 +424,7 @@ static uint8_t app_serial_ctl(uint8_t port, uint32_t baud)
         app_state.serial_enum = c;
         st |= APP_SERIAL_ENUM;
     }
+#endif
     return st;
 }
 
@@ -349,14 +432,37 @@ static uint8_t app_serial_ctl(uint8_t port, uint32_t baud)
  * K5Viewer once the main loop resumes. */
 static void app_serial_release(void)
 {
-    if (!app_state.serial_used)
-        return;
-    app_state.serial_used = false;
-    app_state.serial_evt  = 0;
-    app_serial_flush();
+    bool used = false;
+#ifdef ENABLE_USB
+    if (app_state.serial_used) {
+        app_state.serial_used = false;
+        app_state.serial_evt  = 0;
+        app_serial_flush();
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-    VCP_K5ViewerSync();
-    gUART_LockK5Viewer = 0;
+        VCP_K5ViewerSync();
+#endif
+        used = true;
+    }
+#endif
+#ifdef ENABLE_UART
+    if (app_state.kplug_used) {
+        app_state.kplug_used = false;
+        /* Back to 38400 first: what arrives meanwhile is dropped below. */
+        if (app_state.kplug_baud && app_state.kplug_baud != APP_KPLUG_BAUD)
+            app_kplug_baud(APP_KPLUG_BAUD);
+        app_state.kplug_baud = 0;
+        gUART_WriteIndex = UART_RxHead();
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+        UART_K5ViewerSync();
+#endif
+        used = true;
+    }
+#endif
+#ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+    if (used)
+        gUART_LockK5Viewer = 0;
+#else
+    (void)used;
 #endif
 }
 #endif

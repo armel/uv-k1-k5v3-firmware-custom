@@ -202,7 +202,11 @@ typedef union
 #if defined(ENABLE_UART)
     static uint32_t UART_Timestamp;
     static UART_Command_t UART_Command;
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    uint16_t gUART_WriteIndex;  /* also read by overlay apps (app_overlay.c) */
+#else
     static uint16_t gUART_WriteIndex;
+#endif
 #endif
 #if defined(ENABLE_USB)
     static uint32_t VCP_Timestamp;
