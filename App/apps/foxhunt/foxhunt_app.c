@@ -18,14 +18,16 @@
  * FoxHunt (RX) — overlay app. Ported from App/app/foxhunt.c, hunt sub-mode only
  * (the beacon becomes a separate app). Signal-strength hunter: corrected dBm with
  * a big number, an IARU S-meter staircase or a scrolling history, peak/min hold,
- * a 1 s trend, a front-end attenuator ladder, and Geiger/station audio.
+ * a 1 s trend, a front-end attenuator ladder, and Geiger/station audio. Station
+ * audio is normal FM for F2A and a 700 Hz USB product detector for A1A.
  *
  * No division is linked: numbers are printed by subtracting powers of ten and
  * the few divisions by constants are exact multiply-and-shift equivalents,
  * checked exhaustively over their input ranges.
  *
  * Keys: 1 gauge (bar/history) · 2 audio (off/beep/station) · 3 + UP/DOWN attenuator
- *       MENU reset holds · long F keypad lock · EXIT quit.
+ *       4 F2A/A1A · 6 A1A crystal correction (F reverses) · MENU reset holds
+ *       long F keypad lock · EXIT quit.
  */
 
 #include <stdint.h>
@@ -36,6 +38,16 @@
 
 #define LCD_WIDTH        128
 #define BK_REG_13        0x13
+#define REG_TX_LINK      0x30u
+#define REG_AM_CTRL      0x31u
+#define REG_FREQ_LOW     0x38u
+#define REG_FREQ_HIGH    0x39u
+#define REG_XTAL         0x3Bu
+#define REG_AUDIO_FILTER 0x3Du
+#define REG_AUDIO_GAIN   0x48u
+#define REG_AFC          0x73u
+#define AF_USB              5u
+#define RX_LINK_OFF      0x0000u
 
 /* --- tuning (from foxhunt.c) --- */
 #define DBM_FLOOR   (-141)
@@ -51,6 +63,11 @@
 #define BLIP_MS      50
 #define AUDIO_SETTLE 60
 #define ATT_SETTLE   40
+#define RX_PITCH_10HZ 70u
+
+#define CAL_DEFAULT   14   /* 14 x 0.1923 ppm = +2.69 ppm */
+#define CAL_MIN      (-50)
+#define CAL_MAX        50
 
 #define ATT_COUNT    6
 #define ATT_BYP0     4
@@ -73,12 +90,17 @@
 #define GRAPH_BAR     0
 #define GRAPH_HIST    1
 
-#define CFG_MAGIC    0xF1   /* config validity marker */
+#define CFG_MAGIC_V1 0xF1   /* no receive mode or crystal correction */
+#define CFG_MAGIC    0xF2
+#define CFG_LEN      6
 
 /* The multiply-and-shift divisions below rely on these constants. */
 _Static_assert(DBM_CEIL - DBM_FLOOR == 88, "lerp() divides by 88");
 _Static_assert(SEG_COUNT == 13 && (GRAPH_BOT - GRAPH_FLOOR - GRAPH_TOP) * SEG_COUNT <= 208,
                "drawHist() divides by 13 up to 208");
+_Static_assert((CAL_MAX * 1923 + 50) / 100 < 1000 &&
+               (-(CAL_MIN) * 1923 + 50) / 100 < 1000,
+               "XTAL correction must stay below 10 ppm");
 
 /* Texts, the attenuator ladder, the powers of ten and the icons are read-only
  * assets (gen_assets.py): icons are copied straight into the LCD buffers. */
@@ -88,10 +110,11 @@ _Static_assert(SEG_COUNT == 13 && (GRAPH_BOT - GRAPH_FLOOR - GRAPH_TOP) * SEG_CO
  * byte fields first so their offsets fit ldrb's 0..31 immediate. The overlay
  * is zeroed by the loader at each launch. */
 struct globals {
-    bool     foxLocked, fArm, fLongDone, running;
+    bool     foxLocked, fArm, fLongDone, running, a1a, cwRx;
     uint8_t  foxAudioMode, foxGraphMode, attStep, audioTick;
     uint8_t  trendTick, histHead, histTick, prevKey;
-    uint16_t fHoldMs;
+    int8_t   calSteps;
+    uint16_t fHoldMs, xtalBase, reg13Base;
     /* words: loaded without a sign extension */
     int32_t  curDbm, peakDbm, minDbm, trendRef, trendDelta, histEma;
     const app_api_t *api;
@@ -111,6 +134,13 @@ static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
 __attribute__((noinline))
 static char *puti(char *o,int v){ return A->append_i32(o,v); }
 static void i2str(char *out,int v){ *puti(out,v)='\0'; }
+/* Same signed ppm rendering as Beacon and the CW overlays: one REG_3B step is
+ * 0.1923 ppm, rounded to two decimals and always shown with its sign. */
+static char *putCalibration(char *o){
+    int16_t n=g.calSteps; *o++=n<0?'-':'+';
+    uint32_t m=(uint32_t)A->uidivmod((uint32_t)(n<0?-n:n)*1923u+50u,100u);
+    char *e=puti(o,(int)(m+1000u)); o[0]=o[1]; o[1]='.'; return e;
+}
 
 /* Text from the assets in the caller's buffer (TEXT_MAX bytes). */
 static char *T(char *buf,uint16_t off){ A->asset_read(off,buf,TEXT_MAX); return buf; }
@@ -125,11 +155,54 @@ static void applyAtt(void){
     A->bk_write(BK_REG_13, reg);
 }
 
-static void setAudio(void){
-    if(g.foxAudioMode==AUDIO_OFF){ A->audio_path(false); return; }
+/* Match the proven CW Decode receiver: REG_3B corrects the radio reference,
+ * while a 700 Hz low-side tuning offset produces a USB audio note. */
+static void configureCwRx(void){
+    const app_api_t *const a=A;
+    a->bk_write(REG_XTAL,(uint16_t)(g.xtalBase+g.calSteps));
+    uint32_t frequency=a->rx_freq();
+    if(frequency>RX_PITCH_10HZ) frequency-=RX_PITCH_10HZ;
+    a->bk_write(REG_FREQ_LOW,(uint16_t)frequency);
+    a->bk_write(REG_FREQ_HIGH,(uint16_t)(frequency>>16));
+    const uint16_t rxLink=a->bk_read(REG_TX_LINK);
+    a->bk_write(REG_TX_LINK,RX_LINK_OFF);
+    a->bk_write(REG_TX_LINK,rxLink);
+    a->bk_write(REG_AM_CTRL,a->bk_read(REG_AM_CTRL)&0xFFFEu);
+    uint16_t profile[RX_PROFILE_LEN/4u][2];
+    a->asset_read(RX_PROFILE,profile,sizeof(profile));
+    for(uint8_t i=0;i<RX_PROFILE_LEN/4u;i++)
+        a->bk_write((uint8_t)profile[i][0],profile[i][1]);
+    a->bk_write(REG_AUDIO_GAIN,(uint16_t)((a->bk_read(REG_AUDIO_GAIN)&0xFFF0u)|0x000Fu));
+    a->bk_write(REG_AUDIO_FILTER,0u);
+    a->bk_write(REG_AFC,a->bk_read(REG_AFC)|0x0010u);
+    a->set_agc(false);
+    applyAtt();
+    a->set_af(AF_USB);
+}
+
+static void restoreFmRx(void){
+    A->bk_write(REG_XTAL,g.xtalBase);
+    A->tx_end();                 /* PA off and resident FM receive profile */
+    A->set_agc(false);
+    applyAtt();
+}
+
+/* A1A needs the CW profile only for station audio. OFF and BEEP stay on the
+ * resident profile so a local Geiger blip never has to rebuild the CW path. */
+static bool setAudio(void){
+    const bool wantCw=g.a1a&&g.foxAudioMode==AUDIO_STATION;
+    const bool changed=wantCw!=g.cwRx;
+    if(changed){
+        A->audio_path(false);
+        if(wantCw) configureCwRx(); else restoreFmRx();
+        g.cwRx=wantCw;
+    }
+    if(g.foxAudioMode==AUDIO_OFF){ A->audio_path(false); return changed; }
+    A->set_af(APP_AF_MUTE);
     A->audio_path(true);
     A->delay_ms(AUDIO_SETTLE);
-    A->set_af(APP_AF_MUTE);
+    if(g.cwRx) A->set_af(AF_USB);   /* A1A station audio stays continuously open */
+    return changed;
 }
 
 static int32_t lerp(int32_t dbm,int32_t lo,int32_t hi){
@@ -262,21 +335,27 @@ static void draw(void){
     }
 
     i2str(put(str,T(t,T_PK)),(int)g.peakDbm);
-    tag(str,4,2);
+    tag(str,3,2);
     i2str(put(str,T(t,T_MN)),(int)g.minDbm);
-    tag(str,(uint8_t)(((uint32_t)LCD_WIDTH-(uint32_t)slen(str)*4u)>>1),2);
+    tag(str,36,2);
+    char *att=put(str,T(t,T_ATT));
+    if(g.attStep<ATT_BYP0){
+        uint8_t db; A->asset_read(ATT_DB+g.attStep,&db,1);
+        att=puti(att,db); put(att,T(t,T_DB))[0]='\0';
+    }
+    else put(att,T(t,g.attStep==ATT_BYP0?T_BYP:T_BYP_PLUS))[0]='\0';
+    A->print_inverse(str,69,2,false,true,101);
     buildS(sMeter,g.curDbm);
     A->print_inverse(sMeter,(uint8_t)(126-slen(sMeter)*4),2,false,true,125);
 
     if(g.foxGraphMode==GRAPH_HIST) drawHist();
     else drawBar();
 
-    if(g.attStep<ATT_BYP0){
-        uint8_t db; A->asset_read(ATT_DB+g.attStep,&db,1);
-        char *o=put(str,T(t,T_ATT)); o=puti(o,db); put(o,T(t,T_DB))[0]='\0';
+    tag(T(t,g.a1a?T_A1A:T_F2A),3,6);
+    if(g.a1a){
+        char *o=putCalibration(put(str,T(t,T_XTAL))); *o='\0';
+        tag(str,20,6);
     }
-    else put(str,T(t,g.attStep==ATT_BYP0?T_BYP:T_BYP_PLUS))[0]='\0';
-    tag(str,4,6);
 
     /* the RX frequency (10 Hz units) as MHz with 5 decimals: every digit, then
        the point before the last five (f >= 18 MHz: at least 7 digits) */
@@ -289,17 +368,24 @@ static void draw(void){
 
 /* ---- config (deferred) ---- */
 static void loadConfig(void){
-    uint8_t c[4];
-    A->cfg_load(c,4);
-    if(c[0]==CFG_MAGIC){
+    uint8_t c[CFG_LEN];
+    A->cfg_load(c,CFG_LEN);
+    if(c[0]==CFG_MAGIC||c[0]==CFG_MAGIC_V1){
         if(c[1]<ATT_COUNT)      g.attStep=c[1];
         if(c[2]<=GRAPH_HIST)    g.foxGraphMode=c[2];
         if(c[3]<=AUDIO_STATION) g.foxAudioMode=c[3];
+        /* V1 always used the FM audio path, so migrate it to F2A. */
+        if(c[0]==CFG_MAGIC){
+            if(c[4]<=1u) g.a1a=c[4];
+            int8_t cal=(int8_t)c[5];
+            if(cal>=CAL_MIN&&cal<=CAL_MAX) g.calSteps=cal;
+        }
     }
 }
 static void saveConfig(void){
-    uint8_t c[4]={CFG_MAGIC,g.attStep,g.foxGraphMode,g.foxAudioMode};
-    A->cfg_save(c,4);
+    uint8_t c[CFG_LEN]={CFG_MAGIC,g.attStep,g.foxGraphMode,g.foxAudioMode,
+                        (uint8_t)g.a1a,(uint8_t)g.calSteps};
+    A->cfg_save(c,CFG_LEN);
 }
 
 /* ---- input ---- */
@@ -326,10 +412,26 @@ static void handleKeys(void){
         case APP_KEY_EXIT: g.running=false; break;
         case APP_KEY_1: g.foxGraphMode^=1; break;
         case APP_KEY_2:
-            g.foxAudioMode=cycleIndex(g.foxAudioMode,3u,dir); setAudio();
+            g.foxAudioMode=cycleIndex(g.foxAudioMode,3u,dir);
+            if(setAudio()) A->delay_ms(ATT_SETTLE);
             if(g.foxAudioMode==AUDIO_BEEP){ g.audioTick=RATE_SLOW; }
             break;
         case APP_KEY_3: attCycle(dir); break;
+        case APP_KEY_4:
+            g.a1a=!g.a1a;
+            if(setAudio()) A->delay_ms(ATT_SETTLE);
+            break;
+        case APP_KEY_6:
+            if(!g.a1a) break;
+            if((dir>0&&g.calSteps<CAL_MAX)||(dir<0&&g.calSteps>CAL_MIN)){
+                g.calSteps+=(dir>0)?1:-1;
+                if(g.cwRx){
+                    A->audio_path(false);
+                    configureCwRx();
+                    setAudio();
+                }
+            }
+            break;
         case APP_KEY_UP:
         case APP_KEY_DOWN: attCycle(A->nav_dir(key)); break;
         case APP_KEY_MENU: g.peakDbm=g.minDbm=g.trendRef=g.curDbm; break;
@@ -349,8 +451,11 @@ void app_main(const app_api_t *api){
     g.histBuf=hist;
     /* locks, holds, attenuator, bar gauge and audio off start zeroed (.bss) */
     g.prevKey=APP_KEY_INVALID;
+    g.calSteps=CAL_DEFAULT;
 
     loadConfig();
+    g.xtalBase=A->bk_read(REG_XTAL);
+    g.reg13Base=A->bk_read(BK_REG_13);
     A->backlight_on();
     A->set_agc(false);
     applyAtt();
@@ -376,7 +481,7 @@ void app_main(const app_api_t *api){
 
         if(g.foxAudioMode==AUDIO_BEEP && g.curDbm>=SILENCE_DBM){
             if(++g.audioTick>=(uint8_t)lerp(g.curDbm,RATE_SLOW,RATE_FAST)){ g.audioTick=0; blip((uint16_t)lerp(g.curDbm,TONE_MIN,TONE_MAX)); }
-        } else if(g.foxAudioMode==AUDIO_STATION){
+        } else if(g.foxAudioMode==AUDIO_STATION&&!g.cwRx){
             A->set_af(g.curDbm>=SILENCE_DBM?APP_AF_FM:APP_AF_MUTE);
         }
 
@@ -385,4 +490,10 @@ void app_main(const app_api_t *api){
     }
 
     A->audio_path(false);
+    A->set_af(APP_AF_MUTE);
+    A->bk_write(REG_XTAL,g.xtalBase);
+    /* RADIO_SetupAGC caches its last request, so restore both the hardware
+     * AGC bit and the gain-table entry before the resident retune. */
+    A->set_agc(true);
+    A->bk_write(BK_REG_13,g.reg13Base);
 }

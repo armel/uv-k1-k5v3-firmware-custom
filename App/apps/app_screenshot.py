@@ -780,9 +780,9 @@ SCENARIOS = {
                       keys=presses(2000, "MENU") + presses(2800, "4", "4", "6", "6", "6", "4", step=400)),
     "sokoban": dict(shots=[("game", 5000)],
                     keys=presses(2000, "MENU") + presses(2800, "6", "6", "8", "4", "2")),
-    # The fox identifier alone (config: idle 30 s, MOE, TX 30 s, tone), read
+    # The fox identifier alone (config: idle 30 s, MOE, TX 30 s, A1A, +14 XTAL), read
     # once its three letters are keyed, during the gap before the repeat.
-    "beacon": dict(shots=[("main", 4000)], keys=presses(500, "MENU"), cfg=bytes([0xF6, 30, 0, 0, 30, 0, 7])),
+    "beacon": dict(shots=[("main", 4000)], keys=presses(500, "MENU"), cfg=bytes([0xF7, 30, 0, 0, 30, 1, 7, 14, 0])),
     # Opened by CW Keyer (key 7): its settings in the hand-off (cwkeyer_app.c handoff_t).
     "cwmem": dict(shots=[("main", 1500)], freq=14405000, handoff_from="CW Keyer",
                   handoff=struct.pack("<BBBBhHHBBh", 0xCB, 18, 0, 0, 0, 700, 300, 1, 0, 0)),
