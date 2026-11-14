@@ -83,6 +83,8 @@ bool VCP_K5ViewerPing(void)
     //   Short key press: 0xAA 0x55 0x03 <key>   → inject short press
     //   Long key press:  0xAA 0x55 0x04 <key>   → inject long press
     //   GPS position:    0xAA 0x55 0x07 <lat:i32 LE> <lon:i32 LE> <XOR>
+    //                    → kept for 15 s; not a keepalive (a GPS-only
+    //                    source must not start the screen stream)
     //
     // State transitions:
     //   IDLE  → 0x55 → KA_1
