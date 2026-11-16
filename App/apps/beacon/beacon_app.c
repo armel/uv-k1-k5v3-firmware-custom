@@ -21,7 +21,7 @@
  * silent for the idle gap. Two keying modes (key 4): F2A (default) keeps the carrier
  * and the channel subaudio up and keys a 1 kHz tone; A1A keeps every modulation
  * source muted and keys only the unmodulated RF carrier.
- * It never transmits at launch: it opens READY, and PTT or MENU starts the cycle.
+ * It never transmits at launch: it opens READY, and MENU starts the cycle.
  * Key 5 sets the beacon's own TX power (API level 4 tx_power), saved with the other
  * settings; the VFO keeps its power. In A1A, key 6 adjusts the BK4829 crystal
  * correction in the same REG_3B steps as the CW overlays.
@@ -29,7 +29,7 @@
  * No division is linked: numbers are printed by subtracting powers of ten.
  *
  * Keys: 1 TX window · 2 idle gap (held: repeat) · 3 fox id · 4 keying mode F2A/A1A
- *       5 TX power · 6 A1A crystal correction (F reverses) · PTT/MENU start
+ *       5 TX power · 6 A1A crystal correction (F reverses) · MENU start
  *       MENU restart idle · long F keypad lock · EXIT quit.
  */
 
@@ -437,6 +437,7 @@ static void transmit(void){
 /* ---- idle-phase keys ---- */
 static void idleKeys(void){
     uint8_t key=A->get_key();
+    if(key==APP_KEY_PTT) key=APP_KEY_INVALID;  /* reject UART-coupled PTT pulses */
     lockTrack(key,TICK_MS);
     if(key==APP_KEY_INVALID||key==g.prevKey){ repeatTrack(key,TICK_MS); g.prevKey=key; return; }
     g.prevKey=key;
@@ -445,10 +446,9 @@ static void idleKeys(void){
     if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
-        case APP_KEY_PTT:
         case APP_KEY_MENU:
             if(g.ready){ g.ready=false; g.phaseTx=true; }                    /* start the cycle */
-            else if(key==APP_KEY_MENU){ g.idleLeft=g.beaconIdle; g.idleTick=0; } /* restart idle */
+            else { g.idleLeft=g.beaconIdle; g.idleTick=0; }                 /* restart idle */
             break;
         default: pressSetting(key); break;
     }
@@ -507,7 +507,7 @@ void app_main(const app_api_t *api){
     if(g.hasPower&&g.power>POWER_MAX) g.power=A->tx_power(POWER_NONE);   /* the VFO's power */
     A->backlight_on();
 
-    g.ready=true;   /* never transmit at launch: PTT or MENU starts the cycle */
+    g.ready=true;   /* never transmit at launch: MENU starts the cycle */
     g.idleLeft=g.beaconIdle; g.idleTick=0;
     g.running=true;
     while(g.running){

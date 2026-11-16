@@ -329,6 +329,8 @@ To write your own app and share it through UV Studio's Community tab, see
   - optional callsign identification,
   - configurable TX and idle periods,
   - live TX and idle countdowns,
+  - a safe `READY` screen where only `MENU` starts the cycle; `PTT` is ignored
+    to reject spurious events caused by dual-jack cable or UART activity,
   - persisted Beacon settings,
   - interactive control during transmission,
   - shared long-press `F` keypad lock,
