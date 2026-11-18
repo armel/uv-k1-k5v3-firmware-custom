@@ -67,6 +67,7 @@
 #define APP_CODE_OFFSET   0x00001000u   /* code starts after the 4 KiB header sector */
 #define APP_SECTOR_SIZE   0x00001000u   /* external NOR erase granularity        */
 #define APP_SLOT_COUNT    64u
+#define APP_SLOT_READ_MAX 128u          /* largest host read of one slot          */
 #define APP_SLOT_BASE(s)  (APP_REGION_BASE + (uint32_t)(s) * APP_SLOT_STRIDE)
 
 /* ---- overlay RAM budget: the PY25Q16 4 KiB sector cache reused as workspace.
@@ -200,9 +201,12 @@ uint8_t APP_LaunchOverlayShortcut(uint8_t shortcut);
 /* Cached availability of apps exposed as resident quick actions. */
 bool    APP_OverlayShortcutInstalled(uint8_t shortcut);  /* an app holds this shortcut ID */
 
-/* Host-tool slot management (external flash only, never brick-critical). */
+/* Host-tool slot management (external flash only, never brick-critical).
+ * Erase normally preserves the tagged local configuration for an app update;
+ * a slot reorder passes false because it restores the complete source image. */
 uint8_t APP_SlotInfo(uint8_t slot, app_header_t *out_header);
-uint8_t APP_SlotErase(uint8_t slot);
+uint8_t APP_SlotRead(uint8_t slot, uint32_t offset, void *data, uint16_t len);
+uint8_t APP_SlotErase(uint8_t slot, bool preserve_config);
 uint8_t APP_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
 
 /* Change token used by the modal Apps selector.  A completed host install is
