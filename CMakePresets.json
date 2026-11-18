@@ -20,7 +20,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "DEV": false,
-                "ENABLE_LTO": false,
+                "ENABLE_LTO": true,
                 "ENABLE_NO_HEAP": false,
                 "ENABLE_FMRADIO": false,
                 "ENABLE_UART": true,
