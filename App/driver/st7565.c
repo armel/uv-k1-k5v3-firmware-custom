@@ -25,6 +25,9 @@
 #include "driver/system.h"
 #include "misc.h"
 #include "k5viewer.h"
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+    #include "fw_assets.h"
+#endif
 
 #define SPIx SPI1
 
@@ -108,12 +111,22 @@ static uint8_t SPI_WriteByte(uint8_t Value)
     return LL_SPI_ReceiveData8(SPIx);
 }
 
+// Without its assets (fonts, menu texts) the firmware keeps the screen blank:
+// a half-drawn UI would only confuse until UV Studio has written them.
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+    #define LCD_BLANK() (!FW_ASSETS_IsValid())
+#else
+    #define LCD_BLANK() false
+#endif
+
 static void DrawLine(uint8_t column, uint8_t line, const uint8_t * lineBuffer, unsigned size_defVal)
 {   
+    const bool blank = LCD_BLANK();
+
     ST7565_SelectColumnAndLine(column + 4, line);
     A0_Set();
     for (unsigned i = 0; i < size_defVal; i++) {
-        SPI_WriteByte(lineBuffer ? lineBuffer[i] : size_defVal);
+        SPI_WriteByte(blank ? 0 : lineBuffer ? lineBuffer[i] : size_defVal);
     }
 }
 
@@ -192,6 +205,7 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
 
     bool ST7565_Feed(unsigned count)
     {
+        const bool blank = LCD_BLANK();
         unsigned page = feedPage, col = feedCol;
 
         if (count == 0) {
@@ -208,7 +222,7 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
                 value = col == 0 ? 0xB0 | page : col == 1 ? 0x10 : 0x04;   // page, column 4
             } else {
                 A0_Set();
-                value = (page ? gFrameBuffer[page - 1] : gStatusLine)[col - 3];
+                value = blank ? 0 : (page ? gFrameBuffer[page - 1] : gStatusLine)[col - 3];
             }
             SPI_WriteByte(value);
 
@@ -254,6 +268,9 @@ void ST7565_DrawLine(const unsigned int Column, const unsigned int Line, const u
 
 void ST7565_FillScreen(uint8_t value)
 {
+    if (LCD_BLANK())
+        value = 0;
+
     CS_Assert();
     for (uint8_t line = 0; line < 8u; line++) {
         ST7565_SelectColumnAndLine(4u, line);

@@ -65,6 +65,11 @@ MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 16K
 FLASH (rx)      : ORIGIN = 0x08002800, LENGTH = 118K
+/* Firmware assets (ENABLE_FEAT_F4HWN_FW_ASSETS): link-only addresses that do
+   not exist on the MCU. The section is stripped from the .bin/.hex images and
+   shipped as an asset pack instead (see App/fw_assets.h). 16 KiB zone minus
+   the 32-byte pack header. */
+FW_ASSETS (r)   : ORIGIN = 0x90000000, LENGTH = 16K - 32
 }
 
 /* Define output sections */
@@ -103,6 +108,25 @@ SECTIONS
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
   } >FLASH
+
+  /* GNU build-id (linked with --build-id=md5 when firmware assets are on):
+     identifies this exact build, so the firmware only accepts the asset pack
+     produced by the same link. */
+  .note.gnu.build-id :
+  {
+    . = ALIGN(4);
+    __fw_build_id = .;
+    KEEP(*(.note.gnu.build-id))
+  } >FLASH
+
+  /* Firmware assets, read through FW_ASSETS_Read() only. */
+  .fw_assets :
+  {
+    __fw_assets_start = .;
+    *(.fw_assets)
+    *(.fw_assets.*)
+    __fw_assets_end = .;
+  } >FW_ASSETS
 
   .ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH
   .ARM : {

@@ -18,11 +18,9 @@ sys.path.insert(0, os.path.join(HERE, ".."))
 from app_assets import Assets
 
 TITLE = "AIS RX"                            # the version is in the .app header
-WAIT_CAPS = "WAIT"                          # status-bar capsule until a vessel
 
 UI = [
     ("T_TITLE", TITLE),
-    ("T_WAIT", WAIT_CAPS),
     ("T_AIS", "AIS"),                       # over the channel, right of the frequency
     ("T_SOG", "SOG "),                      # "SOG 12.3kt COG 088" under way,
     ("T_KT", "kt "),                        # "SOG 0.0kt HDG 090" below 1 kt
@@ -56,7 +54,6 @@ for name, value in UI:
     pad = -(len(value) + 1) % 4
     a.text(name, value + "\0" * pad)
 a.const("T_TITLE_CHARS", len(TITLE))
-a.const("T_WAIT_CHARS", len(WAIT_CAPS))
 
 # Navigational status 0-14 of messages 1-3 (15 = not defined: none shown).
 # Eight characters at most: "227123456 Moored" must fit an 18-character
@@ -108,6 +105,8 @@ for index in range(8):
              for up, down in zip(UP, DN)]
 a.u8("BMP_TAIL", tail)
 a.const("TAIL_W", len(tail) // 8)
+# Existing App/bitmaps.c gFontKeyLock, copied for the self-contained overlay.
+a.u8("BMP_LOCK", [0x7C, 0x46, 0x45, 0x45, 0x45, 0x45, 0x45, 0x46, 0x7C])
 
 if __name__ == "__main__":
     a.main()

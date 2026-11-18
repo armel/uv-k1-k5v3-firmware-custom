@@ -7,9 +7,9 @@
  * The receiver is the APRS RX Bell 202 software demodulator. A valid AX.25 UI
  * frame is eligible when WIDE1-1 is its first unused path address, or WIDE2-1
  * when the extended mode is selected. That address is replaced in place by
- * the boot callsign with SSID 3 and the H bit, then the FCS is rebuilt and the
- * APRS TX tone generator sends it. Logical packet hashes suppress duplicates
- * for 30 seconds, ignoring path and FCS.
+ * the APRS Edit callsign (else the boot callsign) with SSID 3 and the H bit,
+ * then the FCS is rebuilt and the APRS TX tone generator sends it. Logical
+ * packet hashes suppress duplicates for 30 seconds, ignoring path and FCS.
  *
  * Set a non-zero squelch: transmission waits for 100-227 ms of closed squelch
  * and is abandoned after 3 seconds. EXIT stops the app. The loader restores
@@ -20,6 +20,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "../app_api.h"
+#include "../aprs_profile.h"
 #include "aprsdigi_assets.h"
 
 /* PA4 audio capture and the 48 MHz cycle clock are resident (API level 3);
@@ -456,10 +457,19 @@ reset:
     }
 }
 
+/* The APRS Edit callsign, read from the APRS TX profile through the
+ * configuration proxy; the boot callsign when it is AUTO or APRS TX is absent. */
 static bool makeOwn(const app_api_t *A){
+    uint8_t p[APRS_PROFILE_LEN];
     char raw[12];
-    A->boot_callsign(raw,sizeof raw);
-    uint8_t n=0;
+    uint32_t magic;
+    A->cfg_load(p,sizeof p);
+    memcpy(&magic,p,sizeof magic);
+    uint8_t n=p[APRS_PROFILE_CALL_LEN];
+    if(magic==APRS_PROFILE_MAGIC&&n&&n<=APRS_CALL_MAX){
+        memcpy(raw,p+APRS_PROFILE_CALL,n); raw[n]='\0';
+    }else A->boot_callsign(raw,sizeof raw);
+    n=0;
     while(raw[n]){
         if(n>=6u||!callChar((uint8_t)raw[n])||raw[n]==' ') return false;
         g.call[n]=raw[n]; g.own[n]=(uint8_t)(raw[n]<<1); n++;
@@ -476,8 +486,6 @@ __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     uint8_t pending[FRAME_MAX];
     g.A=api; g.pendingBuf=pending; g.prevKey=APP_KEY_INVALID;
-    api->cfg_load(&g.mode,1u);
-    g.mode=(uint8_t)(g.mode==1u);
     api->af_capture_open();      /* PA4 bias and ADC channel 4, restored by close */
     api->set_af(APP_AF_FM);
     api->delay_ms(50);
@@ -496,5 +504,4 @@ void app_main(const app_api_t *api){
     api->af_capture_close();
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
-    api->cfg_save(&g.mode,1u);
 }

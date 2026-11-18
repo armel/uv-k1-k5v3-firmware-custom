@@ -4,16 +4,16 @@ APRS DIGI is a self-contained Fusion overlay application. It receives Bell 202
 AFSK at 1200 baud with the APRS RX software demodulator and repeats eligible
 AX.25 UI frames with the APRS TX tone generator.
 
-Version 0.1 starts as a `WIDE1-1` fill-in. Key `1` switches between:
+Version 0.2 starts as a `WIDE1-1` fill-in. Key `1` switches between:
 
 - `W1`: only `WIDE1-1` is accepted;
 - `W12`: both `WIDE1-1` and `WIDE2-1` are accepted.
 
-The selected mode is shown in a 3x5-font capsule in the status bar and is saved
-when the app closes. In either mode:
+The selected mode is shown in a 3x5-font capsule in the status bar. It is not
+saved: the app always starts in `W1`. In either mode:
 
 - the first unused path address must be `WIDE1-1`, or `WIDE2-1` in `W12`;
-- it is replaced in place by the boot-message callsign with SSID 3 and the H bit;
+- it is replaced in place by the digipeater callsign with SSID 3 and the H bit;
 - source, destination, remaining path and information bytes are preserved;
 - the FCS is recalculated;
 - the eight most recent logical packets are suppressed for up to 30 seconds,
@@ -25,20 +25,25 @@ when the app closes. In either mode:
 
 `WIDE2-2` and all higher hop counts remain unsupported.
 
-The app remains an overlay and does not add resident APRS support or change the
-overlay API.
+The app remains an overlay and does not add resident APRS support.
 
 ## Requirements
 
-- Fusion firmware and the matching application ABI level 2;
-- a plain 1-6 character callsign in boot-message line 1;
+- Fusion firmware with overlay ABI 1, API level 3 and the configuration-proxy
+  capability;
+- a callsign set in APRS Edit, or a plain 1-6 character callsign in
+  boot-message line 1;
 - FM on the selected VFO;
 - a non-zero squelch setting. The channel must remain squelch-closed for a
   randomized 100-227 ms before transmission. A pending frame is dropped after
   3 seconds. Hearing the same logical packet from another digipeater during
   that wait cancels the queued copy.
 
-The digipeater identifies as the boot callsign with SSID `-3`. EXIT stops it.
+The digipeater identifies as the APRS Edit callsign with SSID `-3`: it reads
+the APRS TX profile through the configuration proxy, as GeoNav does. When that
+callsign is `AUTO`, or APRS TX is not installed, the boot-message callsign is
+used instead. The profile SSID is ignored, so the digipeater never shares the
+beacon's address. EXIT stops it.
 The screen shows accepted AX.25 UI frames (`RX`) and transmitted frames (`DIGI`)
 on its second row, then logical duplicates (`DUP`) and all other drops (`DROP`)
 on its third row. A dotted separator and the large receive frequency match the

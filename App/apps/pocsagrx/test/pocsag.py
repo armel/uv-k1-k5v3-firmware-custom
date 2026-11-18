@@ -69,10 +69,11 @@ def message_bits(text, numeric):
     return out
 
 
-def batches(pages):
+def batches(pages, func0_alpha=False):
     """Codewords of a transmission for pages [(ric, function, text)], each
     page placed in its frame (ric & 7), idle words elsewhere; sync words
-    included. Numeric text for function FUNC_NUMERIC."""
+    included. Numeric text for function FUNC_NUMERIC, unless func0_alpha asks
+    for the non-standard function-0 alpha format seen on some networks."""
     words = []                                     # without the sync words
     for ric, func, text in pages:
         while (len(words) // 2) % 8 != (ric & 7):
@@ -80,10 +81,11 @@ def batches(pages):
         if len(words) & 1:
             words.append(IDLE)
         words.append(codeword(((ric >> 3) << 2) | func))
-        b = message_bits(text, func == FUNC_NUMERIC)
-        fill = [0, 0, 1, 1] if func == FUNC_NUMERIC else [0]   # space digits / NUL bits
+        numeric = func == FUNC_NUMERIC and not func0_alpha
+        b = message_bits(text, numeric)
+        fill = [0, 0, 1, 1] if numeric else [0]   # space digits / NUL bits
         while len(b) % 20:
-            b.append(fill[len(b) % len(fill)] if func == FUNC_NUMERIC else 0)
+            b.append(fill[len(b) % len(fill)] if numeric else 0)
         for i in range(0, len(b), 20):
             v = 0
             for bit in b[i:i + 20]:
@@ -98,9 +100,9 @@ def batches(pages):
     return out
 
 
-def bits(pages, preamble=PREAMBLE_BITS):
+def bits(pages, preamble=PREAMBLE_BITS, func0_alpha=False):
     out = [(i + 1) & 1 for i in range(preamble)]   # 1 0 1 0 ...
-    for cw in batches(pages):
+    for cw in batches(pages, func0_alpha=func0_alpha):
         out += [(cw >> i) & 1 for i in range(31, -1, -1)]
     return out
 

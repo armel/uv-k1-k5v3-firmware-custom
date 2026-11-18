@@ -215,6 +215,8 @@ static KEY_Code_t mb_get_key(void)
  * NOT paint the "F4HWN MULTIBOOT" status banner - just a plain acknowledged message. */
 void UI_MultibootShowConfigError(uint8_t err)
 {
+    char prompt[UI_TEXT_SIZE];
+
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     gKeyReading0 = KEY_INVALID;
     gKeyReading1 = KEY_INVALID;
@@ -223,7 +225,8 @@ void UI_MultibootShowConfigError(uint8_t err)
     UI_StatusClear();
     UI_PrintStringSmallNormal("CFG ERROR", 2, 126, 2);
     UI_PrintStringSmallNormal(mb_error_text(err), 2, 126, 4);
-    UI_PrintStringSmallNormal("Press any key", 2, 126, 6);
+    UI_LoadText(prompt, sizeof(prompt), UI_TEXT_PRESS_ANY_KEY);
+    UI_PrintStringSmallNormal(prompt, 2, 126, 6);
     ST7565_BlitStatusLine();
     ST7565_BlitFullScreen();
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -388,6 +391,9 @@ void UI_MultibootSelector(void)
     mb_slot_header_t headers[MB_SLOT_COUNT];
     uint8_t status[MB_SLOT_COUNT];
     uint8_t selected = 0;
+    char prompt[UI_TEXT_SIZE];
+
+    UI_LoadText(prompt, sizeof(prompt), UI_TEXT_PRESS_ANY_KEY);
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     /* The selector is entered from a boot key event. Clear that stale key so
@@ -449,7 +455,7 @@ void UI_MultibootSelector(void)
 
         if (status[selected] != MB_OK)
         {
-            mb_show_message("SLOT NOT VALID", mb_error_text(status[selected]), "Press any key");
+            mb_show_message("SLOT NOT VALID", mb_error_text(status[selected]), prompt);
             (void)mb_get_key();
             continue;
         }
@@ -465,7 +471,7 @@ void UI_MultibootSelector(void)
          * (e.g. when two slots hold the same firmware image). */
         if (MB_SetActiveSlot(selected) != MB_OK)
         {
-            mb_show_message("STATE ERROR", "Marker not saved", "Press any key");
+            mb_show_message("STATE ERROR", "Marker not saved", prompt);
             (void)mb_get_key();
             continue;
         }
@@ -475,7 +481,7 @@ void UI_MultibootSelector(void)
 
         /* Only reached when the final pre-erase validation refused the slot. */
         status[selected] = err;
-        mb_show_message("RESTORE REFUSED", mb_error_text(err), "Press any key");
+        mb_show_message("RESTORE REFUSED", mb_error_text(err), prompt);
         (void)mb_get_key();
         mb_scan_slots(headers, status);
     }

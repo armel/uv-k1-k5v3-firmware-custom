@@ -538,6 +538,7 @@ static void handleKeys(void){
     if(key==APP_KEY_EXIT) g.running=false;
     else if(key==APP_KEY_2){ g.count=g.cur=0; g.nOk=0; }
     else if(key==APP_KEY_1) g.spk^=1u;
+    g.A->cfg_save(&g.spk,1);     /* staged after each key: kept across a switch-off */
 }
 
 /* ---- keys, alert and screen, between calls ---- */
@@ -632,5 +633,4 @@ void app_main(const app_api_t *api){
     api->af_capture_close();
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
-    api->cfg_save(&g.spk,1);
 }

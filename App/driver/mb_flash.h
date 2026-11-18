@@ -84,7 +84,8 @@ enum {
     MB_ERR_SLOT,         /* slot or bank index out of range   */
     MB_ERR_AUTH,         /* write refused: timestamp mismatch */
     MB_ERR_RAM_LOAD,     /* restore stub RAM copy mismatch    */
-    MB_ERR_PROTECTED     /* write overlaps protected data     */
+    MB_ERR_PROTECTED,    /* write overlaps protected data     */
+    MB_ERR_MISMATCH      /* assets built for another firmware */
 };
 
 /* CRC-32 (zlib) over a resident memory buffer.  Multiboot and overlay apps
@@ -123,6 +124,30 @@ uint8_t MB_SlotInfo(uint8_t slot, mb_slot_header_t *out_header);
 uint8_t MB_SlotErase(uint8_t slot);
 uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
 
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+/*
+ * Firmware asset zones (see fw_assets.h): one 16 KiB zone per firmware slot,
+ * outside the slots themselves, so slot 0 (the firmware-managed backup) gets
+ * its assets from the host like the user slots. Same rules as the slot
+ * commands: external flash only, erase first, the host writes the pack header
+ * last so an interrupted upload never validates.
+ *
+ *  - MB_AssetValidate reads the pack header and checks the payload CRC-32. With
+ *                     build_id != NULL it also requires the pack of exactly
+ *                     this firmware (build id + payload size), else
+ *                     MB_ERR_MISMATCH. out_header (may be NULL) gets the
+ *                     header as read.
+ */
+#define MB_ASSET_REGION_BASE    0x001CA000u     /* 5 zones, just below Sonic 4K     */
+#define MB_ASSET_SLOT_SIZE      0x00004000u     /* 16 KiB: pack header + payload    */
+#define MB_ASSET_HEADER_SIZE    32u             /* sizeof(fw_assets_header_t)       */
+
+uint8_t MB_AssetValidate(uint8_t slot, const uint8_t *build_id, uint32_t payload_size,
+                         void *out_header);
+uint8_t MB_AssetErase(uint8_t slot);
+uint8_t MB_AssetWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len);
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* Config banks (one per slot by default, switchable via SetCfg).             */
 /*                                                                            */
@@ -153,7 +178,8 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
 /*   0x0F0000  bank 4 config  (64 KiB)                 ]                      */
 /*   0x100000  multiboot state A (4 KiB marker)        ] shared               */
 /*   0x101000  multiboot state B (4 KiB marker)        ] redundant            */
-/*   0x102000  overlay apps + expansion reserve                               */
+/*   0x102000  overlay apps + expansion reserve (100 slots max)               */
+/*   0x1CA000  firmware assets, 16 KiB per firmware slot (5 x 16 KiB)         */
 /*   0x1DE000  Sonic 4K interoperability reserve through 0x1FFFFF (136 KiB)    */
 /*                                                                            */
 /* Banks are 64 KiB for headroom; the live config footprint is ~44 KiB (max   */

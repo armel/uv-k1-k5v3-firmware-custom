@@ -1,0 +1,272 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+<title>Quansheng UV-K1</title>
+<defs>
+  <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+    <stop offset="0" stop-color="#2a2d31"/><stop offset="1" stop-color="#0c0d0f"/>
+  </radialGradient>
+  <linearGradient id="cyl" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#0b0c0d"/><stop offset=".22" stop-color="#3a3c40"/>
+    <stop offset=".45" stop-color="#1c1d20"/><stop offset="1" stop-color="#08090a"/>
+  </linearGradient>
+  <linearGradient id="blueCap" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#5aa8f0"/><stop offset=".5" stop-color="#2b7fd6"/>
+    <stop offset="1" stop-color="#1655a3"/>
+  </linearGradient>
+  <linearGradient id="blueSide" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#1a5fb4"/><stop offset=".5" stop-color="#3d93e6"/>
+    <stop offset="1" stop-color="#174f96"/>
+  </linearGradient>
+  <linearGradient id="shoulder" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3a3c40"/><stop offset=".25" stop-color="#1f2023"/>
+    <stop offset="1" stop-color="#121315"/>
+  </linearGradient>
+  <linearGradient id="panelH" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#3d4044"/><stop offset=".06" stop-color="#686b71"/>
+    <stop offset=".35" stop-color="#73767c"/><stop offset=".7" stop-color="#6a6d73"/>
+    <stop offset=".94" stop-color="#5d6065"/><stop offset="1" stop-color="#383b3f"/>
+  </linearGradient>
+  <linearGradient id="panelV" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".10"/>
+    <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000000" stop-opacity=".18"/>
+  </linearGradient>
+  <linearGradient id="railL" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#0d0e0f"/><stop offset=".55" stop-color="#26282b"/>
+    <stop offset="1" stop-color="#151618"/>
+  </linearGradient>
+  <linearGradient id="railR" x1="1" x2="0" y1="0" y2="0">
+    <stop offset="0" stop-color="#0d0e0f"/><stop offset=".55" stop-color="#26282b"/>
+    <stop offset="1" stop-color="#151618"/>
+  </linearGradient>
+  <linearGradient id="bezel" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#2a2c2f"/><stop offset=".12" stop-color="#151618"/>
+    <stop offset="1" stop-color="#0b0c0d"/>
+  </linearGradient>
+  <linearGradient id="glass" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#dfe3dd"/><stop offset=".5" stop-color="#eef1ec"/>
+    <stop offset="1" stop-color="#d9ddd6"/>
+  </linearGradient>
+  <linearGradient id="gloss" x1="0" x2="1" y1="0" y2="1">
+    <stop offset="0" stop-color="#ffffff" stop-opacity=".35"/>
+    <stop offset=".45" stop-color="#ffffff" stop-opacity=".06"/>
+    <stop offset=".46" stop-color="#ffffff" stop-opacity="0"/>
+    <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="plate" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3b3d41"/><stop offset="1" stop-color="#26272a"/>
+  </linearGradient>
+  <linearGradient id="key" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#34363a"/><stop offset=".18" stop-color="#1d1e21"/>
+    <stop offset=".85" stop-color="#141517"/><stop offset="1" stop-color="#0b0b0c"/>
+  </linearGradient>
+  <linearGradient id="well" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#2a2b2e"/><stop offset="1" stop-color="#4a4c51"/>
+  </linearGradient>
+  <radialGradient id="ledGreen" cx="50%" cy="40%" r="65%">
+    <stop offset="0" stop-color="#eaffef"/><stop offset=".35" stop-color="#7dff9c"/>
+    <stop offset="1" stop-color="#16c94a"/>
+  </radialGradient>
+  <radialGradient id="torchLens" cx="45%" cy="40%" r="60%">
+    <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#f2f5f8"/>
+    <stop offset="1" stop-color="#aab2bb"/>
+  </radialGradient>
+  <linearGradient id="rubber" x1="0" x2="1" y1="0" y2="0">
+    <stop offset="0" stop-color="#0c0d0e"/><stop offset=".45" stop-color="#34373b"/>
+    <stop offset="1" stop-color="#1a1b1e"/>
+  </linearGradient>
+  <linearGradient id="chamfer" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#8d9096"/><stop offset=".25" stop-color="#5f6267"/>
+    <stop offset="1" stop-color="#3f4246"/>
+  </linearGradient>
+  <filter id="glow" x="-80%" y="-150%" width="260%" height="400%">
+    <feGaussianBlur stdDeviation="6"/>
+  </filter>
+  <filter id="drop" x="-10%" y="-10%" width="120%" height="130%">
+    <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity=".55"/>
+  </filter>
+  <filter id="soft" x="-5%" y="-5%" width="110%" height="110%">
+    <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity=".6"/>
+  </filter>
+</defs>
+<defs>
+  <linearGradient id="pill" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#3a3c41"/><stop offset=".2" stop-color="#232427"/>
+    <stop offset="1" stop-color="#121315"/>
+  </linearGradient>
+  <linearGradient id="bodyV" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="#4b4e53"/><stop offset=".07" stop-color="#73767c"/>
+    <stop offset=".5" stop-color="#6c6f75"/><stop offset=".93" stop-color="#5d6065"/>
+    <stop offset="1" stop-color="#383b3f"/>
+  </linearGradient>
+</defs>
+<rect width="1280" height="720" fill="url(#bg)"/>
+<rect x="8" y="8" width="1264" height="704" rx="44" fill="url(#bodyV)"/>
+<path d="M8 52 Q8 8 52 8 H56 V712 H52 Q8 712 8 668 Z" fill="url(#railL)"/>
+<path d="M1272 52 Q1272 8 1228 8 H1224 V712 H1228 Q1272 712 1272 668 Z" fill="url(#railR)"/>
+<g transform="translate(128 -126) scale(0.8)">
+<rect x="155" y="180" width="410" height="76" rx="6" fill="#0b0b0c" stroke="#3a3c40" stroke-width="1.5"/>
+<g fill="none" stroke="#f4f5f6" stroke-width="5" stroke-linecap="round">
+<path d="M225.4 233.2 A11 11 0 0 1 234.5 225.1"/>
+<path d="M216.7 230.8 A20 20 0 0 1 233.2 216.2"/>
+<path d="M208.0 228.5 A29 29 0 0 1 232.0 207.3"/>
+</g>
+<text x="236" y="236" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="900" font-style="italic" fill="#f4f5f6" textLength="300" lengthAdjust="spacingAndGlyphs">QUAN<tspan dx="6">SHENG</tspan></text>
+</g>
+<rect x="68" y="95" width="696" height="600" rx="42" fill="#000" opacity=".35"/>
+<rect x="70" y="92" width="692" height="596" rx="40" fill="url(#bezel)"/>
+<rect x="82" y="104" width="668" height="572" rx="30" fill="none" stroke="#2c2e31" stroke-width="2"/>
+<rect x="78" y="134" width="676" height="512" rx="7" fill="#050506"/>
+<rect x="84" y="140" width="664" height="500" rx="4" fill="url(#glass)"/>
+<path transform="translate(97.5 153) scale(5 7.5)" d="M2 0h3v1h-3zM7 0h1v1h-1zM11 0h1v1h-1zM18 0h4v1h-4zM24 0h1v1h-1zM28 0h1v1h-1zM54 0h3v1h-3zM59 0h1v1h-1zM87 0h1v1h-1zM92 0h4v1h-4zM99 0h4v1h-4zM105 0h2v1h-2zM110 0h1v1h-1zM114 0h14v1h-14zM1 1h1v1h-1zM5 1h1v1h-1zM7 1h2v1h-2zM10 1h2v1h-2zM18 1h1v1h-1zM22 1h1v1h-1zM24 1h1v1h-1zM28 1h1v1h-1zM53 1h1v1h-1zM57 1h1v1h-1zM59 1h1v1h-1zM86 1h2v1h-2zM91 1h1v1h-1zM96 1h1v1h-1zM98 1h1v1h-1zM103 1h1v1h-1zM105 1h2v1h-2zM109 1h1v1h-1zM112 1h2v1h-2zM127 1h1v1h-1zM1 2h1v1h-1zM7 2h1v1h-1zM9 2h1v1h-1zM11 2h1v1h-1zM18 2h1v1h-1zM22 2h1v1h-1zM24 2h1v1h-1zM28 2h1v1h-1zM53 2h1v1h-1zM59 2h1v1h-1zM87 2h1v1h-1zM91 2h1v1h-1zM96 2h1v1h-1zM98 2h1v1h-1zM103 2h1v1h-1zM108 2h1v1h-1zM112 2h1v1h-1zM115 2h2v1h-2zM118 2h2v1h-2zM121 2h2v1h-2zM124 2h2v1h-2zM127 2h1v1h-1zM1 3h1v1h-1zM7 3h1v1h-1zM9 3h1v1h-1zM11 3h1v1h-1zM18 3h1v1h-1zM22 3h1v1h-1zM24 3h1v1h-1zM26 3h1v1h-1zM28 3h1v1h-1zM53 3h1v1h-1zM59 3h1v1h-1zM87 3h1v1h-1zM91 3h1v1h-1zM96 3h1v1h-1zM98 3h1v1h-1zM103 3h1v1h-1zM107 3h1v1h-1zM112 3h1v1h-1zM115 3h2v1h-2zM118 3h2v1h-2zM121 3h2v1h-2zM124 3h2v1h-2zM127 3h1v1h-1zM1 4h1v1h-1zM7 4h1v1h-1zM9 4h1v1h-1zM11 4h1v1h-1zM18 4h1v1h-1zM22 4h1v1h-1zM24 4h1v1h-1zM26 4h1v1h-1zM28 4h1v1h-1zM53 4h1v1h-1zM59 4h1v1h-1zM87 4h1v1h-1zM91 4h1v1h-1zM96 4h1v1h-1zM98 4h1v1h-1zM103 4h1v1h-1zM106 4h1v1h-1zM112 4h1v1h-1zM115 4h2v1h-2zM118 4h2v1h-2zM121 4h2v1h-2zM124 4h2v1h-2zM127 4h1v1h-1zM1 5h1v1h-1zM5 5h1v1h-1zM7 5h1v1h-1zM11 5h1v1h-1zM18 5h1v1h-1zM22 5h1v1h-1zM24 5h1v1h-1zM26 5h1v1h-1zM28 5h1v1h-1zM53 5h1v1h-1zM57 5h1v1h-1zM59 5h1v1h-1zM87 5h1v1h-1zM91 5h1v1h-1zM96 5h1v1h-1zM98 5h1v1h-1zM103 5h1v1h-1zM105 5h1v1h-1zM109 5h2v1h-2zM112 5h2v1h-2zM127 5h1v1h-1zM2 6h3v1h-3zM7 6h1v1h-1zM11 6h1v1h-1zM18 6h4v1h-4zM25 6h1v1h-1zM27 6h1v1h-1zM54 6h3v1h-3zM59 6h5v1h-5zM85 6h5v1h-5zM92 6h4v1h-4zM99 6h4v1h-4zM105 6h1v1h-1zM109 6h2v1h-2zM114 6h14v1h-14zM37 8h6v1h-6zM47 8h2v1h-2zM51 8h2v1h-2zM55 8h2v1h-2zM58 8h2v1h-2zM62 8h2v1h-2zM65 8h2v1h-2zM69 8h2v1h-2zM114 8h13v1h-13zM0 9h2v1h-2zM37 9h6v1h-6zM46 9h3v1h-3zM51 9h2v1h-2zM55 9h2v1h-2zM58 9h2v1h-2zM62 9h2v1h-2zM65 9h2v1h-2zM69 9h2v1h-2zM113 9h2v1h-2zM117 9h2v1h-2zM121 9h2v1h-2zM126 9h2v1h-2zM0 10h4v1h-4zM37 10h2v1h-2zM45 10h4v1h-4zM51 10h6v1h-6zM58 10h2v1h-2zM62 10h2v1h-2zM65 10h3v1h-3zM69 10h2v1h-2zM113 10h2v1h-2zM116 10h1v1h-1zM118 10h1v1h-1zM120 10h1v1h-1zM122 10h1v1h-1zM124 10h4v1h-4zM0 11h6v1h-6zM37 11h5v1h-5zM44 11h2v1h-2zM47 11h2v1h-2zM51 11h6v1h-6zM58 11h2v1h-2zM62 11h2v1h-2zM65 11h6v1h-6zM113 11h2v1h-2zM118 11h1v1h-1zM122 11h1v1h-1zM126 11h2v1h-2zM0 12h4v1h-4zM37 12h5v1h-5zM44 12h6v1h-6zM51 12h2v1h-2zM55 12h2v1h-2zM58 12h6v1h-6zM65 12h2v1h-2zM68 12h3v1h-3zM113 12h2v1h-2zM117 12h2v1h-2zM121 12h2v1h-2zM124 12h4v1h-4zM0 13h2v1h-2zM37 13h2v1h-2zM44 13h6v1h-6zM51 13h2v1h-2zM55 13h2v1h-2zM58 13h6v1h-6zM65 13h2v1h-2zM69 13h2v1h-2zM113 13h2v1h-2zM116 13h1v1h-1zM118 13h1v1h-1zM120 13h1v1h-1zM122 13h1v1h-1zM124 13h4v1h-4zM37 14h2v1h-2zM47 14h2v1h-2zM51 14h2v1h-2zM55 14h2v1h-2zM59 14h1v1h-1zM62 14h1v1h-1zM65 14h2v1h-2zM69 14h2v1h-2zM114 14h13v1h-13zM1 15h29v1h-29zM0 16h3v1h-3zM7 16h3v1h-3zM14 16h3v1h-3zM21 16h3v1h-3zM28 16h3v1h-3zM40 16h2v1h-2zM45 16h4v1h-4zM54 16h2v1h-2zM66 16h4v1h-4zM72 16h6v1h-6zM79 16h6v1h-6zM87 16h4v1h-4zM94 16h4v1h-4zM0 17h2v1h-2zM3 17h4v1h-4zM8 17h1v1h-1zM10 17h4v1h-4zM15 17h1v1h-1zM17 17h4v1h-4zM22 17h1v1h-1zM24 17h4v1h-4zM29 17h2v1h-2zM39 17h1v1h-1zM41 17h1v1h-1zM44 17h1v1h-1zM49 17h1v1h-1zM53 17h1v1h-1zM55 17h1v1h-1zM65 17h1v1h-1zM70 17h1v1h-1zM77 17h1v1h-1zM79 17h1v1h-1zM86 17h1v1h-1zM91 17h1v1h-1zM93 17h1v1h-1zM98 17h1v1h-1zM0 18h2v1h-2zM3 18h4v1h-4zM8 18h1v1h-1zM10 18h4v1h-4zM15 18h1v1h-1zM17 18h4v1h-4zM22 18h6v1h-6zM29 18h2v1h-2zM38 18h1v1h-1zM41 18h1v1h-1zM49 18h1v1h-1zM52 18h1v1h-1zM55 18h1v1h-1zM65 18h1v1h-1zM70 18h1v1h-1zM76 18h1v1h-1zM79 18h5v1h-5zM86 18h1v1h-1zM91 18h1v1h-1zM93 18h1v1h-1zM98 18h1v1h-1zM0 19h2v1h-2zM3 19h4v1h-4zM8 19h1v1h-1zM10 19h4v1h-4zM15 19h1v1h-1zM17 19h4v1h-4zM22 19h3v1h-3zM28 19h3v1h-3zM37 19h1v1h-1zM41 19h1v1h-1zM46 19h3v1h-3zM51 19h1v1h-1zM55 19h1v1h-1zM66 19h5v1h-5zM75 19h1v1h-1zM84 19h1v1h-1zM86 19h1v1h-1zM91 19h1v1h-1zM93 19h1v1h-1zM98 19h1v1h-1zM0 20h2v1h-2zM3 20h4v1h-4zM8 20h1v1h-1zM10 20h4v1h-4zM15 20h1v1h-1zM17 20h4v1h-4zM22 20h6v1h-6zM29 20h2v1h-2zM37 20h6v1h-6zM49 20h1v1h-1zM51 20h6v1h-6zM70 20h1v1h-1zM74 20h1v1h-1zM84 20h1v1h-1zM86 20h1v1h-1zM91 20h1v1h-1zM93 20h1v1h-1zM98 20h1v1h-1zM0 21h2v1h-2zM3 21h4v1h-4zM8 21h1v1h-1zM10 21h4v1h-4zM15 21h1v1h-1zM17 21h4v1h-4zM22 21h1v1h-1zM24 21h4v1h-4zM29 21h2v1h-2zM41 21h1v1h-1zM44 21h1v1h-1zM49 21h1v1h-1zM55 21h1v1h-1zM60 21h2v1h-2zM69 21h1v1h-1zM74 21h1v1h-1zM79 21h1v1h-1zM84 21h1v1h-1zM86 21h1v1h-1zM91 21h1v1h-1zM93 21h1v1h-1zM98 21h1v1h-1zM0 22h3v1h-3zM7 22h3v1h-3zM14 22h3v1h-3zM21 22h3v1h-3zM28 22h3v1h-3zM41 22h1v1h-1zM45 22h4v1h-4zM55 22h1v1h-1zM60 22h2v1h-2zM65 22h4v1h-4zM74 22h1v1h-1zM80 22h4v1h-4zM87 22h4v1h-4zM94 22h4v1h-4zM1 23h29v1h-29zM3 25h3v1h-3zM7 25h1v1h-1zM9 25h1v1h-1zM24 25h1v1h-1zM29 25h1v1h-1zM32 25h1v1h-1zM34 25h1v1h-1zM36 25h2v1h-2zM59 25h2v1h-2zM66 25h2v1h-2zM70 25h3v1h-3zM74 25h1v1h-1zM76 25h1v1h-1zM91 25h1v1h-1zM93 25h1v1h-1zM96 25h1v1h-1zM99 25h2v1h-2zM111 25h2v1h-2zM115 25h1v1h-1zM118 25h1v1h-1zM123 25h1v1h-1zM3 26h1v1h-1zM7 26h3v1h-3zM24 26h1v1h-1zM28 26h1v1h-1zM30 26h1v1h-1zM32 26h1v1h-1zM34 26h1v1h-1zM38 26h1v1h-1zM58 26h1v1h-1zM68 26h1v1h-1zM70 26h1v1h-1zM74 26h1v1h-1zM76 26h1v1h-1zM91 26h3v1h-3zM95 26h1v1h-1zM97 26h1v1h-1zM99 26h1v1h-1zM101 26h1v1h-1zM110 26h1v1h-1zM114 26h1v1h-1zM116 26h1v1h-1zM118 26h1v1h-1zM122 26h2v1h-2zM3 27h3v1h-3zM7 27h3v1h-3zM24 27h1v1h-1zM28 27h1v1h-1zM30 27h1v1h-1zM32 27h3v1h-3zM37 27h1v1h-1zM58 27h3v1h-3zM67 27h1v1h-1zM70 27h2v1h-2zM74 27h2v1h-2zM91 27h3v1h-3zM95 27h3v1h-3zM99 27h3v1h-3zM111 27h1v1h-1zM114 27h1v1h-1zM116 27h1v1h-1zM118 27h1v1h-1zM123 27h1v1h-1zM3 28h1v1h-1zM7 28h1v1h-1zM9 28h1v1h-1zM24 28h1v1h-1zM28 28h1v1h-1zM30 28h1v1h-1zM32 28h3v1h-3zM36 28h1v1h-1zM58 28h1v1h-1zM60 28h1v1h-1zM66 28h1v1h-1zM72 28h1v1h-1zM74 28h1v1h-1zM76 28h1v1h-1zM91 28h3v1h-3zM95 28h1v1h-1zM97 28h1v1h-1zM99 28h2v1h-2zM112 28h1v1h-1zM114 28h3v1h-3zM118 28h1v1h-1zM123 28h1v1h-1zM3 29h1v1h-1zM7 29h1v1h-1zM9 29h1v1h-1zM24 29h3v1h-3zM29 29h1v1h-1zM32 29h1v1h-1zM34 29h1v1h-1zM36 29h3v1h-3zM58 29h3v1h-3zM63 29h1v1h-1zM66 29h3v1h-3zM70 29h2v1h-2zM74 29h1v1h-1zM76 29h1v1h-1zM91 29h1v1h-1zM93 29h1v1h-1zM95 29h1v1h-1zM97 29h1v1h-1zM99 29h1v1h-1zM101 29h1v1h-1zM110 29h2v1h-2zM115 29h2v1h-2zM118 29h3v1h-3zM123 29h1v1h-1zM38 40h4v1h-4zM44 40h5v1h-5zM51 40h5v1h-5zM59 40h4v1h-4zM114 40h13v1h-13zM8 41h1v1h-1zM12 41h1v1h-1zM37 41h1v1h-1zM42 41h1v1h-1zM44 41h1v1h-1zM49 41h1v1h-1zM51 41h1v1h-1zM56 41h1v1h-1zM58 41h1v1h-1zM63 41h1v1h-1zM113 41h2v1h-2zM118 41h2v1h-2zM122 41h1v1h-1zM126 41h2v1h-2zM9 42h1v1h-1zM13 42h1v1h-1zM37 42h1v1h-1zM42 42h1v1h-1zM44 42h1v1h-1zM49 42h1v1h-1zM51 42h1v1h-1zM56 42h1v1h-1zM58 42h1v1h-1zM113 42h3v1h-3zM117 42h2v1h-2zM120 42h4v1h-4zM125 42h3v1h-3zM10 43h1v1h-1zM14 43h1v1h-1zM37 43h6v1h-6zM44 43h5v1h-5zM51 43h5v1h-5zM59 43h4v1h-4zM113 43h3v1h-3zM117 43h3v1h-3zM121 43h3v1h-3zM125 43h3v1h-3zM9 44h1v1h-1zM13 44h1v1h-1zM37 44h1v1h-1zM42 44h1v1h-1zM44 44h1v1h-1zM51 44h1v1h-1zM54 44h1v1h-1zM63 44h1v1h-1zM113 44h3v1h-3zM117 44h4v1h-4zM122 44h2v1h-2zM125 44h3v1h-3zM8 45h1v1h-1zM12 45h1v1h-1zM37 45h1v1h-1zM42 45h1v1h-1zM44 45h1v1h-1zM51 45h1v1h-1zM55 45h1v1h-1zM58 45h1v1h-1zM63 45h1v1h-1zM113 45h3v1h-3zM117 45h2v1h-2zM121 45h3v1h-3zM125 45h3v1h-3zM37 46h1v1h-1zM42 46h1v1h-1zM44 46h1v1h-1zM51 46h1v1h-1zM56 46h1v1h-1zM59 46h4v1h-4zM114 46h13v1h-13zM1 47h29v1h-29zM0 48h3v1h-3zM7 48h2v1h-2zM15 48h2v1h-2zM21 48h5v1h-5zM27 48h4v1h-4zM40 48h1v1h-1zM47 48h2v1h-2zM54 48h2v1h-2zM66 48h4v1h-4zM73 48h4v1h-4zM80 48h4v1h-4zM87 48h4v1h-4zM94 48h4v1h-4zM0 49h2v1h-2zM3 49h4v1h-4zM8 49h1v1h-1zM10 49h6v1h-6zM17 49h4v1h-4zM22 49h3v1h-3zM27 49h4v1h-4zM39 49h2v1h-2zM46 49h1v1h-1zM48 49h1v1h-1zM53 49h1v1h-1zM55 49h1v1h-1zM65 49h1v1h-1zM70 49h1v1h-1zM72 49h1v1h-1zM77 49h1v1h-1zM79 49h1v1h-1zM84 49h1v1h-1zM86 49h1v1h-1zM91 49h1v1h-1zM93 49h1v1h-1zM98 49h1v1h-1zM0 50h2v1h-2zM3 50h4v1h-4zM8 50h1v1h-1zM14 50h2v1h-2zM17 50h4v1h-4zM22 50h4v1h-4zM27 50h4v1h-4zM40 50h1v1h-1zM45 50h1v1h-1zM48 50h1v1h-1zM52 50h1v1h-1zM55 50h1v1h-1zM65 50h1v1h-1zM70 50h1v1h-1zM72 50h1v1h-1zM77 50h1v1h-1zM79 50h1v1h-1zM84 50h1v1h-1zM86 50h1v1h-1zM91 50h1v1h-1zM93 50h1v1h-1zM98 50h1v1h-1zM0 51h2v1h-2zM3 51h4v1h-4zM8 51h6v1h-6zM15 51h1v1h-1zM17 51h4v1h-4zM22 51h4v1h-4zM27 51h4v1h-4zM40 51h1v1h-1zM44 51h1v1h-1zM48 51h1v1h-1zM51 51h1v1h-1zM55 51h1v1h-1zM66 51h4v1h-4zM72 51h1v1h-1zM77 51h1v1h-1zM79 51h1v1h-1zM84 51h1v1h-1zM86 51h1v1h-1zM91 51h1v1h-1zM93 51h1v1h-1zM98 51h1v1h-1zM0 52h2v1h-2zM3 52h4v1h-4zM8 52h6v1h-6zM15 52h1v1h-1zM17 52h4v1h-4zM22 52h4v1h-4zM27 52h4v1h-4zM40 52h1v1h-1zM44 52h6v1h-6zM51 52h6v1h-6zM65 52h1v1h-1zM70 52h1v1h-1zM72 52h1v1h-1zM77 52h1v1h-1zM79 52h1v1h-1zM84 52h1v1h-1zM86 52h1v1h-1zM91 52h1v1h-1zM93 52h1v1h-1zM98 52h1v1h-1zM0 53h2v1h-2zM3 53h4v1h-4zM8 53h1v1h-1zM10 53h4v1h-4zM15 53h1v1h-1zM17 53h4v1h-4zM22 53h4v1h-4zM27 53h4v1h-4zM40 53h1v1h-1zM48 53h1v1h-1zM55 53h1v1h-1zM60 53h2v1h-2zM65 53h1v1h-1zM70 53h1v1h-1zM72 53h1v1h-1zM77 53h1v1h-1zM79 53h1v1h-1zM84 53h1v1h-1zM86 53h1v1h-1zM91 53h1v1h-1zM93 53h1v1h-1zM98 53h1v1h-1zM0 54h3v1h-3zM7 54h3v1h-3zM14 54h3v1h-3zM21 54h3v1h-3zM29 54h2v1h-2zM38 54h5v1h-5zM48 54h1v1h-1zM55 54h1v1h-1zM60 54h2v1h-2zM66 54h4v1h-4zM73 54h4v1h-4zM80 54h4v1h-4zM87 54h4v1h-4zM94 54h4v1h-4zM1 55h29v1h-29zM3 57h3v1h-3zM7 57h1v1h-1zM9 57h1v1h-1zM19 57h1v1h-1zM24 57h1v1h-1zM26 57h1v1h-1zM28 57h3v1h-3zM33 57h2v1h-2zM36 57h1v1h-1zM38 57h1v1h-1zM59 57h1v1h-1zM62 57h2v1h-2zM70 57h3v1h-3zM75 57h2v1h-2zM78 57h1v1h-1zM80 57h1v1h-1zM91 57h1v1h-1zM93 57h1v1h-1zM95 57h3v1h-3zM99 57h2v1h-2zM103 57h3v1h-3zM3 58h1v1h-1zM7 58h3v1h-3zM19 58h2v1h-2zM24 58h1v1h-1zM26 58h1v1h-1zM29 58h1v1h-1zM32 58h1v1h-1zM36 58h1v1h-1zM38 58h1v1h-1zM58 58h2v1h-2zM64 58h1v1h-1zM70 58h1v1h-1zM74 58h1v1h-1zM76 58h1v1h-1zM78 58h1v1h-1zM80 58h1v1h-1zM91 58h1v1h-1zM93 58h1v1h-1zM96 58h1v1h-1zM99 58h1v1h-1zM101 58h1v1h-1zM103 58h1v1h-1zM3 59h3v1h-3zM7 59h3v1h-3zM19 59h3v1h-3zM24 59h3v1h-3zM29 59h1v1h-1zM32 59h3v1h-3zM36 59h3v1h-3zM59 59h1v1h-1zM63 59h1v1h-1zM70 59h2v1h-2zM74 59h1v1h-1zM76 59h1v1h-1zM78 59h2v1h-2zM91 59h3v1h-3zM96 59h1v1h-1zM99 59h1v1h-1zM101 59h1v1h-1zM103 59h3v1h-3zM3 60h1v1h-1zM7 60h1v1h-1zM9 60h1v1h-1zM19 60h2v1h-2zM24 60h1v1h-1zM26 60h1v1h-1zM29 60h1v1h-1zM32 60h1v1h-1zM34 60h1v1h-1zM36 60h1v1h-1zM38 60h1v1h-1zM59 60h1v1h-1zM62 60h1v1h-1zM72 60h1v1h-1zM74 60h1v1h-1zM76 60h1v1h-1zM78 60h1v1h-1zM80 60h1v1h-1zM91 60h3v1h-3zM96 60h1v1h-1zM99 60h1v1h-1zM101 60h1v1h-1zM103 60h1v1h-1zM3 61h1v1h-1zM7 61h1v1h-1zM9 61h1v1h-1zM19 61h1v1h-1zM24 61h1v1h-1zM26 61h1v1h-1zM28 61h3v1h-3zM33 61h2v1h-2zM36 61h1v1h-1zM38 61h1v1h-1zM59 61h1v1h-1zM62 61h3v1h-3zM67 61h1v1h-1zM70 61h2v1h-2zM74 61h2v1h-2zM78 61h1v1h-1zM80 61h1v1h-1zM91 61h1v1h-1zM93 61h1v1h-1zM95 61h3v1h-3zM99 61h2v1h-2zM103 61h3v1h-3z" fill="#000" opacity=".13"/>
+<path transform="translate(96 150) scale(5 7.5)" d="M2 0h3v1h-3zM7 0h1v1h-1zM11 0h1v1h-1zM18 0h4v1h-4zM24 0h1v1h-1zM28 0h1v1h-1zM54 0h3v1h-3zM59 0h1v1h-1zM87 0h1v1h-1zM92 0h4v1h-4zM99 0h4v1h-4zM105 0h2v1h-2zM110 0h1v1h-1zM114 0h14v1h-14zM1 1h1v1h-1zM5 1h1v1h-1zM7 1h2v1h-2zM10 1h2v1h-2zM18 1h1v1h-1zM22 1h1v1h-1zM24 1h1v1h-1zM28 1h1v1h-1zM53 1h1v1h-1zM57 1h1v1h-1zM59 1h1v1h-1zM86 1h2v1h-2zM91 1h1v1h-1zM96 1h1v1h-1zM98 1h1v1h-1zM103 1h1v1h-1zM105 1h2v1h-2zM109 1h1v1h-1zM112 1h2v1h-2zM127 1h1v1h-1zM1 2h1v1h-1zM7 2h1v1h-1zM9 2h1v1h-1zM11 2h1v1h-1zM18 2h1v1h-1zM22 2h1v1h-1zM24 2h1v1h-1zM28 2h1v1h-1zM53 2h1v1h-1zM59 2h1v1h-1zM87 2h1v1h-1zM91 2h1v1h-1zM96 2h1v1h-1zM98 2h1v1h-1zM103 2h1v1h-1zM108 2h1v1h-1zM112 2h1v1h-1zM115 2h2v1h-2zM118 2h2v1h-2zM121 2h2v1h-2zM124 2h2v1h-2zM127 2h1v1h-1zM1 3h1v1h-1zM7 3h1v1h-1zM9 3h1v1h-1zM11 3h1v1h-1zM18 3h1v1h-1zM22 3h1v1h-1zM24 3h1v1h-1zM26 3h1v1h-1zM28 3h1v1h-1zM53 3h1v1h-1zM59 3h1v1h-1zM87 3h1v1h-1zM91 3h1v1h-1zM96 3h1v1h-1zM98 3h1v1h-1zM103 3h1v1h-1zM107 3h1v1h-1zM112 3h1v1h-1zM115 3h2v1h-2zM118 3h2v1h-2zM121 3h2v1h-2zM124 3h2v1h-2zM127 3h1v1h-1zM1 4h1v1h-1zM7 4h1v1h-1zM9 4h1v1h-1zM11 4h1v1h-1zM18 4h1v1h-1zM22 4h1v1h-1zM24 4h1v1h-1zM26 4h1v1h-1zM28 4h1v1h-1zM53 4h1v1h-1zM59 4h1v1h-1zM87 4h1v1h-1zM91 4h1v1h-1zM96 4h1v1h-1zM98 4h1v1h-1zM103 4h1v1h-1zM106 4h1v1h-1zM112 4h1v1h-1zM115 4h2v1h-2zM118 4h2v1h-2zM121 4h2v1h-2zM124 4h2v1h-2zM127 4h1v1h-1zM1 5h1v1h-1zM5 5h1v1h-1zM7 5h1v1h-1zM11 5h1v1h-1zM18 5h1v1h-1zM22 5h1v1h-1zM24 5h1v1h-1zM26 5h1v1h-1zM28 5h1v1h-1zM53 5h1v1h-1zM57 5h1v1h-1zM59 5h1v1h-1zM87 5h1v1h-1zM91 5h1v1h-1zM96 5h1v1h-1zM98 5h1v1h-1zM103 5h1v1h-1zM105 5h1v1h-1zM109 5h2v1h-2zM112 5h2v1h-2zM127 5h1v1h-1zM2 6h3v1h-3zM7 6h1v1h-1zM11 6h1v1h-1zM18 6h4v1h-4zM25 6h1v1h-1zM27 6h1v1h-1zM54 6h3v1h-3zM59 6h5v1h-5zM85 6h5v1h-5zM92 6h4v1h-4zM99 6h4v1h-4zM105 6h1v1h-1zM109 6h2v1h-2zM114 6h14v1h-14zM37 8h6v1h-6zM47 8h2v1h-2zM51 8h2v1h-2zM55 8h2v1h-2zM58 8h2v1h-2zM62 8h2v1h-2zM65 8h2v1h-2zM69 8h2v1h-2zM114 8h13v1h-13zM0 9h2v1h-2zM37 9h6v1h-6zM46 9h3v1h-3zM51 9h2v1h-2zM55 9h2v1h-2zM58 9h2v1h-2zM62 9h2v1h-2zM65 9h2v1h-2zM69 9h2v1h-2zM113 9h2v1h-2zM117 9h2v1h-2zM121 9h2v1h-2zM126 9h2v1h-2zM0 10h4v1h-4zM37 10h2v1h-2zM45 10h4v1h-4zM51 10h6v1h-6zM58 10h2v1h-2zM62 10h2v1h-2zM65 10h3v1h-3zM69 10h2v1h-2zM113 10h2v1h-2zM116 10h1v1h-1zM118 10h1v1h-1zM120 10h1v1h-1zM122 10h1v1h-1zM124 10h4v1h-4zM0 11h6v1h-6zM37 11h5v1h-5zM44 11h2v1h-2zM47 11h2v1h-2zM51 11h6v1h-6zM58 11h2v1h-2zM62 11h2v1h-2zM65 11h6v1h-6zM113 11h2v1h-2zM118 11h1v1h-1zM122 11h1v1h-1zM126 11h2v1h-2zM0 12h4v1h-4zM37 12h5v1h-5zM44 12h6v1h-6zM51 12h2v1h-2zM55 12h2v1h-2zM58 12h6v1h-6zM65 12h2v1h-2zM68 12h3v1h-3zM113 12h2v1h-2zM117 12h2v1h-2zM121 12h2v1h-2zM124 12h4v1h-4zM0 13h2v1h-2zM37 13h2v1h-2zM44 13h6v1h-6zM51 13h2v1h-2zM55 13h2v1h-2zM58 13h6v1h-6zM65 13h2v1h-2zM69 13h2v1h-2zM113 13h2v1h-2zM116 13h1v1h-1zM118 13h1v1h-1zM120 13h1v1h-1zM122 13h1v1h-1zM124 13h4v1h-4zM37 14h2v1h-2zM47 14h2v1h-2zM51 14h2v1h-2zM55 14h2v1h-2zM59 14h1v1h-1zM62 14h1v1h-1zM65 14h2v1h-2zM69 14h2v1h-2zM114 14h13v1h-13zM1 15h29v1h-29zM0 16h3v1h-3zM7 16h3v1h-3zM14 16h3v1h-3zM21 16h3v1h-3zM28 16h3v1h-3zM40 16h2v1h-2zM45 16h4v1h-4zM54 16h2v1h-2zM66 16h4v1h-4zM72 16h6v1h-6zM79 16h6v1h-6zM87 16h4v1h-4zM94 16h4v1h-4zM0 17h2v1h-2zM3 17h4v1h-4zM8 17h1v1h-1zM10 17h4v1h-4zM15 17h1v1h-1zM17 17h4v1h-4zM22 17h1v1h-1zM24 17h4v1h-4zM29 17h2v1h-2zM39 17h1v1h-1zM41 17h1v1h-1zM44 17h1v1h-1zM49 17h1v1h-1zM53 17h1v1h-1zM55 17h1v1h-1zM65 17h1v1h-1zM70 17h1v1h-1zM77 17h1v1h-1zM79 17h1v1h-1zM86 17h1v1h-1zM91 17h1v1h-1zM93 17h1v1h-1zM98 17h1v1h-1zM0 18h2v1h-2zM3 18h4v1h-4zM8 18h1v1h-1zM10 18h4v1h-4zM15 18h1v1h-1zM17 18h4v1h-4zM22 18h6v1h-6zM29 18h2v1h-2zM38 18h1v1h-1zM41 18h1v1h-1zM49 18h1v1h-1zM52 18h1v1h-1zM55 18h1v1h-1zM65 18h1v1h-1zM70 18h1v1h-1zM76 18h1v1h-1zM79 18h5v1h-5zM86 18h1v1h-1zM91 18h1v1h-1zM93 18h1v1h-1zM98 18h1v1h-1zM0 19h2v1h-2zM3 19h4v1h-4zM8 19h1v1h-1zM10 19h4v1h-4zM15 19h1v1h-1zM17 19h4v1h-4zM22 19h3v1h-3zM28 19h3v1h-3zM37 19h1v1h-1zM41 19h1v1h-1zM46 19h3v1h-3zM51 19h1v1h-1zM55 19h1v1h-1zM66 19h5v1h-5zM75 19h1v1h-1zM84 19h1v1h-1zM86 19h1v1h-1zM91 19h1v1h-1zM93 19h1v1h-1zM98 19h1v1h-1zM0 20h2v1h-2zM3 20h4v1h-4zM8 20h1v1h-1zM10 20h4v1h-4zM15 20h1v1h-1zM17 20h4v1h-4zM22 20h6v1h-6zM29 20h2v1h-2zM37 20h6v1h-6zM49 20h1v1h-1zM51 20h6v1h-6zM70 20h1v1h-1zM74 20h1v1h-1zM84 20h1v1h-1zM86 20h1v1h-1zM91 20h1v1h-1zM93 20h1v1h-1zM98 20h1v1h-1zM0 21h2v1h-2zM3 21h4v1h-4zM8 21h1v1h-1zM10 21h4v1h-4zM15 21h1v1h-1zM17 21h4v1h-4zM22 21h1v1h-1zM24 21h4v1h-4zM29 21h2v1h-2zM41 21h1v1h-1zM44 21h1v1h-1zM49 21h1v1h-1zM55 21h1v1h-1zM60 21h2v1h-2zM69 21h1v1h-1zM74 21h1v1h-1zM79 21h1v1h-1zM84 21h1v1h-1zM86 21h1v1h-1zM91 21h1v1h-1zM93 21h1v1h-1zM98 21h1v1h-1zM0 22h3v1h-3zM7 22h3v1h-3zM14 22h3v1h-3zM21 22h3v1h-3zM28 22h3v1h-3zM41 22h1v1h-1zM45 22h4v1h-4zM55 22h1v1h-1zM60 22h2v1h-2zM65 22h4v1h-4zM74 22h1v1h-1zM80 22h4v1h-4zM87 22h4v1h-4zM94 22h4v1h-4zM1 23h29v1h-29zM3 25h3v1h-3zM7 25h1v1h-1zM9 25h1v1h-1zM24 25h1v1h-1zM29 25h1v1h-1zM32 25h1v1h-1zM34 25h1v1h-1zM36 25h2v1h-2zM59 25h2v1h-2zM66 25h2v1h-2zM70 25h3v1h-3zM74 25h1v1h-1zM76 25h1v1h-1zM91 25h1v1h-1zM93 25h1v1h-1zM96 25h1v1h-1zM99 25h2v1h-2zM111 25h2v1h-2zM115 25h1v1h-1zM118 25h1v1h-1zM123 25h1v1h-1zM3 26h1v1h-1zM7 26h3v1h-3zM24 26h1v1h-1zM28 26h1v1h-1zM30 26h1v1h-1zM32 26h1v1h-1zM34 26h1v1h-1zM38 26h1v1h-1zM58 26h1v1h-1zM68 26h1v1h-1zM70 26h1v1h-1zM74 26h1v1h-1zM76 26h1v1h-1zM91 26h3v1h-3zM95 26h1v1h-1zM97 26h1v1h-1zM99 26h1v1h-1zM101 26h1v1h-1zM110 26h1v1h-1zM114 26h1v1h-1zM116 26h1v1h-1zM118 26h1v1h-1zM122 26h2v1h-2zM3 27h3v1h-3zM7 27h3v1h-3zM24 27h1v1h-1zM28 27h1v1h-1zM30 27h1v1h-1zM32 27h3v1h-3zM37 27h1v1h-1zM58 27h3v1h-3zM67 27h1v1h-1zM70 27h2v1h-2zM74 27h2v1h-2zM91 27h3v1h-3zM95 27h3v1h-3zM99 27h3v1h-3zM111 27h1v1h-1zM114 27h1v1h-1zM116 27h1v1h-1zM118 27h1v1h-1zM123 27h1v1h-1zM3 28h1v1h-1zM7 28h1v1h-1zM9 28h1v1h-1zM24 28h1v1h-1zM28 28h1v1h-1zM30 28h1v1h-1zM32 28h3v1h-3zM36 28h1v1h-1zM58 28h1v1h-1zM60 28h1v1h-1zM66 28h1v1h-1zM72 28h1v1h-1zM74 28h1v1h-1zM76 28h1v1h-1zM91 28h3v1h-3zM95 28h1v1h-1zM97 28h1v1h-1zM99 28h2v1h-2zM112 28h1v1h-1zM114 28h3v1h-3zM118 28h1v1h-1zM123 28h1v1h-1zM3 29h1v1h-1zM7 29h1v1h-1zM9 29h1v1h-1zM24 29h3v1h-3zM29 29h1v1h-1zM32 29h1v1h-1zM34 29h1v1h-1zM36 29h3v1h-3zM58 29h3v1h-3zM63 29h1v1h-1zM66 29h3v1h-3zM70 29h2v1h-2zM74 29h1v1h-1zM76 29h1v1h-1zM91 29h1v1h-1zM93 29h1v1h-1zM95 29h1v1h-1zM97 29h1v1h-1zM99 29h1v1h-1zM101 29h1v1h-1zM110 29h2v1h-2zM115 29h2v1h-2zM118 29h3v1h-3zM123 29h1v1h-1zM38 40h4v1h-4zM44 40h5v1h-5zM51 40h5v1h-5zM59 40h4v1h-4zM114 40h13v1h-13zM8 41h1v1h-1zM12 41h1v1h-1zM37 41h1v1h-1zM42 41h1v1h-1zM44 41h1v1h-1zM49 41h1v1h-1zM51 41h1v1h-1zM56 41h1v1h-1zM58 41h1v1h-1zM63 41h1v1h-1zM113 41h2v1h-2zM118 41h2v1h-2zM122 41h1v1h-1zM126 41h2v1h-2zM9 42h1v1h-1zM13 42h1v1h-1zM37 42h1v1h-1zM42 42h1v1h-1zM44 42h1v1h-1zM49 42h1v1h-1zM51 42h1v1h-1zM56 42h1v1h-1zM58 42h1v1h-1zM113 42h3v1h-3zM117 42h2v1h-2zM120 42h4v1h-4zM125 42h3v1h-3zM10 43h1v1h-1zM14 43h1v1h-1zM37 43h6v1h-6zM44 43h5v1h-5zM51 43h5v1h-5zM59 43h4v1h-4zM113 43h3v1h-3zM117 43h3v1h-3zM121 43h3v1h-3zM125 43h3v1h-3zM9 44h1v1h-1zM13 44h1v1h-1zM37 44h1v1h-1zM42 44h1v1h-1zM44 44h1v1h-1zM51 44h1v1h-1zM54 44h1v1h-1zM63 44h1v1h-1zM113 44h3v1h-3zM117 44h4v1h-4zM122 44h2v1h-2zM125 44h3v1h-3zM8 45h1v1h-1zM12 45h1v1h-1zM37 45h1v1h-1zM42 45h1v1h-1zM44 45h1v1h-1zM51 45h1v1h-1zM55 45h1v1h-1zM58 45h1v1h-1zM63 45h1v1h-1zM113 45h3v1h-3zM117 45h2v1h-2zM121 45h3v1h-3zM125 45h3v1h-3zM37 46h1v1h-1zM42 46h1v1h-1zM44 46h1v1h-1zM51 46h1v1h-1zM56 46h1v1h-1zM59 46h4v1h-4zM114 46h13v1h-13zM1 47h29v1h-29zM0 48h3v1h-3zM7 48h2v1h-2zM15 48h2v1h-2zM21 48h5v1h-5zM27 48h4v1h-4zM40 48h1v1h-1zM47 48h2v1h-2zM54 48h2v1h-2zM66 48h4v1h-4zM73 48h4v1h-4zM80 48h4v1h-4zM87 48h4v1h-4zM94 48h4v1h-4zM0 49h2v1h-2zM3 49h4v1h-4zM8 49h1v1h-1zM10 49h6v1h-6zM17 49h4v1h-4zM22 49h3v1h-3zM27 49h4v1h-4zM39 49h2v1h-2zM46 49h1v1h-1zM48 49h1v1h-1zM53 49h1v1h-1zM55 49h1v1h-1zM65 49h1v1h-1zM70 49h1v1h-1zM72 49h1v1h-1zM77 49h1v1h-1zM79 49h1v1h-1zM84 49h1v1h-1zM86 49h1v1h-1zM91 49h1v1h-1zM93 49h1v1h-1zM98 49h1v1h-1zM0 50h2v1h-2zM3 50h4v1h-4zM8 50h1v1h-1zM14 50h2v1h-2zM17 50h4v1h-4zM22 50h4v1h-4zM27 50h4v1h-4zM40 50h1v1h-1zM45 50h1v1h-1zM48 50h1v1h-1zM52 50h1v1h-1zM55 50h1v1h-1zM65 50h1v1h-1zM70 50h1v1h-1zM72 50h1v1h-1zM77 50h1v1h-1zM79 50h1v1h-1zM84 50h1v1h-1zM86 50h1v1h-1zM91 50h1v1h-1zM93 50h1v1h-1zM98 50h1v1h-1zM0 51h2v1h-2zM3 51h4v1h-4zM8 51h6v1h-6zM15 51h1v1h-1zM17 51h4v1h-4zM22 51h4v1h-4zM27 51h4v1h-4zM40 51h1v1h-1zM44 51h1v1h-1zM48 51h1v1h-1zM51 51h1v1h-1zM55 51h1v1h-1zM66 51h4v1h-4zM72 51h1v1h-1zM77 51h1v1h-1zM79 51h1v1h-1zM84 51h1v1h-1zM86 51h1v1h-1zM91 51h1v1h-1zM93 51h1v1h-1zM98 51h1v1h-1zM0 52h2v1h-2zM3 52h4v1h-4zM8 52h6v1h-6zM15 52h1v1h-1zM17 52h4v1h-4zM22 52h4v1h-4zM27 52h4v1h-4zM40 52h1v1h-1zM44 52h6v1h-6zM51 52h6v1h-6zM65 52h1v1h-1zM70 52h1v1h-1zM72 52h1v1h-1zM77 52h1v1h-1zM79 52h1v1h-1zM84 52h1v1h-1zM86 52h1v1h-1zM91 52h1v1h-1zM93 52h1v1h-1zM98 52h1v1h-1zM0 53h2v1h-2zM3 53h4v1h-4zM8 53h1v1h-1zM10 53h4v1h-4zM15 53h1v1h-1zM17 53h4v1h-4zM22 53h4v1h-4zM27 53h4v1h-4zM40 53h1v1h-1zM48 53h1v1h-1zM55 53h1v1h-1zM60 53h2v1h-2zM65 53h1v1h-1zM70 53h1v1h-1zM72 53h1v1h-1zM77 53h1v1h-1zM79 53h1v1h-1zM84 53h1v1h-1zM86 53h1v1h-1zM91 53h1v1h-1zM93 53h1v1h-1zM98 53h1v1h-1zM0 54h3v1h-3zM7 54h3v1h-3zM14 54h3v1h-3zM21 54h3v1h-3zM29 54h2v1h-2zM38 54h5v1h-5zM48 54h1v1h-1zM55 54h1v1h-1zM60 54h2v1h-2zM66 54h4v1h-4zM73 54h4v1h-4zM80 54h4v1h-4zM87 54h4v1h-4zM94 54h4v1h-4zM1 55h29v1h-29zM3 57h3v1h-3zM7 57h1v1h-1zM9 57h1v1h-1zM19 57h1v1h-1zM24 57h1v1h-1zM26 57h1v1h-1zM28 57h3v1h-3zM33 57h2v1h-2zM36 57h1v1h-1zM38 57h1v1h-1zM59 57h1v1h-1zM62 57h2v1h-2zM70 57h3v1h-3zM75 57h2v1h-2zM78 57h1v1h-1zM80 57h1v1h-1zM91 57h1v1h-1zM93 57h1v1h-1zM95 57h3v1h-3zM99 57h2v1h-2zM103 57h3v1h-3zM3 58h1v1h-1zM7 58h3v1h-3zM19 58h2v1h-2zM24 58h1v1h-1zM26 58h1v1h-1zM29 58h1v1h-1zM32 58h1v1h-1zM36 58h1v1h-1zM38 58h1v1h-1zM58 58h2v1h-2zM64 58h1v1h-1zM70 58h1v1h-1zM74 58h1v1h-1zM76 58h1v1h-1zM78 58h1v1h-1zM80 58h1v1h-1zM91 58h1v1h-1zM93 58h1v1h-1zM96 58h1v1h-1zM99 58h1v1h-1zM101 58h1v1h-1zM103 58h1v1h-1zM3 59h3v1h-3zM7 59h3v1h-3zM19 59h3v1h-3zM24 59h3v1h-3zM29 59h1v1h-1zM32 59h3v1h-3zM36 59h3v1h-3zM59 59h1v1h-1zM63 59h1v1h-1zM70 59h2v1h-2zM74 59h1v1h-1zM76 59h1v1h-1zM78 59h2v1h-2zM91 59h3v1h-3zM96 59h1v1h-1zM99 59h1v1h-1zM101 59h1v1h-1zM103 59h3v1h-3zM3 60h1v1h-1zM7 60h1v1h-1zM9 60h1v1h-1zM19 60h2v1h-2zM24 60h1v1h-1zM26 60h1v1h-1zM29 60h1v1h-1zM32 60h1v1h-1zM34 60h1v1h-1zM36 60h1v1h-1zM38 60h1v1h-1zM59 60h1v1h-1zM62 60h1v1h-1zM72 60h1v1h-1zM74 60h1v1h-1zM76 60h1v1h-1zM78 60h1v1h-1zM80 60h1v1h-1zM91 60h3v1h-3zM96 60h1v1h-1zM99 60h1v1h-1zM101 60h1v1h-1zM103 60h1v1h-1zM3 61h1v1h-1zM7 61h1v1h-1zM9 61h1v1h-1zM19 61h1v1h-1zM24 61h1v1h-1zM26 61h1v1h-1zM28 61h3v1h-3zM33 61h2v1h-2zM36 61h1v1h-1zM38 61h1v1h-1zM59 61h1v1h-1zM62 61h3v1h-3zM67 61h1v1h-1zM70 61h2v1h-2zM74 61h2v1h-2zM78 61h1v1h-1zM80 61h1v1h-1zM91 61h1v1h-1zM93 61h1v1h-1zM95 61h3v1h-3zM99 61h2v1h-2zM103 61h3v1h-3z" fill="#17191b"/>
+<rect x="84" y="140" width="664" height="500" rx="4" fill="url(#gloss)"/>
+<rect x="844.5" y="26" width="300" height="46" rx="16" fill="url(#shoulder)"/>
+<path d="M895.5 38 H943.5 L953.1 59 H885.9 Z" fill="#35ff6b" opacity=".75" filter="url(#glow)"/>
+<path d="M895.5 38 H943.5 L953.1 59 H885.9 Z" fill="url(#ledGreen)" stroke="#0f6b2a" stroke-width="1.2"/>
+<rect x="1039.5" y="35" width="60" height="28" rx="10" fill="url(#cyl)"/>
+<ellipse cx="1069.5" cy="49" rx="20" ry="8" fill="url(#torchLens)" stroke="#6d747c" stroke-width="1.2"/>
+<ellipse cx="1064.5" cy="46" rx="6" ry="1.8" fill="#ffffff"/>
+<rect x="779" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
+<rect x="782" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
+<rect x="792" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="880" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F1</text>
+<rect x="1008" y="140" width="202" height="56" rx="17" fill="#0c0d0e"/>
+<rect x="1011" y="143" width="196" height="50" rx="15" fill="url(#pill)" stroke="#050506"/>
+<rect x="1021" y="145" width="176" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="1109" y="177" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#e6e8eb">F2</text>
+<g transform="translate(687.18 -330.125) scale(0.855)"><!-- plates -->
+<rect x="109" y="659" width="260" height="55" rx="16" fill="#18191b"/>
+<rect x="112" y="662" width="254" height="49" rx="14" fill="url(#plate)"/>
+<rect x="120" y="663.5" width="238" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="239.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">Mini Kong</text>
+<text x="239.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">Mini Kong</text>
+<rect x="375" y="659" width="109" height="55" rx="16" fill="#18191b"/>
+<rect x="378" y="662" width="103" height="49" rx="14" fill="url(#plate)"/>
+<rect x="386" y="663.5" width="87" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="429.5" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">GPS</text>
+<text x="429.5" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">GPS</text>
+<rect x="490" y="659" width="120" height="55" rx="16" fill="#18191b"/>
+<rect x="493" y="662" width="114" height="49" rx="14" fill="url(#plate)"/>
+<rect x="501" y="663.5" width="98" height="2" rx="1" fill="#6a6d72" opacity=".6"/>
+<text x="550.0" y="696" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#55585d">MIC</text>
+<text x="550.0" y="694.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#1b1c1e">MIC</text>
+</g>
+<g transform="translate(687.18 -335.555) scale(0.855)"><!-- keypad -->
+<circle cx="539" cy="748" r="8" fill="#5a5d62"/>
+<circle cx="539" cy="747" r="6" fill="#09090a"/>
+<rect x="107" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="166.0" y="818.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#f5f6f7">MENU</text>
+<rect x="236" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<path d="M303.0 790.5 L286.0 808.5 L303.0 826.5" fill="none" stroke="#f5f6f7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="365" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<path d="M416.0 790.5 L433.0 808.5 L416.0 826.5" fill="none" stroke="#f5f6f7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="494" y="764" width="118" height="89" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="769" width="108" height="79" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="771.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="553.0" y="818.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#f5f6f7">EXIT</text>
+<rect x="140.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="142.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="269.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="271.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="398.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="400.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="527.0" y="858.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="529.0" y="866.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="140.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="142.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="269.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="271.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="398.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="400.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="527.0" y="954.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="529.0" y="962.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="140.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="142.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="269.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="271.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="398.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="400.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="527.0" y="1050.5" width="52" height="9" rx="4.5" fill="#1a1b1d"/>
+<rect x="529.0" y="1058.5" width="48" height="1.5" rx=".75" fill="#a4a7ac" opacity=".5"/>
+<rect x="107" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="143" y="927.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">1</text>
+<text x="166" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="#f5f6f7">Band</text>
+<text x="167" y="928" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="#f5f6f7">,.?</text>
+<rect x="236" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="272" y="927.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">2</text>
+<text x="316" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">A/B</text>
+<text x="316" y="928" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">abc</text>
+<rect x="365" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="401" y="927.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">3</text>
+<text x="445" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">V/M</text>
+<text x="445" y="928" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">def</text>
+<rect x="494" y="874" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="879" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="881.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<path d="M530.0 900.5 L530.0 926.5" stroke="#f5f6f7" stroke-width="6.5" stroke-linecap="round"/>
+<path d="M518.7 907.0 L541.3 920.0" stroke="#f5f6f7" stroke-width="6.5" stroke-linecap="round"/>
+<path d="M541.3 907.0 L518.7 920.0" stroke="#f5f6f7" stroke-width="6.5" stroke-linecap="round"/>
+<text x="575" y="907" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">Scan</text>
+<path d="M594 924 H555 L563 917" fill="none" stroke="#f5f6f7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="107" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="143" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">4</text>
+<text x="187" y="1003" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">FC</text>
+<text x="187" y="1024" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">ghi</text>
+<rect x="236" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="272" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">5</text>
+<text x="316" y="1003" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">WX</text>
+<text x="316" y="1024" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">jkl</text>
+<circle cx="332" cy="986" r="3.2" fill="#2c2e31" stroke="#6b6e73" stroke-width="1"/>
+<rect x="365" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="401" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">6</text>
+<text x="445" y="1003" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">H/L</text>
+<text x="445" y="1024" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">mno</text>
+<rect x="494" y="970" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="975" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="977.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="530" y="1023.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">0</text>
+<text x="574" y="1015.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="22" font-weight="500" text-anchor="middle" fill="#f5f6f7">FM</text>
+<rect x="107" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="112" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="122" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="143" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">7</text>
+<text x="187" y="1099" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">VOX</text>
+<text x="187" y="1120" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">pqrs</text>
+<rect x="236" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="241" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="251" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="272" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">8</text>
+<text x="316" y="1099" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">R</text>
+<text x="316" y="1120" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">tuv</text>
+<rect x="365" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="370" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="380" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="401" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="44" font-weight="700" text-anchor="middle" fill="#f5f6f7">9</text>
+<text x="445" y="1099" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">Call</text>
+<text x="445" y="1120" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="19" font-weight="500" text-anchor="middle" fill="#f5f6f7">wxyz</text>
+<rect x="494" y="1066" width="118" height="75" rx="17" fill="url(#well)"/>
+<g filter="url(#drop)"><rect x="499" y="1071" width="108" height="65" rx="13" fill="url(#key)" stroke="#050506" stroke-width="1.5"/></g>
+<rect x="509" y="1073.5" width="88" height="2" rx="1" fill="#8a8d92" opacity=".55"/>
+<text x="530" y="1119.5" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="42" font-weight="700" text-anchor="middle" fill="#f5f6f7">#</text>
+<g stroke="#f5f6f7" stroke-width="3" fill="none" stroke-linecap="round"><ellipse cx="584" cy="1094" rx="4.2" ry="6.2"/><path d="M579.8 1094 H562 V1087.5"/></g>
+<text x="574" y="1123" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="21" font-weight="500" text-anchor="middle" fill="#f5f6f7">F</text>
+</g>
+</svg>

@@ -54,7 +54,7 @@ static struct {
     uint8_t mode, screen, item, preset, active_preset;
     uint8_t pending_key, pending_pos, cycle, held_key;
     uint16_t pending_ticks, held_ticks;
-    bool pending, long_fired, dirty, changed, running, missing, bad, return_to_tx;
+    bool pending, long_fired, dirty, running, missing, bad, return_to_tx;
 } g;
 
 void *memcpy(void *dst, const void *src, size_t n)
@@ -381,7 +381,10 @@ static void commit_editor(void)
     if (g.bad) return;
     if (is_text())
         g.profile[g.item == ITEM_CALL ? APRS_PROFILE_CALL_LEN : APRS_PROFILE_COMMENT_LEN] = g.len;
-    g.changed = true; g.screen = SCREEN_INDEX;
+    g.screen = SCREEN_INDEX;
+    /* Each field confirmed is staged: kept across a switch-off, and an EXIT
+     * after none saves nothing. */
+    g.A->cfg_save(g.profile, APRS_PROFILE_LEN);
 }
 
 static void apply_preset(void)
@@ -402,7 +405,6 @@ static void index_key(uint8_t key)
 {
     if (key == APP_KEY_MENU) open_editor();
     else if (key == APP_KEY_EXIT) {
-        if (g.changed) g.A->cfg_save(g.profile, APRS_PROFILE_LEN);
         if (g.return_to_tx) g.A->handoff(APRS_TX_APP_NAME, NULL, 0u);
         g.running = false;
     } else g.item = step(g.item, g.A->nav_dir(key), MENU_COUNT);

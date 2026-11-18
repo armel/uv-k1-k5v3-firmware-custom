@@ -534,6 +534,11 @@ static void handleKeys(void){
     else if(key==APP_KEY_2) g.mode^=1u;   /* rendering, from the next row on */
     else if(key==APP_KEY_3){ g.spk^=1u; A->audio_path(g.spk); }   /* speaker, as FoxHunt's audio */
     else if(key==APP_KEY_4){ if(g.have) g.image^=1u; else g.status=ST_NOPIC; }
+    /* Staged after each key, kept across a switch-off. Without the mode of
+     * the picture: the one saved stays, as does the picture itself, which
+     * the loader only keeps when the app returns (end of app_main). */
+    const uint8_t c[3]={g.mode,g.txMode,g.spk};
+    A->cfg_save(c,3);
 }
 static void house(void){
     const app_api_t *A=g.A;

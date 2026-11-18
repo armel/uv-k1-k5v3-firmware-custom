@@ -9,10 +9,13 @@ rate of the last preamble heard, 2400 bauds included (told, not decoded).
 
 | Part | State |
 |---|---|
+| v0.9: automatic function-0 alpha | Function 0 remains numeric by default, as specified by POCSAG, but is also decoded as 7-bit text. The alpha view replaces the numeric one only when it is clean letters-and-spaces prose with at least three word-like groups, two spaces, enough letters and a clear score margin. The three observed non-standard pages (`332450`, `337265`, `338909`) decode as `CAVSAV sur VTUB`, `CODB sur VTUB`, `EQID sur VTUB`; short, punctuated, numeric or ambiguous non-standard pages remain numeric by design. Focused heuristic tests include 20000 generated pages using the complete numeric alphabet. Model: the three pages decode at 1200 and 512 bauds, with all three noise seeds. Not checked on the radio yet. |
 | Format (`test/pocsag.py`) | Self-tested: the sync and idle codewords come out of the BCH encoder, pages round-trip, one wrong bit per codeword is corrected, two are detected |
 | Receive model (`test/model_rx.py`) | See "Model results" below |
 | Radio app (`pocsagrx_app.c`) | v0.2 (three hysteresis slicers). v0.1 on the radio (2026-10-13): with feedback slicers only, the Flipper transmission was heard but nothing decoded, not even a sync codeword. **With the hysteresis slicers, every Flipper file decodes as expected** (`alpha`, `long`, `gap` with its `?` marks, `same`, `two`, ...), and key 3 read `syn 2 ok 0 0 0 32 32` for the five slicers of that build: only the 1/4 and 1/2 hysteresis ones. The feedback slicers and the 1/8 one were then removed and a 3/8 one added: that is v0.2, **checked on the radio the same day** with `alpha` (key 3 counters), `gap` and `same` |
 | v0.5: 10 pages, bell mark, Text Lost | 10 pages kept instead of 5 (100 B of stack each: 1000 B for the 10), the "page shown / pages kept" capsule on two digits (`10/10`). Key 4 on shows a bell between the title and the speaker icon in place of the `T` capsule. A page without text shows `Tone Only` in a capsule under the address, or `Text Lost` when its message codewords came but none could be read (v0.4 showed those as tone-only). Not built or checked on the radio yet |
+| v0.6: latency fix | A sync codeword skipped for the keys and screen is taken as found only after a batch with a good codeword, so a false sync in noise is dropped after one batch instead of holding a slicer for good (keys and screen once every 0.45 s / 1.06 s, discussion #736). Model: the false sync is dropped after one batch, both rates still decode, and the sweep output is unchanged. **Checked on the radio** (UV-K1): 3 hours without latency on a channel where it showed within minutes with v0.5 |
+| v0.7: smaller | The slicer setup no longer uses `%`, which pulled libgcc's 266-byte unsigned division into the app: same thresholds, same decoding. Not built or checked on the radio yet |
 | v0.4: tone-only pages | Key 4 keeps the pages without text (saved, off by default). Model: with it off, the results are unchanged; with it on, the pages with text are the same in all 264 runs, 3 false tone-only pages appear, and 90/90 real tone-only transmissions (alone, two, or before a text page; 1200 and 512 bauds; clock 1 % off) decode exactly. 60 s of noise gives nothing. **Checked on the radio** (UV-K1) with `pocsag_tone.sub` and `pocsag_tonemix.sub`, key 4 on and off |
 | v0.3: 512 bauds and preamble rate | A 512-baud lane (8-sample box, its own three slicers) runs beside the 1200 one, and key 3 shows the rate of the last preamble. The 512-baud lane remains model-only (see "Model results"); Flipper files `pocsag512_*.sub` and `pocsag2400_alpha.sub` |
 | On air | Not tested: no DAPNET transmitter heard yet |
@@ -78,8 +81,11 @@ During a transmission the keys are read twice a second only, once a second at
 
 - **1200 and 512 bauds.** 2400 bauds needs more audio band than the radio has:
   its preamble is told (key 3, `pre 2400`), its pages are not decoded.
-- **Function 0 is read as numeric, 1-3 as text**, the usual convention; a
-  network using another one shows garbage for those pages.
+- **Function 0 is numeric by default, 1-3 are text**, as specified by POCSAG.
+  Function 0 is also tried as 7-bit text: a conservative heuristic selects it
+  only when it is clean letters-and-spaces prose and looks clearly more
+  plausible than the numeric interpretation. Short, punctuated, numeric or
+  ambiguous non-standard pages remain numeric by design.
 - **A `?` is a character no slicer could read** (a codeword with two wrong bits
   or more). Three such codewords in a row end the page. If the codeword lost
   was the address of the next page, that page's text follows the `?` marks in
@@ -112,6 +118,8 @@ python3 test/flipper_pocsag.py test/flipper --baud 2400 --names alpha
 |---|---|
 | `pocsag_alpha.sub` | `1234567`, `F4HWN: POCSAG RX test on 433.650 MHz` |
 | `pocsag_numeric.sub` | `1234560`, `0145 67-89`, func 0 |
+| `pocsag_func0alpha.sub` | Three non-standard function-0 alpha pages: `332450` / `CAVSAV sur VTUB`, `337265` / `CODB sur VTUB`, `338909` / `EQID sur VTUB` |
+| `pocsag_func0numeric.sub` | Regression guard: `340000` / `46*7(4-(601)8 *(0**2U` must remain numeric, func 0 |
 | `pocsag_two.sub` | Two pages: `2504` and `165856` |
 | `pocsag_long.sub` | `1000001`, a 72-character text (scroll, or `*`) |
 | `pocsag_same.sub` | Two pages to the same address `4520`, with different texts: both kept |
@@ -143,7 +151,9 @@ allowed; then 16 codewords a batch, BCH (31,21) checked from the syndrome with
 one bit corrected, and the next sync codeword.
 
 An address opens a page, message codewords fill it, an idle word or another
-address closes it. A slicer that just read a bad codeword is not trusted to
+address closes it. Function 0 is assembled both as 4-bit numeric and 7-bit
+alpha; at close, the standard numeric view wins unless the alpha view passes
+the conservative clean-text, word, letter and score heuristic. A slicer that just read a bad codeword is not trusted to
 correct the next eight. A bad codeword inside a page does not end it: its 20
 bits are skipped and the characters they held are marked.
 
@@ -164,7 +174,12 @@ Keys and screen take up to 15 ms, during which no sample is read. Outside a
 batch they are served every 50 ms. Inside a transmission they wait for the
 sync codeword that opens each batch (twice a second), where no page bit is
 lost; the bit clocks run on over the missing samples, and the sync codeword not
-read for that reason is taken as found.
+read for that reason is taken as found, provided the batch before it held a
+good codeword. Without that condition (up to v0.5), a false sync codeword found
+in noise (about once in 13 minutes across the six slicers) was excused at every
+batch and never let go: keys and screen were then served once a batch, every
+0.45 s (1.06 s on the 512 lane), and the backlight came up a step a second
+(discussion #736).
 
 ## Model results (`test/model_rx.py`)
 
@@ -204,6 +219,7 @@ all in the 3000 column.
 
 - `pocsagrx_app.c`, `gen_assets.py`, `build.sh`, `app.ld`: the app.
 - `test/pocsag.py`: the format (encode, decode), self-tested.
+- `test/format_auto.py`: focused tests for automatic function-0 alpha selection.
 - `test/flipper_pocsag.py`: the Flipper `.sub` files.
 - `test/model_rx.py`: channel + the integer demodulator the C transcribes; run
   it after any change to the demodulator (several minutes).

@@ -241,7 +241,7 @@ void dec406_parse(dec406_t *d, dec406_info_t *o)
         unsigned n = p->base, w = 8u + p->sub;
         for (unsigned k = 0; k < 2u; k++, n += w++) {
             neg |= bit(b, n) << k;
-            v[k] = (int32_t)(field(b, n + 1u, 7u + k) * 3600u + field(b, n + 8u + k, p->sub) * p->unit * 60u);
+            v[k] = (int32_t)(field(b, n + 1u, 7u + k) * 360000u + field(b, n + 8u + k, p->sub) * p->unit * 6000u);
             unsigned len = 7u + k + p->sub;                           /* after the flag */
             setf(b, n, len + 1u, p->unit > 4u ? (1u << len) - 1u : ((1u << (7u + k)) - 1u) << p->sub);
         }
@@ -258,7 +258,7 @@ void dec406_parse(dec406_t *d, dec406_info_t *o)
     /* No position: latitude beyond 90 deg, i.e. the default (flag N, 127 deg) or
      * the ELT(DT) cancellation message (fixed bits 67-85: flag S, 125 deg). */
     if (f == F_NONE || (f == F_USER && !pdf2)) return;
-    if (v[0] > 90 * 3600) { if (f == F_ELTDT && neg & 1u) o->idRaw = 2; return; }
+    if (v[0] > 90 * 360000) { if (f == F_ELTDT && neg & 1u) o->idRaw = 2; return; }
 
     /* Offsets: standard and national need bits 107-110 = 1101 (fixed bits and,
      * in national, the position data flag); ELT(DT) bits 113-114 = 00 flag a
@@ -269,7 +269,7 @@ void dec406_parse(dec406_t *d, dec406_info_t *o)
         o->hasFine = 1;
         for (unsigned k = 0; k < 2u; k++, n += 5u + m) {
             uint32_t se = field(b, n + 1u + m, 4);
-            int32_t dd = (int32_t)(field(b, n + 1u, m) * 60u + se * 4u);
+            int32_t dd = (int32_t)(field(b, n + 1u, m) * 6000u + se * 400u);
             if (se == 15u) { o->hasFine = 0; continue; }     /* default: no offset */
             v[k] += bit(b, n) ? dd : -dd;
         }

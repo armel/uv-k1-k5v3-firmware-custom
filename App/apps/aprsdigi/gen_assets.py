@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""APRS DIGI read-only texts and Bell 202 correlator tables."""
+"""APRS DIGI read-only texts, APRS TX profile proxy and Bell 202 tables."""
 import math
 import os
+import struct
 import sys
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
-from app_assets import Assets
+from app_assets import Assets, cdefine
+
+PROXY_MAGIC = cdefine("app_config_proxy.h", "APP_CONFIG_PROXY_MAGIC")
+PROFILE_MAGIC = cdefine("aprs_profile.h", "APRS_PROFILE_MAGIC")
+PROFILE_LEN = cdefine("aprs_profile.h", "APRS_PROFILE_LEN")
+TARGET = b"APRS TX"
 
 FS = 9600
 
@@ -18,7 +24,16 @@ def cos_table(freq):
             for n in range(period)]
 
 
+# app_config_proxy_t: the digipeater reads the APRS TX profile only for the
+# callsign APRS Edit set. The proxy takes over cfg_load/cfg_save, so the W1/W12
+# mode is no longer saved, and the app never calls cfg_save.
+proxy = struct.pack("<I16sHBBI", PROXY_MAGIC, TARGET.ljust(16, b"\0"),
+                    0, PROFILE_LEN, 0, PROFILE_MAGIC)
+if len(proxy) != 28:
+    raise ValueError("configuration proxy descriptor layout changed")
+
 a = Assets("APRSDIGI")
+a.prefix("CFG_PROXY", proxy)
 a.text("T_TITLE", "APRS DIGI")
 a.text("T_WAIT", "WAIT")
 a.text("T_HOLD", "HOLD")

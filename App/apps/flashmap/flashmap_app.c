@@ -7,6 +7,10 @@
  * bank and the current state sector LIVE.
  * MENU dumps the zone on the top card (hex or text, STAR toggles); in the
  * dump, UP/DOWN page through it and 0..9 jump to tenths of the zone.
+ * The three 1 KiB security registers of the PY25Q16 follow the main array:
+ * they sit in their own address space, which the storage API cannot reach,
+ * so they are read here with RDSCUR on SPI2. Nothing is ever erased or
+ * programmed, and the OTP lock bits are only read.
  */
 
 #include <stdint.h>
@@ -31,9 +35,16 @@
 #define CONFIG_COUNT        4u
 #define STATE_FIRST         (CONFIG_FIRST + CONFIG_COUNT)
 #define APP_SLOT_FIRST      (STATE_FIRST + 2u)
-#define APP_SLOT_COUNT      48u
-#define TAIL_FIRST          (APP_SLOT_FIRST + APP_SLOT_COUNT)
-#define ENTRY_COUNT         (TAIL_FIRST + 2u)
+#define APP_SLOT_COUNT      64u
+#define APP_SLOT_CEILING    100u
+#define APP_RESERVE_FIRST   (APP_SLOT_FIRST + APP_SLOT_COUNT)
+#define FW_ASSET_FIRST      (APP_RESERVE_FIRST + 1u)
+#define FW_ASSET_COUNT      FW_SLOT_COUNT
+#define SONIC_FIRST         (FW_ASSET_FIRST + FW_ASSET_COUNT)
+#define BREAK_ENTRY         (SONIC_FIRST + 1u)  /* before the registers: own space */
+#define SEC_FIRST           (BREAK_ENTRY + 1u)
+#define SEC_COUNT           3u
+#define ENTRY_COUNT         (SEC_FIRST + SEC_COUNT)
 #define ROW_COUNT           (ENTRY_COUNT * CARD_ROWS)
 #define NO_ENTRY            0xFFu
 
@@ -51,12 +62,35 @@
 #define APP_FLAG_COMMITTED  0x0001u
 #define APP_CODE_MAX        0x00001000u
 
+#define FW_ASSET_REGION_BASE 0x001CA000u
+#define FW_ASSET_SLOT_SIZE   0x00004000u
+#define SONIC_REGION_BASE    0x001DE000u
+#define EXT_FLASH_END        0x001FFFFFu
+
 #define STATE_BASE          0x00100000u
 #define STATE_SECTOR        0x00001000u
 #define STATE_MAGIC_LEGACY  0x31504D46u   /* "FMP1" */
 #define STATE_MAGIC_V2      0x32504D46u   /* "FMP2" (slot == config bank) */
 #define STATE_MAGIC         0x33504D46u   /* "FMP3" */
 #define BANK_COUNT          5u
+
+/* PY25Q16 security registers: register n (1..3) is at n << 12 in the space
+ * of RDSCUR, and its OTP lock bit LBn is bit n + 2 of status register 2. */
+#define SEC_BASE            0x00001000u
+#define SEC_STRIDE          0x00001000u
+#define SEC_SIZE            0x00000400u
+#define SEC_CMD_READ        0x48u         /* RDSCUR: address, dummy, data */
+#define SEC_CMD_STATUS2     0x35u         /* RDSR, bits S15..S8           */
+#define SEC_LOCK_SHIFT      3u            /* LB1 = S11                    */
+
+/* SPI2 and its chip select PA3, driven the way py25q16.c polls them. */
+#define SPI2_SR_ADDRESS     0x40003808u
+#define SPI2_DR_ADDRESS     0x4000380Cu
+#define SPI_SR_RXNE         0x01u
+#define SPI_SR_TXE          0x02u
+#define GPIOA_BSRR_ADDRESS  0x50000018u
+#define GPIOA_BRR_ADDRESS   0x50000028u
+#define FLASH_CS_PIN        0x08u
 
 #define DUMP_LINES          8u
 #define DUMP_HEX_BYTES      8u            /* bytes per line in hex view  */
@@ -116,6 +150,12 @@ _Static_assert(sizeof(app_header_t) == 64u && offsetof(app_header_t, name) == 20
 _Static_assert(sizeof(state_record_t) == 24u &&
                offsetof(state_record_t, state_crc32) == 20u,
                "multiboot state layout changed");
+_Static_assert(APP_REGION_BASE + APP_SLOT_CEILING * APP_SLOT_STRIDE ==
+               FW_ASSET_REGION_BASE,
+               "app reserve must end where firmware assets start");
+_Static_assert(FW_ASSET_REGION_BASE + FW_ASSET_COUNT * FW_ASSET_SLOT_SIZE ==
+               SONIC_REGION_BASE,
+               "firmware assets must end where Sonic 4K starts");
 
 /* State sector verdicts, ordered by preference (also T_STATE indices). */
 enum { MARK_MISSING = 0, MARK_CORRUPT, MARK_LEGACY, MARK_VALID };
@@ -127,6 +167,8 @@ struct globals {
     uint32_t dump_addr;
     uint16_t scroll;
     uint16_t target;
+    uint16_t sec_used[SEC_COUNT];       /* bytes other than 0xFF */
+    uint8_t sec_locks;                  /* bit n: register n + 1 locked */
     bool running;
     bool dirty;
     bool suspended;
@@ -135,6 +177,7 @@ struct globals {
     bool dump_text;
     uint8_t dump_entry;
     uint8_t live_fw;
+    uint8_t live_asset;
     uint8_t live_cfg;
     uint8_t live_state;
 };
@@ -151,9 +194,9 @@ static const uint32_t first_ends[] = {
 
 /* Entry shown at the top for keys 0..9: 1..9 in flash order, 0 the end. */
 static const uint8_t section_entries[10] = {
-    TAIL_FIRST + 1u,                    /* SONIC 4K */
+    BREAK_ENTRY,                        /* SECURITY REGISTERS, then 1 to 3 */
     0u, 1u, 3u, 5u,                     /* CONFIG 0, CALIBRATION, LOGO, LOG */
-    FW_SLOT_FIRST, CONFIG_FIRST, STATE_FIRST, APP_SLOT_FIRST, TAIL_FIRST,
+    FW_SLOT_FIRST, CONFIG_FIRST, STATE_FIRST, APP_SLOT_FIRST, APP_RESERVE_FIRST,
 };
 
 static char hex_digit(uint8_t value)
@@ -200,6 +243,59 @@ static uint32_t crc32(const uint8_t *data, uint8_t length)
     return ~crc;
 }
 
+/* ---- security registers, read on SPI2 ---- */
+
+static uint8_t spi_byte(uint8_t value)
+{
+    while ((*(volatile uint32_t *)SPI2_SR_ADDRESS & SPI_SR_TXE) == 0u)
+        ;
+    *(volatile uint8_t *)SPI2_DR_ADDRESS = value;
+    while ((*(volatile uint32_t *)SPI2_SR_ADDRESS & SPI_SR_RXNE) == 0u)
+        ;
+    return (uint8_t)*(volatile uint32_t *)SPI2_DR_ADDRESS;
+}
+
+static void spi_select(uint8_t command)
+{
+    *(volatile uint32_t *)GPIOA_BRR_ADDRESS = FLASH_CS_PIN;
+    spi_byte(command);
+}
+
+static void spi_release(void)
+{
+    *(volatile uint32_t *)GPIOA_BSRR_ADDRESS = FLASH_CS_PIN;
+}
+
+/* Read size bytes of a security register into out (NULL only counts them);
+ * returns how many differ from the erased value. */
+static uint16_t sec_read(uint32_t address, uint8_t *out, uint16_t size)
+{
+    uint16_t used = 0u;
+    spi_select(SEC_CMD_READ);
+    for (int8_t shift = 16; shift >= 0; shift -= 8)
+        spi_byte((uint8_t)(address >> shift));
+    spi_byte(0xFFu);                     /* dummy byte */
+    while (size-- != 0u) {
+        const uint8_t value = spi_byte(0xFFu);
+        used += value != 0xFFu;
+        if (out != NULL)
+            *out++ = value;
+    }
+    spi_release();
+    return used;
+}
+
+/* Nothing can write the flash while the app runs: read everything once. */
+static void load_security(void)
+{
+    for (uint8_t index = 0u; index < SEC_COUNT; index++)
+        g.sec_used[index] = sec_read(SEC_BASE + (uint32_t)index * SEC_STRIDE,
+                                     NULL, SEC_SIZE);
+    spi_select(SEC_CMD_STATUS2);
+    g.sec_locks = (uint8_t)(spi_byte(0xFFu) >> SEC_LOCK_SHIFT);
+    spi_release();
+}
+
 static void entry_range(uint16_t entry, uint32_t *start, uint32_t *end)
 {
     if (entry < FW_SLOT_FIRST) {
@@ -214,15 +310,22 @@ static void entry_range(uint16_t entry, uint32_t *start, uint32_t *end)
     } else if (entry < APP_SLOT_FIRST) {
         *start = STATE_BASE + (uint32_t)(entry - STATE_FIRST) * STATE_SECTOR;
         *end = *start + STATE_SECTOR - 1u;
-    } else if (entry < TAIL_FIRST) {
+    } else if (entry < APP_RESERVE_FIRST) {
         *start = APP_REGION_BASE + (uint32_t)(entry - APP_SLOT_FIRST) * APP_SLOT_STRIDE;
         *end = *start + APP_SLOT_STRIDE - 1u;
-    } else if (entry == TAIL_FIRST) {
-        *start = 0x162000u;
-        *end = 0x1DDFFFu;
+    } else if (entry == APP_RESERVE_FIRST) {
+        *start = APP_REGION_BASE + APP_SLOT_COUNT * APP_SLOT_STRIDE;
+        *end = FW_ASSET_REGION_BASE - 1u;
+    } else if (entry < SONIC_FIRST) {
+        *start = FW_ASSET_REGION_BASE +
+                 (uint32_t)(entry - FW_ASSET_FIRST) * FW_ASSET_SLOT_SIZE;
+        *end = *start + FW_ASSET_SLOT_SIZE - 1u;
+    } else if (entry == SONIC_FIRST) {
+        *start = SONIC_REGION_BASE;
+        *end = EXT_FLASH_END;
     } else {
-        *start = 0x1DE000u;
-        *end = 0x1FFFFFu;
+        *start = SEC_BASE + (uint32_t)(entry - SEC_FIRST) * SEC_STRIDE;
+        *end = *start + SEC_SIZE - 1u;
     }
 }
 
@@ -441,7 +544,7 @@ static void format_state_description(uint8_t sector, char *out)
     tail[LIVE_PAIR_CFG] = (char)(tail[LIVE_PAIR_CFG] + record.config_bank);
 }
 
-/* Pick the record the resident would boot from and mark its three cards. */
+/* Pick the record the resident would boot from and mark its four cards. */
 static void load_live(void)
 {
     state_record_t records[2];
@@ -455,19 +558,22 @@ static void load_live(void)
     const state_record_t *live = &records[chosen];
 
     g.live_fw = NO_ENTRY;
+    g.live_asset = NO_ENTRY;
     g.live_cfg = NO_ENTRY;
     g.live_state = NO_ENTRY;
     if (marks[chosen] < MARK_LEGACY)
         return;
     g.live_state = (uint8_t)(STATE_FIRST + chosen);
     g.live_fw = (uint8_t)(FW_SLOT_FIRST + live->firmware_slot);
+    g.live_asset = (uint8_t)(FW_ASSET_FIRST + live->firmware_slot);
     g.live_cfg = live->config_bank == 0u
         ? 0u : (uint8_t)(CONFIG_FIRST + live->config_bank - 1u);
 }
 
 static bool entry_is_live(uint16_t entry)
 {
-    return entry == g.live_fw || entry == g.live_cfg || entry == g.live_state;
+    return entry == g.live_fw || entry == g.live_asset ||
+           entry == g.live_cfg || entry == g.live_state;
 }
 
 static void format_label(uint16_t entry, char *out)
@@ -482,10 +588,11 @@ static void format_label(uint16_t entry, char *out)
     } else if (entry < APP_SLOT_FIRST) {
         const uint16_t zone = 10u + entry - STATE_FIRST;
         asset_text(T_ZONE + zone * T_ZONE_STRIDE, out, T_ZONE_STRIDE);
-    } else if (entry < TAIL_FIRST) {
+    } else if (entry < APP_RESERVE_FIRST) {
         format_slot((uint8_t)(entry - APP_SLOT_FIRST), false, out);
     } else {
-        const uint16_t zone = 12u + entry - TAIL_FIRST;
+        /* the break has no label of its own */
+        const uint16_t zone = 12u + entry - APP_RESERVE_FIRST - (entry > BREAK_ENTRY);
         asset_text(T_ZONE + zone * T_ZONE_STRIDE, out, T_ZONE_STRIDE);
     }
 }
@@ -503,24 +610,38 @@ static void format_description(uint16_t entry, char *out)
     } else if (entry < APP_SLOT_FIRST) {
         format_state_description((uint8_t)(entry - STATE_FIRST), out);
         return;
-    } else if (entry < TAIL_FIRST) {
+    } else if (entry < APP_RESERVE_FIRST) {
         format_app_description((uint8_t)(entry - APP_SLOT_FIRST), out);
         return;
+    } else if (entry == APP_RESERVE_FIRST) {
+        description = 9u;
+    } else if (entry < SONIC_FIRST) {
+        description = 10u;
+    } else if (entry == SONIC_FIRST) {
+        description = 11u;
     } else {
-        description = (uint16_t)(9u + entry - TAIL_FIRST);
+        /* "37 bytes written", or "Blank, all bytes FF" */
+        const uint16_t used = g.sec_used[entry - SEC_FIRST];
+        if (used != 0u) {
+            asset_text(T_SEC_USED, put_u32(out, used), T_SEC_USED_LEN);
+            return;
+        }
+        description = 12u;
     }
     asset_text(T_DESC + description * T_DESC_STRIDE, out, T_DESC_STRIDE);
 }
 
 static uint8_t entry_type(uint16_t entry)
 {
+    if (entry >= SEC_FIRST)                         /* SEC, or LOCK */
+        return (uint8_t)(11u + ((g.sec_locks >> (entry - SEC_FIRST)) & 1u));
     if (entry == 0u || (entry >= CONFIG_FIRST && entry < STATE_FIRST))
         return 0u;
     if (entry == 1u)
         return 1u;
     if (entry == 3u)
         return 2u;
-    if (entry == 2u || entry == 4u || entry == TAIL_FIRST)
+    if (entry == 2u || entry == 4u || entry == APP_RESERVE_FIRST)
         return 3u;
     if (entry == 5u)
         return 4u;
@@ -528,15 +649,17 @@ static uint8_t entry_type(uint16_t entry)
         return 5u;
     if (entry >= STATE_FIRST && entry < APP_SLOT_FIRST)
         return 6u;
-    if (entry >= APP_SLOT_FIRST && entry < TAIL_FIRST)
+    if (entry >= APP_SLOT_FIRST && entry < APP_RESERVE_FIRST)
         return 7u;
+    if (entry >= FW_ASSET_FIRST && entry < SONIC_FIRST)
+        return 9u;
     return 8u;
 }
 
 static void draw_type_capsule(uint16_t entry, uint8_t line)
 {
     char type[T_TYPE_STRIDE];
-    const uint8_t index = entry_is_live(entry) ? 9u : entry_type(entry);
+    const uint8_t index = entry_is_live(entry) ? 10u : entry_type(entry);
     asset_text(T_TYPE + index * T_TYPE_STRIDE, type, T_TYPE_STRIDE);
     A->print_inverse(type, (uint8_t)(127u - text_length(type) * 4u),
                      line, false, true, 127u);
@@ -544,7 +667,7 @@ static void draw_type_capsule(uint16_t entry, uint8_t line)
 
 static bool entry_is_unused(uint16_t entry)
 {
-    return entry == 2u || entry == 4u || entry == TAIL_FIRST;
+    return entry == 2u || entry == 4u || entry == APP_RESERVE_FIRST;
 }
 
 static void draw_ribbon(bool separator, uint8_t line)
@@ -571,6 +694,22 @@ static void print_size(uint32_t start, uint32_t end, uint8_t y)
     A->print_tiny(size, (uint8_t)(127u - text_length(size) * 4u), y, false, true);
 }
 
+/* The break before the security registers, which sit in their own address
+ * space: no ribbon, a centred title on the middle row, a note under it. */
+static void draw_break(uint8_t part, uint8_t line)
+{
+    char text[T_BREAK_NOTE_LEN];
+    if (part == 0u)
+        return;
+    asset_text(part == 1u ? T_BREAK_TITLE : T_BREAK_NOTE, text, T_BREAK_NOTE_LEN);
+    const uint8_t x = (uint8_t)(64u - text_length(text) * 2u);
+    if (part == 1u)
+        A->print_inverse(text, (uint8_t)(x - 2u), line, false, true,
+                         (uint8_t)(129u - x));  /* capsule 4 px wider than the text */
+    else
+        A->print_tiny(text, x, (uint8_t)(line * ROW_HEIGHT + 1u), false, true);
+}
+
 static void draw_row(uint16_t row, uint8_t line)
 {
     const uint64_t qr = A->uidivmod(row, CARD_ROWS);
@@ -579,6 +718,10 @@ static void draw_row(uint16_t row, uint8_t line)
     const uint8_t y = (uint8_t)(line * ROW_HEIGHT + 1u);
     const uint16_t entry = (uint16_t)qr;
 
+    if (entry == BREAK_ENTRY) {
+        draw_break(part, line);
+        return;
+    }
     if (entry_is_unused(entry))
         draw_unused_band(line);
     draw_ribbon(part == 2u, line);
@@ -717,7 +860,10 @@ static void dump_tenths(uint8_t tenths)
 
 static void open_dump(void)
 {
-    g.dump_entry = (uint8_t)A->uidivmod(g.target, CARD_HEIGHT);
+    const uint8_t entry = (uint8_t)A->uidivmod(g.target, CARD_HEIGHT);
+    if (entry == BREAK_ENTRY)                   /* nothing to dump */
+        return;
+    g.dump_entry = entry;
     entry_range(g.dump_entry, &g.dump_start, &g.dump_end);
     g.dump = true;
     dump_seek(0u);
@@ -746,7 +892,10 @@ static void draw_dump(void)
                text, T_DUMP_MODE_STRIDE);
     A->print_tiny(text, (uint8_t)(127u - text_length(text) * 4u), 1u, false, true);
 
-    A->sys_storage_read(g.dump_addr, bytes, dump_page());
+    if (g.dump_entry >= SEC_FIRST)
+        sec_read(g.dump_addr, bytes, (uint16_t)dump_page());
+    else
+        A->sys_storage_read(g.dump_addr, bytes, dump_page());
     for (uint8_t line = 0u; line < DUMP_LINES; line++) {
         const uint8_t *data = &bytes[line * per_line];
         char *out = put_hex6(text, g.dump_addr + (uint32_t)line * per_line);
@@ -778,6 +927,7 @@ void app_main(const app_api_t *api)
     g.dirty = true;
     A->backlight_on();
     load_live();
+    load_security();
 
     uint8_t previous = APP_KEY_INVALID;
     uint16_t repeat_ms = 0u;

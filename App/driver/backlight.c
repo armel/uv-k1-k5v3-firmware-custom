@@ -269,6 +269,9 @@ static void BACKLIGHT_SetHardwareBrightness(uint8_t brightness)
             {
                 dutyCycle[i] = i < level ? DUTY_CYCLE_ON_VALUE : DUTY_CYCLE_OFF_VALUE;
             }
+            // Only the DMA reads dutyCycle: the stores must be done before
+            // it is (re)started. Emits no instruction.
+            __COMPILER_BARRIER();
 
             if (!LL_TIM_IsEnabledCounter(TIMx))
             {

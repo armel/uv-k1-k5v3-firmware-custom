@@ -17,9 +17,10 @@ set -euo pipefail
 # ---------------------------------------------
 
 IMAGE=uvk1-uvk5v3
-RELEASE_PRESETS=(Fusion Transfer FieldOps Labs Max)
+RELEASE_PRESETS=(Fusion Service)
 FLASH_LIMIT=$((118 * 1024))
 RAM_LIMIT=$((16 * 1024))
+ASSETS_LIMIT=$((16 * 1024))   # firmware asset zone of a slot (MB_ASSET_SLOT_SIZE)
 
 PRESET=${1:-Fusion}
 shift || true  # remove preset from arguments if present
@@ -35,9 +36,9 @@ EXTRA_ARGS=("$@")
 # ---------------------------------------------
 # Validate preset name
 # ---------------------------------------------
-if [[ ! "$PRESET" =~ ^(Custom|Fusion|Transfer|FieldOps|Labs|Max|Fusion_|Service_|All)$ ]]; then
+if [[ ! "$PRESET" =~ ^(Custom|Fusion|Service|All)$ ]]; then
   echo "❌ Unknown preset: '$PRESET'"
-  echo "Valid presets are: Custom, Fusion, Transfer, FieldOps, Labs, Max, Fusion_, Service_, All"
+  echo "Valid presets are: Custom, Fusion, Service, All"
   exit 1
 fi
 
@@ -79,6 +80,7 @@ export MSYS_NO_PATHCONV=1
 RESULT_PRESETS=()
 RESULT_FLASH_SIZES=()
 RESULT_RAM_SIZES=()
+RESULT_ASSET_SIZES=()
 
 run_preset_build() {
   local preset="$1"
@@ -163,6 +165,7 @@ build_preset() {
         /^Memory region[[:space:]]+Used Size[[:space:]]+Region Size/ { next }
         /^[[:space:]]+RAM:[[:space:]]/ { next }
         /^[[:space:]]+FLASH:[[:space:]]/ { next }
+        /^[[:space:]]+FW_ASSETS:[[:space:]]/ { next }
         { print; fflush() }
       '; then
         status=0
@@ -196,7 +199,13 @@ build_preset() {
     return 1
   fi
 
-  flash_size="$(wc -c < "$bin_file")"
+  # With firmware assets, the .bin is the release package (image + asset
+  # pack): the internal flash only holds the image.
+  if [[ -f "build/${preset}/f4hwn.${preset_slug}.image.bin" ]]; then
+    flash_size="$(wc -c < "build/${preset}/f4hwn.${preset_slug}.image.bin")"
+  else
+    flash_size="$(wc -c < "$bin_file")"
+  fi
   ram_size="$(awk '$1 == "RAM:" {
     value = $2
     if ($3 == "KB") value *= 1024
@@ -219,6 +228,12 @@ build_preset() {
   RESULT_PRESETS+=("$preset")
   RESULT_FLASH_SIZES+=("$flash_size")
   RESULT_RAM_SIZES+=("$ram_size")
+  # Asset pack (32-byte header + payload), empty when the preset has none.
+  if [[ -f "build/${preset}/f4hwn.${preset_slug}.assets.bin" ]]; then
+    RESULT_ASSET_SIZES+=("$(wc -c < "build/${preset}/f4hwn.${preset_slug}.assets.bin" | tr -d ' ')")
+  else
+    RESULT_ASSET_SIZES+=("")
+  fi
 
   if (( QUIET )); then
     warning_count="$(grep -c 'warning:' "$log_file" || true)"
@@ -283,6 +298,45 @@ print_summary() {
       "${RESULT_PRESETS[$i]}" "$ram_used" "$ram_used_kib" \
       "$ram_free" "$ram_free_kib" "$ram_pct"
   done
+
+  local assets_used assets_free assets_bp assets_pct
+  local assets_used_kib100 assets_free_kib100 assets_used_kib assets_free_kib
+  local has_assets=0
+
+  for i in "${!RESULT_PRESETS[@]}"; do
+    if [[ -n "${RESULT_ASSET_SIZES[$i]}" ]]; then
+      has_assets=1
+    fi
+  done
+
+  if (( has_assets )); then
+    echo ""
+    printf "🗄️ Firmware assets (limit: %d B / %d.00 KiB per slot)\n" "$ASSETS_LIMIT" "$((ASSETS_LIMIT / 1024))"
+    printf "%-10s | %10s | %10s | %10s | %10s | %7s\n" \
+      "Preset" "Used (B)" "Used (KiB)" "Free (B)" "Free (KiB)" "Usage"
+    printf "%-10s-+-%10s-+-%10s-+-%10s-+-%10s-+-%7s\n" \
+      "----------" "----------" "----------" "----------" "----------" "-------"
+
+    for i in "${!RESULT_PRESETS[@]}"; do
+      assets_used="${RESULT_ASSET_SIZES[$i]}"
+      if [[ -z "$assets_used" ]]; then
+        printf "%-10s | %10s | %10s | %10s | %10s | %7s\n" \
+          "${RESULT_PRESETS[$i]}" "-" "-" "-" "-" "-"
+        continue
+      fi
+      assets_free=$((ASSETS_LIMIT - assets_used))
+      assets_bp=$(((assets_used * 10000 + ASSETS_LIMIT / 2) / ASSETS_LIMIT))
+      assets_used_kib100=$(((assets_used * 100 + 512) / 1024))
+      assets_free_kib100=$(((assets_free * 100 + 512) / 1024))
+      printf -v assets_pct "%d.%02d%%" "$((assets_bp / 100))" "$((assets_bp % 100))"
+      printf -v assets_used_kib "%d.%02d" "$((assets_used_kib100 / 100))" "$((assets_used_kib100 % 100))"
+      printf -v assets_free_kib "%d.%02d" "$((assets_free_kib100 / 100))" "$((assets_free_kib100 % 100))"
+
+      printf "%-10s | %10d | %10s | %10d | %10s | %7s\n" \
+        "${RESULT_PRESETS[$i]}" "$assets_used" "$assets_used_kib" \
+        "$assets_free" "$assets_free_kib" "$assets_pct"
+    done
+  fi
 
   echo ""
   if (( ${#RESULT_PRESETS[@]} == 1 )); then

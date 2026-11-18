@@ -20,6 +20,7 @@
 #include "driver/py25q16.h"
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
+#include "fw_assets.h"
 #include "helper/battery.h"
 #include "misc.h"
 #include "settings.h"
@@ -1409,7 +1410,7 @@ void UI_DisplayRxTxLog(void)
 
         if (gLogDetailMode == RXTX_LOG_DETAIL_SMETER) {
             if (isTx)
-                strcpy(detail, gSubMenu_TXP[MIN(entry.sMeter, ARRAY_SIZE(gSubMenu_TXP) - 1u)]);
+                FW_ASSETS_STRCPY(detail, gSubMenu_TXP, MIN(entry.sMeter, ARRAY_SIZE(gSubMenu_TXP) - 1u));
             else
                 RXTX_LOG_FormatSMeter(entry.sMeter, detail);
         } else if (gLogDetailMode == RXTX_LOG_DETAIL_BATT) {

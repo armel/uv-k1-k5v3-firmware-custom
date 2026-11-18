@@ -42,7 +42,7 @@ Anyway, have fun.
 
 # Donations
 
-Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, Olivier 14RC206, Frédéric F4ESO, Stéphane F5LGW (2 times), Jorge Ornelas (4 times), Laurent F4AXK, Christophe Morel, Clayton W0LED, Pierre Antoine F6FWB, Jean-Claude 14FRS3306, Thierry F4GVO, Eric F1NOU, PricelessToolkit, Ady M6NYJ, Tom McGovern (4 times), Joseph Roth, Pierre-Yves Colin, Frank DJ7FG, Marcel Testaz, Brian Frobisher, Paolo Bussola, Dirk DL8DF, Levente Szőke (2 times), Bernard-Michel Herrera, Jérôme Saintespes, Paul Davies, RS (3 times), Johan F4WAT, Robert Wörle, Rafael Sundorf, Paul Harker, Peter Fintl, Pascal F4ICR (2 times), Mike DL2MF (3 times), Eric KI1C / F4WFS (3 times), Phil G0ELM, Jérôme Lambert, Eliot Vedel, Alfonso EA7KDF, Jean-François F1EVM, Robert DC1RDB (2 times), Ian KE2CHJ, Daryl VK3AWA, Roberto Brunelli, Robert Boardman, Stephen Oliver, Nicolas F4INE, William Bruno, Daniel OK2VLK, Tayler Chew, Peter DL7RFP, Philippe Kopp, Rune LA6YMA, Jeremy Luna, Steef Wagenaar (2 times), Zhuo BG7SGA, Jamie M0JLB, Antoine LIBERT, Vince K0DKR, Julia DF7JA, Ken 2E0UMK, Victor TI2SYS, Tobi DG9LAY, Deaglan K4DFQ, Catherine PALMER, Brian WA6JFK, Stéphane Hintzy, Roger F1HCN, Marcin Kusaj, Flavio Cottarelli, Bob N1MLZ, Carlos EA1IJ, Brian M7YLF, Giuseppe IT9LLH, 邓 月, Jon M1JRH, Antonios Chouchoumis, Cédric Thomas, Justin White, Gordon Campbell, Per Georg Fostad, Edward Phillips, Peter Kintscher, Jerome Lambert and Andy G0FTD for their [donations](https://www.paypal.com/paypalme/F4HWN). That’s so kind of them. Thanks so much 🙏🏻
+Special thanks to Jean-Cyrille F6IWW (3 times), Fabrice 14RC123, Olivier 14RC206, Frédéric F4ESO, Stéphane F5LGW (2 times), Jorge Ornelas (4 times), Laurent F4AXK, Christophe Morel, Clayton W0LED, Pierre Antoine F6FWB, Jean-Claude 14FRS3306, Thierry F4GVO, Eric F1NOU, PricelessToolkit, Ady M6NYJ, Tom McGovern (4 times), Joseph Roth, Pierre-Yves Colin, Frank DJ7FG, Marcel Testaz, Brian Frobisher, Paolo Bussola, Dirk DL8DF, Levente Szőke (2 times), Bernard-Michel Herrera, Jérôme Saintespes, Paul Davies, RS (3 times), Johan F4WAT, Robert Wörle, Rafael Sundorf, Paul Harker, Peter Fintl, Pascal F4ICR (2 times), Mike DL2MF (3 times), Eric KI1C / F4WFS (3 times), Phil G0ELM, Jérôme Lambert, Eliot Vedel, Alfonso EA7KDF, Jean-François F1EVM, Robert DC1RDB (2 times), Ian KE2CHJ, Daryl VK3AWA, Roberto Brunelli, Robert Boardman, Stephen Oliver, Nicolas F4INE, William Bruno, Daniel OK2VLK, Tayler Chew, Peter DL7RFP, Philippe Kopp, Rune LA6YMA, Jeremy Luna, Steef Wagenaar (2 times), Zhuo BG7SGA, Jamie M0JLB, Antoine LIBERT, Vince K0DKR, Julia DF7JA, Ken 2E0UMK, Victor TI2SYS, Tobi DG9LAY, Deaglan K4DFQ, Catherine PALMER, Brian WA6JFK, Stéphane Hintzy, Roger F1HCN, Marcin Kusaj, Flavio Cottarelli, Bob N1MLZ, Carlos EA1IJ, Brian M7YLF, Giuseppe IT9LLH, 邓 月, Jon M1JRH, Antonios Chouchoumis, Cédric Thomas, Justin White, Gordon Campbell, Per Georg Fostad, Edward Phillips, Peter Kintscher, Jerome Lambert, Andy G0FTD, Yannig F4IUJ, Alessandro IW6OTU and Frederick Volk for their [donations](https://www.paypal.com/paypalme/F4HWN). That’s so kind of them. Thanks so much 🙏🏻
 
 ## Table of Contents
 
@@ -131,7 +131,28 @@ remains available for navigation and operation.
 
 ### Overlay applications and APRS
 
-Fusion can store up to 64 applications from the current collection of 43 in
+In the Apps menu, use `UP` / `DOWN` or type the displayed slot number to select
+an installed app, then press `MENU` to run it. A digit selects its slot
+immediately. A second digit entered in less than one second first tries the
+two-digit slot (for example, `1` then `2` selects `12`); if it is not installed,
+the second digit is tried on its own. Uninstalled slots leave the selection
+unchanged. Even if slot `01` is empty, `1` then `2` can still select `12`.
+A successful pair completes the number; a non-digit key or a one-second pause
+starts a new number. `*` toggles app size / version, and `EXIT` closes the menu.
+
+If the radio is switched off while an app is running, it starts again in that
+app at the next power-on, with the settings the app had saved, as if launched
+from the Apps menu: `EXIT` then comes back to the menu. A setting reaches the
+flash at most 2 seconds after its key, so one changed just before switching
+off can be lost. Each run of an app has room for at least 25 of these saves
+(4 in APRS Edit and CW Mem Edit, which write the large settings of another
+app); past that, the run's later changes are kept only when
+leaving with `EXIT`, and switching off resumes on the last one saved. To start on the
+main screen instead, hold `EXIT` while switching the radio on. A newly flashed
+firmware always starts on the main screen, so that UV Studio can write its
+assets.
+
+Fusion can store up to 64 applications from the current collection of 44 in
 external Flash. Each app is loaded into a dedicated 4 KiB RAM overlay only
 while it is running, while larger read-only assets such as text, fonts, bitmaps
 and lookup tables remain in external Flash.
@@ -141,10 +162,10 @@ The current app collection includes:
 - radio tools: Broadcast FM, Fox Hunt, Beacon, Beam, Signal Finder, Spectrum3D
   and ToneCall,
 - digital and signal apps: ACARS RX, AIS RX, ATIS RX, ATIS DSC RX, APRS RX,
-  APRS TX, APRS Edit, APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW Trainer,
-  CW USB, SSTV, POCSAG RX, Sonde M10, Sonde M20, Sonde RS41, GeoNav and EPIRB 406,
-- tools and diagnostics: AF Scope, AF Spectro, QR Map, Resistor, System Info and
-  Flash Map,
+  APRS TX, APRS Edit, APRS DIGI, KISS TNC, CW Decode, CW Keyer, CW Mem,
+  CW Mem Edit, CW Trainer, CW USB, SSTV, POCSAG RX, Sonde M10, Sonde M20, Sonde RS41, GeoNav, EPIRB 406 and Scan 406,
+- tools and diagnostics: ChannelBook, AF Scope, AF Spectro, QR Map, Resistor,
+  System Info and Flash Map,
 - games and demos: Breakout, Cube3D, Hell Maze, Minesweeper, Plasma, Rapid Roll,
   Snake, Sokoban, Space Impact and Tetris.
 
@@ -160,6 +181,12 @@ path-independent duplicate suppression and channel-busy protection.
 KISS TNC makes the radio the TNC of APRSdroid (or any KISS client) over the
 USB-C cable: the phone runs the APRS application, the radio demodulates and
 transmits.
+
+ChannelBook is a visual browser for the active Multiconfig memory bank. It groups
+channels by scan list, alphanumeric directory (`0-9`, `ABC` ... `WXYZ`, plus
+`NO NAME`) or 100-memory number ranges, provides direct memory-number access,
+and applies the selected channel to the current VFO with `MENU`. It resumes at
+the same directory, group and index/content level on the next launch.
 
 ACARS RX receives the 2400 bit/s AM-MSK aircraft data link, checks odd parity
 and CRC, and keeps a three-message history with aircraft address, flight ID,
@@ -179,6 +206,9 @@ between two tones (DTMF, FSK, Bell 202...). Both work in FM, AM and USB.
 > Overlay apps, including APRS RX, APRS TX and APRS DIGI, are experimental parts of
 > Fusion. Use the app files supplied with the same firmware release so their ABI
 > and required capabilities match the installed firmware.
+
+To write your own app and share it through UV Studio's Community tab, see
+[Writing an overlay app](https://github.com/armel/uv-k1-k5v3-firmware-custom/wiki/Writing-an-overlay-app) in the Wiki.
 
 > [!CAUTION]
 > Transmitting apps must only be used on frequencies, power levels and modes
@@ -299,6 +329,8 @@ between two tones (DTMF, FSK, Bell 202...). Both work in FM, AM and USB.
   - optional callsign identification,
   - configurable TX and idle periods,
   - live TX and idle countdowns,
+  - a safe `READY` screen where only `MENU` starts the cycle; `PTT` is ignored
+    to reject spurious events caused by dual-jack cable or UART activity,
   - persisted Beacon settings,
   - interactive control during transmission,
   - shared long-press `F` keypad lock,
@@ -375,6 +407,7 @@ the receiving radio must be restarted after a successful Flash clone.
   - `SetMet`: S-meter style,
   - `SetGUI`: VFO information style,
   - `SetRxA`: RX audio profile,
+  - `SetRxG`: RX audio noise gate (ON mutes the hiss between words, OFF keeps very weak modulation audible; always ON while the RX compander is active),
   - `SetTmr`: RX and TX timers,
   - `SetOff`: automatic deep-sleep delay,
   - `SetNFM`: narrow-FM bandwidth,
@@ -624,3 +657,8 @@ You may obtain a copy of the License at
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
+The M5Stack companion apps in `tools/m5stack/` (Tab5 and Cardputer K1Viewer)
+are not covered by this license: they are distributed under the GNU General
+Public License version 3 or later. See the `LICENSE` file in each of their
+folders.

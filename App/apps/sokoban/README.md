@@ -1,4 +1,4 @@
-# Sokoban 1.3
+# Sokoban 1.4
 
 A classic push-box puzzle overlay for F4HWN Labs ABI 1 / API 2.
 Twenty-four original, deterministic levels fit a 10x6 board of 8x8-pixel tiles;
@@ -28,9 +28,9 @@ transition; direction keys cannot move the completed board. A key held across
 a level change must be released before it can control the new board.
 
 Undo also works after winning. Changing levels or restarting clears undo.
-The current level is saved on exit through the resident deferred configuration
-service. The board position and counters are not saved. No flash writes occur
-while the overlay is running. The speaker is muted during the game; the loader
+The current level is saved within 2 s of a change, through the resident
+configuration service, even if the radio is then switched off in the app. The board
+position and counters are not saved. The speaker is muted during the game; the loader
 restores the radio when the app returns.
 
 ## Build and tests

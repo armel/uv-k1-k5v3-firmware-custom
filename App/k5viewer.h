@@ -17,8 +17,13 @@
 #ifndef K5VIEWER_H
 #define K5VIEWER_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 void K5VIEWER_Update(bool force);
 void K5VIEWER_ParseInput(void);
 bool K5VIEWER_HasPendingStateChange(void);
+bool K5VIEWER_SetGps(int32_t lat_cas, int32_t lon_cas);
+bool K5VIEWER_GetGps(int32_t *lat_cas, int32_t *lon_cas);
 
 #endif

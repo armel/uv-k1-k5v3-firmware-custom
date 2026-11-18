@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Host checks for APRS DIGI path rewriting and duplicate identity."""
 import os
+import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +62,37 @@ def digipeat(frame, own="F4HWN-3", wide2=False):
     return bytes(out)
 
 
+PROFILE_MAGIC = 0x37435041   # aprs_profile.h: APRS_PROFILE_MAGIC
+PROFILE_LEN, CALL_LEN, CALL = 117, 110, 111
+
+
+def profile(call, magic=PROFILE_MAGIC):
+    p = bytearray(b"\xff" * PROFILE_LEN)
+    p[0:4] = struct.pack("<I", magic)
+    p[CALL_LEN] = len(call)
+    p[CALL:CALL + 6] = call.encode().ljust(6, b" ")
+    return bytes(p)
+
+
+def own_call(prof, boot):
+    """makeOwn(): the APRS Edit callsign, else the boot callsign, as MYCALL-3."""
+    magic = struct.unpack("<I", prof[:4])[0]
+    n = prof[CALL_LEN]
+    raw = prof[CALL:CALL + n].decode("latin-1") \
+        if magic == PROFILE_MAGIC and 0 < n <= 6 else boot
+    if not raw or len(raw) > 6 or any(not (c.isascii() and (c.isupper() or c.isdigit()))
+                                      for c in raw):
+        return None
+    return raw + "-3"
+
+
 def main():
+    assert own_call(profile("F1ABC"), "F4HWN") == "F1ABC-3"
+    assert own_call(profile(""), "F4HWN") == "F4HWN-3"          # AUTO
+    assert own_call(b"\xff" * PROFILE_LEN, "F4HWN") == "F4HWN-3"  # no APRS TX
+    assert own_call(profile("F1ABC", magic=0), "F4HWN") == "F4HWN-3"
+    assert own_call(profile(""), "F4 HWN") is None               # NO CALL
+
     frames = test_frames("F1SRC-7")
     pos = digipeat(frames["pos"])
     assert pos is not None and valid(pos)

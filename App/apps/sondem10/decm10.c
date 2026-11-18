@@ -304,10 +304,11 @@ bool decm10_parse(decm10_t *d, sonde_info_t *out)
     {
         int32_t ve = (int16_t)be(f + 0x04u, 2), vn = (int16_t)be(f + 0x06u, 2);
         out->vs_dm = (int16_t)((int16_t)be(f + 0x08u, 2) / 20);
-        out->hs_ms = (uint16_t)((isqrt32((uint32_t)ve * (uint32_t)ve +
-                                         (uint32_t)vn * (uint32_t)vn) + 100u) / 200u);
-        out->hdg = bearing(ve, vn);
-        out->flags |= SONDE_HAS_VEL;
+        out->hs_ms = (uint8_t)((isqrt32((uint32_t)ve * (uint32_t)ve +
+                                        (uint32_t)vn * (uint32_t)vn) + 100u) / 200u);
+        const uint16_t hdg = bearing(ve, vn);
+        out->hdg = (uint8_t)hdg;
+        out->flags |= (uint8_t)(SONDE_HAS_VEL | (hdg >> 8) * SONDE_HDG_256);
     }
     return true;
 }

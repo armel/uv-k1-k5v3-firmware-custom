@@ -148,9 +148,6 @@ extern DCS_CodeType_t gCurrentCodeType;
 
 extern VfoState_t     VfoState[2];
 
-// Human-readable label per VfoState_t (defined in ui/main.c), e.g. "TX DISABLE".
-extern const char *const VfoStateStr[];
-
 bool     RADIO_CheckValidList(uint8_t scanList);
 uint8_t  RADIO_GetAdjacentScanList(uint8_t scanList, int8_t direction);
 void     RADIO_NextValidList(int8_t direction);
@@ -172,6 +169,7 @@ void     RADIO_SetTxParameters(void);
 void     RADIO_PrepareTx(void);   /* same setup, no FM waits, PA left off */
 void     RADIO_SetupAGC(bool listeningAM, bool disable);
 void     RADIO_SetModulation(ModulationMode_t modulation);
+bool     RADIO_IsRxCompanderOn(const VFO_Info_t *pInfo);
 void     RADIO_SetVfoState(VfoState_t State);
 void     RADIO_PrepareTX(void);
 void     RADIO_SendCssTail(void);

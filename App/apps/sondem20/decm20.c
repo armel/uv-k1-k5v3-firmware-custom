@@ -259,10 +259,13 @@ bool decm20_parse(decm20_t *d, sonde_info_t *out)
     if (out->flags & SONDE_HAS_POS) {
         int32_t ve = (int16_t)be(f + 0x0B, 2), vn = (int16_t)be(f + 0x0D, 2);
         out->vs_dm = (int16_t)((int16_t)be(f + 0x18, 2) / 10);
-        out->hs_ms = (uint16_t)((isqrt32((uint32_t)ve * (uint32_t)ve +
-                                         (uint32_t)vn * (uint32_t)vn) + 50u) / 100u);
-        out->hdg = bearing(ve, vn);
-        out->flags |= SONDE_HAS_VEL;
+        /* A byte, saturated: up to 463 m/s encodable, far beyond any balloon. */
+        const uint32_t hs = (isqrt32((uint32_t)ve * (uint32_t)ve +
+                                     (uint32_t)vn * (uint32_t)vn) + 50u) / 100u;
+        out->hs_ms = (uint8_t)(hs > 255u ? 255u : hs);
+        const uint16_t hdg = bearing(ve, vn);
+        out->hdg = (uint8_t)hdg;
+        out->flags |= (uint8_t)(SONDE_HAS_VEL | (hdg >> 8) * SONDE_HDG_256);
     }
     v = be(f + 0x08, 3);
     if (v & 0x800000u) v |= 0xFF000000u;

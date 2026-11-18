@@ -57,6 +57,13 @@ typedef enum {
     STATE_KEY_2,
     STATE_KEY_3,
     STATE_KEY_3L,
+    STATE_GPS,
+} ParseStateCode_t;
+
+typedef struct {
+    uint8_t state;
+    uint8_t payload_pos;
+    uint8_t payload[9];
 } ParseState_t;
 
 extern KEY_Code_t gKeyReading0;
@@ -77,6 +84,7 @@ extern volatile KEY_Code_t gKeyFromSerial;
 extern volatile uint8_t    gSerialViewerFeatures;
 #endif
 
+void KEYBOARD_ResetProtocolParser(ParseState_t *state);
 bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b);
 #endif
 

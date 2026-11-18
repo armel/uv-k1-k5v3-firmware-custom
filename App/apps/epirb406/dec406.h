@@ -65,7 +65,8 @@ typedef struct {
                                  2 = ELT(DT) cancellation message (A3.3.8.5)     */
     uint16_t country;         /* bits 27-36                                     */
     uint32_t idData;          /* std location: bits 41-64 (host only)           */
-    int32_t  latS, lonS;      /* position in arc seconds, N and E positive      */
+    int32_t  latS, lonS;      /* position, centi-arcseconds (the sondes' unit, the
+                                 QR Map hand-off's), N and E positive            */
     char     id[16];          /* 15-hex beacon ID, NUL terminated               */
 } dec406_info_t;
 

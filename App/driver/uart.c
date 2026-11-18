@@ -183,13 +183,14 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     bool UART_IsCableConnected(void) {
         static uint8_t     read_ptr = 0;
-        static ParseState_t state   = STATE_IDLE;
+        static ParseState_t state;
 
         bool connected = false;
 
         // DMA write position: NbData counts DOWN from 256
         uint8_t write_ptr = (uint8_t)(sizeof(UART_DMA_Buffer) - 
                                        LL_DMA_GetDataLength(DMA1, DMA_CHANNEL));
+        __COMPILER_BARRIER();   // DMA-filled ring: read the bytes after write_ptr
 
         uint8_t processed = 0;
         while (read_ptr != write_ptr && processed < sizeof(UART_DMA_Buffer))

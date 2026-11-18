@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="130" viewBox="0 0 600 130">
+<rect width="600" height="130" fill="#000"/>
+<text x="300" y="52" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="42" font-weight="600" text-anchor="middle" fill="#f4f5f6">Connect your UV-K1</text>
+<text x="187" y="104" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" text-anchor="end" fill="#8b9097">K-plug</text>
+<text x="187" y="104" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="25" fill="#8b9097" xml:space="preserve"> cable › USB-A on the Tab5</text>
+</svg>
