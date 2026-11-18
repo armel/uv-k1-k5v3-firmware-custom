@@ -1464,7 +1464,7 @@ void UART_HandleCommand(uint32_t Port)
             break;
         }
 
-        case 0x0732: // app slot erase: wipe the 8 KiB slot region, but the app's tagged settings (see APP_SlotErase)
+        case 0x0732: // app slot erase: Data[1] 0 preserves settings, 1 replaces the exact slot
         {
             if (pUART_Command->Header.Size < 6u) break;   // needs Data[0] slot + Data[2..5] timestamp
             gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
@@ -1473,8 +1473,14 @@ void UART_HandleCommand(uint32_t Port)
                           | ((uint32_t)pUART_Command->Data[3] << 8)
                           | ((uint32_t)pUART_Command->Data[4] << 16)
                           | ((uint32_t)pUART_Command->Data[5] << 24);
-            uint8_t status = (ts != mb_port_timestamp(Port))
-                           ? APP_ERR_AUTH : APP_SlotErase(slot);
+            uint8_t  flags = pUART_Command->Data[1];
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = APP_ERR_AUTH;
+            else if (flags > 1u)
+                status = APP_ERR_SIZE;
+            else
+                status = APP_SlotErase(slot, flags == 0u);
             struct __attribute__((packed)) {
                 Header_t Header;
                 uint8_t  Slot;
@@ -1542,6 +1548,48 @@ void UART_HandleCommand(uint32_t Port)
             Reply.Slot        = slot;
             Reply.Status      = status;
             SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0760: // app slot read: bounded access within one 8 KiB slot
+        {
+            if (pUART_Command->Header.Size != 12u) break;
+            gSerialConfigCountDown_500ms = 12; // keep serial mode alive (6 s)
+            uint8_t  slot   = pUART_Command->Data[0];
+            uint32_t offset = (uint32_t)pUART_Command->Data[2]
+                            | ((uint32_t)pUART_Command->Data[3] << 8)
+                            | ((uint32_t)pUART_Command->Data[4] << 16)
+                            | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint16_t len    = (uint16_t)(pUART_Command->Data[6]
+                            | ((uint16_t)pUART_Command->Data[7] << 8));
+            uint32_t ts     = (uint32_t)pUART_Command->Data[8]
+                            | ((uint32_t)pUART_Command->Data[9] << 8)
+                            | ((uint32_t)pUART_Command->Data[10] << 16)
+                            | ((uint32_t)pUART_Command->Data[11] << 24);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint8_t  Slot;
+                uint8_t  Status;
+                uint16_t Size;
+                uint32_t Offset;
+                uint8_t  Data[APP_SLOT_READ_MAX];
+            } Reply;
+            _Static_assert(sizeof(Reply) <= MAX_REPLY_SIZE,
+                           "app slot read reply exceeds the serial limit");
+            uint8_t status;
+            if (ts != mb_port_timestamp(Port))
+                status = APP_ERR_AUTH;
+            else if (!len || len > sizeof(Reply.Data))
+                status = APP_ERR_SIZE;
+            else
+                status = APP_SlotRead(slot, offset, Reply.Data, len);
+            Reply.Header.ID   = 0x0761;
+            Reply.Header.Size = 8u + ((status == APP_OK) ? len : 0u);
+            Reply.Slot        = slot;
+            Reply.Status      = status;
+            Reply.Size        = (status == APP_OK) ? len : 0u;
+            Reply.Offset      = offset;
+            SendReply(Port, &Reply, sizeof(Reply.Header) + Reply.Header.Size);
             break;
         }
 #endif

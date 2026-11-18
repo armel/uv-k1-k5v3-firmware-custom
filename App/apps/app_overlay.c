@@ -1876,7 +1876,17 @@ uint8_t APP_ResumeOverlay(void)
     return slot;
 }
 
-uint8_t APP_SlotErase(uint8_t slot)
+uint8_t APP_SlotRead(uint8_t slot, uint32_t offset, void *data, uint16_t len)
+{
+    if (slot >= APP_SLOT_COUNT)
+        return APP_ERR_SLOT;
+    if (!len || offset > APP_SLOT_STRIDE || len > APP_SLOT_STRIDE - offset)
+        return APP_ERR_SIZE;
+    PY25Q16_ReadBuffer(APP_SLOT_BASE(slot) + offset, data, len);
+    return APP_OK;
+}
+
+uint8_t APP_SlotErase(uint8_t slot, bool preserve_config)
 {
     if (slot >= APP_SLOT_COUNT)
         return APP_ERR_SLOT;
@@ -1887,13 +1897,15 @@ uint8_t APP_SlotErase(uint8_t slot)
     uint8_t keep[APP_CFG_OWNER + APP_NAME_LEN - APP_CFG_OFFSET];
     uint8_t *const owner = keep + (APP_CFG_OWNER - APP_CFG_OFFSET);
     app_header_t h;
-    PY25Q16_ReadBuffer(base + APP_CFG_OFFSET, keep, sizeof(keep));
-    if (*owner == 0xFFu && app_read_validated_header(slot, &h) == APP_OK)
-        memcpy(owner, h.name, APP_NAME_LEN);
+    if (preserve_config) {
+        PY25Q16_ReadBuffer(base + APP_CFG_OFFSET, keep, sizeof(keep));
+        if (*owner == 0xFFu && app_read_validated_header(slot, &h) == APP_OK)
+            memcpy(owner, h.name, APP_NAME_LEN);
+    }
     for (uint32_t off = 0; off < APP_SLOT_STRIDE; off += APP_SECTOR_SIZE)
         PY25Q16_SectorErase(base + off);
     PY25Q16_InvalidateCache();
-    if (*owner != 0xFFu) {
+    if (preserve_config && *owner != 0xFFu) {
         PY25Q16_WriteBuffer(base + APP_CFG_OFFSET, keep, sizeof(keep), false);
         PY25Q16_InvalidateCache();
     }
