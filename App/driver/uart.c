@@ -113,7 +113,7 @@ void UART_Init(void)
     LL_USART_TransmitData8(USARTx, 0);
 }
 
-#ifdef ENABLE_AIRCOPY_UART
+#if defined(ENABLE_AIRCOPY_UART) || defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
 bool UART_SetBaudRate(uint32_t BaudRate)
 {
     uint32_t timeout = UART_TX_TIMEOUT_ITERATIONS;
@@ -173,6 +173,14 @@ void UART_Send(const void *pBuffer, uint32_t Size)
     }
 }
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* The DMA write position in UART_DMA_Buffer: NbData counts down from 256. */
+uint8_t UART_RxHead(void)
+{
+    return (uint8_t)(sizeof(UART_DMA_Buffer) - LL_DMA_GetDataLength(DMA1, DMA_CHANNEL));
+}
+#endif
+
 void UART_LogSend(const void *pBuffer, uint32_t Size)
 {
     if (UART_IsLogEnabled) {
@@ -181,10 +189,18 @@ void UART_LogSend(const void *pBuffer, uint32_t Size)
 }
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
-    bool UART_IsCableConnected(void) {
-        static uint8_t     read_ptr = 0;
-        static ParseState_t state;
+    static uint8_t     read_ptr = 0;
+    static ParseState_t state;
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    /* After an overlay app used the K-plug: skip what it left in the ring. */
+    void UART_K5ViewerSync(void) {
+        read_ptr = UART_RxHead();
+        KEYBOARD_ResetProtocolParser(&state);   /* as VCP_K5ViewerSync */
+    }
+#endif
+
+    bool UART_IsCableConnected(void) {
         bool connected = false;
 
         // DMA write position: NbData counts DOWN from 256
