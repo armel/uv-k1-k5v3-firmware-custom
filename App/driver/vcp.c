@@ -17,6 +17,8 @@
 #include "driver/vcp.h"
 #include "usb_config.h"
 #include "py32f071_ll_bus.h"
+#include "py32f071_ll_gpio.h"
+#include "driver/system.h"
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 #include "driver/keyboard.h"
@@ -29,6 +31,21 @@ void VCP_Init()
 {
     LL_APB1_GRP2_EnableClock(LL_APB1_GRP2_PERIPH_SYSCFG);
     LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA); // PA12:11
+
+    /* Leave the bus before enumerating. The bootloader can hand over with its
+     * own USB device (36b7:0001) still attached: a host that sees no
+     * disconnect keeps that device and never enumerates this firmware's
+     * (36b7:ffff), so UV Studio cannot reach it until the radio is switched
+     * off and on. Reset the USB peripheral (its address and pull-up) and hold
+     * D+ low: the host sees the radio unplugged, then plugged again. Boot
+     * only, so a running session is never dropped. */
+    LL_APB1_GRP1_ForceReset(LL_APB1_GRP1_PERIPH_USBD);
+    LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_12);
+    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_12, LL_GPIO_MODE_OUTPUT);
+    SYSTEM_DelayMs(50);
+    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_12, LL_GPIO_MODE_ANALOG);
+    LL_APB1_GRP1_ReleaseReset(LL_APB1_GRP1_PERIPH_USBD);
+
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USBD);
 
     cdc_acm_rx_buf_t rx_buf = {
@@ -44,14 +61,14 @@ void VCP_Init()
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
 static uint8_t      k5v_read_ptr = 0;
-static ParseState_t k5v_state    = STATE_IDLE;
+static ParseState_t k5v_state;
 
 /* Skip what arrived while an overlay app owned the port (its serial data is
  * no K5Viewer traffic) and restart the parser from a clean state. */
 void VCP_K5ViewerSync(void)
 {
     k5v_read_ptr = (uint8_t)VCP_RxBufPointer;
-    k5v_state    = STATE_IDLE;
+    KEYBOARD_ResetProtocolParser(&k5v_state);
 }
 
 bool VCP_K5ViewerPing(void)
@@ -65,6 +82,7 @@ bool VCP_K5ViewerPing(void)
     //                    flags bit 7 = restart RF log synchronization
     //   Short key press: 0xAA 0x55 0x03 <key>   → inject short press
     //   Long key press:  0xAA 0x55 0x04 <key>   → inject long press
+    //   GPS position:    0xAA 0x55 0x07 <lat:i32 LE> <lon:i32 LE> <XOR>
     //
     // State transitions:
     //   IDLE  → 0x55 → KA_1
@@ -77,12 +95,14 @@ bool VCP_K5ViewerPing(void)
     //   KEY_1  → 0x55 → KEY_2     (else IDLE)
     //   KEY_2  → 0x03 → KEY_3     (short press, else check long)
     //   KEY_2  → 0x04 → KEY_3L    (long press, else IDLE)
+    //   KEY_2  → 0x07 → GPS       (8 position bytes and XOR, then IDLE)
     //   KEY_3  → <b>  → KEYBOARD_InjectKey(b, false), IDLE
     //   KEY_3L → <b>  → KEYBOARD_InjectKey(b, true), IDLE
 
     uint8_t  read_ptr  = k5v_read_ptr;
     bool     connected = false;
     uint8_t  write_ptr = VCP_RxBufPointer;  // snapshot once — ISR may update concurrently
+    __COMPILER_BARRIER();                   // ISR-filled ring: read the bytes after write_ptr
 
     // Cap bytes processed per call to VCP_RX_BUF_SIZE.
     // Prevents unbounded loop if the ISR write pointer laps read_ptr

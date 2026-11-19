@@ -11,7 +11,8 @@ tone to imitate, the RAW durations are the runs of equal bits. Each run is
 rounded from exact bit-edge times so the timing error never accumulates.
 
   flipper_pocsag.py <out_dir> [--freq 433650000] [--baud 1200] [--names alpha,two]
-    -> pocsag_alpha.sub, _numeric, _two, _long, _same, _inverted, _biterr, _gap
+    -> pocsag_alpha.sub, _numeric, _func0alpha, _func0numeric, _two, _long,
+       _same, _inverted, _biterr, _gap
        (1200 bauds); pocsag512_alpha.sub, ... at 512 bauds, pocsag2400_... at
        2400 (not decoded: the app shows the preamble's rate only)
 One transmission per file (about 1.5 s at 1200 bauds, 3.5 s at 512).
@@ -59,6 +60,16 @@ def write_sub(path, bits, freq, baud):
 def test_bits():
     """name -> (bits, pages the app must show)."""
     out = {n: (pocsag.bits(p), p) for n, p in pocsag.TEST_PAGES.items()}
+    # Real-world exception: these networks put 7-bit text behind function 0,
+    # which the POCSAG recommendation otherwise assigns to numeric pages.
+    p = [(332450, 0, "CAVSAV sur VTUB"),
+         (337265, 0, "CODB sur VTUB"),
+         (338909, 0, "EQID sur VTUB")]
+    out["func0alpha"] = (pocsag.bits(p, func0_alpha=True), p)
+    # Regression: this unusual but valid numeric page used to be selected as
+    # alpha. It must keep its standard numeric interpretation.
+    p = [(340000, 0, "46*7(4-(601)8 *(0**2U")]
+    out["func0numeric"] = (pocsag.bits(p), p)
     b, p = out["alpha"]
     out["inverted"] = ([1 - x for x in b], p)       # the other discriminator polarity
     e = list(b)                                     # one wrong bit in every other codeword

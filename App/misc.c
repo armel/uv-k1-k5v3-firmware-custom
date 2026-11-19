@@ -16,6 +16,9 @@
 
 #include <string.h>
 
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    #include "font.h"
+#endif
 #include "misc.h"
 #include "settings.h"
 #include "driver/py25q16.h"
@@ -126,9 +129,13 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     uint8_t       gSetting_set_lck = SET_LCK_KEYS;
     bool          gSetting_set_met = 0;
     bool          gSetting_set_gui = 0;
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        uint8_t       gSetting_set_fnt = FONT_VARIANT_DEFAULT;
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         uint8_t       gSetting_set_audio_fm = 0;
         uint8_t       gSetting_set_audio_am = 0;
+        bool          gSetting_set_rxg = true;
     #endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         bool          gSetting_set_nfm = 0;
@@ -331,8 +338,8 @@ uint8_t           gIsLocked = 0xFF;
     uint8_t       gPttOnePushCounter = 0;
     uint32_t      gBlinkCounter = 0;
 
-    uint16_t gVfoSaveCountdown_10ms = 0;
-    bool gScheduleVfoSave = false;
+    volatile uint16_t gVfoSaveCountdown_10ms = 0;
+    volatile bool gScheduleVfoSave = false;
     bool gVfoStateChanged = false;
     char    gListName[MR_CHANNELS_LIST][4];
 #endif

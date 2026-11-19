@@ -294,14 +294,14 @@ void app_main(const app_api_t *api){
                 else if(g.screen==SCREEN_EDIT) editKey(key);
                 else listKey(key);
                 g.dirty=true;
+                if(g.changed||g.sel!=saved){           /* flash written only on change */
+                    TC_CfgPack(cfg,g.preset,g.sel);    /* after each key: kept across a switch-off */
+                    api->cfg_save((const uint8_t *)cfg,TC_CFG_LEN);
+                }
             }
         }
         api->battery_sample(); api->delay_ms(LOOP_MS); api->backlight_update();
     }
 
     if(g.screen==SCREEN_LISTEN) leaveListen();
-    if(g.changed||g.sel!=saved){                       /* flash written only on change */
-        TC_CfgPack(cfg,g.preset,g.sel);
-        api->cfg_save((const uint8_t *)cfg,TC_CFG_LEN);
-    }
 }

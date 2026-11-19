@@ -7,7 +7,7 @@ which is also the test receiver.
 | Step | State |
 |---|---|
 | Frame and bit stream model (`test/tx_model.py`) | **Done**: identical to the RX app's AX.25 reference, decoded by the RX model |
-| Radio app (`aprstx_app.c`) | **v0.1 works on the radio** (2026-09-30); v0.2-v0.7 add and refine the original editor and display; v0.8 introduces APRS Edit; v0.9 moves the complete beacon-profile editor into APRS Edit; v1.0-v1.2 extend comments to five editor lines and 89 characters; v1.3 adds the editable source callsign; v1.4 changes the default comment; v1.5 adds the beacon timer (key 3), **works on the radio** (2026-10-13); v1.7 adds the round trip to APRS Edit |
+| Radio app (`aprstx_app.c`) | **v0.1 works on the radio** (2026-09-30); v0.2-v0.7 add and refine the original editor and display; v0.8 introduces APRS Edit; v0.9 moves the complete beacon-profile editor into APRS Edit; v1.0-v1.2 extend comments to five editor lines and 89 characters; v1.3 adds the editable source callsign; v1.4 changes the default comment; v1.5 adds the beacon timer (key 3), **works on the radio** (2026-10-13); v1.7 adds the round trip to APRS Edit; v1.9 uses a live K5Viewer GPS fix when available |
 | On-air test: APRS RX on a second radio, FT3D | **Done** (2026-09-30, v0.1: frames received by a UV-K1 running APRS RX and by the FT3D, first try, default level 66 and twist 0) |
 
 ## Station settings (`gen_assets.py`, then rebuild)
@@ -30,6 +30,11 @@ APRS Edit changes the callsign, SSID, position, path, symbol and comment without
 duplicating the transmitter. APRS TX 1.3 and later store them in one versioned 117-byte
 profile asset. Reinstalling APRS TX restores the bundled defaults.
 
+With API level 4 firmware, each transmission first asks K5Viewer for a recent
+GPS fix. A fix forwarded by the Tab5 replaces `LAT` and `LON` in that frame
+only. If no fix was received in the last 15 seconds, APRS TX uses the position
+stored by APRS Edit. The profile is never modified by GPS reception.
+
 APRS TX 1.4 and later require Labs firmware v6.2.0 or later, the first one whose
 configuration proxy lets APRS Edit change this profile: earlier firmware
 refuses to launch it (`NOT SUPPORTED`) rather than transmit fixed defaults.
@@ -51,6 +56,11 @@ Yaesu bitmap set is stored in the app assets; the editor keeps the full width.
 | F | Arm the next key's down direction (1, 2) or the beacon off (3), as FoxHunt's F; icon in the status bar while armed |
 | * | Scroll view / compact view (saved): compact shows the source in bold, then the path, the position `48 50.90N 002 16.25E`, the symbol and the comment in the tiny 3x5 font, 32 characters a row, without scroll |
 | EXIT | Quit (level, twist, view and beacon interval are saved); the beacon only runs while the app is open |
+
+The settings are saved within 2 s of a change. A radio switched off in APRS TX
+comes back in it at the next power-on, like any app, so a beacon interval that
+was set counts down again from there: hold `EXIT` while switching on to start on
+the main screen instead.
 
 Paths: `DIRECT` (heard only by the stations and iGates in range), `WIDE1-1` (one
 repeat by a nearby digipeater), `WIDE1-1,2-1` (`WIDE1-1,WIDE2-1`: the usual

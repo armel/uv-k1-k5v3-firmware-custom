@@ -10,7 +10,7 @@ Status:
 |---|---|
 | Feasibility: can an app read the demodulated signal? | **Done**: yes, on PA4 (see `../lab406/README.md`) |
 | Decoder core (`dec406.c`), host-tested on synthetic audio | **Done**: 17/17 tests pass |
-| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes |
+| Radio app (`epirb406_app.c`: trigger, sampling, display) | **v1.4 decodes the full reference frame on the K1** (position, `END F58521EDA3`); v1.6 (assets, 3,320 bytes) decodes the Flipper Zero test frames on the radio, and the rpitx bench frame on a UV-K1 (F4WAT, 2026-10-01); v1.7: 3,284 bytes; v2.9: help page and homing to Sig Finder on 121.5 / 243 MHz, tested on a UV-K1 (2026-10-22); v3.0: key 7, the position as a QR code with QR Map |
 | Bench test with the beacon generator on 433.650 MHz | **Done** (2026-09-27) |
 | Bench test with a Flipper Zero on 433.650 MHz (`test/flipper406.py`) | **Done** (2026-09-30, v1.6) |
 
@@ -22,11 +22,30 @@ Status:
    launch.
 3. The speaker is off by default. Key 1 turns it on if you want to hear the
    bursts; decoding still receives the BK4829 AF signal on PA4 while it is off.
+4. MENU shows the keys. Once a beacon is decoded, key 8 (121.5 MHz) or 9
+   (243 MHz) takes you to Sig Finder to home on it, and back here on EXIT
+   (see [Homing with Sig Finder](#homing-with-sig-finder)). Key 7 shows its
+   position as a QR code for a phone's map
+   (see [Position as a QR code](#position-as-a-qr-code)).
+
+Needs a Labs or Fusion_ firmware v6.3.0 or later (app API level 3). Keys 8 / 9
+also need `vfo_stage` (v6.3.0, with the BEAM bridge) and Sig Finder 1.9 or
+later installed under its own name; key 7 needs QR Map 1.0 or later.
 
 Every decoded message plays three 1536 Hz beeps (150 ms on, 150 ms off), even
 with the speaker off, so a beacon heard while the radio is in a pocket is not
 missed. The beeps are played after the burst (about 0.75 s, within the 1.5 s
 re-arm delay), and the next burst of a real beacon comes about 50 s later.
+
+Since v3.6 the flashlight (the white lamp on top, PC13, driven directly as in
+Scan 406) then blinks, about 4 main-loop passes on and 4 off, until a key is
+pressed: the first new key acknowledges it and does nothing else. It does not
+wait for the key and makes no sound of its own, so the next burst is still
+decoded while it blinks. The app turns the lamp off on exit (the loader does
+not touch PC13), so a lamp switched on before launching the app is off
+afterwards. (v3.3 to v3.5 also repeated the beeps; each beep group takes the
+receiver away for about 800 ms, and with the 3.4 timing a burst 50 s later
+was damaged. Dropped in 3.6.)
 
 Each burst is detected on RSSI (10 dB above the floor), sampled for up to 900 ms
 and decoded. The five latest messages stay in RAM, newest first. A new decode is
@@ -48,11 +67,16 @@ Keys (UV-K5 and UV-K1):
 |---|---|
 | UP / DOWN (held) | Scroll the selected message one pixel per 50 ms slot, according to `SET_NAV` (UV-K1: LEFT/RIGHT) |
 | UP / DOWN (pressed again at an end) | Select the newer / older message, from its first detail row |
-| * | Normal / compact view, saved on exit; returns to the first detail row. Normal view is the default |
-| 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz |
+| * | Normal / compact view, saved; returns to the first detail row. Normal view is the default |
+| 4 / 6 | Tune −5 / +5 kHz from the VFO, up to ±50 kHz, saved |
 | 5 | Back to the VFO frequency |
-| 1 | Speaker on/off, saved on exit; off by default |
-| MENU | Clear all five messages and the counters |
+| 1 | Speaker on/off, saved; off by default |
+| 0 | Clear all five messages and the counters |
+| 7 | Position as a QR code: after MENU confirms, QR Map shows the selected message's position, exactly as decoded; EXIT there brings you back (see [Position as a QR code](#position-as-a-qr-code)) |
+| 8 | Homing on 121.5 MHz: after MENU confirms, VFO on 121.500 MHz AM narrow and Sig Finder; EXIT there brings you back (see [Homing with Sig Finder](#homing-with-sig-finder)) |
+| 9 | Same on 243 MHz (military), VFO on 243.000 MHz AM wide |
+| any key, lamp blinking | Acknowledges the decode alarm (v3.6) and does nothing else |
+| MENU | Help: one page listing the keys; any key goes back to the messages |
 | EXIT | Quit (the firmware retunes to the VFO frequency) |
 
 Sampling is never interrupted after frame synchronization. While still searching,
@@ -94,6 +118,87 @@ v1.7 counts the sync-pattern bits with a loop (one pass per set bit) instead of
 the branch-free version: 36 bytes less, **3,284 bytes, 812 free**. The cost is
 at most 4 x 32 passes per half-bit (every 12 samples), and only while searching
 for the sync, against 5,000 cycles per sample; host tests 29/29.
+
+## Homing with Sig Finder
+
+A 406 MHz beacon gives the position; the last metres are found by homing on
+its 121.5 MHz transmitter (or 243 MHz on military equipment) with Sig Finder.
+Keys 8 and 9 do the retuning and the switch:
+
+1. The key shows a confirmation page (`121.500 MHZ AM NARROW` or
+   `243.000 MHZ AM WIDE`, `THEN SIG FINDER`, `MENU OK   OTHER KEY NO`). Only
+   MENU goes on, so a stray key press never retunes the radio.
+2. The app reads the current VFO (`beam_get`) and hands off to Sig Finder with
+   it as the message (`handoff`): the first 26 bytes of `app_beam_channel_t`,
+   every setting but the name. `handoff()` copies the message at once, so the
+   same record can be changed afterwards.
+3. It sets 121.500 MHz AM narrow or 243.000 MHz AM wide, no offset, no tone,
+   other settings kept, and stages it (`vfo_stage`), then quits.
+4. The loader applies the VFO and opens Sig Finder, already on the homing
+   frequency.
+5. EXIT in Sig Finder stages the original VFO back and hands off to EPIRB 406,
+   which starts again on 406 MHz. The decoded messages are not kept (RAM is
+   cleared on exit). A long EXIT restores the VFO and goes to the main screen.
+
+On a firmware without `vfo_stage` the keys do nothing. Without Sig Finder the
+VFO is still set and the radio goes back to the main screen. If the staging is
+refused (frequency outside the radio's range), Sig Finder opens on the launch
+VFO and still brings you back.
+
+v2.8 / v2.9 space: the help page and the confirmation share one tiny-font page
+renderer and one stack buffer, and their lines are assets. Clearing the
+messages moved from MENU to 0. The build adds `-fno-guess-branch-probability`
+(4 bytes). **4,072 bytes, 24 free.**
+
+## Position as a QR code
+
+Key 7 hands the selected message's position to [QR Map](../qrmap/README.md),
+which shows it as a QR code: a phone scans it and opens the position in
+Google Maps (the default, Android and iPhone), Apple Maps, an Android map app
+(`geo:`), OpenStreetMap, or as plain decimal degrees.
+
+1. Nothing happens without a decoded message with a position.
+2. A confirmation page (`POSITION AS A QR CODE`, `THEN QR MAP`,
+   `MENU OK   OTHER KEY NO`) comes first, as for 8 / 9: leaving the app clears
+   the decoded messages, so a stray key press must not do it.
+3. The message is the decoded record itself, 24 bytes from `latS`: latitude
+   and longitude in centi-arcseconds, then the 15-hex ID, which QR Map shows
+   beside the code. Nothing is converted or rounded on the way: the decoder
+   keeps the position in centi-arcseconds (an exact multiple of 100, since
+   T.001 positions are in whole seconds), the unit of the sonde decoders and
+   of QR Map's hand-off, and the app hands its own fields over. A
+   `_Static_assert` keeps `latS`, `lonS` and `id` next to each other.
+4. EXIT in QR Map launches EPIRB 406 again; a long EXIT goes to the main
+   screen. QR Map not installed: the key does nothing.
+
+QR Map writes the degrees with 6 decimals, rounded: within 5 cm of the decoded
+position, far below the 4-second (about 120 m) step of the finest T.001
+offsets. The screen here still shows 5 decimals, truncated, as before.
+
+v3.0 space: key 7 shares the confirmation page and the hand-off code of keys
+8 / 9 (`handoff()`, not inlined), and its name comes from the page's asset
+like `Sig Finder`. Centi-arcseconds cost the decoder 20 bytes (larger
+constants). The build adds four `-fno-...` flags that only turn optimisations
+off, chosen one by one on the size they give: 76 bytes. The help page merges
+keys 4, 5 and 6 into one line to add key 7: its size is the stack buffer of
+`handleKey()`, and 8 more bytes there cost 24 bytes of code. **4,080 bytes,
+16 free.**
+
+v3.6 space: the decode alarm on the flashlight. The three decode beeps are
+`beep(n)` (kept from 3.5). Found in the
+existing code, without removing a feature: the noise floor at launch is one
+RSSI read instead of the mean of 16 (the loop tracks it within about 60 ms;
+20 bytes); the noise floor is divided by
+64 with `>> 6` instead of `/ 64` (no signed-division fix-up, three places, 32
+bytes; it rounds towards minus infinity, so the floor and the trigger can sit
+up to 1 dB lower); the three hand-off pages are
+consecutive assets of one size, read at `T_ASKQR + (key - 7) * ASK_SIZE` (8
+bytes); `draw()` no longer clears `g.lim` with no message (key 0 and the
+launch already do); no `backlight_on()` at launch (the main loop calls it on
+every pass); no guard against a re-arm deadline of exactly 0 (one tick in 49
+days); no 50 ms delay before the noise floor, which `tune()`'s `SETTLE_MS`
+already gives (RSSI settles in about 7 ms after a relock). **4,084 bytes, 12
+free.** Scan 406's screen inversion would need more.
 
 ## Signal path on the radio
 
@@ -189,7 +294,8 @@ freestanding (no libc). About 150 bytes of state.
    receive chain may invert). Up to 2 mismatches allowed.
 5. **Bits**: soft decision per bit, first half minus second half.
 6. **Parsing**: BCH-1 and BCH-2 syndromes, country, protocol, 15-hex ID, position
-   (coarse + fine offsets) for every location format (table above). The parse
+   (coarse + fine offsets, in centi-arcseconds since v3.0) for every location
+   format (table above). The parse
    leaves the PDF-1 position bits at their default value: parse a message once.
 
 Size for Cortex-M0+ (firmware toolchain, `-Os`): 1,468 bytes of code, after the
@@ -209,7 +315,9 @@ test/run_tests.sh
   discriminator, audio low-pass, AC coupling, 9.6 kHz ADC with clock error,
   12-bit around the measured 518 bias, full-scale noise when no carrier.
 - `host_dec406.c` runs the decoder over the samples and prints each message;
-  `host_dec406 -x HEX` parses a frame directly, without the audio chain.
+  `host_dec406 -x HEX` parses a frame directly, without the audio chain;
+  `host_dec406 -m HEX` prints the message key 7 hands to QR Map (QR Map's
+  tests decode the code of every T.001 position through it).
 
 ### Every T.001 coding option (`test/t001frames.py`)
 
@@ -435,4 +543,4 @@ a real bias reproduced on the host at the measured level.
 
 `APP_VER` in `build.sh` is bumped for every build that goes on a radio and is
 stored in the `.app` metadata. The status-bar title stays simply `EPIRB 406`.
-Current source: **v2.7** (amplifier off before the RX return, no click after the beeps): size to be measured, estimated unchanged (v2.6, three decode beeps: 4,092 of 4,096 bytes; v2.5, one beep: 4,088; v2.4: 4,072).
+Current source: **v3.6** (decode alarm: the flashlight blinks until a key): 4,084 of 4,096 bytes (v3.0, key 7, the position to QR Map: 4,080; v2.9: 4,072; v2.6, three decode beeps: 4,092; v2.5, one beep: 4,088; v2.4: 4,072).

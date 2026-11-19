@@ -1,0 +1,7 @@
+*.app
+*.bin
+*.elf
+*.map
+test/out/
+__pycache__/
+measure/

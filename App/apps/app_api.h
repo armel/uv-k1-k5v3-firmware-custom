@@ -52,9 +52,12 @@
  *      offset; serial_read / serial_write / serial_ctl (the USB-C serial
  *      port, K-plug reserved; APP_CAP_SERIAL); blit_page, lcd_feed,
  *      viewer_update (the LCD without the K5Viewer side effect), vfo_stage
- *      (deferred update of the current VFO) */
+ *      (deferred update of the current VFO)
+ *   4  mr: memory-channel query, scan-list name and deferred selection;
+ *      tx_power (the PA setting of the app's own transmissions);
+ *      gps_position: fresh position supplied by a connected K5Viewer host */
 #define APP_ABI_MAJOR  1u
-#define APP_API_LEVEL  3u
+#define APP_API_LEVEL  4u
 
 /* App name length in app_header_t, the name handoff() takes (API level 3). */
 #define APP_NAME_LEN    16
@@ -69,6 +72,10 @@
 
 /* Minimum API level of an app that ships read-only assets (pack_app.py). */
 #define APP_API_ASSETS 2u
+/* Minimum API level for the memory-channel service. */
+#define APP_API_MEMORY 4u
+/* Minimum API level for the live K5Viewer GPS service. */
+#define APP_API_GPS    4u
 
 /* KEY codes mirrored from driver/keyboard.h (enum KEY_Code_e). Kept in sync by
  * value so the app stays independent of the firmware headers. */
@@ -90,6 +97,8 @@ enum {
     APP_KEY_STAR    = 14,
     APP_KEY_F       = 15,
     APP_KEY_PTT     = 16,
+    APP_KEY_SIDE2   = 17,
+    APP_KEY_SIDE1   = 18,
     APP_KEY_INVALID = 19,
     APP_KEY_SAVER   = 0xFD, /* virtual: saver active, skip this app frame       */
     APP_KEY_WAKE    = 0xFE, /* virtual: saver dismissed, redraw without action */
@@ -98,6 +107,15 @@ enum {
 /* The framebuffer is the resident gFrameBuffer[FRAME_LINES][128]; the app draws
  * into it and calls a blit_* to push it to the LCD. */
 typedef uint8_t (*app_fb_t)[128];
+
+/* Signed centi-arcseconds: 360000 units per degree. */
+typedef struct {
+    int32_t lat_cas;
+    int32_t lon_cas;
+} app_gps_position_t;
+
+_Static_assert(sizeof(app_gps_position_t) == 8u,
+               "app GPS position layout must stay stable");
 
 /* Broadcast FM shared state (mirrors gEeprom.FM_*), read/written via fm_state. */
 #define APP_FM_CH_MAX 48
@@ -135,6 +153,27 @@ typedef struct {
     char     name[16]; /* fixed-width wire field; NUL termination is not required */
 } app_beam_channel_t;
 
+/* Minimal memory-channel view used by the API level 4 service. */
+typedef struct {
+    uint32_t rx_frequency; /* 10 Hz units */
+    char     name[11];     /* at most 10 characters plus NUL */
+} app_mr_channel_t;
+
+_Static_assert(offsetof(app_mr_channel_t, name) == 4u &&
+               sizeof(app_mr_channel_t) == 16u,
+               "memory-channel ABI layout changed");
+
+/* Memory-channel service operations and results (API level 4). */
+enum {
+    APP_MR_READ      = 0, /* index is a memory, out is app_mr_channel_t * or NULL   */
+    APP_MR_LIST_NAME = 1, /* index is 1..APP_MR_LISTS, out is char[5] or NULL       */
+    APP_MR_STAGE     = 2, /* index is a memory, out is ignored                       */
+};
+#define APP_MR_LISTS 24u
+#define APP_MR_COUNT 1024u
+#define APP_MR_EVERY (APP_MR_LISTS + 1u)
+#define APP_MR_INVALID (-1)
+
 _Static_assert(sizeof(app_beam_channel_t) == 44u,
                "BEAM ABI/wire channel layout changed");
 
@@ -147,10 +186,26 @@ enum {
 /* CRITICAL PERSISTENCE RULE
  *
  * The app executes from the RAM buffer also used as PY25Q16's sector cache.
- * Therefore no API callback may erase or write external flash while app_main()
- * is running: a read-modify-write would overwrite the executing app.  Services
- * such as cfg_save, fm_commit and beam_save must only stage resident RAM state;
- * APP_LaunchOverlay commits it after app_main() returns. */
+ * Therefore no API callback may erase or write the main array of the external
+ * flash while app_main() is running: a read-modify-write would overwrite the
+ * executing app.  Services such as cfg_save, fm_commit and beam_save must only
+ * stage resident RAM state; APP_LaunchOverlay commits it after app_main()
+ * returns.
+ *
+ * RESUME: the radio has no soft power-off, so it may be switched off while an
+ * app runs. The loader logs the running app and each config cfg_save stages
+ * in a PY25Q16 security register, which is written without the sector cache;
+ * at the next power-on the app's last config is committed and the app is
+ * started again (any key held at power-on skips the restart). Only what
+ * cfg_save staged survives: call it whenever a setting changes, not only on
+ * EXIT. Identical bytes cost nothing, and changes are logged at most every
+ * 2 s (the last one is held until the app next polls get_key), so a change
+ * made less than 2 s before the switch-off can be lost. The register is never
+ * erased under a running app: a launch leaves at least 512 bytes for the run,
+ * 25 logs of a 16-byte config, 4 of the largest proxy config (117 bytes).
+ * Past that, the run's later changes are kept on EXIT only, and a switch-off
+ * resumes on the last one logged. An app started by a hand-off reads the same
+ * message again (handoff_read) after a resume. */
 
 typedef struct app_api {
     /* Fixed four-byte prefix; services remain naturally pointer-aligned. */
@@ -202,7 +257,8 @@ typedef struct app_api {
 
     /* ---- config persistence (deferred: staged now, committed on exit) ---- */
     void (*cfg_load)(uint8_t *buf, uint8_t len); /* read the app's saved config bytes      */
-    void (*cfg_save)(const uint8_t *buf, uint8_t len); /* stage bytes; resident commits after the app returns */
+    void (*cfg_save)(const uint8_t *buf, uint8_t len); /* stage bytes; resident commits after the app returns,
+                                                          or at power-on after a switch-off (see RESUME) */
 
     /* ---- battery + backlight ---- */
     void (*draw_battery)(void);      /* UI_DrawStatusBattery into the status line */
@@ -219,7 +275,7 @@ typedef struct app_api {
     void     (*tx_tone)(uint16_t hz);/* BK4819_TransmitTone prime (MCW tone)       */
     void     (*tx_mute)(bool on);    /* key the tone on(false)/off(true) via TxMute */
     void     (*tx_end)(void);        /* PA off + RADIO_SetupRegisters (back to RX) */
-    void     (*tx_carrier)(bool on); /* gate the PA on/off (beacon CARR carrier keying) */
+    void     (*tx_carrier)(bool on); /* gate the PA on/off (beacon A1A carrier keying)  */
     uint32_t (*tx_freq)(void);       /* current TX VFO frequency (x10 Hz)          */
     void     (*boot_callsign)(char *buf, uint8_t len); /* sanitised callsign from the boot message */
     void     (*print_string)(const char *s, uint8_t start, uint8_t end,
@@ -441,6 +497,36 @@ typedef struct app_api {
      * beam_save, so start from beam_get and change what is needed. NULL on a
      * build without the BEAM bridge. */
     bool     (*vfo_stage)(const app_beam_channel_t *ch);
+
+    /* ---- API level 4: memory channels and scan lists ----
+     * One append-only service keeps the resident API surface small:
+     *
+     * APP_MR_READ returns the channel's scan-list value (0 for none,
+     * 1..APP_MR_LISTS, or APP_MR_EVERY), or APP_MR_INVALID. If out is not
+     * NULL, it receives the RX frequency and NUL-terminated name.
+     *
+     * APP_MR_LIST_NAME returns the trimmed name length (0..4), or
+     * APP_MR_INVALID for an invalid list. If out is not NULL, char[5] receives
+     * the NUL-terminated name.
+     *
+     * APP_MR_STAGE returns 0 after staging a valid memory for selection when
+     * app_main() returns, a negative APP_MR_* result otherwise. It writes no
+     * flash while the overlay executes and makes the Apps menu return to the
+     * main screen. Only one selection can be staged per run. */
+    int      (*mr)(uint8_t op, uint16_t index, void *out);
+
+    /* ---- API level 4: TX power of the app's own transmissions ----
+     * level 0 (USER) to 7 (HIGH) recomputes the TX VFO's PA setting from the
+     * calibration tables; the next tx_set_params or tx_prepare keys it. The
+     * VFO keeps its own power, recomputed when app_main() returns. Any other
+     * level changes nothing. Returns the VFO's own power level. */
+    uint8_t  (*tx_power)(uint8_t level);
+
+    /* ---- API level 4: live position from a connected K5Viewer host ----
+     * Returns false when no valid fix was received recently. Nothing is
+     * persisted: applications keep their own stored position as fallback. */
+    bool     (*gps_position)(app_gps_position_t *out);
+
 } app_api_t;
 
 /* Serial ports and serial_ctl state bits (API level 3). */
@@ -461,7 +547,10 @@ _Static_assert(offsetof(app_api_t, handoff) == 356u &&
                offsetof(app_api_t, serial_read) == 368u &&
                offsetof(app_api_t, blit_page) == 380u &&
                offsetof(app_api_t, vfo_stage) == 392u &&
-               sizeof(app_api_t) == 396u,
+               offsetof(app_api_t, mr) == 396u &&
+               offsetof(app_api_t, tx_power) == 400u &&
+               offsetof(app_api_t, gps_position) == 404u &&
+               sizeof(app_api_t) == 408u,
                "app_api_t is append-only: every edition shares this layout");
 
 /* Wrap-safe modular ordering for deadlines less than half a cycle-counter

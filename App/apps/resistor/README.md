@@ -49,8 +49,10 @@ coefficients), the value printed with its SI prefix rather than `47 x 10^2`,
 each band's contribution under it, direct colour entry with the digits, and
 the band count changed with MENU instead of a start menu.
 
-The band count and the colours are saved on exit through the resident deferred
-configuration service.
+The band count and the colours are staged after every key through the resident
+configuration service. They are saved on exit, and also within 2 s of each
+change, so they survive the radio being switched off inside the app, which then
+starts again on them.
 
 ## Build and tests
 

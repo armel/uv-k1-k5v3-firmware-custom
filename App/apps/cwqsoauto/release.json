@@ -1,0 +1,15 @@
+{
+  "version": "0.4",
+  "source_branch": "contribution/cw-qso-auto",
+  "overlay": 4084,
+  "bss": 92,
+  "assets": 2286,
+  "app_sha256": "40d20652b008e8134b26faf5e69116b8335ffb3a7c944819d4c15abdbc5d037b",
+  "source_sha256": "f4ffe2004554b627abd59810ece0d309211045c8d2ee845d007dd1d6d151bdee",
+  "code_sha256": "71f91e4424bfec52dced0164835620b52b1930320f2d9e97395b3979fd4f2576",
+  "assets_sha256": "8f6dcc2b2bc719520493b56a7fe65c337922049566da65186b77dd12572b2449",
+  "compiler": "GNU Arm Embedded GCC 13.3.Rel1 (13.3.1 20240614)",
+  "release": "v1.0",
+  "firmware_base": "68d4d40793b254d7578f12d10f9d63259c4b0e31",
+  "stable_reference": "654820a6423c49423243c0cb5b8373c513d3d1f7"
+}

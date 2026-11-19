@@ -205,9 +205,13 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern uint8_t            gSetting_set_lck;
     extern bool               gSetting_set_met;
     extern bool               gSetting_set_gui;
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        extern uint8_t        gSetting_set_fnt;
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_AUDIO
         extern uint8_t            gSetting_set_audio_fm;
         extern uint8_t            gSetting_set_audio_am;
+        extern bool               gSetting_set_rxg;
     #endif
     #ifdef ENABLE_FEAT_F4HWN_NARROWER
         extern bool               gSetting_set_nfm;
@@ -474,8 +478,8 @@ extern volatile uint8_t      boot_counter_10ms;
     extern uint8_t               gPttOnePushCounter;
     extern uint32_t              gBlinkCounter;
 
-    extern uint16_t gVfoSaveCountdown_10ms;
-    extern bool gScheduleVfoSave;
+    extern volatile uint16_t gVfoSaveCountdown_10ms;
+    extern volatile bool gScheduleVfoSave;
     extern bool gVfoStateChanged;
 
     extern char gListName[MR_CHANNELS_LIST][4];

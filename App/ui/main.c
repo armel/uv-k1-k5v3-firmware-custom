@@ -34,6 +34,7 @@
 #include "driver/st7565.h"
 #include "external/printf/printf.h"
 #include "font.h"
+#include "fw_assets.h"
 #include "functions.h"
 #include "helper/battery.h"
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
@@ -147,14 +148,13 @@ static void UI_MAIN_DrawBeamLine(void)
 }
 #endif
 
-const char *const VfoStateStr[] = {
-       [VFO_STATE_NORMAL]="",
-       [VFO_STATE_BUSY]="BUSY",
-       [VFO_STATE_BAT_LOW]="BAT LOW",
-       [VFO_STATE_TX_DISABLE]="TX DISABLE",
-       [VFO_STATE_TIMEOUT]="TIMEOUT",
-       [VFO_STATE_VOLTAGE_HIGH]="VOLT HIGH"
-};
+_Static_assert((int)VFO_STATE_NORMAL == (int)UI_TEXT_VFO_NORMAL &&
+               (int)VFO_STATE_BUSY == (int)UI_TEXT_VFO_BUSY &&
+               (int)VFO_STATE_BAT_LOW == (int)UI_TEXT_VFO_BAT_LOW &&
+               (int)VFO_STATE_TX_DISABLE == (int)UI_TEXT_VFO_TX_DISABLE &&
+               (int)VFO_STATE_TIMEOUT == (int)UI_TEXT_VFO_TIMEOUT &&
+               (int)VFO_STATE_VOLTAGE_HIGH == (int)UI_TEXT_VFO_VOLT_HIGH,
+               "VFO state text mapping changed");
 
 #if defined(ENABLE_FEAT_F4HWN_SCAN_FASTER) && defined(ENABLE_FEAT_F4HWN_SCAN_RSSI)
 static uint8_t UI_MAIN_GetScanRssiSparklineMask(uint8_t previousLevel, uint8_t level)
@@ -287,7 +287,7 @@ static void UI_MAIN_DrawScanListName(void)
     char text[16];
 
     // Manual formatting instead of snprintf: much smaller on a divide-less M0 core
-    strcpy(text, "SCAN LIST ");
+    UI_LoadText(text, sizeof(text), UI_TEXT_SCAN_LIST);
     char *p = text + 10;                     // sizeof("SCAN LIST ") - 1
 
     if (scan_list == SCAN_LIST_MODE_MIX) {
@@ -1021,13 +1021,11 @@ void DisplayRSSIBar(const bool now)
 
         clean = !clean;
 
-        if(clean) {
-            for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Default); i++)
-                p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Default[i];
-        } else {
-            for(uint8_t i = 0; i < sizeof(BITMAP_VFO_Empty); i++)
-                p_line0[i] = (p_line0[i] & 0x80) | BITMAP_VFO_Empty[i];
-        }
+        uint8_t marker[sizeof(BITMAP_VFO_Default)];
+        FW_ASSETS_Read(clean ? BITMAP_VFO_Default : BITMAP_VFO_Empty,
+                       marker, sizeof(marker));
+        for(uint8_t i = 0; i < sizeof(marker); i++)
+            p_line0[i] = (p_line0[i] & 0x80) | marker[i];
 
         ST7565_DrawLine(0, RxLine + 1, p_line0, sizeof(BITMAP_VFO_Default));
     }
@@ -1321,10 +1319,12 @@ static bool gFullWatchArrowsVisible;
 
 static void UI_MAIN_DrawFullWatchArrows(uint8_t x, uint8_t phase)
 {
-    const uint8_t *glyph = gFont3x5['>' - ' '];
+    uint8_t glyph[3];
     uint8_t *line = gFrameBuffer[FULL_WATCH_ARROW_Y / 8u];
     const uint8_t mask = (uint8_t)(0x1Fu << (FULL_WATCH_ARROW_Y % 8u));
     const uint8_t end = x + FULL_WATCH_ARROW_WIDTH;
+
+    FW_ASSETS_Read(gFont3x5['>' - ' '], glyph, sizeof(glyph));
 
     for (uint8_t column = 0; column < FULL_WATCH_ARROW_WIDTH; column++)
         line[x + column] &= (uint8_t)~mask;
@@ -1367,6 +1367,8 @@ void UI_MAIN_UpdateFullWatchArrows(void)
 
 static void UI_MAIN_DrawFullWatchPriorities(void)
 {
+    char label[UI_TEXT_SIZE];
+
     if (gEeprom.DUAL_WATCH != DUAL_WATCH_FULL ||
         (gCurrentFunction != FUNCTION_FOREGROUND &&
          gCurrentFunction != FUNCTION_POWER_SAVE) ||
@@ -1380,8 +1382,10 @@ static void UI_MAIN_DrawFullWatchPriorities(void)
         return;
 
     gFullWatchArrowsVisible = true;
-    GUI_DisplaySmallest(count == 1 ? "TRIPLE WATCH" : "QUAD WATCH",
-                        3u, 25u, false, true);
+    UI_LoadText(label, sizeof(label), count == 1
+        ? UI_TEXT_TRIPLE_WATCH
+        : UI_TEXT_QUAD_WATCH);
+    GUI_DisplaySmallest(label, 3u, 25u, false, true);
     UI_MAIN_DrawFullWatchArrows(count == 1 ? 53u : 45u,
                                 APP_GetFullWatchScrollPhase());
 
@@ -1430,7 +1434,7 @@ static void UI_PrintScanRangeCss(char *String, uint8_t LabelX, uint8_t ValueX, u
 static void UI_PrintActionPickerLabel(uint8_t index, uint8_t line, bool big)
 {
     char label[20];
-    strcpy(label, gSubMenu_SIDEFUNCTIONS[index]);
+    FW_ASSETS_STRCPY(label, gSubMenu_SIDEFUNCTIONS, index);
 
     char *newline = strchr(label, '\n');
     if (newline != NULL)
@@ -1461,7 +1465,8 @@ void UI_DisplayMain(void)
     UI_DisplayClear();
 
     if(gLowBattery && !gLowBatteryConfirmed) {
-        UI_DisplayPopup("LOW BATTERY");
+        UI_LoadText(String, sizeof(String), UI_TEXT_LOW_BATTERY);
+        UI_DisplayPopup(String);
         ST7565_BlitFullScreen();
         return;
     }
@@ -1669,14 +1674,14 @@ void UI_DisplayMain(void)
 
             // highlight the selected/used VFO with a marker
             if (isMainVFO)
-                memcpy(p_line0 + 0, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+                FW_ASSETS_COPY(p_line0 + 0, BITMAP_VFO_Default);
         }
         else // active TX VFO
         {   // highlight the selected/used VFO with a marker
             if (isMainVFO)
-                memcpy(p_line0 + 0, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
+                FW_ASSETS_COPY(p_line0 + 0, BITMAP_VFO_Default);
             else
-                memcpy(p_line0 + 0, BITMAP_VFO_NotDefault, sizeof(BITMAP_VFO_NotDefault));
+                FW_ASSETS_COPY(p_line0 + 0, BITMAP_VFO_NotDefault);
         }
 
         uint32_t frequency = displayVfo->pRX->Frequency;
@@ -1717,7 +1722,7 @@ void UI_DisplayMain(void)
                     // if (RxBlink == 0 || RxBlink == 1) {
                         if(gRxVfo->Modulation == MODULATION_AM) {
                             #ifdef ENABLE_FEAT_F4HWN_AUDIO
-                                strcpy(String, gSubMenu_SET_AUD_AM[gSetting_set_audio_am]);
+                                FW_ASSETS_STRCPY(String, gSubMenu_SET_AUD_AM, gSetting_set_audio_am);
                             #else
                                 strcpy(String, "AIR");
                             #endif
@@ -1727,7 +1732,7 @@ void UI_DisplayMain(void)
                         }
                         else {
                             #ifdef ENABLE_FEAT_F4HWN_AUDIO
-                                strcpy(String, gSubMenu_SET_AUD_FM[gSetting_set_audio_fm]);
+                                FW_ASSETS_STRCPY(String, gSubMenu_SET_AUD_FM, gSetting_set_audio_fm);
                             #else
                                 strcpy(String, "RX");
                             #endif
@@ -1753,7 +1758,6 @@ void UI_DisplayMain(void)
 #endif
                 ) {
                     //UI_PrintStringSmallNormal(">>", 8, 0, line);
-                    //memcpy(p_line0 + 14, BITMAP_VFO_Default, sizeof(BITMAP_VFO_Default));
                     GUI_DisplaySmallest(">>", 8, RxLine == 0 ? 1 : 33, false, true);
                 }
 
@@ -1766,7 +1770,7 @@ void UI_DisplayMain(void)
         if((gScanStateDir == SCAN_OFF || vfo_num != gEeprom.RX_VFO) && TX_freq_check(frequency) != 0 && displayVfo->TX_LOCK == true)
         {
             if (!FUNCTION_IsRx() || RxOnVfofrequency != frequency)
-                memcpy(p_line0 + 24, BITMAP_VFO_Lock, sizeof(BITMAP_VFO_Lock));
+                FW_ASSETS_COPY(p_line0 + 24, BITMAP_VFO_Lock);
         }
 
         if (IS_MR_CHANNEL(displayChannel))
@@ -1847,8 +1851,11 @@ void UI_DisplayMain(void)
 
         if (state != VFO_STATE_NORMAL)
         {
-            if (state < ARRAY_SIZE(VfoStateStr))
-                UI_PrintString(VfoStateStr[state], 35, 0, line, 8);
+            if (state < _VFO_STATE_LAST_ELEMENT) {
+                UI_LoadText(String, sizeof(String),
+                            (UI_Text_t)(UI_TEXT_VFO_NORMAL + state));
+                UI_PrintString(String, 35, 0, line, 8);
+            }
         }
         else if (gInputBoxIndex > 0 && IS_FREQ_CHANNEL(displayChannel) && gEeprom.TX_VFO == vfo_num)
         {   // user entering a frequency
@@ -1946,7 +1953,7 @@ void UI_DisplayMain(void)
                 // compander symbol
 #ifndef ENABLE_BIG_FREQ
                 if (att->compander)
-                    memcpy(p_line0 + 120 + LCD_WIDTH, BITMAP_compand, sizeof(BITMAP_compand));
+                    FW_ASSETS_COPY(p_line0 + 120 + LCD_WIDTH, BITMAP_compand);
 #else
                 // TODO:  // find somewhere else to put the symbol
 #endif
@@ -2065,9 +2072,9 @@ void UI_DisplayMain(void)
                 const ChannelAttributes_t* att = MR_GetChannelAttributes(displayChannel);
                 if (att->compander)
 #ifdef ENABLE_BIG_FREQ
-                    memcpy(p_line0 + 120, BITMAP_compand, sizeof(BITMAP_compand));
+                    FW_ASSETS_COPY(p_line0 + 120, BITMAP_compand);
 #else
-                    memcpy(p_line0 + 120 + LCD_WIDTH, BITMAP_compand, sizeof(BITMAP_compand));
+                    FW_ASSETS_COPY(p_line0 + 120 + LCD_WIDTH, BITMAP_compand);
 #endif
             }
         }
@@ -2251,7 +2258,7 @@ void UI_DisplayMain(void)
 
             if(userPower == true)
             {
-                memcpy(p_line0 + 256 + arrowPos, BITMAP_PowerUser, sizeof(BITMAP_PowerUser));
+                FW_ASSETS_COPY(p_line0 + 256 + arrowPos, BITMAP_PowerUser);
             }
         }
 

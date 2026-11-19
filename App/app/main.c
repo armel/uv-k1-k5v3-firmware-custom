@@ -278,7 +278,7 @@ static void processFKeyFunction(const KEY_Code_t Key, const bool beep)
 #if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS) || defined(ENABLE_FEAT_F4HWN_GAME)
             if (!beep) {
 #if defined(ENABLE_FEAT_F4HWN_OVERLAY_APPS)
-                APP_MenuOpen();            // overlay-apps selector
+                APP_MenuOpen(0xFFu);       // overlay-apps selector
 #else
                 APP_RunBreakout();         // resident game (no overlay support)
 #endif

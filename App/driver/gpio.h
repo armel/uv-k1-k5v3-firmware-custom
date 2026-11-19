@@ -54,6 +54,11 @@ static inline bool GPIO_IsInputPinSet(uint32_t Pin)
     return !!LL_GPIO_IsInputPinSet(GPIO_PORT(Pin), GPIO_PIN_MASK(Pin));
 }
 
+static inline bool GPIO_IsOutputPinSet(uint32_t Pin)
+{
+    return !!LL_GPIO_IsOutputPinSet(GPIO_PORT(Pin), GPIO_PIN_MASK(Pin));
+}
+
 static inline void GPIO_EnableAudioPath()
 {
     GPIO_SetOutputPin(GPIO_PIN_AUDIO_PATH);

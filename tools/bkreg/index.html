@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>BK4829 Register Lab</title>
+  <link rel="stylesheet" href="bkreg.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">UV-K1 / UV-K5 V3 · Fusion debug tool</p>
+        <h1>BK4829 Register Lab</h1>
+        <p class="lede">Read, compare, and safely patch live BK4829 registers over USB.</p>
+      </div>
+      <div id="status" class="status status-offline" role="status">
+        <span class="status-dot"></span>
+        <span id="statusText">Disconnected</span>
+      </div>
+    </header>
+
+    <section class="notice" aria-label="Test firmware requirement">
+      <strong>Test firmware required</strong>
+      <code>./compile-firmware.sh Fusion -DENABLE_UART_RW_BK_REGS=ON</code>
+      <span>Close UV Studio, K5Viewer, and every other serial tool before connecting.</span>
+    </section>
+
+    <section class="panel connect-panel">
+      <div>
+        <h2>USB connection</h2>
+        <p>The page talks directly to USB with Web Serial. Register data stays in the browser.</p>
+      </div>
+      <div class="actions">
+        <button id="connectButton" class="primary" type="button">Connect radio</button>
+        <button id="disconnectButton" type="button" disabled>Disconnect</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <h2>Noise-gate registers</h2>
+          <p>Quick view for the registers discussed in issue #739.</p>
+        </div>
+        <div class="actions compact">
+          <label class="interval-field">
+            Interval
+            <select id="watchInterval">
+              <option value="250">250 ms</option>
+              <option value="500" selected>500 ms</option>
+              <option value="1000">1 s</option>
+              <option value="2000">2 s</option>
+            </select>
+          </label>
+          <button id="refreshButton" type="button" disabled>Read all</button>
+          <button id="watchButton" type="button" disabled>Start watch</button>
+        </div>
+      </div>
+
+      <div class="register-grid" aria-live="polite">
+        <article class="register-card" data-register="0x28">
+          <div>
+            <span class="register-name">REG_28</span>
+            <span class="register-address">0x28</span>
+          </div>
+          <output class="register-value">—</output>
+        </article>
+        <article class="register-card" data-register="0x29">
+          <div>
+            <span class="register-name">REG_29</span>
+            <span class="register-address">0x29</span>
+          </div>
+          <output class="register-value">—</output>
+        </article>
+        <article class="register-card" data-register="0x31">
+          <div>
+            <span class="register-name">REG_31</span>
+            <span class="register-address">0x31</span>
+          </div>
+          <output class="register-value">—</output>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <div>
+          <h2>Manual access</h2>
+          <p>Masked writes preserve every bit that is not selected by the mask.</p>
+        </div>
+      </div>
+
+      <form id="registerForm" class="register-form">
+        <label>
+          Register
+          <input id="registerInput" type="text" value="0x28" inputmode="text" autocomplete="off" spellcheck="false">
+          <small>0x00–0x7F</small>
+        </label>
+        <label>
+          Value
+          <input id="valueInput" type="text" value="0x0000" inputmode="text" autocomplete="off" spellcheck="false">
+          <small>0x0000–0xFFFF</small>
+        </label>
+        <label>
+          Write mask
+          <input id="maskInput" type="text" value="0xFFFF" inputmode="text" autocomplete="off" spellcheck="false">
+          <small>Only 1-bits are changed</small>
+        </label>
+        <div class="form-actions">
+          <button id="readButton" type="button" disabled>Read</button>
+          <button id="writeButton" class="danger" type="submit" disabled>Write &amp; verify</button>
+        </div>
+      </form>
+
+      <div id="readResult" class="read-result" aria-live="polite">No register read yet.</div>
+      <p class="warning">
+        Writes affect the live transceiver only. Firmware activity may overwrite them immediately,
+        and unsuitable values can temporarily disrupt receive or transmit operation.
+      </p>
+    </section>
+
+    <section class="panel log-panel">
+      <div class="section-heading">
+        <div>
+          <h2>Session log</h2>
+          <p>Copy this history when reporting a test result.</p>
+        </div>
+        <button id="clearLogButton" type="button">Clear</button>
+      </div>
+      <pre id="log" tabindex="0" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <script defer src="protocol.js"></script>
+  <script defer src="bkreg.js"></script>
+</body>
+</html>

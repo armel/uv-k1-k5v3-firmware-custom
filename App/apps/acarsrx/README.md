@@ -12,7 +12,8 @@ level, scrollable payload text and a three-message history.
    **\*** to switch between the normal and compact views, **1** to enable or
    mute the speaker, **F** to switch between decoded and raw payloads, **2** to
    clear the history and counters, and **EXIT** to leave. The selected display
-   size and speaker state are saved on exit. To avoid noise bursts while
+   size and speaker state are saved within 2 s of a change, even if the radio
+   is then switched off in the app. To avoid noise bursts while
    waiting, the speaker opens only after a complete ACARS header is recognized.
 
 For Paris, start with **131.525 MHz**, then try **131.725 MHz** and

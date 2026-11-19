@@ -24,6 +24,9 @@
 #include "driver/bk1080.h"
 #include "driver/bk4819.h"
 #include "driver/py25q16.h"
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    #include "font.h"
+#endif
 #include "misc.h"
 #include "settings.h"
 #include "ui/menu.h"
@@ -148,6 +151,24 @@ void SETTINGS_InitEEPROM(void)
                 for (uint8_t i = 0; i < (needsWrite ? 7 : 2); i++)
                     buf[i] = dBmCorrTable[i];
                 PY25Q16_WriteBuffer(0x00A0B9, buf, 7, false);
+            }
+
+            // 6. 0x00A0C0 now holds SetRxG. Before v7 it held the unused
+            // alarm_mode byte (0 or 1), and another firmware may have left
+            // anything there: unless coming from v7 or later, start with the
+            // RX noise gate ON.
+            uint16_t ver_major = 0;
+            for (uint8_t i = 1; i < 4 && storedVersion[i] >= '0' && storedVersion[i] <= '9'; i++)
+                ver_major = ver_major * 10 + (storedVersion[i] - '0');
+
+            if (storedVersion[0] != 'v' || ver_major < 7)
+            {
+                uint8_t rxg = 0;
+                PY25Q16_ReadBuffer(0x00A0C0, &rxg, 1);
+                if (rxg != 1) {
+                    rxg = 1;
+                    PY25Q16_WriteBuffer(0x00A0C0, &rxg, 1, false);
+                }
             }
         }
     }
@@ -304,6 +325,9 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 
     // 0EA8..0EAF
     PY25Q16_ReadBuffer(0x00A0A8 + 0x18, Data, 8);
+    #ifdef ENABLE_FEAT_F4HWN_AUDIO
+        gSetting_set_rxg = (Data[0] < 2) ? Data[0] : true;
+    #endif
     gEeprom.ROGER                          = (Data[1] <  3) ? Data[1] : ROGER_MODE_OFF;
     gEeprom.REPEATER_TAIL_TONE_ELIMINATION = (Data[2] < 11) ? Data[2] : 0;
     gEeprom.TX_VFO                         = (Data[3] <  2) ? Data[3] : 0;
@@ -506,7 +530,11 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gSetting_set_tmr = ((Data[4] & 1) < 2) ? (Data[4] & 1): 0;
         */
 
-        int tmp = (Data[5] & 0xF0) >> 4;
+        const uint8_t display_settings = Data[5];
+        // Bit 5 is reserved and cleared by SETTINGS_SaveSettings().
+        // If it is set, the display settings byte is not initialized.
+        const bool display_settings_valid = (display_settings & 0x20u) == 0u;
+        int tmp = display_settings_valid ? (display_settings >> 4) : 0;
 
 #ifdef ENABLE_FEAT_F4HWN_INV
         gSetting_set_inv = (tmp >> 0) & 0x01;
@@ -516,10 +544,15 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gSetting_set_lck = (Data[2] < SET_LCK_LEN) ? Data[2] : SET_LCK_KEYS;
         gSetting_set_met = (tmp >> 2) & 0x01;
         gSetting_set_gui = (tmp >> 3) & 0x01;
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        gSetting_set_fnt = (Data[3] < FONT_VARIANT_COUNT)
+                         ? Data[3]
+                         : FONT_VARIANT_DEFAULT;
+#endif
 
 #ifdef ENABLE_FEAT_F4HWN_CTR
-        int ctr_value = Data[5] & 0x0F;
-        gSetting_set_ctr = (ctr_value > 0 && ctr_value < 16) ? ctr_value : 10;
+        int ctr_value = display_settings & 0x0F;
+        gSetting_set_ctr = (display_settings_valid && ctr_value > 0 && ctr_value < 16) ? ctr_value : 10;
 #else
         gSetting_set_ctr = 10;
 #endif
@@ -846,6 +879,10 @@ void SETTINGS_FactoryReset(bool bIsAll)
 
     // Keep RAM consistent with the persisted defaults.
     gEeprom.SET_NAV = false;
+    #ifdef ENABLE_FEAT_F4HWN_SET_FNT
+        if (bIsAll)
+            gSetting_set_fnt = FONT_VARIANT_DEFAULT;
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_RESCUE_OPS
         gEeprom.MENU_LOCK = 0;
     #endif
@@ -1067,7 +1104,10 @@ void SETTINGS_SaveSettings(void)
 
     // 0x0EA8
     State = SecBuf + 0x18;
-    State[0] = false;
+    #ifdef ENABLE_FEAT_F4HWN_AUDIO
+        State[0] = gSetting_set_rxg;
+    #endif
+    // Without ENABLE_FEAT_F4HWN_AUDIO, State[0] (SetRxG) is kept as read from flash
     State[1] = gEeprom.ROGER;
     State[2] = gEeprom.REPEATER_TAIL_TONE_ELIMINATION;
     State[3] = gEeprom.TX_VFO;
@@ -1193,6 +1233,9 @@ void SETTINGS_SaveSettings(void)
             (gSetting_set_gui << 3);
 
     State[2] = gSetting_set_lck;
+#ifdef ENABLE_FEAT_F4HWN_SET_FNT
+    State[3] = gSetting_set_fnt;
+#endif
     State[5] = ((tmp << 4) | (gSetting_set_ctr & 0x0F));
     State[6] = ((gSetting_set_tot << 4) | (gSetting_set_eot & 0x0F));
     uint8_t set_ptt_scn_sav = gSetting_set_ptt & 0x01;
@@ -1246,39 +1289,36 @@ void SETTINGS_SaveChannel(uint16_t Channel, uint8_t VFO, const VFO_Info_t *pVFO,
             uint8_t _8[8];
             uint32_t _32[2];
         } State_t;
-        
-        State_t *State;
 
-        uint8_t Buf[0x10];
+        State_t State[2];
+        _Static_assert(sizeof(State) == 0x10, "16-byte channel record");
 
-        State = (State_t *)Buf;
-        State -> _32[0] = pVFO->freq_config_RX.Frequency;
-        State -> _32[1] = pVFO->TX_OFFSET_FREQUENCY;
+        State[0]._32[0] = pVFO->freq_config_RX.Frequency;
+        State[0]._32[1] = pVFO->TX_OFFSET_FREQUENCY;
 
-        State = (State_t *)(Buf + 0x8);
-        State -> _8[0] =  pVFO->freq_config_RX.Code;
-        State -> _8[1] =  pVFO->freq_config_TX.Code;
-        State -> _8[2] = (pVFO->freq_config_TX.CodeType << 4) | pVFO->freq_config_RX.CodeType;
-        State -> _8[3] = (pVFO->Modulation << 4) | pVFO->TX_OFFSET_FREQUENCY_DIRECTION;
-        State -> _8[4] = 0
+        State[1]._8[0] =  pVFO->freq_config_RX.Code;
+        State[1]._8[1] =  pVFO->freq_config_TX.Code;
+        State[1]._8[2] = (pVFO->freq_config_TX.CodeType << 4) | pVFO->freq_config_RX.CodeType;
+        State[1]._8[3] = (pVFO->Modulation << 4) | pVFO->TX_OFFSET_FREQUENCY_DIRECTION;
+        State[1]._8[4] = 0
             | (pVFO->TX_LOCK << 6)
             | (pVFO->BUSY_CHANNEL_LOCK << 5)
             | (pVFO->OUTPUT_POWER      << 2)
             | (pVFO->CHANNEL_BANDWIDTH << 1)
             | (pVFO->FrequencyReverse  << 0);
-        State -> _8[5] = ((pVFO->DTMF_PTT_ID_TX_MODE & 7u) << 1)
+        State[1]._8[5] = ((pVFO->DTMF_PTT_ID_TX_MODE & 7u) << 1)
 #ifdef ENABLE_DTMF_CALLING
             | ((pVFO->DTMF_DECODING_ENABLE & 1u) << 0)
 #endif
         ;
-        State -> _8[6] =  pVFO->STEP_SETTING;
+        State[1]._8[6] =  pVFO->STEP_SETTING;
 #ifdef ENABLE_FEAT_F4HWN
-        State -> _8[7] =  0;
+        State[1]._8[7] =  0;
 #else
-        State -> _8[7] =  pVFO->SCRAMBLING_TYPE;
+        State[1]._8[7] =  pVFO->SCRAMBLING_TYPE;
 #endif
 
-        PY25Q16_WriteBuffer(OffsetVFO, Buf, 0x10, false);
+        PY25Q16_WriteBuffer(OffsetVFO, State, sizeof(State), false);
 
         SETTINGS_UpdateChannel(Channel, pVFO, true);
 

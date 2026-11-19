@@ -112,6 +112,9 @@ _Static_assert((BOX_512 & (BOX_512 - 1u)) == 0u && BOX_512 >= 4u,
 #define BATCH_WORDS 16u
 #define HUNT        0xFFu  /* sl_t.word: looking for the sync codeword      */
 #define FUNC_NUMERIC 0u    /* by usage: function 0 numeric, the others text */
+#define AUTO_MIN_ALPHA 6u  /* func 0: enough alpha text before overriding it */
+#define AUTO_MIN_LETTERS 4u
+#define AUTO_MARGIN    9   /* alpha score must beat the numeric interpretation */
 #define MSG_MAX     80u    /* characters kept per page (DAPNET: 80)         */
 #define GAP         0x7Fu  /* a character lost with a bad codeword: shown as
                               '?', filled from another slicer's copy        */
@@ -125,7 +128,7 @@ typedef struct {
     uint32_t t;                        /* ticks_ms when received                  */
     uint32_t at;                       /* sample its address codeword came at     */
     int16_t  rssi;
-    uint8_t  func, len;
+    uint8_t  func, len, alpha;
     char     text[MSG_MAX];                /* text[0] while len = 0: 1 = characters
                                               came but none was read ("Text Lost"),
                                               0 = an address alone ("Tone Only") */
@@ -146,7 +149,8 @@ typedef struct {
     uint8_t  word;                     /* codeword of the batch, 16 = the next sync,
                                           HUNT = no batch                         */
     uint8_t  has;                      /* an address was read: a page is open     */
-    uint8_t  func, len;
+    uint8_t  func, len, alpha;
+    uint8_t  alen, aacc, ana, ataint, actrl; /* alternate 7-bit view of func 0 */
     uint8_t  acc, na;                  /* character being assembled, its bits     */
     uint8_t  taint;                    /* that character lost bits with a bad word */
     uint8_t  badrun;                   /* bad codewords in a row inside the page  */
@@ -156,7 +160,9 @@ typedef struct {
     uint16_t step;                     /* DPLL step of its lane (65536 per bit)    */
     uint16_t dup;                      /* half a codeword of its lane, in samples  */
     uint8_t  lane;                     /* 0: 1200 bauds, 1: 512 bauds             */
+    uint8_t  live;                     /* a good codeword came in this batch      */
     char     text[MSG_MAX];
+    char     atext[MSG_MAX];              /* kept only until closePage chooses */
 } sl_t;
 
 /* The app state in one struct: a function loads one base address instead of one
@@ -231,6 +237,35 @@ static char *put2(char *o,uint32_t v){ *o++=(char)('0'+sub(&v,10u)); *o++=(char)
 #define CW_COMPACT  14u    /* compact rows: ROW_CHARS + 14 = 32 characters */
 #define ROWS        3u     /* rows shown in the normal view */
 
+/* Function 0 is numeric in the POCSAG recommendation, but some networks put
+ * 7-bit text behind it. Decode both and override the standard interpretation
+ * only when the alpha view is clean prose and convincingly more plausible.
+ * The deliberately strict shape and margin keep ambiguous numeric pages numeric. */
+static bool preferAlpha(const sl_t *m,unsigned nn){
+    if(m->func!=FUNC_NUMERIC || m->alen<AUTO_MIN_ALPHA) return false;
+    int score=-(int)m->actrl*8, letters=0;
+    unsigned spaces=0, words=0, run=0;
+    for(unsigned i=0;i<m->alen;i++){
+        unsigned ch=(uint8_t)m->atext[i];
+        if(ch==GAP) continue;
+        if((ch|32u)-'a'<26u){ score+=3; letters++; run++; continue; }
+        if(run>=2u) words++;
+        run=0;
+        if(ch==' '){ score++; spaces++; }
+        else return false;                /* digits and punctuation are ambiguous */
+    }
+    if(run>=2u) words++;
+    for(unsigned i=0;i<nn;i++){
+        unsigned ch=(uint8_t)m->text[i];
+        if(ch==GAP) continue;
+        if(ch-'0'<10u) score-=2;
+        else if(ch==' ' || ch=='-') score--;
+        else score+=4;                    /* U, *, (, ): unlikely prose digits */
+    }
+    return (unsigned)letters>=AUTO_MIN_LETTERS && spaces>=2u && words>=3u &&
+           (unsigned)letters*3u>=m->alen*2u && score>=AUTO_MARGIN;
+}
+
 /* ---- a page from a slicer. The three slicers read the same transmission: each
  * gives the same page. What tells the same page from another one is not its
  * text (two pages may share theirs, or its beginning) but where it sits: its
@@ -242,6 +277,13 @@ static void closePage(sl_t *m){
     const app_api_t *A=g.A;
     if(!m->has) return;
     m->has=0;
+    unsigned nn=m->len;
+    while(nn && m->text[nn-1u]==' ') nn--; /* ignore numeric padding in the score */
+    m->alpha=(uint8_t)preferAlpha(m,nn);
+    if(m->alpha){
+        memcpy(m->text,m->atext,m->alen);
+        m->len=m->alen;
+    }
     const uint8_t *t=(const uint8_t *)m->text;
     unsigned n=m->len, gaps=0, lost=0;
     /* the marks of bad words after the last character were the end of the page
@@ -261,6 +303,13 @@ static void closePage(sl_t *m){
         /* |at - at'| < half a codeword, in one unsigned compare */
         if(q->ric!=m->ric || q->func!=m->func ||
            (uint32_t)(m->at-q->at+m->dup)>=2u*m->dup) continue;
+        if(q->alpha!=m->alpha){
+            if(!m->alpha) return;          /* a confident alpha copy wins */
+            q->alpha=1;
+            q->len=(uint8_t)n;
+            memcpy(q->text,t,n);
+            return;
+        }
         for(unsigned i=0;i<n;i++)
             if(i>=q->len || (uint8_t)q->text[i]==GAP) q->text[i]=(char)t[i];
         if(n>q->len) q->len=(uint8_t)n;
@@ -274,6 +323,7 @@ static void closePage(sl_t *m){
     p->rssi=A->rssi_dbm();                 /* capture while the carrier is still up */
     p->ric=m->ric;
     p->func=m->func;
+    p->alpha=m->alpha;
     p->at=m->at;
     p->t=A->ticks_ms();
     p->len=(uint8_t)n;
@@ -333,6 +383,10 @@ static void addc(sl_t *m,unsigned ch){
     if(m->len<MSG_MAX) m->text[m->len++]=(char)ch;
 }
 
+static void adda(sl_t *m,unsigned ch){
+    if(m->alen<MSG_MAX) m->atext[m->alen++]=(char)ch;
+}
+
 /* ---- one codeword of a batch: an address opens a page, the message words
  * that follow fill it (7-bit characters, or 4-bit ones for a numeric page,
  * least significant bit first, running across the 20-bit fields), an idle
@@ -363,15 +417,24 @@ static void codeword(sl_t *m,uint32_t cw){
         m->na=(uint8_t)left;
         m->acc=0;
         m->taint=left!=0u;
+        if(m->func==FUNC_NUMERIC){
+            left=m->ana+20u;
+            for(;left>=7u;left-=7u) adda(m,GAP);
+            m->ana=(uint8_t)left;
+            m->aacc=0;
+            m->ataint=left!=0u;
+        }
         return;
     }
     m->ok++;
+    m->live=1;
     if(cw==IDLE){ closePage(m); return; }
     if(cw>>31){
         if(!m->has) return;
         m->badrun=0;
         for(unsigned i=30;i>10u;i--){
-            m->acc|=(uint8_t)(((cw>>i)&1u)<<m->na);
+            unsigned bit=(cw>>i)&1u;
+            m->acc|=(uint8_t)(bit<<m->na);
             if(++m->na==n){
                 unsigned ch=m->acc;
                 if(n==4u) ch=(uint8_t)NUMERIC[ch];
@@ -379,6 +442,17 @@ static void codeword(sl_t *m,uint32_t cw){
                 else if(ch-32u<95u) addc(m,ch);
                 m->taint=0;
                 m->acc=m->na=0;
+            }
+            if(m->func==FUNC_NUMERIC){
+                m->aacc|=(uint8_t)(bit<<m->ana);
+                if(++m->ana==7u){
+                    unsigned ch=m->aacc;
+                    if(m->ataint) adda(m,GAP);
+                    else if(ch-32u<95u) adda(m,ch);
+                    else if(m->actrl<255u) m->actrl++;
+                    m->ataint=0;
+                    m->aacc=m->ana=0;
+                }
             }
         }
         return;
@@ -389,7 +463,8 @@ static void codeword(sl_t *m,uint32_t cw){
     m->func=(uint8_t)((cw>>11)&3u);
     m->at=g.n;
     m->has=1;
-    m->acc=m->na=m->len=m->taint=m->badrun=0;
+    m->acc=m->na=m->len=m->taint=m->badrun=m->alpha=0;
+    m->alen=m->aacc=m->ana=m->ataint=m->actrl=0;
 }
 
 /* ---- batch decoder, one bit (1 = the lower frequency). Hunting: the last 32
@@ -416,10 +491,13 @@ static void seqBit(sl_t *m,uint32_t b){
     if(m->word==BATCH_WORDS){
         /* The keys and the screen are served during a sync codeword, where no
          * page is lost: a sync that could not be read for that reason
-         * (excuse, set by listen()) is taken as found. */
-        if(ones(cw^SYNC)<=SYNC_ERR || m->excuse) m->word=0;
+         * (excuse, set by listen()) is taken as found, but only after a batch
+         * with a good codeword. A false sync in noise reads none: excused at
+         * every sync, it held the slicer in a batch for good, and the keys and
+         * the screen were served once a batch (0.45 s, 1.06 s at 512 bauds). */
+        if(ones(cw^SYNC)<=SYNC_ERR || (m->excuse && m->live)) m->word=0;
         else { closePage(m); m->word=HUNT; }
-        m->excuse=0;
+        m->excuse=m->live=0;
         return;
     }
     codeword(m,cw);
@@ -597,7 +675,8 @@ static void handleKeys(void){
     else if(key==APP_KEY_3) g.dbg^=1u;   /* bottom line: the page's level and age / the counters */
     else if(key==APP_KEY_4) g.tones^=1u;   /* keep the pages without text (saved) */
     else if(key==APP_KEY_1) g.spk^=1u;   /* speaker: listen() switches it at the next slot */
-    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view (saved on exit) */
+    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view */
+    g.A->cfg_save(&g.cw,3);      /* staged after each key: kept across a switch-off */
 }
 
 /* ---- keys and screen, between batches ---- */
@@ -651,9 +730,11 @@ static void listen(void){
     memset(box8,0,sizeof box8);
     for(unsigned k=0;k<NLANE*NSL;k++){
         sl_t *m=&sl[k];
-        m->num=(uint8_t)(2u+k%NSL);       /* 2/8, 3/8, 4/8 in each lane */
-        m->word=HUNT;
         m->lane=(uint8_t)(k>=NSL);
+        /* 2/8, 3/8, 4/8 in each lane; k - lane*NSL instead of k % NSL, which
+         * pulled libgcc's 266-byte unsigned division into the app */
+        m->num=(uint8_t)(2u+k-(m->lane?NSL:0u));
+        m->word=HUNT;
         m->step=(uint16_t)(m->lane?STEP_512:STEP_1200);
         m->dup=(uint16_t)(m->lane?DUP_512:DUP_1200);
     }
@@ -762,5 +843,4 @@ void app_main(const app_api_t *api){
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
     api->led(false);             /* not left on in the middle of a blink */
-    api->cfg_save(&g.cw,3);      /* staged: flash is written only after a change */
 }

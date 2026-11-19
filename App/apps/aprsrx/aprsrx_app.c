@@ -618,7 +618,8 @@ static void handleKeys(void){
     if(key==APP_KEY_EXIT) g.running=false;
     else if(key==APP_KEY_2){ g.count=g.cur=0; g.nOk=0; g.top=0; }   /* g.lim: 0 at the redraw that follows */
     else if(key==APP_KEY_1) g.spk^=1u;   /* speaker: listen() gates it at the next slot */
-    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view (saved on exit) */
+    else if(key==APP_KEY_STAR){ g.cw^=CW_COMPACT; g.top=0; }   /* the view */
+    A->cfg_save(&g.cw,2);        /* staged after each key: kept across a switch-off */
 }
 
 /* ---- keys and screen, between frames ---- */
@@ -712,5 +713,4 @@ void app_main(const app_api_t *api){
     api->af_capture_close();
     api->set_af(APP_AF_MUTE);
     api->audio_path(false);
-    api->cfg_save(&g.cw,2);      /* staged: flash is written only after a change */
 }

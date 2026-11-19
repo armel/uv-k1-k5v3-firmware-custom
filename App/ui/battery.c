@@ -19,6 +19,7 @@
 
 #include "bitmaps.h"
 #include "driver/st7565.h"
+#include "fw_assets.h"
 #include "functions.h"
 #include "ui/battery.h"
 #include "../misc.h"
@@ -30,19 +31,21 @@ void UI_DrawBattery(uint8_t* bitmap, uint8_t level, uint8_t blink)
         return;
     }
 
-    memcpy(bitmap, BITMAP_BatteryLevel1, sizeof(BITMAP_BatteryLevel1));
+    FW_ASSETS_COPY(bitmap, BITMAP_BatteryLevel1);
 
     if (level <= 2) {
         return;
     }
 
     const uint8_t bars = MIN(4, level - 2);
+    uint8_t bar[sizeof(BITMAP_BatteryLevel)];
+    FW_ASSETS_COPY(bar, BITMAP_BatteryLevel);
 
     for (int i = 0; i < bars; i++) {
 #ifndef ENABLE_REVERSE_BAT_SYMBOL
-        memcpy(bitmap + sizeof(BITMAP_BatteryLevel1) - 4 - (i * 3), BITMAP_BatteryLevel, 2);
+        memcpy(bitmap + sizeof(BITMAP_BatteryLevel1) - 4 - (i * 3), bar, sizeof(bar));
 #else
-        memcpy(bitmap + 3 + (i * 3) + 0, BITMAP_BatteryLevel, 2);
+        memcpy(bitmap + 3 + (i * 3) + 0, bar, sizeof(bar));
 #endif
     }
 }

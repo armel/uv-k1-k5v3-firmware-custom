@@ -19,6 +19,9 @@
 
 #include "driver/mb_flash.h"
 #include "driver/py25q16.h"
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+    #include "fw_assets.h"
+#endif
 
 #include "py32f0xx.h"
 
@@ -784,6 +787,91 @@ uint8_t MB_SlotWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_
 
     return MB_OK;
 }
+
+#ifdef ENABLE_FEAT_F4HWN_FW_ASSETS
+/* -------------------------------------------------------------------------- */
+/* Firmware asset zones (one per firmware slot, see fw_assets.h).             */
+/* -------------------------------------------------------------------------- */
+
+_Static_assert(sizeof(fw_assets_header_t) == MB_ASSET_HEADER_SIZE,
+               "FWA1 pack header must stay 32 bytes");
+_Static_assert((MB_ASSET_REGION_BASE % MB_EXT_SECTOR) == 0u &&
+               (MB_ASSET_SLOT_SIZE % MB_EXT_SECTOR) == 0u,
+               "asset zones must be whole 4 KiB sectors");
+_Static_assert(MB_ASSET_REGION_BASE + MB_SLOT_COUNT * MB_ASSET_SLOT_SIZE <= 0x001DE000u,
+               "asset zones must end below the Sonic 4K reserve");
+
+static uint32_t mb_asset_base(uint8_t slot)
+{
+    return MB_ASSET_REGION_BASE + (uint32_t)slot * MB_ASSET_SLOT_SIZE;
+}
+
+uint8_t MB_AssetValidate(uint8_t slot, const uint8_t *build_id, uint32_t payload_size,
+                         void *out_header)
+{
+    fw_assets_header_t local;
+    fw_assets_header_t *hdr = out_header ? (fw_assets_header_t *)out_header : &local;
+
+    if (slot >= MB_SLOT_COUNT)
+        return MB_ERR_SLOT;
+
+    const uint32_t base = mb_asset_base(slot);
+
+    mb_spi_err = 0;
+    mb_ext_read(base, (uint8_t *)hdr, sizeof(*hdr));
+    if (mb_spi_err)                                return MB_ERR_SPI;
+    if (hdr->magic != FW_ASSETS_MAGIC)             return MB_ERR_MAGIC;
+    if (hdr->version != FW_ASSETS_VERSION ||
+        hdr->header_size != sizeof(*hdr))          return MB_ERR_VERSION;
+    if (hdr->payload_size == 0u ||
+        hdr->payload_size > MB_ASSET_SLOT_SIZE - sizeof(*hdr))
+                                                   return MB_ERR_SIZE;
+
+    const uint32_t crc = mb_ext_image_crc32(base + sizeof(*hdr), hdr->payload_size);
+    if (mb_spi_err)                                return MB_ERR_SPI;
+    if (crc != hdr->payload_crc32)                 return MB_ERR_CRC;
+
+    if (build_id != NULL &&
+        (hdr->payload_size != payload_size ||
+         memcmp(hdr->build_id, build_id, FW_ASSETS_BUILD_ID_LEN) != 0))
+        return MB_ERR_MISMATCH;
+
+    return MB_OK;
+}
+
+uint8_t MB_AssetErase(uint8_t slot)
+{
+    if (slot >= MB_SLOT_COUNT)
+        return MB_ERR_SLOT;
+
+    const uint32_t base = mb_asset_base(slot);
+
+    mb_spi_err = 0;
+    mb_spi_polled_mode();
+    for (uint32_t off = 0; off < MB_ASSET_SLOT_SIZE; off += MB_EXT_SECTOR)
+        if (!mb_ext_sector_erase(base + off))
+            return MB_ERR_SPI;
+
+    return MB_OK;
+}
+
+uint8_t MB_AssetWrite(uint8_t slot, uint32_t offset, const uint8_t *data, uint32_t len)
+{
+    if (slot >= MB_SLOT_COUNT)
+        return MB_ERR_SLOT;
+    if (len == 0)
+        return MB_OK;
+    if (offset > MB_ASSET_SLOT_SIZE || len > MB_ASSET_SLOT_SIZE - offset)
+        return MB_ERR_SIZE;
+
+    mb_spi_err = 0;
+    mb_spi_polled_mode();
+    if (!mb_ext_program(mb_asset_base(slot) + offset, data, len))
+        return MB_ERR_SPI;
+
+    return MB_OK;
+}
+#endif
 
 /* -------------------------------------------------------------------------- */
 /* Config banks and the active-state marker.                                  */

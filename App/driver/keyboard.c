@@ -28,6 +28,8 @@ uint16_t   gDebounceCounter = 0;
 bool       gWasFKeyPressed  = false;
 
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
+#include "k5viewer.h"
+
 // Short press: hold key for SERIAL_KEY_SHORT_POLLS calls.
 // Must exceed key_debounce_10ms (2) to trigger ProcessKey(key, true, false).
 #define SERIAL_KEY_SHORT_POLLS  5
@@ -39,6 +41,7 @@ bool       gWasFKeyPressed  = false;
 // Packet types for serial key injection (K5Viewer → radio)
 #define SERIAL_KEY_TYPE         0x03
 #define SERIAL_KEY_TYPE_LONG    0x04
+#define SERIAL_GPS_TYPE         0x07
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
 #define SERIAL_FEATURE_TYPE     0x05
 #endif
@@ -61,31 +64,46 @@ static inline void KEYBOARD_InjectKey(uint8_t keyCode, bool keyLong)
     }
 }
 
+static int32_t KEYBOARD_ReadI32Le(const uint8_t *bytes)
+{
+    const uint32_t value = (uint32_t)bytes[0] |
+                           ((uint32_t)bytes[1] << 8) |
+                           ((uint32_t)bytes[2] << 16) |
+                           ((uint32_t)bytes[3] << 24);
+    return (int32_t)value;
+}
+
+void KEYBOARD_ResetProtocolParser(ParseState_t *state)
+{
+    state->state = STATE_IDLE;
+    state->payload_pos = 0;
+}
+
 bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b)
 {
     bool connected = false;
 
-    switch (*state)
+    switch (state->state)
     {
         case STATE_IDLE:
-            if      (b == 0x55) *state = STATE_KA_1;
-            else if (b == 0xAA) *state = STATE_KEY_1;
+            if      (b == 0x55) state->state = STATE_KA_1;
+            else if (b == 0xAA) state->state = STATE_KEY_1;
             break;
             
         case STATE_KA_1:
-            *state = (b == 0xAA) ? STATE_KA_2 : STATE_IDLE;
+            state->state = (b == 0xAA) ? STATE_KA_2 : STATE_IDLE;
             break;
             
         case STATE_KA_2:
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
             if (b == 0x00)
-                *state = STATE_KA_3;
+                state->state = STATE_KA_3;
             else if (b == SERIAL_FEATURE_TYPE)
-                *state = STATE_KA_FEATURE;
+                state->state = STATE_KA_FEATURE;
             else
-                *state = STATE_IDLE;
+                state->state = STATE_IDLE;
 #else
-            *state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
+            state->state = (b == 0x00) ? STATE_KA_3 : STATE_IDLE;
 #endif
             break;
 
@@ -96,36 +114,58 @@ bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b)
 #endif
                 connected = true;
             }
-            *state = STATE_IDLE;
+            state->state = STATE_IDLE;
             break;
 
 #ifdef ENABLE_FEAT_F4HWN_RXTX_LOG_K5VIEWER
         case STATE_KA_FEATURE:
             gSerialViewerFeatures = b;
             connected = true;
-            *state = STATE_IDLE;
+            state->state = STATE_IDLE;
             break;
 #endif
             
         case STATE_KEY_1:
-            *state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;
+            state->state = (b == 0x55) ? STATE_KEY_2 : STATE_IDLE;
             break;
             
         case STATE_KEY_2:
-            if      (b == SERIAL_KEY_TYPE)      *state = STATE_KEY_3;
-            else if (b == SERIAL_KEY_TYPE_LONG) *state = STATE_KEY_3L;
-            else                                *state = STATE_IDLE;
+            if (b == SERIAL_KEY_TYPE) {
+                state->state = STATE_KEY_3;
+            } else if (b == SERIAL_KEY_TYPE_LONG) {
+                state->state = STATE_KEY_3L;
+            } else if (b == SERIAL_GPS_TYPE) {
+                state->state = STATE_GPS;
+                state->payload_pos = 0;
+            } else {
+                state->state = STATE_IDLE;
+            }
             break;
             
         case STATE_KEY_3:
         case STATE_KEY_3L:
-            KEYBOARD_InjectKey(b, *state == STATE_KEY_3L);
+            KEYBOARD_InjectKey(b, state->state == STATE_KEY_3L);
             connected = true;
-            *state = STATE_IDLE;
+            state->state = STATE_IDLE;
+            break;
+
+        case STATE_GPS:
+            state->payload[state->payload_pos++] = b;
+            if (state->payload_pos == sizeof(state->payload)) {
+                uint8_t checksum = SERIAL_GPS_TYPE;
+                for (uint8_t i = 0; i < sizeof(state->payload) - 1u; i++)
+                    checksum ^= state->payload[i];
+                if (checksum == state->payload[sizeof(state->payload) - 1u]) {
+                    connected = K5VIEWER_SetGps(
+                        KEYBOARD_ReadI32Le(state->payload),
+                        KEYBOARD_ReadI32Le(state->payload + 4));
+                }
+                KEYBOARD_ResetProtocolParser(state);
+            }
             break;
 
         default:
-            *state = STATE_IDLE;
+            KEYBOARD_ResetProtocolParser(state);
             break;
     }
 

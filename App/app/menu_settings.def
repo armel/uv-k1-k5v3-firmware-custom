@@ -47,6 +47,9 @@ MENU_SETTING(MENU_SET_MET, gSetting_set_met, 0, ARRAY_SIZE(gSubMenu_SET_MET) - 1
 #if defined(ENABLE_FEAT_F4HWN)
 MENU_SETTING(MENU_SET_GUI, gSetting_set_gui, 0, ARRAY_SIZE(gSubMenu_SET_MET) - 1)
 #endif
+#if defined(ENABLE_FEAT_F4HWN_SET_FNT)
+MENU_SETTING(MENU_SET_FNT, gSetting_set_fnt, 0, FONT_VARIANT_COUNT - 1)
+#endif
 #if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_FEAT_F4HWN_SCAN_FASTER)
 MENU_SETTING(MENU_SET_SCN, gSetting_set_scn, 0, ARRAY_SIZE(gSubMenu_SET_SCN) - 1)
 #endif

@@ -953,7 +953,7 @@ void RADIO_SetupRegisters(bool switchToForeground)
     }
 
     // RX expander
-    BK4819_SetCompander((gRxVfo->Modulation == MODULATION_FM && gRxVfo->Compander >= 2) ? gRxVfo->Compander : 0);
+    BK4819_SetCompander(RADIO_IsRxCompanderOn(gRxVfo) ? gRxVfo->Compander : 0);
 
     BK4819_EnableDTMF();
     InterruptMask |= BK4819_REG_3F_DTMF_5TONE_FOUND;
@@ -1093,6 +1093,12 @@ void RADIO_PrepareTx(void)
     RADIO_SetTxParametersEx(false);
 }
 
+// RX expander active on this VFO (Compnd RX or TX+RX, FM only)
+bool RADIO_IsRxCompanderOn(const VFO_Info_t *pInfo)
+{
+    return pInfo->Modulation == MODULATION_FM && pInfo->Compander >= 2;
+}
+
 void RADIO_SetModulation(ModulationMode_t modulation)
 {
     #ifdef ENABLE_BYP_RAW_DEMODULATORS
@@ -1188,6 +1194,15 @@ void RADIO_SetModulation(ModulationMode_t modulation)
         }
     }
     
+    #ifdef ENABLE_FEAT_F4HWN_AUDIO
+        // REG_28<8>: RX AF noise gate enable (level and HPF1 kept from init).
+        // Forced on with the RX expander, as measured on the BK4819: SetRxG
+        // only applies when the compander is off in RX.
+        const bool rxGate = gSetting_set_rxg || RADIO_IsRxCompanderOn(gRxVfo);
+        const uint16_t reg28 = BK4819_ReadRegister(BK4819_REG_28);
+        BK4819_WriteRegister(BK4819_REG_28, rxGate ? (reg28 | (1u << 8)) : (reg28 & ~(1u << 8)));
+    #endif
+
     BK4819_SetRegValue(afDacGainRegSpec, 0xF);
     BK4819_WriteRegister(BK4819_REG_3D, modulation == MODULATION_USB ? 0 : 0x2AAB);
     BK4819_SetRegValue(afcDisableRegSpec, modulation != MODULATION_FM);

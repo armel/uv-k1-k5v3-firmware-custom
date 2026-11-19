@@ -18,13 +18,18 @@
  * Beacon (fox) — overlay app. Ported from App/app/foxhunt.c, beacon sub-mode only.
  * Turns the radio into a hidden ARDF transmitter: keys up on the TX VFO and repeats
  * a CW fox identifier (MOE..MO5 / MO / "<call>" / "<call> MOE") for the TX window, then stays
- * silent for the idle gap. Two keying modes (key 4): TONE (default) keeps the carrier
- * up and keys only the tone (MCW / F2A); CARR keys the PA together with the tone, so
- * between elements the carrier itself is gone (carrier interruption, ARDF field pattern).
+ * silent for the idle gap. Two keying modes (key 4): F2A (default) keeps the carrier
+ * and the channel subaudio up and keys a 1 kHz tone; A1A keeps every modulation
+ * source muted and keys only the unmodulated RF carrier.
+ * It never transmits at launch: it opens READY, and MENU starts the cycle.
+ * Key 5 sets the beacon's own TX power (API level 4 tx_power), saved with the other
+ * settings; the VFO keeps its power. In A1A, key 6 adjusts the BK4829 crystal
+ * correction in the same REG_3B steps as the CW overlays.
  *
  * No division is linked: numbers are printed by subtracting powers of ten.
  *
- * Keys: 1 TX window · 2 idle gap · 3 fox id · 4 keying mode TONE/CARR (F reverses)
+ * Keys: 1 TX window · 2 idle gap (held: repeat) · 3 fox id · 4 keying mode F2A/A1A
+ *       5 TX power · 6 A1A crystal correction (F reverses) · MENU start
  *       MENU restart idle · long F keypad lock · EXIT quit.
  */
 
@@ -37,10 +42,27 @@
 #define LCD_WIDTH    128
 #define TICK_MS      50
 #define LOCK_HOLD_MS 500
+#define REPEAT_DELAY_MS 500   /* 1 or 2 held this long steps again ...  */
+#define REPEAT_MS    100      /* ... every REPEAT_MS while still held   */
 #define MORSE_UNIT   100
 #define LEAD_MS      600
 #define TONE_HZ      1000
+#define RAMP_MS      4
+#define PLL_LOCK_MS  2
 #define CALL_MAX     12
+
+#define REG_TX_LINK  0x30u
+#define REG_PA_BIAS  0x36u
+#define REG_XTAL     0x3Bu
+#define REG_SUBAUDIO 0x51u
+#define REG_TONE     0x70u
+#define TX_LINK_OFF     0x0000u
+#define TX_LINK_NO_MIC  0xC3FAu
+#define TX_LINK_NO_PA   0xC3F2u
+
+#define CAL_DEFAULT  14   /* 14 x 0.1923 ppm = +2.69 ppm */
+#define CAL_MIN     (-50)
+#define CAL_MAX       50
 
 #define IDLE_DEF 30
 #define IDLE_MIN 5
@@ -59,10 +81,23 @@
 #define MSG_ID   3
 #define MSG_ONE  2
 
+#define POWER_MAX  7      /* OUTPUT_POWER_USER (0) .. OUTPUT_POWER_HIGH (7) */
+#define POWER_NONE 0xFF   /* nothing saved: start on the VFO's power        */
+
 #define CFG_MAGIC_V1 0xF4
-#define CFG_MAGIC    0xF5
+#define CFG_MAGIC_V2 0xF5
+#define CFG_MAGIC_V3 0xF6
+#define CFG_MAGIC    0xF7
+#define CFG_LEN      9
+
+/* Older level 3 tables can predate tx_prepare; level 4 power is optional too. */
+#define API_HAS_TX_PREPARE(a) ((a)->api_size >= offsetof(app_api_t, tx_prepare) + sizeof((a)->tx_prepare))
+#define API_HAS_TX_POWER(a) ((a)->api_size >= offsetof(app_api_t, tx_power) + sizeof((a)->tx_power))
 
 _Static_assert(IDLE_STEP == 5 && TX_STEP == 5, "loadConfig() checks multiples of 5");
+_Static_assert(MORSE_UNIT>RAMP_MS+1, "A1A ramp must fit inside one dit");
+_Static_assert((CAL_MAX*1923+50)/100<1000 && (-(CAL_MIN)*1923+50)/100<1000,
+               "XTAL correction must stay below 10 ppm");
 
 /* Texts, fox identifiers, the Morse table, the powers of ten and icons are
  * read-only assets (gen_assets.py); only the displayed item is fetched from
@@ -73,10 +108,11 @@ _Static_assert(IDLE_STEP == 5 && TX_STEP == 5, "loadConfig() checks multiples of
  * byte fields first so their offsets fit ldrb's 0..31 immediate. The overlay
  * is zeroed by the loader at each launch. */
 struct globals {
-    bool     foxLocked, fArm, fLongDone, running, phaseTx, carrier;
-    uint8_t  idleTick, beaconTx, secShown, charsSent, foxFox;
+    bool     foxLocked, fArm, fLongDone, running, phaseTx, a1a, ready, hasPower, back;
+    uint8_t  idleTick, beaconTx, secShown, charsSent, foxFox, power, paBias, paControl;
     uint8_t  prevKey;
-    uint16_t beaconIdle, idleLeft, fHoldMs, txMsLeft;
+    int16_t  calSteps;
+    uint16_t beaconIdle, idleLeft, fHoldMs, holdMs, txMsLeft, xtalBase;
     const app_api_t *api;
     char     foxCall[CALL_MAX+1];
     char     msg[17];
@@ -96,6 +132,13 @@ static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
  * plain bl: the service lies past the ldr immediate range of the table. */
 __attribute__((noinline))
 static char *putu(char *o,uint32_t v){ return A->append_u32(o,v); }
+/* Same signed ppm rendering as CW Keyer and CW Decode: one REG_3B step is
+ * 0.1923 ppm, rounded to two decimals and always shown with its sign. */
+static char *putCalibration(char *o){
+    int16_t n=g.calSteps; *o++=n<0?'-':'+';
+    uint32_t m=(uint32_t)A->uidivmod((uint32_t)(n<0?-n:n)*1923u+50u,100u);
+    char *e=putu(o,m+1000u); o[0]=o[1]; o[1]='.'; return e;
+}
 static void put2(char **o,uint16_t v){ if(v<10)*(*o)++='0'; *o=putu(*o,v); }
 static void cpy(uint8_t *d,const uint8_t *s,uint8_t n){ while(n--)*d++=*s++; }
 static const char *findsp(const char *s){ while(*s){ if(*s==' ')return s; s++; } return NULL; }
@@ -121,9 +164,35 @@ static bool settingKey(uint8_t key,int8_t dir){
             if(dir>0){ if(++g.foxFox>=FOX_COUNT) g.foxFox=0; }
             else g.foxFox=g.foxFox?(uint8_t)(g.foxFox-1u):(uint8_t)(FOX_COUNT-1u);
             return true;
-        case APP_KEY_4: g.carrier=!g.carrier; return true;   /* TONE <-> CARR (dir moot) */
+        case APP_KEY_4:
+            if(g.phaseTx) return false;               /* keep one RF path for the whole burst */
+            g.a1a=!g.a1a;
+            return true;
+        case APP_KEY_5:
+            if(!g.hasPower) return false;
+            g.power=rangeStep(g.power,0,POWER_MAX,1,dir); return true;
+        case APP_KEY_6:
+            if(!g.a1a||g.phaseTx) return false;
+            if((dir>0&&g.calSteps>=CAL_MAX)||(dir<0&&g.calSteps<=CAL_MIN)) return false;
+            g.calSteps+=(dir>0)?1:-1;
+            return true;
         default: return false;
     }
+}
+/* A setting key pressed: F before it steps backwards, and so does its repeat. */
+static bool pressSetting(uint8_t key){
+    g.back=g.fArm; g.holdMs=0;
+    return settingKey(key,g.back?-1:1);
+}
+/* 1 or 2 still held: step again every REPEAT_MS once held REPEAT_DELAY_MS.
+ * Called while the key has not changed; true when it stepped. */
+static bool repeatTrack(uint8_t key,uint16_t ms){
+    if((key!=APP_KEY_1&&key!=APP_KEY_2)||g.foxLocked){ g.holdMs=0; return false; }
+    g.holdMs+=ms;
+    if(g.holdMs<REPEAT_DELAY_MS) return false;
+    g.holdMs-=REPEAT_MS;
+    A->backlight_on();
+    return settingKey(key,g.back?-1:1);
 }
 
 /* ---- message ---- */
@@ -164,6 +233,11 @@ static uint8_t morseByte(char c){
 
 /* ---- drawing ---- */
 static void tag(const char *s,uint8_t x,uint8_t line){ A->print_inverse(s,x,line,false,true,(uint8_t)(x+slen(s)*4)); }
+static void drawCalibration(void){
+    if(!g.a1a) return;
+    char s[16],t[TEXT_MAX]; char *e=putCalibration(put(s,T(t,T_XTAL))); *e='\0';
+    tag(s,(uint8_t)(125u-slen(s)*4u),4);   /* directly above the right-aligned A1A tag */
+}
 
 static void chrome(void){
     char s[16], t[TEXT_MAX];
@@ -172,13 +246,13 @@ static void chrome(void){
     A->print_inverse(T(t,T_BEACON),2,0,true,true,26);
     A->draw_battery();
     if(g.foxLocked||g.fArm) A->asset_read(g.foxLocked?BMP_LOCK:BMP_F,A->status_line+70,BMP_F_LEN);
-    /* the TX frequency (10 Hz units) as MHz with 5 decimals: every digit, then
-       the point before the last five (f >= 18 MHz: at least 7 digits) */
-    { char *e=putu(s,A->tx_freq());
-      e[1]='\0';
-      for(uint8_t k=0;k<5u;k++,e--) e[0]=e[-1];
-      e[0]='.'; }
+    /* The TX frequency (10 Hz units) as MHz with five decimals: every digit,
+     * then the point before the last five. It remains visible in both modes. */
+    char *e=putu(s,A->tx_freq()); e[1]='\0';
+    for(uint8_t k=0;k<5u;k++,e--) e[0]=e[-1];
+    e[0]='.';
     A->print_normal(s,(uint8_t)(126-slen(s)*7),0,6);
+    drawCalibration();
 }
 static void drawTxSeconds(void){
     char s[16], t[TEXT_MAX];
@@ -214,6 +288,7 @@ static void updateProgress(uint8_t vis){
     else { uint8_t callLen=(uint8_t)(sp-g.msg); if(vis==callLen+1) return; top=(vis<=callLen)?MSG_CALL:MSG_ID; }
     for(uint8_t x=0;x<LCD_WIDTH;x++){ A->fb[top][x]=0; A->fb[top+1][x]=0; }
     drawMessage(g.charsSent);
+    if(top==MSG_ID) drawCalibration();   /* line 4 was cleared with the identifier */
     A->blit_line(top); A->blit_line(top+1);
 }
 static void beaconDraw(bool txNow,uint16_t il){
@@ -223,16 +298,19 @@ static void beaconDraw(bool txNow,uint16_t il){
         A->asset_read(BMP_TX,A->status_line+48,BMP_TX_LEN);
         drawTxSeconds();
         drawMessage(g.charsSent);
+    } else if(g.ready){
+        A->print_string(T(t,T_READY),0,127,2,10);
     } else {
         A->print_string(T(t,T_IDLE),0,127,1,10);
         char *o=s; put2(&o,il); *o++='s'; *o='\0';
         A->print_string(s,0,127,3,10);
     }
     char *o=put(s,T(t,T_TX)); *o++=' '; o=putu(o,g.beaconTx); *o++='s'; *o='\0'; tag(s,4,5);
+    if(g.hasPower) tag(T(t,PWR_ID+g.power*PWR_ID_STRIDE),(uint8_t)(9u+slen(s)*4u),5);   /* next to TX */
     o=put(s,T(t,T_IDLE)); *o++=' '; o=putu(o,g.beaconIdle); *o++='s'; *o='\0'; tag(s,4,6);
     foxLabel(s);
     {
-        const char *m=T(t,g.carrier?T_CARR:T_TONE);
+        const char *m=T(t,g.a1a?T_A1A:T_F2A);
         const uint8_t mx=(uint8_t)(125u-slen(m)*4u);
         tag(s,(uint8_t)(mx-5u-slen(s)*4u),5);
         tag(m,mx,5);
@@ -262,21 +340,42 @@ static bool txDelay(uint16_t ms,bool drainWindow){
 
         uint8_t key=A->get_key();
         if(lockTrack(key,slice)){ beaconDraw(true,0); blit(); }   /* show the padlock at once, mid-TX */
-        if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; continue; }
+        if(key==APP_KEY_INVALID||key==g.prevKey){
+            if(repeatTrack(key,slice)){ beaconDraw(true,0); blit(); }
+            g.prevKey=key; continue;
+        }
         g.prevKey=key;
         A->backlight_on();
         if(g.foxLocked) continue;
         if(key==APP_KEY_EXIT){ g.running=false; return true; }
         if(key==APP_KEY_MENU) return true;   /* cut short, restart idle */
         if(key==APP_KEY_F){ g.fArm=!g.fArm; beaconDraw(true,0); blit(); continue; }
-        if(settingKey(key,g.fArm?-1:1)){ g.fArm=false; beaconDraw(true,0); blit(); }
+        if(pressSetting(key)){ g.fArm=false; beaconDraw(true,0); blit(); }
     }
     return false;
 }
-/* Keying: both modes key the tone; CARR gates the PA in lockstep so the carrier is truly
- * gone between elements (tone muted too, else it bleeds through residual PA leakage). */
-static void keyOn(void){  A->tx_mute(false); A->tx_carrier(true);  }   /* carrier up both modes; re-arms after a mid-window switch */
-static void keyOff(void){ A->tx_mute(true);  if(g.carrier) A->tx_carrier(false); }
+static void writeBias(uint8_t bias){ A->bk_write(REG_PA_BIAS,(uint16_t)((uint16_t)bias<<8)|g.paControl); }
+static void rampBias(bool up){
+    for(uint8_t i=1;i<=RAMP_MS;i++){
+        writeBias((uint8_t)(g.paBias*(up?i:RAMP_MS-i)/RAMP_MS));
+        A->delay_ms(1);
+        if(g.txMsLeft) g.txMsLeft--;          /* RF ramps belong to the configured TX window */
+    }
+}
+/* F2A keys Tone1 under a continuous carrier. A1A keeps modulation muted and
+ * keys the BK4829 PA gain, VRAMP and the board PA, as CW Keyer does. */
+static void keyOn(void){
+    if(!g.a1a){ A->tx_mute(false); A->tx_carrier(true); return; }
+    A->bk_write(REG_TX_LINK,TX_LINK_NO_MIC);
+    A->tx_carrier(true);
+    rampBias(true);
+}
+static void keyOff(void){
+    if(!g.a1a){ A->tx_mute(true); return; }
+    rampBias(false);
+    A->tx_carrier(false);
+    A->bk_write(REG_TX_LINK,TX_LINK_NO_PA);
+}
 static bool morseChar(char c,uint8_t vis){
     uint8_t code=morseByte(c);
     if(code==0){ if(txDelay(MORSE_UNIT*4,true)) return true; updateProgress(vis); return false; }
@@ -284,22 +383,46 @@ static bool morseChar(char c,uint8_t vis){
     for(bit>>=1;bit;bit>>=1){
         uint16_t on=(code&bit)?(MORSE_UNIT*3):MORSE_UNIT;
         keyOn();
-        if(txDelay(on,true)){ keyOff(); return true; }
+        if(txDelay(g.a1a?(uint16_t)(on-RAMP_MS-1):on,true)){ keyOff(); return true; }
         keyOff();
-        if(txDelay(MORSE_UNIT,true)) return true;
+        if(txDelay(g.a1a?(MORSE_UNIT-RAMP_MS+1):MORSE_UNIT,true)) return true;
     }
     updateProgress(vis);
     return txDelay(MORSE_UNIT*2,true);
 }
 static void transmit(void){
-    A->tx_set_params();
-    A->tx_tone(TONE_HZ);
-    A->tx_mute(true);                        /* open muted (both modes)               */
+    if(g.hasPower) A->tx_power(g.power);     /* this burst's PA setting; the VFO keeps its power */
+    /* Positive steps correct a carrier measured high. Applying REG_3B before
+     * tx_prepare lets its normal PLL setup latch the corrected reference. */
+    A->bk_write(REG_XTAL,(uint16_t)(g.xtalBase+(g.a1a?g.calSteps:0)));
+    /* Current level 3 preparation leaves PA_ENABLE off. A legacy table falls
+     * back to the original setup; the mode-specific block then removes PA
+     * drive immediately when A1A is selected. */
+    if(API_HAS_TX_PREPARE(A)) A->tx_prepare(); else A->tx_set_params();
+    if(g.a1a){
+        uint16_t pa=A->bk_read(REG_PA_BIAS);
+        g.paBias=(uint8_t)(pa>>8); g.paControl=(uint8_t)pa;
+        A->tx_carrier(false);
+        writeBias(0);
+        A->tx_mute(true);
+        A->bk_write(REG_SUBAUDIO,0u);         /* A1A carries no CTCSS or DCS             */
+        A->bk_write(REG_TONE,0u);             /* no dormant MCW source in A1A          */
+        A->bk_write(REG_TX_LINK,TX_LINK_OFF);
+    } else {
+        A->tx_tone(TONE_HZ);
+        A->tx_mute(true);
+        A->tx_carrier(true);                  /* F2A silent-carrier lead-in             */
+    }
     g.txMsLeft=(uint16_t)g.beaconTx*1000u;
-    /* Keep a silent carrier up for two dahs before the configured ID window. */
+    /* Let the TX path settle for two dahs before the configured ID window.
+     * F2A keeps its carrier up but muted; A1A keeps the TX link down so even
+     * synthesizer leakage cannot sound like a mark before the first letter. */
     buildMsg(); g.charsSent=0; beaconDraw(true,0); blit();
     bool stop=txDelay(LEAD_MS,false);
-    if(g.carrier) A->tx_carrier(false);      /* then restore CARR keying semantics     */
+    if(!stop&&g.a1a){
+        A->bk_write(REG_TX_LINK,TX_LINK_NO_PA);
+        A->delay_ms(PLL_LOCK_MS);
+    }
     while(!stop && g.txMsLeft>0){
         buildMsg();
         g.charsSent=0;
@@ -314,16 +437,20 @@ static void transmit(void){
 /* ---- idle-phase keys ---- */
 static void idleKeys(void){
     uint8_t key=A->get_key();
+    if(key==APP_KEY_PTT) key=APP_KEY_INVALID;  /* reject UART-coupled PTT pulses */
     lockTrack(key,TICK_MS);
-    if(key==APP_KEY_INVALID||key==g.prevKey){ g.prevKey=key; return; }
+    if(key==APP_KEY_INVALID||key==g.prevKey){ repeatTrack(key,TICK_MS); g.prevKey=key; return; }
     g.prevKey=key;
     A->backlight_on();
     if(g.foxLocked) return;
     if(key==APP_KEY_F){ g.fArm=!g.fArm; return; }
     switch(key){
         case APP_KEY_EXIT: g.running=false; break;
-        case APP_KEY_MENU: g.idleLeft=g.beaconIdle; g.idleTick=0; break;
-        default: settingKey(key,g.fArm?-1:1); break;
+        case APP_KEY_MENU:
+            if(g.ready){ g.ready=false; g.phaseTx=true; }                    /* start the cycle */
+            else { g.idleLeft=g.beaconIdle; g.idleTick=0; }                 /* restart idle */
+            break;
+        default: pressSetting(key); break;
     }
     g.fArm=false;
 }
@@ -332,21 +459,32 @@ static void tickDelay(void){ for(uint8_t i=0;i<TICK_MS/10;i++){ A->delay_ms(10);
 
 /* ---- config (deferred) ---- */
 static void loadConfig(void){
-    uint8_t c[6]; A->cfg_load(c,6);
-    if(c[0]==CFG_MAGIC){
+    uint8_t c[CFG_LEN]; A->cfg_load(c,CFG_LEN);
+    if(c[0]==CFG_MAGIC||c[0]==CFG_MAGIC_V3||c[0]==CFG_MAGIC_V2){
         uint16_t idle=(uint16_t)c[1]|((uint16_t)c[2]<<8);
         if(idle>=IDLE_MIN&&idle<=IDLE_MAX&&multipleOf5(idle)) g.beaconIdle=idle;
         if(c[3]<FOX_COUNT) g.foxFox=c[3];
         if(c[4]>=TX_MIN&&c[4]<=TX_MAX&&multipleOf5(c[4])) g.beaconTx=c[4];
-        if(c[5]<=1) g.carrier=c[5];
+        /* V1-V3 CARR also keyed a 1 kHz tone, so migrate it to audible F2A.
+         * Only V4 stores the new F2A/A1A choice. */
+        if(c[0]==CFG_MAGIC&&c[5]<=1) g.a1a=c[5];
+        if(c[0]!=CFG_MAGIC_V2&&c[6]<=POWER_MAX) g.power=c[6];
+        if(c[0]==CFG_MAGIC){
+            int16_t cal=(int16_t)((uint16_t)c[7]|((uint16_t)c[8]<<8));
+            if(cal>=CAL_MIN&&cal<=CAL_MAX) g.calSteps=cal;
+        }
     } else if(c[0]==CFG_MAGIC_V1){
         if(c[1]>=IDLE_MIN&&c[1]<=240u&&multipleOf5(c[1])) g.beaconIdle=c[1];
         if(c[2]<6u) g.foxFox=c[2]; else if(c[2]==6u) g.foxFox=FOX_CALL_MOE;
         if(c[3]>=TX_MIN&&c[3]<=TX_MAX&&multipleOf5(c[3])) g.beaconTx=c[3];
-        if(c[4]<=1) g.carrier=c[4];
     }
 }
-static void saveConfig(void){ uint8_t c[6]={CFG_MAGIC,(uint8_t)g.beaconIdle,(uint8_t)(g.beaconIdle>>8),g.foxFox,g.beaconTx,(uint8_t)g.carrier}; A->cfg_save(c,6); }
+static void saveConfig(void){
+    uint16_t cal=(uint16_t)g.calSteps;
+    uint8_t c[CFG_LEN]={CFG_MAGIC,(uint8_t)g.beaconIdle,(uint8_t)(g.beaconIdle>>8),
+        g.foxFox,g.beaconTx,(uint8_t)g.a1a,g.power,(uint8_t)cal,(uint8_t)(cal>>8)};
+    A->cfg_save(c,CFG_LEN);
+}
 
 static void txDenied(void){
     char t[TEXT_MAX];
@@ -359,14 +497,18 @@ static void txDenied(void){
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
     A=api;
-    /* locks, holds and the TONE keying mode start zeroed (.bss) */
-    g.beaconIdle=IDLE_DEF; g.beaconTx=TX_DEF; g.foxFox=FOX_CALL_MOE;
-    g.prevKey=APP_KEY_INVALID;
+    /* Locks, holds and the F2A keying mode start zeroed (.bss). */
+    g.beaconIdle=IDLE_DEF; g.beaconTx=TX_DEF; g.foxFox=FOX_CALL_MOE; g.calSteps=CAL_DEFAULT;
+    g.prevKey=APP_KEY_INVALID; g.power=POWER_NONE;
     A->boot_callsign(g.foxCall,sizeof(g.foxCall));
     loadConfig();
+    g.xtalBase=A->bk_read(REG_XTAL);
+    g.hasPower=API_HAS_TX_POWER(A);
+    if(g.hasPower&&g.power>POWER_MAX) g.power=A->tx_power(POWER_NONE);   /* the VFO's power */
     A->backlight_on();
 
-    g.phaseTx=true; g.idleLeft=g.beaconIdle; g.idleTick=0;
+    g.ready=true;   /* never transmit at launch: MENU starts the cycle */
+    g.idleLeft=g.beaconIdle; g.idleTick=0;
     g.running=true;
     while(g.running){
         if(g.phaseTx){
@@ -376,14 +518,17 @@ void app_main(const app_api_t *api){
             continue;
         }
         idleKeys();
+        saveConfig();   /* each tick, a change only: kept across a switch-off */
         if(!g.running) break;
+        if(g.phaseTx) continue;   /* started from READY: no idle frame first */
         beaconDraw(false,g.idleLeft); blit();
-        if(++g.idleTick>=(1000/TICK_MS)){ g.idleTick=0; if(g.idleLeft>0)g.idleLeft--; if(g.idleLeft==0)g.phaseTx=true; }
+        if(!g.ready&&++g.idleTick>=(1000/TICK_MS)){ g.idleTick=0; if(g.idleLeft>0)g.idleLeft--; if(g.idleLeft==0)g.phaseTx=true; }
         A->battery_sample();
         tickDelay();
     }
 
-    saveConfig();
+    saveConfig();         /* a change keyed during the last TX */
     A->tx_end();          /* safety: PA off + RX restored */
+    A->bk_write(REG_XTAL,g.xtalBase);
     A->audio_path(false);
 }

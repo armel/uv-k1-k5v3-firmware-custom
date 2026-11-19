@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>CW QSO Auto · Éditeur Bank16</title>
+<style>
+:root{color-scheme:light;--ink:#172b34;--muted:#52646d;--line:#cddbdc;--accent:#00695e;--error:#a32132}
+*{box-sizing:border-box}body{margin:0;background:#f1f5f4;color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1136px;margin:auto;padding:40px 24px 150px}.eyebrow{color:var(--accent);font-size:.8rem;font-weight:750;letter-spacing:.1em;text-transform:uppercase}
+h1{font-size:clamp(1.8rem,4vw,2.7rem);line-height:1.15;margin:12px 0}p{margin:12px 0}.intro{max-width:760px;color:var(--muted)}
+.file-card,.help{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px;margin:24px 0}.file-card label{font-weight:700;display:block;margin-bottom:12px}input[type=file]{max-width:100%;font:inherit}
+input::file-selector-button{padding:10px 16px;border:1px solid var(--line);border-radius:7px;background:#f1f5f4;color:var(--ink);font:inherit;cursor:pointer;margin-right:14px}
+.status{font-size:.92rem;color:var(--muted);overflow-wrap:anywhere}.error{color:var(--error);font-weight:600}.help{background:#e6f2ef;font-size:.92rem}.help p{margin:5px 0}code{font-family:ui-monospace,Consolas,monospace;background:#ffffff90;padding:1px 4px;border-radius:3px}
+.section-title{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:28px 0 16px}.section-title h2{margin:0;font-size:1.25rem}.section-title span{font-size:.9rem;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.message{min-width:0;border:1px solid var(--line);border-radius:10px;background:white;padding:18px}.message.invalid{border-color:var(--error)}
+.message label{font-weight:700;display:block;margin-bottom:10px}.number{font-size:.8rem;color:var(--accent);margin-right:10px;letter-spacing:.04em}
+.message input[type=text]{width:100%;padding:10px 12px;border:1px solid #b6c9ca;border-radius:6px;font:inherit;background:#fafcfc}.message input[type=text]:focus{outline:2px solid var(--accent);outline-offset:2px}.message input[type=text]:disabled{background:#f4f6f6;color:#77858a}.message .field-note{margin-bottom:12px}
+textarea{display:block;resize:vertical;width:100%;min-height:92px;padding:12px;border:1px solid #b6c9ca;border-radius:6px;background:#fafcfc;color:var(--ink);font:15px/1.5 ui-monospace,Consolas,monospace;overflow-wrap:anywhere}
+textarea:focus{outline:2px solid var(--accent);outline-offset:2px}textarea:disabled{color:#77858a;background:#f4f6f6}.field-note{display:flex;gap:12px;justify-content:space-between;margin-top:8px;font-size:.8rem;color:var(--muted)}.field-error{min-height:1.3em;font-size:.85rem;color:var(--error);margin-top:5px;overflow-wrap:anywhere}.invalid .count{color:var(--error);font-weight:700}
+footer{position:fixed;bottom:0;left:0;right:0;background:#fffffff5;border-top:1px solid var(--line);padding:18px 24px;box-shadow:0 -6px 22px #172b3406}.actions{max-width:1088px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:20px}.actions p{margin:0;font-size:.9rem;color:var(--muted)}button{background:var(--accent);color:white;border:0;padding:13px 20px;border-radius:7px;font:700 .95rem system-ui;cursor:pointer}button:disabled{background:#d6e0df;color:#697b7c;cursor:not-allowed}
+@media(max-width:680px){main{padding:26px 16px 190px}.grid{grid-template-columns:1fr}.actions{align-items:stretch;flex-direction:column;gap:12px}.section-title{align-items:flex-start;flex-direction:column;gap:4px}footer{padding:14px 16px}}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">CW QSO Auto · Bank16</div>
+  <h1>Vos messages, à votre rythme.</h1>
+  <p class="intro">Le binaire de référence est inclus : personnalisez les 16 messages, puis téléchargez votre application pour UV Studio. Ce fichier HTML fonctionne hors ligne, sans serveur. Remplacez <code>F4XXX</code> par votre indicatif et <code>SEB</code> par votre prénom avant un QSO réel.</p>
+  <section class="file-card" aria-label="Charger l’application">
+    <label for="app-file">Réimporter un fichier .app compatible (facultatif)</label>
+    <input id="app-file" type="file" accept=".app" aria-describedby="compat file-status">
+    <p id="compat" class="status">La référence QNM1 permet de nommer les 16 messages. Les anciens profils approuvés restent importables pour modifier leurs contenus, mais ne stockent pas de noms. Leur code et leurs commandes sont conservés, sans migration automatique.</p>
+    <p id="file-status" class="status" role="status" aria-live="polite">Vérification de la référence embarquée…</p>
+    <button id="reset-reference" type="button">Recharger les messages par défaut</button>
+    <p id="file-error" class="error" role="alert"></p>
+  </section>
+  <aside class="help">
+    <p><strong>Alphabet accepté :</strong> A–Z, 0–9, espace, <code>/</code> et <code>?</code>. Aucune conversion automatique.</p>
+    <p><code>{RST}</code> insère le report courant et compte pour <strong>1 octet</strong>. Pas d’espace au début, à la fin ou en double. Un message vide désactive son émission.</p>
+    <p><strong>Noms :</strong> 0 à 12 caractères ASCII visibles, identiques pour les 16 emplacements. Le numéro est fixe. Un nom vide laisse le numéro seul à l’écran. Le nom n’est jamais transmis. Les accents ne sont pas pris en charge par la police du poste.</p>
+    <p>Version fournie : UP/DOWN parcourt les 16 messages, PTT transmet la sélection. SIDE 1 répète le message sélectionné ; SIDE 2 laisse finir le message commencé puis arrête. Dans SETTINGS, UP/DOWN règle REPEAT de 1 à 15 s (5 s par défaut, sauvegardé) et PTT sert de pioche. MSG 15 et 16 restent accessibles par navigation. Aucun remplacement d’indicatif ou de prénom n’est automatique : modifiez les textes concernés. Seul {RST} est un jeton.</p>
+  </aside>
+  <details class="help"><summary>Personnalisation et installation / Customization and installation</summary>
+    <p>Modifiez notamment MSG 01 et 02 pour remplacer F4XXX et SEB. Cliquez sur « Vérifier et télécharger », conservez la copie .app puis importez-la dans la vue Applications / Apps d’UV Studio pour l’installer sur un firmware F4HWN compatible ABI 1 / API 3 (série 6.3.0).</p>
+    <p>UV Studio : <a href="https://armel.github.io/uvstudio/" target="_blank" rel="noopener noreferrer">armel.github.io/uvstudio</a>. L’édition et la génération restent hors ligne ; l’installation avec UV Studio est une étape séparée.</p>
+    <p>Conservez le .app téléchargé : le réimporter permet de reprendre les 16 textes. Rien n’est enregistré automatiquement après fermeture de cette page. Recharger les valeurs par défaut remplace les champs affichés, sans modifier vos fichiers.</p>
+    <p lang="en">The reference app is embedded. Replace F4XXX and SEB in messages 01/02, edit the texts, download the validated .app, then install it through UV Studio’s Applications view. Keep and reimport your .app to restore your messages. Old compatible imports retain their original executable and controls.</p>
+  </details>
+  <div class="section-title"><h2>Modifier les messages</h2><span>64 octets utiles par message</span></div>
+  <div id="messages" class="grid"></div>
+</main>
+<footer><div class="actions">
+  <p id="summary" role="status" aria-live="polite">Chargez un fichier pour commencer.</p>
+  <button id="download" disabled>Vérifier et télécharger</button>
+</div></footer>
+<script id="bank16-reference" type="application/octet-stream">
+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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQFDUSBDUSBDUSBERSBGNFhYWCBGNFhYWCBLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBAkRFIEY0WFhYIFVSIAIgAiBOQU1FIFNFQiBIVz8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEDNzMgVFUgRSBFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQRNU0cgNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBBU1TRyA1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEGTVNHIDYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQdNU0cgNwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBCE1TRyA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEJTVNHIDkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQpNU0cgMTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBC01TRyAxMQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEMTVNHIDEyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXAQ1NU0cgMTMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQ1cBDk1TRyAxNAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDVwEPQUdOPwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAENXARA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOCBTVFJBSUdIVAAAAAAAADggQVVUTwAAAAAAAAAAAAA4IElBTUIgQQAAAAAAAAAAOCBJQU1CIEIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDEgQ1EAAAAAAAAAAAAAADAyIFJFUE9OU0UAAAAAAAAwMyA3MwAAAAAAAAAAAAAAMDQgTVNHIDQAAAAAAAAAADA1IE1TRyA1AAAAAAAAAAAwNiBNU0cgNgAAAAAAAAAAMDcgTVNHIDcAAAAAAAAAADA4IE1TRyA4AAAAAAAAAAAwOSBNU0cgOQAAAAAAAAAAMTAgTVNHIDEwAAAAAAAAADExIE1TRyAxMQAAAAAAAAAxMiBNU0cgMTIAAAAAAAAAMTMgTVNHIDEzAAAAAAAAADE0IE1TRyAxNAAAAAAAAAAxNSBBR04/AAAAAAAAAAAAMTYgPwAAAAAAAAAAAAAAAFRYIE1TRyAwMQAAAAAAAABUWCBNU0cgMDIAAAAAAAAAVFggTVNHIDAzAAAAAAAAAFRYIE1TRyAwNAAAAAAAAABUWCBNU0cgMDUAAAAAAAAAVFggTVNHIDA2AAAAAAAAAFRYIE1TRyAwNwAAAAAAAABUWCBNU0cgMDgAAAAAAAAAVFggTVNHIDA5AAAAAAAAAFRYIE1TRyAxMAAAAAAAAABUWCBNU0cgMTEAAAAAAAAAVFggTVNHIDEyAAAAAAAAAFRYIE1TRyAxMwAAAAAAAABUWCBNU0cgMTQAAAAAAAAAVFggTVNHIDE1AAAAAAAAAFRYIE1TRyAxNgAAAAAAAABiCwICBD2IAAFCBH2PAIYCBT2XAIhCBX14CAMCBj2dAIRCBn3DAB4CAjsAAAACAxvMEgAADgC8AiwBAQAqPVJTVCA+PVNVSVRFAFFOTTE=
+</script>
+<script id="bank16-core">
+"use strict";
+globalThis.Bank16 = (() => {
+  const PROFILE = Object.freeze({id:"stable",name:"CW QSO AUTO",header:64,codeSize:3964,assetSize:1756,base:512,stride:68,count:16,payload:64,
+    codeHash:"28cd526bcd49bc1b332fc195e7f7357276977460e67c25282b47bc5c9b3c1d64",
+    otherAssetsHash:"4ac923c59a51d0b7f914ea549b05b705936619508755d7905f8fa67ca064d3d5"});
+  const NAV16 = Object.freeze({id:"nav16",name:"CW QSO Auto",header:64,codeSize:3948,assetSize:2268,base:512,stride:68,count:16,payload:64,
+    codeHash:"d864ece398de4b209aa87b17ee2a19b02ef44dc9257da8dffaf11c57003dbcff",
+    otherAssetsHash:"fe7334d047540c97fea1da1e8dcb431aa2a575f3df7bf9a7e53111992cb4f239"});
+  const PREVIEW16 = Object.freeze({id:"preview16",name:"CW QSO Auto",header:64,codeSize:4060,assetSize:2282,base:512,stride:68,count:16,payload:64,
+    codeHash:"6732896211c769b9bd06e80cb2985bd7b3df2e935e53a99115a5c8452dad7b64",
+    otherAssetsHash:"23141025027163dca3871e5bd4652ebe305a75077ac243993b669626259a88b1"});
+  const REPEAT01 = Object.freeze({id:"repeat01",name:"CW QSO Auto",header:64,codeSize:4092,assetSize:2282,base:512,stride:68,count:16,payload:64,
+    codeHash:"d5ec353509642b5aeba50386102e5d813ece1de4cbd9364e492bc1c07bb9e3c4",
+    otherAssetsHash:"23141025027163dca3871e5bd4652ebe305a75077ac243993b669626259a88b1"});
+  /* NAMES16_PROFILE */
+  const MENU_LEFT = Object.freeze({"id":"menu-left","name":"CW QSO Auto","header":64,"codeSize":4068,"assetSize":2282,"base":512,"stride":68,"count":16,"payload":64,"codeHash":"4c1d8736d73a0cf0a8a4f7e6741a75cb20635522ff0f09c14a63f057d03bd637","otherAssetsHash":"7eb56aa6b1874c36be9654f9635f167b85c110c546734e41714b8693178de4aa"});
+  const NAMES16 = Object.freeze({"id":"names16","name":"CW QSO Auto","header":64,"codeSize":4096,"assetSize":2286,"base":512,"stride":68,"count":16,"payload":64,"nameBase":1696,"nameBytes":12,"marker":2282,"codeHash":"9a018ff1951644976664d2524c99e7902657b6c3a836fbffdd9a18368ee827e7","otherAssetsHash":"262ebbdb9ba07944422d94b7dfa74e9f6ee652ab1da71f9ff7922bea7ffe1368"});
+  const REPEAT_SELECTED = Object.freeze({"id":"names16-selected","name":"CW QSO Auto","header":64,"codeSize":4084,"assetSize":2286,"base":512,"stride":68,"count":16,"payload":64,"nameBase":1696,"nameBytes":12,"marker":2282,"codeHash":"71f91e4424bfec52dced0164835620b52b1930320f2d9e97395b3979fd4f2576","otherAssetsHash":"262ebbdb9ba07944422d94b7dfa74e9f6ee652ab1da71f9ff7922bea7ffe1368"});
+  const PROFILES = Object.freeze([PROFILE,NAV16,PREVIEW16,REPEAT01,MENU_LEFT,NAMES16,REPEAT_SELECTED]);
+  const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/? ";
+  const label = id => `MSG ${String(id).padStart(2,"0")}`;
+  const fail = message => { throw new Error(message); };
+  function messageError(id,message,count) {
+    const error = new Error(`${label(id)} — ${message}`);
+    if (count !== undefined) error.count=count;
+    throw error;
+  }
+  function crc32(bytes) {
+    let crc=0xffffffff;
+    for (const byte of bytes) {
+      crc^=byte;
+      for(let i=0;i<8;i++) crc=(crc>>>1)^((0-(crc&1))&0xedb88320);
+    }
+    return (crc^0xffffffff)>>>0;
+  }
+  async function sha256(bytes) {
+    if (!globalThis.crypto || !crypto.subtle) fail("Vérification SHA-256 indisponible. Ouvrez cette page dans une version récente de Chrome, Edge ou Firefox.");
+    const digest=await crypto.subtle.digest("SHA-256",bytes);
+    return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,"0")).join("");
+  }
+  function encodeMessage(text,id) {
+    if(typeof text!=="string") messageError(id,"le texte doit être une chaîne de caractères.");
+    const bytes=[];
+    for(let pos=0;pos<text.length;) {
+      if(text.startsWith("{RST}",pos)) { bytes.push(2);pos+=5;continue; }
+      const point=text.codePointAt(pos),character=String.fromCodePoint(point);
+      if(point>127 || !ALPHABET.includes(character)) {
+        const visible=JSON.stringify(character), unicode=`U+${point.toString(16).toUpperCase().padStart(4,"0")}`;
+        const token=character==="{"?" Seul le jeton {RST} est reconnu.":"";
+        messageError(id,`caractère ${visible} (${unicode}) interdit, position ${pos+1}.${token}`);
+      }
+      bytes.push(point);pos+=character.length;
+    }
+    if(bytes.length>64) messageError(id,`${bytes.length} octets encodés : maximum 64, sans troncature.`,bytes.length);
+    if(bytes.length && (bytes[0]===32 || bytes[bytes.length-1]===32)) messageError(id,"espace au début ou à la fin interdit.",bytes.length);
+    for(let i=1;i<bytes.length;i++) if(bytes[i]===32 && bytes[i-1]===32) messageError(id,"deux espaces consécutifs sont interdits.",bytes.length);
+    return Uint8Array.from(bytes);
+  }
+  function decodeMessage(payload,id) {
+    let text="",ended=false;
+    for(const byte of payload) {
+      if(!byte) {ended=true;continue;}
+      if(ended) messageError(id,"remplissage non nul après la fin du texte : structure incompatible.");
+      if(byte===2) text+="{RST}";
+      else if(byte<128 && ALPHABET.includes(String.fromCharCode(byte))) text+=String.fromCharCode(byte);
+      else messageError(id,`octet interdit 0x${byte.toString(16).toUpperCase().padStart(2,"0")} dans le fichier.`);
+    }
+    encodeMessage(text,id);
+    return text;
+  }
+  function fieldEquals(bytes,offset,size,text) {
+    for(let i=0;i<size;i++) if(bytes[offset+i] !== (i<text.length?text.charCodeAt(i):0)) return false;
+    return true;
+  }
+  function encodeName(text,id) {
+    if(typeof text!=="string" || text.length>12) messageError(id,"nom : maximum 12 caractères ASCII, sans troncature.");
+    const bytes=[];
+    for(const c of text) {
+      const value=c.codePointAt(0);
+      if(value<32 || value>126) messageError(id,"nom : seuls les caractères ASCII visibles (espace compris) sont acceptés.");
+      bytes.push(value);
+    }
+    return Uint8Array.from(bytes);
+  }
+  function decodeName(record,id) {
+    const prefix=`${String(id).padStart(2,"0")} `;
+    for(let i=0;i<3;i++) if(record[i]!==prefix.charCodeAt(i)) messageError(id,"numéro fixe du nom incorrect.");
+    if(record[15]!==0) messageError(id,"nom non terminé : format invalide.");
+    let text="",ended=false;
+    for(const byte of record.subarray(3)) {
+      if(!byte){ended=true;continue;}
+      if(ended) messageError(id,"remplissage du nom non nul.");
+      text+=String.fromCharCode(byte);
+    }
+    encodeName(text,id);return text;
+  }
+  async function validateFile(input) {
+    if(!(input instanceof Uint8Array) && !(input instanceof ArrayBuffer)) fail("Données binaires attendues.");
+    if(input.byteLength<64 || input.byteLength>8000) fail("Taille du fichier FAP1 invalide.");
+    const bytes=input instanceof Uint8Array?new Uint8Array(input):new Uint8Array(input.slice(0));
+    const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+    if(view.getUint32(0,true)!==0x31504146) fail("Signature FAP1 absente ou incorrecte.");
+    if(view.getUint16(4,true)!==1 || bytes[6]!==1 || bytes[7]!==3) fail("Versions d’en-tête, ABI ou API incompatibles.");
+    const codeSize=view.getUint32(8,true),assetSize=view.getUint16(60,true);
+    if(codeSize<2 || codeSize>4096 || assetSize>3840) fail("Sections hors des limites FAP1 (code 4 096, assets 3 840 octets).");
+    if(bytes.length!==64+codeSize+assetSize) fail("Fichier tronqué ou octets supplémentaires après les sections.");
+    const profile=PROFILES.find(p=>codeSize===p.codeSize && assetSize===p.assetSize && fieldEquals(bytes,20,16,p.name));
+    if(!profile) fail("Version .app inconnue : dimensions ou nom incompatibles. Aucun fichier modifié. Les anciens profils approuvés et le format noms QNM1 sont reconnus.");
+    if(!fieldEquals(bytes,36,16,"0.4")) fail("Version d’application incompatible : 0.4 attendue.");
+    if(view.getUint16(16,true)!==0 || view.getUint16(18,true)!==1 || view.getUint32(52,true)!==0x20000280 || view.getUint32(56,true)!==0)
+      fail("Paramètres de chargement FAP1 incompatibles avec la référence stable.");
+    const assetStart=64+codeSize,code=bytes.subarray(64,assetStart),assets=bytes.subarray(assetStart);
+    if(crc32(code)!==view.getUint32(12,true)) fail("CRC du code incorrect : fichier corrompu.");
+    if((crc32(assets)&0xffff)!==view.getUint16(62,true)) fail("CRC des assets incorrect : fichier corrompu.");
+    if(await sha256(code)!==profile.codeHash) fail("Code exécutable différent du profil de référence : fichier refusé.");
+    const immutable=assets.slice();
+    if(profile.nameBase!==undefined) {
+      if(!fieldEquals(assets,profile.marker,4,"QNM1")) fail("Signature de format noms QNM1 incorrecte.");
+      for(let i=0;i<16;i++) immutable.fill(0,profile.nameBase+i*16+3,profile.nameBase+(i+1)*16);
+    }
+    const outside=new Uint8Array(assetSize-profile.count*profile.stride);
+    outside.set(immutable.subarray(0,profile.base));outside.set(immutable.subarray(profile.base+profile.count*profile.stride),profile.base);
+    if(await sha256(outside)!==profile.otherAssetsHash) fail("Assets hors banque modifiés ou version incompatible : fichier refusé.");
+    const messages=[];
+    for(let i=0;i<PROFILE.count;i++) {
+      const start=PROFILE.base+i*PROFILE.stride;
+      if(assets[start]!==0x43 || assets[start+1]!==0x57 || assets[start+2]!==1 || assets[start+3]!==i+1)
+        messageError(i+1,"signature CW / format 1 / numéro d’enregistrement incorrect.");
+      messages.push(decodeMessage(assets.subarray(start+4,start+68),i+1));
+    }
+    const names=profile.nameBase===undefined ? null : Array.from({length:16},(_,i)=>decodeName(assets.subarray(profile.nameBase+i*16,profile.nameBase+(i+1)*16),i+1));
+    return {bytes,messages,names,assetStart,codeSize,assetSize,profile};
+  }
+  function compareAllowed(original,output,profile=PROFILE) {
+    if(original.length!==output.length) fail("Comparaison impossible : la longueur du fichier a changé.");
+    const assetStart=64+profile.codeSize;let changed=0;
+    for(let i=0;i<original.length;i++) if(original[i]!==output[i]) {
+      const relative=i-assetStart-PROFILE.base;
+      const payload=relative>=0 && relative<PROFILE.count*PROFILE.stride && relative%PROFILE.stride>=4;
+      const nameRelative=i-assetStart-profile.nameBase;
+      const name=profile.nameBase!==undefined && nameRelative>=0 && nameRelative<256 && nameRelative%16>=3;
+      if(!(i===62 || i===63 || payload || name)) fail(`Modification interdite à l’offset fichier ${i}. Aucun fichier généré.`);
+      changed++;
+    }
+    return changed;
+  }
+  async function generate(original,texts,names) {
+    const input=await validateFile(original);
+    if(!Array.isArray(texts) || texts.length!==16) fail("Exactement 16 messages sont requis.");
+    const encoded=texts.map((text,i)=>encodeMessage(text,i+1));
+    if(names!==undefined && (!Array.isArray(names) || names.length!==16)) fail("Exactement 16 noms sont requis.");
+    if(input.names===null && names!==undefined) fail("Ancien format sans noms : les contenus restent éditables, mais les noms nécessitent la nouvelle référence QNM1.");
+    const named=input.names===null ? null : (names===undefined ? input.names : names);
+    const encodedNames=named && named.map((name,i)=>encodeName(name,i+1));
+    const output=input.bytes.slice();
+    for(let i=0;i<16;i++) {
+      const start=input.assetStart+PROFILE.base+i*PROFILE.stride+4;
+      output.fill(0,start,start+64);output.set(encoded[i],start);
+      if(encodedNames) {
+        const n=input.assetStart+input.profile.nameBase+i*16+3;
+        output.fill(0,n,n+13);output.set(encodedNames[i],n);
+      }
+    }
+    new DataView(output.buffer).setUint16(62,crc32(output.subarray(input.assetStart))&0xffff,true);
+    const changed=compareAllowed(input.bytes,output,input.profile);
+    const result=await validateFile(output);
+    if(result.messages.some((text,i)=>text!==texts[i])) fail("Échec de la relecture des messages après génération.");
+    if(named && result.names.some((name,i)=>name!==named[i])) fail("Échec de la relecture des noms après génération.");
+    return {bytes:output,messages:result.messages,names:result.names,changed};
+  }
+  return Object.freeze({PROFILE,PROFILES,ALPHABET,crc32,encodeMessage,decodeMessage,encodeName,decodeName,validateFile,compareAllowed,generate});
+})();
+</script>
+<script id="bank16-ui">
+"use strict";
+(() => {
+  const $=id=>document.getElementById(id), fields=[];
+  let source=null,busy=false,ticket=0,hasNames=false;
+  for(let i=0;i<16;i++) {
+    const card=document.createElement("section"),label=document.createElement("label"),number=document.createElement("span");
+    const input=document.createElement("textarea"),note=document.createElement("div"),count=document.createElement("span"),error=document.createElement("div");
+    card.className="message";label.htmlFor=`msg-${i+1}`;number.className="number";number.textContent=`MSG ${String(i+1).padStart(2,"0")}`;
+    label.append(number,document.createTextNode("Contenu CW"));input.id=label.htmlFor;input.disabled=true;
+    const nameLabel=document.createElement("label"),nameInput=document.createElement("input"),nameCount=document.createElement("span");
+    nameLabel.htmlFor=`name-${i+1}`;nameLabel.textContent="Nom (12 caractères ASCII maximum)";
+    nameInput.id=nameLabel.htmlFor;nameInput.type="text";nameInput.maxLength=12;nameInput.disabled=true;nameInput.autocomplete="off";
+    nameCount.className="field-note";nameCount.id=`name-count-${i+1}`;nameInput.setAttribute("aria-describedby",`name-count-${i+1} error-${i+1}`);
+    input.rows=3;input.spellcheck=false;input.autocomplete="off";input.setAttribute("autocapitalize","off");
+    input.setAttribute("aria-describedby",`count-${i+1} error-${i+1}`);
+    note.className="field-note";count.className="count";count.id=`count-${i+1}`;count.textContent="— / 64 octets";
+    error.className="field-error";error.id=`error-${i+1}`;note.append(count);card.append(number,nameLabel,nameInput,nameCount,label,input,note,error);$("messages").append(card);
+    fields.push({card,input,count,error,nameInput,nameCount});input.addEventListener("input",refresh);nameInput.addEventListener("input",refresh);
+  }
+  function refresh() {
+    let invalid=0;
+    for(let i=0;i<fields.length;i++) {
+      const f=fields[i];f.input.disabled=!source || busy;
+      f.nameInput.disabled=!source || busy || !hasNames;
+      f.nameCount.textContent=hasNames?`${f.nameInput.value.length} / 12 caractères`:"Noms indisponibles dans cet ancien format.";
+      if(!source) {f.nameInput.value="";f.input.value="";f.count.textContent="— / 64 octets";f.error.textContent="";f.card.classList.remove("invalid");f.input.removeAttribute("aria-invalid");continue;}
+      try {
+        const bytes=Bank16.encodeMessage(f.input.value,i+1);f.count.textContent=`${bytes.length} / 64 octets`;
+        if(hasNames)Bank16.encodeName(f.nameInput.value,i+1);
+        f.error.textContent="";f.card.classList.remove("invalid");f.input.setAttribute("aria-invalid","false");
+      } catch(error) {
+        invalid++;f.count.textContent=error.count===undefined?"Encodage invalide":`${error.count} / 64 octets`;
+        f.error.textContent=error.message;f.card.classList.add("invalid");f.input.setAttribute("aria-invalid","true");
+      }
+    }
+    $("reset-reference").disabled=busy;$("app-file").disabled=busy;$("download").disabled=!source || busy || invalid>0;
+    $("download").textContent=busy?"Vérification…":"Vérifier et télécharger";
+    $("summary").textContent=!source?"Chargez un fichier pour commencer.":invalid?`${invalid} message(s) à corriger. Téléchargement bloqué.`:"16 messages valides. Le code et les autres assets seront conservés.";
+  }
+  async function loadSource(input,name) {
+    const current=++ticket;source=null;busy=true;$("file-error").textContent="";refresh();
+    $("file-status").textContent="Vérification du fichier…";
+    try {
+      const result=await Bank16.validateFile(await input);if(current!==ticket)return;
+      source=result.bytes;hasNames=result.names!==null;fields.forEach((f,i)=>{f.input.value=result.messages[i];f.nameInput.value=hasNames?result.names[i]:"";});
+      $("file-status").textContent=`${name} · ${result.profile.name} (${result.profile.id}) · ${source.length.toLocaleString("fr-FR")} octets · 16 messages vérifiés. ${hasNames?"16 noms éditables.":"Ancien format sans noms : seuls les contenus sont éditables ; chargez la nouvelle référence pour les noms."} L’original reste intact.`;
+    } catch(error) {
+      if(current!==ticket)return;source=null;$("file-status").textContent="Fichier refusé.";$("file-error").textContent=error.message;
+    } finally {if(current===ticket){busy=false;refresh();}}
+  }
+  function loadReference() {
+    $("app-file").value="";
+    const data=atob(document.getElementById("bank16-reference").textContent.replace(/\s/g,""));
+    return loadSource(Uint8Array.from(data,c=>c.charCodeAt(0)),"Référence embarquée");
+  }
+  $("reset-reference").addEventListener("click",loadReference);
+  $("app-file").addEventListener("change",event=>{
+    const file=event.target.files[0];
+    if(!file){++ticket;source=null;busy=false;$("file-status").textContent="Aucun fichier chargé.";refresh();return;}
+    loadSource(file.size>8000?Promise.reject(new Error("Fichier trop volumineux pour une application FAP1.")):file.arrayBuffer(),file.name);
+  });
+  $("download").addEventListener("click",async()=>{
+    if(!source || busy || $("download").disabled)return;
+    const original=source.slice(),texts=fields.map(f=>f.input.value),names=hasNames?fields.map(f=>f.nameInput.value):undefined;busy=true;$("file-error").textContent="";refresh();
+    try {
+      const result=await Bank16.generate(original,texts,names);
+      const url=URL.createObjectURL(new Blob([result.bytes],{type:"application/octet-stream"}));
+      const link=document.createElement("a");link.href=url;link.download="CWQSOAuto-personnalise.app";document.body.append(link);link.click();link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      $("file-status").textContent="Copie vérifiée et téléchargée. Code inchangé ; seules les données des messages et leur CRC peuvent différer.";
+    } catch(error) {$("file-error").textContent=error.message;}
+    finally {busy=false;refresh();}
+  });
+  loadReference();
+})();
+</script>
+</body>
+</html>

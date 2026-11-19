@@ -2,6 +2,9 @@
  * 9.6 kHz and print every decoded message.
  *
  *   host_dec406 [-p] samples.u16      (-p: input is phase-like, no integration)
+ *   host_dec406 -x HEX                (one frame given as hex, no demodulation)
+ *   host_dec406 -m HEX                (that frame's QR Map hand-off message, as
+ *                                      key 7 sends it: 24 bytes in hex, or "-")
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,7 +14,7 @@
 static void pos(const char *name, long s)
 {
     long a = labs(s);
-    printf("%s%ld.%05ld", s < 0 ? "-" : "", a / 3600, (a % 3600) * 100000 / 3600);
+    printf("%s%ld.%05ld", s < 0 ? "-" : "", a / 360000, (a % 360000) * 100000 / 360000);   /* centi-arcseconds */
     (void)name;
 }
 
@@ -34,8 +37,9 @@ static void show(dec406_t *d)
     printf("15-hex ID : %s%s\n\n", in.id, in.idRaw == 1 ? " (raw bits 26-85)" : "");
 }
 
-/* -x HEX: parse a frame given as hex (bits 1-112 or 1-144), no demodulation */
-static int fromHex(const char *hex)
+/* -x HEX: parse a frame given as hex (bits 1-112 or 1-144), no demodulation;
+ * -m HEX: print the message key 7 hands off instead (latS, lonS, id). */
+static int fromHex(const char *hex, int msg)
 {
     dec406_t d;
     memset(&d, 0, sizeof d);
@@ -50,16 +54,23 @@ static int fromHex(const char *hex)
         if (i >= 25) d.bits[(i - 25) >> 3] |= (uint8_t)(b << (7 - ((i - 25) & 7)));
     }
     d.selftest = sync == 0xD0u;      /* 011010000 */
-    show(&d);
+    if (!msg) { show(&d); return 0; }
+    dec406_info_t in;
+    dec406_parse(&d, &in);
+    if (!in.hasPos) { printf("-\n"); return 0; }
+    const uint8_t *m = (const uint8_t *)&in.latS;   /* followed by lonS and id */
+    for (size_t i = 0; i < 8u + sizeof in.id; i++) printf("%02x", m[i]);
+    printf("\n");
     return 0;
 }
 
 int main(int argc, char **argv)
 {
     int integrate = 1, argi = 1;
-    if (argc > 2 && !strcmp(argv[1], "-x")) return fromHex(argv[2]);
+    if (argc > 2 && !strcmp(argv[1], "-x")) return fromHex(argv[2], 0);
+    if (argc > 2 && !strcmp(argv[1], "-m")) return fromHex(argv[2], 1);
     if (argc > 1 && !strcmp(argv[1], "-p")) { integrate = 0; argi++; }
-    if (argi >= argc) { fprintf(stderr, "usage: %s [-p] samples.u16 | -x HEX\n", argv[0]); return 2; }
+    if (argi >= argc) { fprintf(stderr, "usage: %s [-p] samples.u16 | -x HEX | -m HEX\n", argv[0]); return 2; }
     FILE *f = fopen(argv[argi], "rb");
     if (!f) { perror(argv[argi]); return 2; }
 
