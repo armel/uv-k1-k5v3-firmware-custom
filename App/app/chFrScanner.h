@@ -31,6 +31,9 @@ void CHFRSCANNER_Found(void);
 void CHFRSCANNER_Stop(void);
 void CHFRSCANNER_Start(const bool storeBackupSettings, const int8_t scan_direction);
 void CHFRSCANNER_ManualResume(const int8_t scan_direction);
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+void CHFRSCANNER_ResumeAt(const uint16_t channel, const int8_t scan_direction);
+#endif
 void CHFRSCANNER_ContinueScanning(void);
 #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
 const VFO_Info_t *CHFRSCANNER_GetScanDisplayVfo(void);
