@@ -78,7 +78,7 @@ _Static_assert((PREAMBLE_BITS / 16u) + 2u * (2u + 2u * BATCH_WORDS) <= FIFO_WORD
 #define REG_5F        0x5Fu  /* FSK TX FIFO (one 16-bit word per write)          */
 #define REG_70        0x70u  /* enable Tone2, the FSK modulator                  */
 #define REG_72        0x72u  /* Tone2 frequency = the FSK baud rate (1200: 0x3065) */
-#define DEV_4500      0x1470u /* +/- 4.5 kHz deviation (bit 12 enable + 0x470)    */
+#define DEV_4500      0x19FCu /* BK4829: calibrated deviation (~4kHz to 4.5kHz) */
 #define PREAMBLE_WORDS (PREAMBLE_BITS / 16u)  /* 36 words of 0xAAAA              */
 
 /* ---- UI ---- */
@@ -241,7 +241,7 @@ static void transmit(void) {
     A->bk_write(REG_59, 0x0068u);
     for (unsigned i = 0; i < f; i++) A->bk_write(REG_5F, fifo[i]);
     A->delay_ms(20);
-    A->bk_write(REG_59, 0x2868u);               /* start FSK TX                 */
+    A->bk_write(REG_59, 0x0868u);               /* start FSK TX, scrambler off  */
 
     /* wait until the modem has clocked the FIFO out (REG_0C bit 0); EXIT aborts */
     unsigned timeout = 0;

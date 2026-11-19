@@ -1,5 +1,8 @@
 # POCSAG TX (overlay app)
 
+> [!WARNING]
+> **Hardware Limitation**: The BK4829's FSK modulator is AC-coupled. It cannot hold deviation through the long runs of identical bits required by POCSAG's NRZ encoding. While the preamble transmits perfectly, standard pagers will not decode the data payload on this hardware.
+
 Transmits **POCSAG** pages (CCIR Radio Paging Code No. 1, ITU-R M.584) on the
 TX VFO at 1200 bauds — the rate DAPNET sends at (439.9875 MHz). It is the
 transmitter counterpart of **POCSAG RX**.
