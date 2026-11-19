@@ -155,8 +155,12 @@ bool KEYBOARD_ProcessProtocolByte(ParseState_t *state, uint8_t b)
                 uint8_t checksum = SERIAL_GPS_TYPE;
                 for (uint8_t i = 0; i < sizeof(state->payload) - 1u; i++)
                     checksum ^= state->payload[i];
+                /* A position is not a viewer: a GPS-only source (a NMEA
+                 * bridge on the K-plug) must not start the screen stream,
+                 * whose blocking sends stall the main loop and the overlay
+                 * apps' audio sampling. Viewers send their own keepalives. */
                 if (checksum == state->payload[sizeof(state->payload) - 1u]) {
-                    connected = K5VIEWER_SetGps(
+                    K5VIEWER_SetGps(
                         KEYBOARD_ReadI32Le(state->payload),
                         KEYBOARD_ReadI32Le(state->payload + 4));
                 }
@@ -320,10 +324,27 @@ KEY_Code_t KEYBOARD_Poll(void)
     return Key;
 }
 
+/* The K-plug UART RX contact (PA10) shares its line with a speaker-mic's PTT,
+ * so bytes arriving there read as PTT: low for up to 9 bit times in a row
+ * (234 us at 38400 bauds: a start bit and eight zeros), then high for at
+ * least a stop bit (26 us). Only a line that stays low for 300 us, read every
+ * ~6 us, is a press. The main loop's PTT handling debounces over 30 ms on its
+ * own; this protects the callers that act on one reading: the overlay apps
+ * (app_get_key), spectrum, foxhunt and breakout. */
+static bool KEYBOARD_IsPttHeld(void)
+{
+    for (uint8_t i = 0; i < 60; i++) {
+        if (!GPIO_IsPttPressed())
+            return false;
+        SYSTICK_DelayUs(5);
+    }
+    return true;
+}
+
 KEY_Code_t KEYBOARD_GetKey(void)
 {
     KEY_Code_t btn = KEYBOARD_Poll();
-    if (btn == KEY_INVALID && GPIO_IsPttPressed())
+    if (btn == KEY_INVALID && KEYBOARD_IsPttHeld())
     {
         btn = KEY_PTT;
     }
