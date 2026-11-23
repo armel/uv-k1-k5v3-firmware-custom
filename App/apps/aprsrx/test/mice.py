@@ -91,7 +91,7 @@ def mic_digit(c):
     if 0x30 <= c <= 0x39: return c - 0x30
     if 0x41 <= c <= 0x4A: return c - 0x41
     if 0x50 <= c <= 0x59: return c - 0x50
-    return 0                                   # K, L, Z: position ambiguity
+    return 15                                  # K, L, Z (ambiguity) or junk: '?'
 
 def mic_bit(c):
     return c >= 0x50 or (0x41 <= c <= 0x4B)
@@ -184,6 +184,72 @@ def draw_pos(f, i, end):
     return r1, r2, r3
 
 
+def target_mice(f, i, end):
+    """GeoNav target produced by the C Mic-E decoder, in centi-arcseconds."""
+    raw = [f[k] >> 1 for k in range(6)]
+    if not all(0x30 <= c <= 0x39 or 0x41 <= c <= 0x4A or 0x50 <= c <= 0x59
+               for c in raw):
+        return None
+    digits = [mic_digit(c) for c in raw]
+    lat_deg = digits[0] * 10 + digits[1]
+    lat_min = digits[2] * 10 + digits[3]
+    lat_hundred = digits[4] * 10 + digits[5]
+    lon_deg = (f[i + 1] - 28) & 0xFF
+    if mic_bit(raw[4]): lon_deg += 100
+    if 180 <= lon_deg <= 189: lon_deg -= 80
+    elif 190 <= lon_deg <= 199: lon_deg -= 190
+    lon_min = (f[i + 2] - 28) & 0xFF
+    if lon_min >= 60: lon_min -= 60
+    lon_hundred = (f[i + 3] - 28) & 0xFF
+    if (lat_min >= 60 or lon_deg > 180 or lon_min >= 60 or lon_hundred >= 100 or
+            lat_deg > 90 or (lat_deg == 90 and (lat_min or lat_hundred)) or
+            (lon_deg == 180 and (lon_min or lon_hundred))):
+        return None
+    lat = ((lat_deg * 60 + lat_min) * 100 + lat_hundred) * 60
+    lon = ((lon_deg * 60 + lon_min) * 100 + lon_hundred) * 60
+    if lat == 0 and lon == 0:                    # a tracker without a fix
+        return None
+    lat = lat if mic_bit(raw[3]) else -lat
+    lon = -lon if mic_bit(raw[5]) else lon
+    altitude = None
+    j = i + 9
+    while end > j and f[end - 1] in (0x0D, 0x0A): end -= 1
+    if j < end:
+        marker = f[j]
+        if marker in (0x60, 0x27):
+            j += 1
+            if end - j >= 2: end -= 2
+        elif marker in (0x3E, 0x5D):
+            j += 1
+            if end > j and f[end - 1] in (0x3D, 0x5E): end -= 1
+    if end - j >= 4 and f[j + 3] == 0x7D and all(33 <= c <= 123 for c in f[j:j + 3]):
+        altitude = ((f[j] - 33) * 91 + f[j + 1] - 33) * 91 + f[j + 2] - 33 - 10000
+    return lat, lon, altitude
+
+
+def target_pos(f, i, end):
+    """GeoNav target produced by the C uncompressed-position decoder."""
+    p = i + 1 + (7 if f[i] in (0x2F, 0x40) else 0)
+    if f[i] not in (0x21, 0x3D, 0x2F, 0x40) or end < p + 19:
+        return None
+    q = f[p:p + 19]
+    # ASCII digits only, as the C loop: int() would also take " 9" or "-5"
+    fields = [q[a:b] for a, b in ((0, 2), (2, 4), (5, 7), (9, 12), (12, 14), (15, 17))]
+    if not all(field.isdigit() for field in fields):
+        return None
+    lat_deg, lat_min, lat_hundred, lon_deg, lon_min, lon_hundred = map(int, fields)
+    if (q[4] != 0x2E or q[14] != 0x2E or q[7] not in (0x4E, 0x53) or
+            q[17] not in (0x45, 0x57) or lat_min >= 60 or lon_min >= 60 or
+            lat_deg > 90 or (lat_deg == 90 and (lat_min or lat_hundred)) or
+            lon_deg > 180 or (lon_deg == 180 and (lon_min or lon_hundred))):
+        return None
+    lat = ((lat_deg * 60 + lat_min) * 100 + lat_hundred) * 60
+    lon = ((lon_deg * 60 + lon_min) * 100 + lon_hundred) * 60
+    if lat == 0 and lon == 0:                    # a tracker without a fix
+        return None
+    return (-lat if q[7] == 0x53 else lat, -lon if q[17] == 0x57 else lon, None)
+
+
 def info_start(f):
     end = len(f) - 2
     e = 13
@@ -240,6 +306,9 @@ def main():
     rows = draw_mice(ft3d, i, end)
     print("FT3D  ", rows)
     ok &= rows == ("48 50.89N 002 16.25E", "0km/h 0 [/ Off Duty", "")
+    ok &= target_mice(ft3d, i, end) == (17585340, 817500, None)
+    ambiguous = bytearray(ft3d); ambiguous[0] = ord("K") << 1
+    ok &= target_mice(ambiguous, i, end) is None
 
     cases = [
         # lat, lon, speed kn, course, msg, custom, alt, comment -> expected rows
@@ -259,8 +328,17 @@ def main():
         w2 = "%dkm/h %d [/ %s" % (kmh, crs, m)
         w3 = ("%dm " % alt if alt is not None else "") + com
         good = (r1, r2, r3) == (want, w2, w3) and all(len(r) <= 32 for r in (r1, r2, r3))
+        target = target_mice(f, i, end)
+        good &= target is not None and target[2] == alt
         ok &= good
         print("OK  " if good else "FAIL", (r1, r2, r3), "" if good else (want, w2, w3))
+    # 0/0, a tracker without a fix: shown, but no GeoNav target
+    nofix = encode("F4HWN-7", 0.0, 0.0, alt_m=100)
+    i, end = info_start(nofix)
+    good = (draw_mice(nofix, i, end)[0] == "00 00.00N 000 00.00E" and
+            target_mice(nofix, i, end) is None)
+    ok &= good
+    print("OK  " if good else "FAIL", "Mic-E 0/0: no target")
     # standard positions (aprsrx_app.c drawPos)
     pos_cases = [
         ("F1PRY-14", "@300158z4921.07N/00150.50EN APRS OISE V=12.5V",
@@ -269,15 +347,26 @@ def main():
          ("48 50.90N 002 16.25E", "/- UV-K5 APRS RX test", "")),
         ("F4HWN", "=4850.90S\\12345.67W>" + "x" * 60,
          ("48 50.90S 123 45.67W", "\\> " + "x" * 29, "x" * 31)),
+        ("F4HWN", "!4850.9 N/00216.2 E-ambiguous",   # shown, no GeoNav target
+         ("48 50.9 N 002 16.2 E", "/- ambiguous", "")),
+        ("F4HWN", "!0000.00N/00000.00E-no fix",      # shown, no GeoNav target
+         ("00 00.00N 000 00.00E", "/- no fix", "")),
         ("F4HWN", "!/5L!!<*e7>7P[", None),            # compressed: raw text
         ("F4HWN", "!4850.90N/00216.25", None),        # too short
         ("F4HWN", ">status text", None),
     ]
+    # GeoNav targets (centi-arcseconds); any other case gives none
+    pos_targets = {
+        "@300158z4921.07N/00150.50EN APRS OISE V=12.5V": (17766420, 663000, None),
+        "!4850.90N/00216.25E-UV-K5 APRS RX test": (17585400, 817500, None),
+        "=4850.90S\\12345.67W>" + "x" * 60: (-17585400, -44554020, None),
+    }
     for call, info, want in pos_cases:
         f = _frame(call, "APZK5", (), info.encode("latin-1"))
         i, end = info_start(f)
         got = draw_pos(f, i, end)
         good = got == want and (got is None or all(len(r) <= 32 for r in got))
+        good &= target_pos(f, i, end) == pos_targets.get(info)
         ok &= good
         print("OK  " if good else "FAIL", got, "" if good else want)
     print("ALL OK" if ok else "FAILURES")

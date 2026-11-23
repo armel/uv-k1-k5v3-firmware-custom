@@ -28,15 +28,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bmi270.h"
-#include "bsp/esp-bsp.h"
 #include "cdc_rx_recovery.h"
 #include "esp_app_desc.h"
 #include "esp_check.h"
-#include "esp_codec_dev.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
-#include "esp_io_expander.h"
+#include "esp_intr_alloc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -47,6 +44,10 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "pl2303_vcp.h"
+#include "sdkconfig.h"
+#include "tab5_audio.h"
+#include "tab5_hardware.h"
+#include "usb/usb_host.h"
 #include "usb/cdc_acm_host.h"
 #include "usb/vcp_ch34x.h"
 #include "usb/vcp_cp210x.h"
@@ -68,10 +69,9 @@
 #define USB_REOPEN_STABLE_MS   5000u
 #define AUTO_ROTATE            1            /* follow the Tab5 orientation with its IMU */
 #define FIXED_ROTATION         LV_DISPLAY_ROTATION_0    /* used when AUTO_ROTATE is 0 */
-/* Landscape rotation that puts the USB-A port on the left: it shows the screen
- * alone, the other landscape rotation shows the screen with the keypad. Swap
- * with LV_DISPLAY_ROTATION_90 if they come out the other way round. */
-#define SCREEN_ROTATION        LV_DISPLAY_ROTATION_270
+/* Landscape rotation that puts the USB ports on the right: it shows the screen
+ * alone, while ports on the left show the screen with the keypad. */
+#define SCREEN_ROTATION        LV_DISPLAY_ROTATION_90
 #define IMU_PERIOD_MS          100u
 #define IMU_SETTLE_SAMPLES     5u           /* same orientation for 0.5 s before turning */
 #define IMU_BOOT_PERIOD_MS     20u          /* at boot, the first clear reading decides */
@@ -86,7 +86,7 @@
 #define IMU_LONG_AXIS          1
 #define IMU_LONG_SIGN          1.0f
 #define IMU_SHORT_AXIS         0
-#define IMU_SHORT_SIGN         1.0f
+#define IMU_SHORT_SIGN        -1.0f
 #define KEY_LONG_PRESS_MS      500u
 #define KEY_REPEAT_MS          120u
 #define OUTBOUND_QUEUE_LENGTH  16u
@@ -102,9 +102,10 @@
 #define PLATE_RADIUS           8
 /* Two taps on the plate this close make a double tap, wherever they land on
  * it; a single tap acts once this delay has passed. */
-#define PLATE_DOUBLE_TAP_MS    400u
+#define PLATE_DOUBLE_TAP_MS    600u
 #define TOAST_PADDING          24           /* panel around the toast image, and its radius */
 #define TOAST_BORDER_COLOR     0x2C3036u
+#define TOAST_OPA              LV_OPA_90    /* match the GPS and USB diagnostic panels */
 #define TOAST_SHOW_MS          1200u
 #define TOAST_FADE_MS          300u
 #define LCD_INACTIVE_MIX       0.05f
@@ -255,6 +256,17 @@ typedef struct {
     usb_diagnostics_t usb_diag;
 } viewer_state_t;
 
+/* Radio screen as received, written by the CDC IN callback under inbox_mux and
+ * merged into viewer_state_t by the render task. The callback never waits for
+ * state_mutex and never drops a frame: changes accumulate here until merged. */
+typedef struct {
+    uint8_t framebuffer[RADIO_FRAME_BYTES];
+    uint64_t dirty_rows;        /* bit n: LCD row n changed since the last merge */
+    uint8_t flags;
+    uint32_t frame_count;
+    bool pending;               /* a frame arrived since the last merge */
+} viewer_inbox_t;
+
 typedef struct {
     uint8_t code;
     bool long_press;
@@ -372,6 +384,8 @@ static TaskHandle_t volatile click_task_handle;    /* set once the speaker is re
 #endif
 static viewer_parser_t parser;
 static viewer_state_t viewer;
+static portMUX_TYPE inbox_mux = portMUX_INITIALIZER_UNLOCKED;
+static viewer_inbox_t inbox;
 static lv_display_t *display;
 static lv_image_dsc_t connect_icon_image;                   /* USB-C cable */
 static lv_image_dsc_t connect_icon_kplug_image;             /* K-plug cable */
@@ -383,6 +397,7 @@ static lv_image_dsc_t toast_beep_images[2];                 /* off, on */
 static lv_image_dsc_t toast_brightness_images[SKIN_TOAST_BRIGHTNESS_LEVELS];
 static lv_obj_t *toast;
 static lv_obj_t *toast_image;
+static lv_image_colorkey_t toast_colorkey;
 static lv_timer_t *plate_tap_timer;
 static bool plate_tap_pending;          /* a first tap waits for a second one */
 static bool gps_debug_visible;
@@ -454,12 +469,8 @@ static void viewer_apply_frame(void)
 {
     bool valid = false;
 
-    xSemaphoreTake(state_mutex, portMAX_DELAY);
-
     if (parser.type == K1VIEWER_TYPE_SCREENSHOT &&
         parser.length == RADIO_FRAME_BYTES) {
-        memcpy(viewer.framebuffer, parser.payload, RADIO_FRAME_BYTES);
-        viewer.dirty_rows = UINT64_MAX;
         valid = true;
     } else if (parser.type == K1VIEWER_TYPE_DIFF &&
                parser.length > 0 &&
@@ -471,22 +482,34 @@ static void viewer_apply_frame(void)
                 break;
             }
         }
-        for (uint16_t offset = 0; valid && offset < parser.length; offset += 9u) {
+    }
+
+    if (!valid) {
+        return;
+    }
+
+    /* This runs in the CDC driver's IN completion callback. Never wait on
+     * state_mutex here: the driver submits the next BULK IN transfer only after
+     * this callback returns. The spinlock is held for one copy of at most
+     * RADIO_FRAME_BYTES, and the render task merges the inbox (viewer_take_inbox),
+     * so no frame is lost. Dropping a diff instead would leave its rows stale
+     * until the radio's forced chunk, one per update, had gone round all 128. */
+    taskENTER_CRITICAL(&inbox_mux);
+    if (parser.type == K1VIEWER_TYPE_SCREENSHOT) {
+        memcpy(inbox.framebuffer, parser.payload, RADIO_FRAME_BYTES);
+        inbox.dirty_rows = UINT64_MAX;
+    } else {
+        for (uint16_t offset = 0; offset < parser.length; offset += 9u) {
             const uint8_t chunk = parser.payload[offset];
-            memcpy(&viewer.framebuffer[(uint16_t)chunk * 8u],
+            memcpy(&inbox.framebuffer[(uint16_t)chunk * 8u],
                    &parser.payload[offset + 1u], 8u);
-            viewer.dirty_rows |= 1ull << (chunk >> 1);
+            inbox.dirty_rows |= 1ull << (chunk >> 1);
         }
     }
-
-    if (valid) {
-        viewer.usb_connected = true;
-        viewer.flags = parser.flags;
-        viewer.frame_count++;
-        viewer.frame_dirty = true;
-    }
-
-    xSemaphoreGive(state_mutex);
+    inbox.flags = parser.flags;
+    inbox.frame_count++;
+    inbox.pending = true;
+    taskEXIT_CRITICAL(&inbox_mux);
 }
 
 static void parser_seek(uint8_t byte)
@@ -587,11 +610,36 @@ static bool usb_rx_callback(const uint8_t *data, size_t data_len, void *user_arg
 static void viewer_set_disconnected(void)
 {
     xSemaphoreTake(state_mutex, portMAX_DELAY);
+    /* A frame still waiting in the inbox belongs to the lost link: drop it, so
+     * the next merge cannot mark the radio connected again. */
+    taskENTER_CRITICAL(&inbox_mux);
+    memset(inbox.framebuffer, 0, sizeof(inbox.framebuffer));
+    inbox.dirty_rows = 0;
+    inbox.pending = false;
+    taskEXIT_CRITICAL(&inbox_mux);
     viewer.usb_connected = false;
     memset(viewer.framebuffer, 0, sizeof(viewer.framebuffer));
     viewer.dirty_rows = UINT64_MAX;
     viewer.frame_dirty = true;
     xSemaphoreGive(state_mutex);
+}
+
+/* Merge the frames received since the last call into the viewer state. Called
+ * by the render task with state_mutex held. */
+static void viewer_take_inbox(void)
+{
+    taskENTER_CRITICAL(&inbox_mux);
+    if (inbox.pending) {
+        memcpy(viewer.framebuffer, inbox.framebuffer, RADIO_FRAME_BYTES);
+        viewer.dirty_rows |= inbox.dirty_rows;
+        viewer.flags = inbox.flags;
+        viewer.usb_connected = true;
+        viewer.frame_dirty = true;
+        inbox.dirty_rows = 0;
+        inbox.pending = false;
+    }
+    viewer.frame_count = inbox.frame_count;
+    taskEXIT_CRITICAL(&inbox_mux);
 }
 
 static void usb_link_reset(void)
@@ -958,7 +1006,9 @@ static int16_t *click_create(float frequency, uint32_t duration_ms, float decay_
 }
 
 /* Play the key clicks on the Tab5 speaker, away from the LVGL task: a short
- * tick for a key, a lower and longer one for a long press. */
+ * tick for a key, a lower and longer one for a long press. The write returns
+ * once the click is in the I2S DMA buffers, so a click never waits behind
+ * another one's silence. */
 static void click_task(void *arg)
 {
     (void)arg;
@@ -972,7 +1022,7 @@ static void click_task(void *arg)
         click_create(2400.0f, 15u, 4.0f, &bytes[0]),
         click_create(1600.0f, 60u, 18.0f, &bytes[1]),
     };
-    esp_codec_dev_handle_t speaker = bsp_audio_codec_speaker_init();
+    esp_codec_dev_handle_t speaker = tab5_audio_speaker_init();
 
     if (speaker == NULL || sounds[0] == NULL || sounds[1] == NULL ||
         esp_codec_dev_open(speaker, &format) != ESP_CODEC_DEV_OK) {
@@ -1215,7 +1265,7 @@ static void connect_screen_show(bool show)
 }
 
 /* Portrait shows the whole radio; landscape shows the screen alone with the
- * USB-A port on the left (SCREEN_ROTATION), the screen and keypad otherwise. */
+ * USB ports on the right (SCREEN_ROTATION), the screen and keypad otherwise. */
 static view_t *view_for_rotation(lv_display_rotation_t rotation)
 {
     if (rotation == SCREEN_ROTATION) {
@@ -1312,7 +1362,7 @@ static void backlight_update(int *level, int on_percent, bool connected, bool as
         }
     }
     if (next != *level) {
-        bsp_display_brightness_set(next);
+        tab5_display_brightness_set((uint8_t)next);
         *level = next;
     }
 }
@@ -1524,14 +1574,15 @@ static void usb_debug_update(uint32_t fps_tenths)
         text, sizeof(text),
         "Link: %s    RX FPS: %lu.%lu\n"
         "Recoveries: %lu/%lu    Full reopens: %lu\n"
-        "Last transfer error: %s    Last recovery: %s\n\n",
+        "Last transfer error: %s    Last recovery: %s\n"
+        "Hardware: M5Unified %s\n\n",
         diag->transport_open ? "OPEN" : "CLOSED",
         (unsigned long)(fps_tenths / 10u),
         (unsigned long)(fps_tenths % 10u),
         (unsigned long)diag->recovery_successes,
         (unsigned long)diag->recovery_attempts,
         (unsigned long)diag->full_reopens,
-        last_error, result);
+        last_error, result, tab5_m5unified_version());
 
     if (diag->line_count == 0u) {
         snprintf(text + used, sizeof(text) - used, "No USB event yet");
@@ -1597,6 +1648,7 @@ static void render_task(void *arg)
         bool usb_transport_open;
 
         xSemaphoreTake(state_mutex, portMAX_DELAY);
+        viewer_take_inbox();
         gps_status = viewer.gps;
         gps_last_data = viewer.gps_last_data_tick;
         gps_last_sentence = viewer.gps_last_sentence_tick;
@@ -1633,7 +1685,7 @@ static void render_task(void *arg)
             fps_tick = now;
         }
 
-        if ((redraw || gps_refresh) && bsp_display_lock(1000)) {
+        if ((redraw || gps_refresh) && tab5_display_lock(1000)) {
             if (redraw) {
                 const bool led_red = connected && (flags & K1VIEWER_FLAG_LED_RED) != 0;
                 const bool led_green =
@@ -1646,7 +1698,7 @@ static void render_task(void *arg)
                 bool full = memcmp(&colors, &shown_colors, sizeof(colors)) != 0;
 
                 if (shown_view == NULL || rotation != shown_rotation) {
-                    bsp_display_rotate(display, rotation);
+                    tab5_display_rotate(rotation);
                     shown_rotation = rotation;
                     full = true;
                 }
@@ -1683,7 +1735,7 @@ static void render_task(void *arg)
                 }
                 gps_refresh_tick = now;
             }
-            bsp_display_unlock();
+            tab5_display_unlock();
         }
 
         if (shown_view != NULL) {
@@ -1714,7 +1766,14 @@ static void palette_event_callback(lv_event_t *event)
 
 static void toast_opa_cb(void *obj, int32_t value)
 {
-    lv_obj_set_style_opa(obj, (lv_opa_t)value, 0);
+    (void)obj;
+    const lv_opa_t panel_opa = (lv_opa_t)value;
+    const lv_opa_t image_opa = (lv_opa_t)(((uint32_t)panel_opa * LV_OPA_COVER
+                                           + TOAST_OPA / 2u) / TOAST_OPA);
+
+    lv_obj_set_style_bg_opa(toast, panel_opa, 0);
+    lv_obj_set_style_border_opa(toast, panel_opa, 0);
+    lv_obj_set_style_image_opa(toast_image, image_opa, 0);
 }
 
 static void toast_faded_out(lv_anim_t *anim)
@@ -1732,14 +1791,14 @@ static void toast_show(const lv_image_dsc_t *image)
     }
     lv_image_set_src(toast_image, image);
     lv_anim_delete(toast, toast_opa_cb);
-    lv_obj_set_style_opa(toast, LV_OPA_COVER, 0);
+    toast_opa_cb(toast, TOAST_OPA);
     lv_obj_set_hidden(toast, false);
 
     lv_anim_t anim;
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, toast);
     lv_anim_set_exec_cb(&anim, toast_opa_cb);
-    lv_anim_set_values(&anim, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_values(&anim, TOAST_OPA, LV_OPA_TRANSP);
     lv_anim_set_delay(&anim, TOAST_SHOW_MS);
     lv_anim_set_duration(&anim, TOAST_FADE_MS);
     lv_anim_set_path_cb(&anim, lv_anim_path_ease_in);
@@ -1789,9 +1848,11 @@ static void plate_event_callback(lv_event_t *event)
         lv_timer_pause(plate_tap_timer);
         xSemaphoreTake(state_mutex, portMAX_DELAY);
         viewer.settings.key_click = !viewer.settings.key_click;
+        viewer.frame_dirty = true;
         const bool key_click = viewer.settings.key_click;
         xSemaphoreGive(state_mutex);
 
+        ESP_LOGI(TAG, "Key beep %s", key_click ? "enabled" : "disabled");
         toast_show(&toast_beep_images[key_click]);
 #if KEY_CLICK
         if (key_click) {
@@ -1999,30 +2060,39 @@ static void usb_send_message(cdc_acm_dev_hdl_t device,
     usb_send(device, packet, sizeof(packet));
 }
 
-#define CHARGE_ENABLE_PIN      IO_EXPANDER_PIN_NUM_7      /* expander 0x44: charger enable */
-#define CHARGE_ENABLE_TRIES    3
-
-/* The charger is off at power-up and the battery never charges unless it is
- * enabled, and it only charges while the Tab5 is on. Enable it at start-up,
- * whatever the battery voltage, as M5Stack's firmware does: a pack below 6 V
- * is in protection and the charger trickle-charges it back. The outputs of
- * expander 0x44 start high-impedance with a pull-down, so the level only
- * reaches the pin in push-pull mode. */
-static void battery_charge_enable(void)
+/* Keep the USB host library serviced independently from the CDC client. */
+static void usb_library_task(void *arg)
 {
-    for (int attempt = 1; attempt <= CHARGE_ENABLE_TRIES; attempt++) {
-        esp_io_expander_handle_t expander = bsp_io_expander1_init();
-        if (expander != NULL &&
-            esp_io_expander_set_dir(expander, CHARGE_ENABLE_PIN, IO_EXPANDER_OUTPUT) == ESP_OK &&
-            esp_io_expander_set_level(expander, CHARGE_ENABLE_PIN, 1) == ESP_OK &&
-            esp_io_expander_set_output_mode(expander, CHARGE_ENABLE_PIN,
-                                            IO_EXPANDER_OUTPUT_MODE_PUSH_PULL) == ESP_OK) {
-            ESP_LOGI(TAG, "Battery charging enabled");
-            return;
+    (void)arg;
+    while (true) {
+        uint32_t event_flags = 0;
+        ESP_ERROR_CHECK(usb_host_lib_handle_events(portMAX_DELAY, &event_flags));
+        if ((event_flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) != 0) {
+            const esp_err_t result = usb_host_device_free_all();
+            if (result != ESP_OK && result != ESP_ERR_NOT_FINISHED) {
+                ESP_LOGW(TAG, "Could not free USB devices: %s", esp_err_to_name(result));
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        if ((event_flags & USB_HOST_LIB_EVENT_FLAGS_ALL_FREE) != 0) {
+            ESP_LOGI(TAG, "USB: all devices freed");
+        }
     }
-    ESP_LOGW(TAG, "Could not enable battery charging");
+}
+
+static esp_err_t usb_host_start(void)
+{
+    ESP_RETURN_ON_ERROR(tab5_usb_power_enable(), TAG,
+                        "Could not enable the USB-A 5 V supply");
+    const usb_host_config_t host_config = {
+        .skip_phy_setup = false,
+        .intr_flags = ESP_INTR_FLAG_LOWMED,
+    };
+    ESP_RETURN_ON_ERROR(usb_host_install(&host_config), TAG,
+                        "Could not install the USB host");
+    if (xTaskCreate(usb_library_task, "usb-lib", 4096, NULL, 10, NULL) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
 
 static uint32_t usb_data_recovery_begin(int transfer_error)
@@ -2249,7 +2319,7 @@ static void usb_task(void *arg)
         .data_cb = usb_rx_callback,
     };
 
-    ESP_ERROR_CHECK(bsp_usb_host_start(BSP_USB_HOST_POWER_MODE_USB_DEV, true));
+    ESP_ERROR_CHECK(usb_host_start());
     ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
 
     uint32_t reopen_delay_ms = USB_REOPEN_MIN_MS;
@@ -2761,11 +2831,13 @@ static lv_obj_t *create_usb_debug_panel(lv_obj_t *parent, lv_obj_t **label_out)
     lv_obj_set_style_text_line_space(console, 2, 0);
     lv_label_set_long_mode(console, LV_LABEL_LONG_CLIP);
     lv_obj_set_clickable(console, false);
-    lv_label_set_text(console,
-                      "Link: CLOSED    RX FPS: 0.0\n"
-                      "Recoveries: 0/0    Full reopens: 0\n"
-                      "Last transfer error: --    Last recovery: --\n\n"
-                      "No USB event yet");
+    lv_label_set_text_fmt(console,
+                          "Link: CLOSED    RX FPS: 0.0\n"
+                          "Recoveries: 0/0    Full reopens: 0\n"
+                          "Last transfer error: --    Last recovery: --\n"
+                          "Hardware: M5Unified %s\n\n"
+                          "No USB event yet",
+                          tab5_m5unified_version());
 
     lv_obj_t *footer = lv_label_create(panel);
     lv_obj_set_pos(footer, 16, USB_PANEL_HEIGHT - 28);
@@ -2921,14 +2993,21 @@ static void create_toast(void)
     lv_obj_center(toast);
     lv_obj_set_style_radius(toast, TOAST_PADDING, 0);
     lv_obj_set_style_bg_color(toast, lv_color_hex(SKIN_TOAST_COLOR), 0);
-    lv_obj_set_style_bg_opa(toast, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_opa(toast, TOAST_OPA, 0);
     lv_obj_set_style_border_color(toast, lv_color_hex(TOAST_BORDER_COLOR), 0);
     lv_obj_set_style_border_width(toast, 1, 0);
+    lv_obj_set_style_border_opa(toast, TOAST_OPA, 0);
     lv_obj_set_clickable(toast, false);
     lv_obj_set_scrollable(toast, false);
     lv_obj_set_hidden(toast, true);
 
     toast_image = lv_image_create(toast);
+    /* Toast assets use this exact flat RGB565 colour as their background.
+     * Keying it out leaves opaque artwork over the translucent panel without
+     * asking LVGL to allocate and blend a full intermediate layer. */
+    toast_colorkey.low = lv_color_hex(SKIN_TOAST_COLOR);
+    toast_colorkey.high = toast_colorkey.low;
+    lv_obj_set_style_image_colorkey(toast_image, &toast_colorkey, 0);
     lv_obj_center(toast_image);
 }
 
@@ -2936,10 +3015,8 @@ static void create_toast(void)
  * the display, loads the view and lights it once the orientation is known. */
 static void display_init(void)
 {
-    display = bsp_display_start();
+    display = tab5_display_get();
     assert(display != NULL);
-    /* The BSP logs every backlight change, and the backlight fades in steps. */
-    esp_log_level_set("M5Stack Tab5", ESP_LOG_WARN);
 
     rgb565_image_init(&connect_icon_image, "connect icon",
                       k1_connect_icon_rgb565_start, k1_connect_icon_rgb565_end,
@@ -2986,7 +3063,7 @@ static void display_init(void)
                           SKIN_TOAST_W, SKIN_TOAST_H);
     }
 
-    if (bsp_display_lock(0)) {
+    if (tab5_display_lock(0)) {
         for (uint8_t i = 0; i < VIEW_COUNT; i++) {
             create_view(&views[i]);
         }
@@ -2994,12 +3071,12 @@ static void display_init(void)
         plate_tap_timer = lv_timer_create(plate_tap_timeout, PLATE_DOUBLE_TAP_MS, NULL);
         lv_timer_pause(plate_tap_timer);
 
-        lv_indev_t *touch = bsp_display_get_input_dev();
+        lv_indev_t *touch = tab5_touch_get();
         if (touch != NULL) {
             lv_indev_set_long_press_time(touch, KEY_LONG_PRESS_MS);
             lv_indev_set_long_press_repeat_time(touch, KEY_REPEAT_MS);
         }
-        bsp_display_unlock();
+        tab5_display_unlock();
     }
 }
 
@@ -3028,9 +3105,9 @@ static bool imu_orientation(const float accel[3], lv_display_rotation_t *rotatio
     return true;
 }
 
-static bool imu_read(bmi270_handle_t *imu, float accel[3], lv_display_rotation_t *rotation)
+static bool imu_read(float accel[3], lv_display_rotation_t *rotation)
 {
-    return bmi270_get_acce_data(imu, &accel[0], &accel[1], &accel[2]) == ESP_OK &&
+    return tab5_imu_read_accel(accel) &&
            imu_orientation(accel, rotation);
 }
 
@@ -3054,37 +3131,21 @@ static void imu_publish(lv_display_rotation_t rotation, const float accel[3])
 static void imu_task(void *arg)
 {
     (void)arg;
-    bmi270_handle_t *imu = NULL;
-    const bmi270_config_t imu_config = {
-        .acce_odr = BMI270_ACC_ODR_25_HZ,
-        .acce_range = BMI270_ACC_RANGE_2_G,
-        .gyro_odr = BMI270_GYR_ODR_25_HZ,
-        .gyro_range = BMI270_GYR_RANGE_250_DPS,
-    };
-    /* The BMI270 shares the BSP I2C bus, set up by app_main, with the touch
-     * controller. */
-    const bmi270_driver_config_t driver_config = {
-        .addr = BMI270_I2C_ADDRESS_L,
-        .interface = BMI270_USE_I2C,
-        .i2c_bus = bsp_i2c_get_handle(),
-    };
-
-    if (bmi270_create(&driver_config, &imu) != ESP_OK ||
-        bmi270_start(imu, &imu_config) != ESP_OK) {
+    float accel[3];
+    if (!tab5_imu_available()) {
         ESP_LOGW(TAG, "IMU not available, the orientation stays fixed");
         xSemaphoreGive(orientation_ready);
         vTaskDelete(NULL);
         return;
     }
 
-    float accel[3];
     lv_display_rotation_t rotation;
     lv_display_rotation_t candidate = FIXED_ROTATION;
     uint32_t stable = 0;
 
     /* Boot: no clear reading means the Tab5 lies flat, keep FIXED_ROTATION. */
     for (uint32_t i = 0; i < IMU_BOOT_SAMPLES; i++) {
-        if (imu_read(imu, accel, &rotation)) {
+        if (imu_read(accel, &rotation)) {
             imu_publish(rotation, accel);
             candidate = rotation;
             break;
@@ -3095,7 +3156,7 @@ static void imu_task(void *arg)
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(IMU_PERIOD_MS));
-        if (!imu_read(imu, accel, &rotation)) {
+        if (!imu_read(accel, &rotation)) {
             continue;
         }
         if (rotation != candidate) {
@@ -3130,10 +3191,7 @@ void app_main(void)
     /* The first pass of the render task takes the whole state. */
     viewer.frame_dirty = true;
 
-    /* The IMU starts while the display is set up: both use the BSP I2C bus,
-     * created once here. */
-    ESP_ERROR_CHECK(bsp_i2c_init());
-    battery_charge_enable();
+    ESP_ERROR_CHECK(tab5_hardware_init());
     const esp_err_t gps_result = gps_unit_start(gps_status_received, NULL);
     xSemaphoreTake(state_mutex, portMAX_DELAY);
     viewer.gps_started = gps_result == ESP_OK;
@@ -3150,6 +3208,9 @@ void app_main(void)
     assert(xTaskCreate(render_task, "viewer-render", 8192, NULL, 5, NULL) == pdPASS);
     assert(xTaskCreate(usb_task, "viewer-usb", 6144, NULL, 8, NULL) == pdPASS);
 #if KEY_CLICK
-    assert(xTaskCreate(click_task, "viewer-click", 4096, NULL, 3, NULL) == pdPASS);
+    /* Above LVGL and the renderer: a long click outlasts the 30 ms of I2S DMA
+     * buffers, so the task refills them while the click plays. It sleeps the
+     * rest of the time. */
+    assert(xTaskCreate(click_task, "viewer-click", 4096, NULL, 7, NULL) == pdPASS);
 #endif
 }

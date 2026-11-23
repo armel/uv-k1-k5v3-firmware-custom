@@ -28,7 +28,7 @@ TITLE = "GEONAV"
 UI = [
     ("T_TITLE", TITLE),
     ("T_NO_TARGET", "NO TARGET"),
-    ("T_OPEN_SONDE", "From a sonde app"),
+    ("T_OPEN_SOURCE", "From Sonde/APRS RX"),   # 18 normal-font chars: the full width
     ("T_QTH_MISSING", "QTH NOT SET"),
     ("T_USE_APRS_EDIT", "Set in APRS Edit"),
     ("T_NEED_APRS_TX", "APRS TX required"),

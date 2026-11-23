@@ -1,6 +1,6 @@
 /* Copyright 2026 — Apache-2.0
  * GeoNav: bearing and distance from the APRS TX home position to a target
- * handed off by a radiosonde receiver overlay.
+ * handed off by a receiver overlay.
  */
 #include <stdint.h>
 #include <stdbool.h>
@@ -132,12 +132,14 @@ static int32_t cosine(uint32_t deg)
 static bool target_valid(const geonav_handoff_t *target, int16_t n)
 {
     return n >= (int16_t)sizeof(*target) &&
+           (target->flags & GEONAV_HAS_POS) != 0u &&
            target->lat_cas >= -LAT_MAX_CAS && target->lat_cas <= LAT_MAX_CAS &&
            target->lon_cas >= -LON_MAX_CAS && target->lon_cas <= LON_MAX_CAS;
 }
 
-/* Equirectangular distance is accurate for the intended radiosonde range.
- * Scaling keeps the squared vector inside uint32_t even across a hemisphere. */
+/* Equirectangular distance is accurate over radio range (a radiosonde, an APRS
+ * station heard directly or through digipeaters). Scaling keeps the squared
+ * vector inside uint32_t even across a hemisphere. */
 static uint32_t navigation(int32_t home_lat, int32_t home_lon,
                            int32_t target_lat, int32_t target_lon,
                            uint16_t *heading)
@@ -333,15 +335,25 @@ static void draw_navigation(const char *ui, const geonav_handoff_t *target,
     for (x = COL_X + 2u; x < 128u; x += 2u)
         A->fb[RULE_Y >> 3][x] |= (uint8_t)(1u << (RULE_Y & 7u));
 
-    out = put(A->append_i32(line, target->alt_m), UI(T_M)); *out = '\0';
+    if (target->flags & GEONAV_HAS_ALT)
+        out = put(A->append_i32(line, target->alt_m), UI(T_M));
+    else {
+        line[0] = line[1] = '-';
+        out = line + 2;
+    }
+    *out = '\0';
     row(UI(T_ALT), line, 128u, ROW_ALT_Y);
 
     /* Elevation over a flat horizon, from the target altitude. */
-    out = A->append_u32(line, bearing(target->alt_m > 0 ? target->alt_m : 0,
-                                      (int32_t)distance_m));
-    *out = '\0';
-    row(UI(T_EL), line, 123u, ROW_EL_Y);
-    degree_ring(124u, ROW_EL_Y);
+    if (target->flags & GEONAV_HAS_ALT) {
+        out = A->append_u32(line, bearing(target->alt_m > 0 ? target->alt_m : 0,
+                                          (int32_t)distance_m));
+        *out = '\0';
+        row(UI(T_EL), line, 123u, ROW_EL_Y);
+        degree_ring(124u, ROW_EL_Y);
+    } else {
+        row(UI(T_EL), line, 128u, ROW_EL_Y);   /* line still holds the ALT row's "--" */
+    }
 
     out = ring_m < 1000u ? put(A->append_u32(line, ring_m), UI(T_M))
                          : put(A->append_u32(line, ring_m / 1000u), UI(T_KM));
@@ -352,24 +364,22 @@ static void draw_navigation(const char *ui, const geonav_handoff_t *target,
 __attribute__((section(".text.entry"), used))
 void app_main(const app_api_t *api)
 {
-    /* The sonde app's whole message, handed back unchanged on EXIT. */
-    struct {
-        geonav_handoff_t target;
-        uint8_t rest[APP_HANDOFF_MAX - sizeof(geonav_handoff_t)];
-    } msg;
+    /* The source app's whole message (the whole mailbox), handed back
+     * unchanged on EXIT. */
+    geonav_handoff_t msg;
     char from[APP_NAME_LEN + 1];
-    char label[sizeof(msg.target.label) + 1u];
+    char label[sizeof(msg.label) + 1u];
     char ui[UI_SIZE];
     int32_t home_lat = 0, home_lon = 0;
     A = api;
     const int16_t received = A->handoff_read(&msg, sizeof(msg), from);
-    const bool have_target = target_valid(&msg.target, received);
+    const bool have_target = target_valid(&msg, received);
     const bool have_home = home_position(&home_lat, &home_lon);
-    /* The sonde ID goes to the status line: printable ASCII only. */
+    /* The target identifier goes to the status line: printable ASCII only. */
     uint8_t n = 0u;
-    while (have_target && n < sizeof(msg.target.label) &&
-           (uint8_t)(msg.target.label[n] - ' ') <= (uint8_t)('~' - ' ')) {
-        label[n] = msg.target.label[n];
+    while (have_target && n < sizeof(msg.label) &&
+           (uint8_t)(msg.label[n] - ' ') <= (uint8_t)('~' - ' ')) {
+        label[n] = msg.label[n];
         n++;
     }
     label[n] = '\0';
@@ -378,11 +388,11 @@ void app_main(const app_api_t *api)
     A->battery_sample();
     status(ui, label);
     if (!have_target)
-        message_screen(ui, T_NO_TARGET, T_OPEN_SONDE, T_BACK);
+        message_screen(ui, T_NO_TARGET, T_OPEN_SOURCE, T_BACK);
     else if (!have_home)
         message_screen(ui, T_QTH_MISSING, T_USE_APRS_EDIT, T_NEED_APRS_TX);
     else
-        draw_navigation(ui, &msg.target, home_lat, home_lon);
+        draw_navigation(ui, &msg, home_lat, home_lon);
     A->blit_status(); A->blit_full();
 
     uint8_t previous = APP_KEY_INVALID;

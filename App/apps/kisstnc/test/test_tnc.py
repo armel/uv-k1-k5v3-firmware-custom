@@ -19,7 +19,7 @@ APP = os.path.dirname(HERE)
 APPS = os.path.dirname(APP)
 sys.path.insert(0, os.path.join(APPS, 'aprsrx', 'test'))
 sys.dont_write_bytecode = True
-from ax25 import test_frames, crc16, build
+from ax25 import test_frames, crc16, build, addr
 from model_rx import channel, sine_wave, run, FS_SIM
 
 FEND, FESC, TFEND, TFESC = 0xC0, 0xDB, 0xDC, 0xDD
@@ -83,6 +83,21 @@ for mode in ('std', 'raw'):
         check('RX %s noise %4d Hz: %d/%d frames as the reference' % (mode, noise, len(got), len(want)),
               got == want, 'got %s' % [g[:12].hex() for g in got])
 check('RX never passes the bad-FCS frame', all(g != fr['badfcs'][:-2] for g in got))
+
+# ---- RX of U/S frames (no PID) -------------------------------------------------
+# AX.25 connected mode: U and S frames carry no PID, so 2 addresses + control +
+# FCS = 17 bytes, one short of a UI frame. A TNC (unlike the APRS-only reference)
+# must pass them, or connected mode can't work in either direction (issue #840).
+def us_frame(control):
+    f = addr('APZK1') + addr('N0CALL-7', last=True) + bytes([control])
+    fcs = crc16(f)
+    return f + bytes([fcs & 0xFF, fcs >> 8])
+for name, control in (('SABM', 0x3F), ('UA', 0x73), ('RR', 0x01), ('DISC', 0x53)):
+    f = us_frame(control)
+    adc = channel(sine_wave(f), 'std', 0, 0, 0, 11)
+    got, _, _ = run_tnc(adc)
+    check('RX passes the 17-byte %s frame (no PID)' % name, got == [f[:-2]],
+          'len %d, got %s' % (len(f), [g.hex() for g in got]))
 
 # ---- USB write timeout ----------------------------------------------------------
 # The host does not take the 2nd write (inside the 200-byte frame): that frame

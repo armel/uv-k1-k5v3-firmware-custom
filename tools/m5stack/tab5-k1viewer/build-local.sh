@@ -157,10 +157,8 @@ case "${IDF_VERSION_OUTPUT}" in
 esac
 
 set_sdkconfig_value CONFIG_LV_FONT_UNSCII_16 y
-# Display refresh in step with the 20 ms render loop. Keep PPA rotation off:
-# it can produce artifacts at 90 and 270 degrees on the Tab5 MIPI-DSI panel.
+# Display refresh in step with the 20 ms render loop.
 set_sdkconfig_value CONFIG_LV_DEF_REFR_PERIOD 20
-set_sdkconfig_value CONFIG_LVGL_PORT_ENABLE_PPA n
 
 if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]] &&
    { ! grep -Fqx "CMAKE_PROJECT_NAME:STATIC=tab5_k1viewer" \
