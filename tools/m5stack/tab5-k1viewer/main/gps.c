@@ -12,14 +12,13 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
 #include "driver/uart.h"
 #include "esp_check.h"
-#include "esp_io_expander.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "tab5_hardware.h"
 
 #define GPS_UART             UART_NUM_1
 #define GPS_UART_TX          GPIO_NUM_53  /* yellow: GPS unit RX */
@@ -30,7 +29,6 @@
 #define GPS_LINE_BYTES       128
 #define GPS_TASK_STACK_BYTES 4096
 #define GPS_TASK_PRIORITY    4
-#define GPS_EXT5V_EN         IO_EXPANDER_PIN_NUM_2
 
 static const char *TAG = "tab5-gps";
 static gps_status_callback_t status_callback;
@@ -471,20 +469,8 @@ esp_err_t gps_unit_start(gps_status_callback_t callback, void *context)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_io_expander_handle_t expander = bsp_io_expander_init();
-    if (expander == NULL) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    ESP_RETURN_ON_ERROR(
-        esp_io_expander_set_dir(expander, GPS_EXT5V_EN, IO_EXPANDER_OUTPUT), TAG,
-        "Could not configure Grove 5 V enable");
-    ESP_RETURN_ON_ERROR(
-        esp_io_expander_set_level(expander, GPS_EXT5V_EN, 1), TAG,
-        "Could not enable Grove 5 V supply");
-    ESP_RETURN_ON_ERROR(
-        esp_io_expander_set_output_mode(expander, GPS_EXT5V_EN,
-                                        IO_EXPANDER_OUTPUT_MODE_PUSH_PULL), TAG,
-        "Could not drive Grove 5 V enable");
+    ESP_RETURN_ON_ERROR(tab5_external_power_enable(), TAG,
+                        "Could not enable Grove 5 V supply");
 
     const uart_config_t config = {
         .baud_rate = GPS_UART_BAUD,

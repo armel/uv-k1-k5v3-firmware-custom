@@ -29,6 +29,13 @@ toolchain under `~/Library/Caches/tab5-k1viewer`. The first build requires an
 Internet connection. Later builds reuse the installed toolchain and compiled
 dependencies.
 
+The hardware layer uses M5Unified and M5GFX. It detects the Tab5 panel
+revision at run time and supports both the original ILI9881C and the newer
+ST7123/ST7121 controllers without a separate image. The key clicks do not use
+the M5Unified speaker: they drive the ES8388 codec through `esp_codec_dev`,
+with direct I2S writes, so a click starts within 5 ms even right after another
+one.
+
 From the repository root, run:
 
 ```sh
@@ -153,18 +160,28 @@ or its sky view.
 Tap the `MIC` plate to open the USB diagnostic panel. The control remains
 available on the radio connection screen so reopen loops can be inspected.
 The fixed header shows link state, received-frame rate (`RX FPS`), data
-endpoint recoveries and full reopens, followed by the ten latest timestamped
-USB events. The GPS and USB diagnostic panels close each other.
+endpoint recoveries, full reopens and the active M5Unified hardware layer,
+followed by the ten latest timestamped USB events.
+The USB receive callback never waits for the display-state lock: it applies
+each frame to its own copy of the radio screen under a short spinlock, and the
+renderer merges that copy on its next pass. The CDC driver can submit its next
+BULK IN transfer at once, and no frame is lost while a touch event is updating
+the interface.
+LVGL uses one 32-line partial buffer in internal RAM. Each strip is copied
+into the panel frame buffer by the ESP32-P4 DMA2D, and the copy is finished
+before LVGL reuses that buffer, so a full redraw cannot leave several panel DMA
+transfers in flight while USB data is being received.
+The GPS and USB diagnostic panels close each other.
 
 ## Orientation
 
 The Tab5 follows its orientation with its accelerometer:
 
 - **Portrait:** the whole radio, with `F1` and `F2` on its left edge.
-- **Landscape, USB-A port on the right:** a large screen (640 × 480) on the
-  left and the keypad on the right, with `F1` and `F2` above it and the RX/TX
-  LED and torch in the top bar.
-- **Landscape, USB-A port on the left:** the screen alone, larger still
+- **Landscape, USB ports on the left:** a large screen (640 × 480) on the left
+  and the keypad on the right, with `F1` and `F2` above it and the RX/TX LED
+  and torch in the top bar.
+- **Landscape, USB ports on the right:** the screen alone, larger still
   (896 × 672) in the K1 bezel on nearly the full height. A band on the left
   holds the torch, the QUANSHENG plate and the RX/TX LED, all upright. There
   are no keys: the screen still changes the palette.
@@ -209,8 +226,8 @@ radio keys, in both orientations:
   across restarts.
 - The QUANSHENG plate:
   - tap it to step through the 100 %, 75 %, 50 % and 25 % backlight levels. The
-    level changes once a second tap can no longer come, after 0.4 second;
-  - tap it twice within 0.4 second, anywhere on the plate, to switch the key
+    level changes once a second tap can no longer come, after 0.6 second;
+  - tap it twice within 0.6 second, anywhere on the plate, to switch the key
     beep off or on (`PLATE_DOUBLE_TAP_MS`);
   - hold it to lock the orientation, or to unlock it; a restart unlocks it too.
 
@@ -258,10 +275,12 @@ python3 scripts/gen_uv_k1_skin.py --render
 - The USB protocol allows up to 75 received frames per second.
 - The Tab5 renderer displays up to 50 updates per second.
 - The three skins take 5.5 MB of the application partition, which is 8 MB.
-- Landscape and upside-down portrait are rotated in software. The ESP32-P4 PPA
-  rotation is deliberately disabled because it can produce display artifacts
-  at 90 and 270 degrees on the Tab5 MIPI-DSI panel. Only the LCD rows that the
-  radio changed are redrawn.
+- Landscape and upside-down portrait are rotated in software, strip by strip,
+  in internal RAM, then copied by the DMA2D, as with the former BSP. Drawing
+  through M5GFX instead would rotate pixel by pixel straight into the PSRAM
+  frame buffer and write the CPU cache back over every panel line for each
+  landscape strip, which made landscape much slower than portrait. Only the
+  LCD rows that the radio changed are redrawn.
 
 ## License
 
