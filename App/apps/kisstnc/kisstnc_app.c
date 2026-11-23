@@ -116,7 +116,7 @@ static inline volatile uint32_t *hw(uint32_t a){
 
 /* ---- AX.25 / KISS ---- */
 #define FRAME_MAX   330u   /* 10 addresses + control + PID + 256 info + FCS */
-#define FRAME_MIN   18u
+#define FRAME_MIN   17u    /* 2 addresses + control + FCS; U/S frames have no PID */
 #define FCS_GOOD    0xF0B8u
 #define RXQ         2u     /* received frames waiting for the next slot */
 #define FEND        0xC0u
