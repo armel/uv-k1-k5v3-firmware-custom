@@ -11,7 +11,7 @@ Status:
 | Audio path an app can sample | **Done** by EPIRB 406: RX audio on PA4, ADC channel 4 at 9.6 kHz |
 | Integer demodulator, modelled on synthetic audio (`test/model_rx.py`) | **Done** (see below) |
 | Flipper Zero test transmitter (`test/flipper_aprs.py`) | **Done**, files in `test/flipper/` |
-| Radio app (`aprsrx_app.c`) | **v0.1 receives the Flipper frames on the radio**; v0.3 decodes Mic-E (on air: F5RAV via F1PRY-14); v0.4 decodes continuously with 3 slicers (on air: F1PRY-14 via F5KTR-3); v0.5 shows standard positions; v0.6 adds the speaker key; v0.7 adds the corrected 20x20 APRS symbol bitmaps; v0.8 saves the speaker setting; v0.9 scrolls long compact frames; v0.10 fixes the UP/DOWN direction; v0.11 gates the speaker with the squelch; v1.0 is the same app, renumbered |
+| Radio app (`aprsrx_app.c`) | **v0.1 receives the Flipper frames on the radio**; v0.3 decodes Mic-E (on air: F5RAV via F1PRY-14); v0.4 decodes continuously with 3 slicers (on air: F1PRY-14 via F5KTR-3); v0.5 shows standard positions; v0.6 adds the speaker key; v0.7 adds the corrected 20x20 APRS symbol bitmaps; v0.8 saves the speaker setting; v0.9 scrolls long compact frames; v0.10 fixes the UP/DOWN direction; v0.11 gates the speaker with the squelch; v1.0 is the same app, renumbered; v1.1 saves the view and speaker at each key, so a switch-off keeps them; v1.2 opens the position shown in GeoNav |
 | Bench test with the Flipper on 433.650 MHz | **Done** (2026-09-30, v0.1: `_long` 10/10 in STD; `_badfcs` not shown) |
 | Real station: FT3D beacon on 144.800 MHz | **Done** (2026-09-30, v0.1: Mic-E frame `>TXUPX9` received, FCS good, = 48°50.89' N 2°16.25' E) |
 | Mic-E decoding (`test/mice.py`: spec encoder vs the app's decoder) | **Done** in the model: 6 cases + the FT3D frame |
@@ -69,6 +69,7 @@ Keys (UV-K5 and UV-K1):
 | * | Normal / compact view, saved, returns to the first row of the frame shown. The callsign stays large and bold on line 0. Body rows use the normal font (18 characters) or 3x5 font (32 characters), continuous 1 px scrolling |
 | 1 | Speaker on/off, saved (v0.8; off by default), gated by the squelch (v0.11); FoxHunt's speaker icon in the status bar while on |
 | 2 | Clear all five frames and the counters |
+| MENU | Open the Mic-E or uncompressed position of the frame shown in GeoNav. Ambiguous (Mic-E shows its hidden digits as `?`), compressed and 0/0 (no GPS fix) positions are ignored. `EXIT` in GeoNav returns to APRS RX with an empty history. Mic-E altitude is forwarded when present |
 | EXIT | Quit |
 
 The receive path is the firmware's own (STD: 300 Hz high-pass, de-emphasis,

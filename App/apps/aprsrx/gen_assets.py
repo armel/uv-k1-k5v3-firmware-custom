@@ -38,8 +38,9 @@ def cos_table(f):
     return [int(round(127 * math.cos(2 * math.pi * f * n / FS))) for n in range(per)]
 
 def mic_code(c):
-    """Digit in bits 0-3, message/position bit in bit 4, custom flag in bit 5."""
-    digit = 0
+    """Digit in bits 0-3 (15 without one: K, L, Z or junk, shown '?' and no
+    GeoNav target), message/position bit in bit 4, custom flag in bit 5."""
+    digit = 15
     for base in (ord('0'), ord('A'), ord('P')):
         if base <= c < base + 10:
             digit = c - base
