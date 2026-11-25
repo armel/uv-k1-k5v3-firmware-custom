@@ -69,6 +69,9 @@
 #include "misc.h"
 #include "radio.h"
 #include "settings.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+    #include "app/scan_list_picker.h"
+#endif
 
 #if defined(ENABLE_OVERLAY)
     #include "sram-overlay.h"
@@ -2046,6 +2049,9 @@ void cancelUserInputModes(void)
 void APP_TimeSlice500ms(void)
 {
     gNextTimeslice_500ms = false;
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+    SCAN_LIST_PICKER_TimeSlice500ms();   // timeout, and close when the scan stops
+#endif
 #ifdef ENABLE_FEAT_F4HWN_ACTION_PICKER
     if (gActionPickerKey != 0 && gActionPickerTimeout_500ms > 0 &&
         --gActionPickerTimeout_500ms == 0)
@@ -2567,6 +2573,15 @@ static void ProcessKey(KEY_Code_t Key, bool bKeyPressed, bool bKeyHeld)
         (gEeprom.KEY_LOCK || lowBatPopup || gScreenToDisplay != DISPLAY_MAIN))
         gActionPickerKey = 0;
     if (ACTION_PickerProcessKey(Key, bKeyPressed, bKeyHeld))
+        goto Skip;
+#endif
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+    // Same rules as the action picker above: closed by key lock, the low
+    // battery popup or another screen; while open, it takes the keys.
+    if (gScanListPickerOpen &&
+        (gEeprom.KEY_LOCK || lowBatPopup || gScreenToDisplay != DISPLAY_MAIN))
+        SCAN_LIST_PICKER_Close();
+    if (SCAN_LIST_PICKER_ProcessKey(Key, bKeyPressed, bKeyHeld))
         goto Skip;
 #endif
 

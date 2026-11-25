@@ -25,6 +25,9 @@
 #endif
 #include "app/generic.h"
 #include "app/main.h"
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+    #include "app/scan_list_picker.h"
+#endif
 #include "app/menu.h"
 #include "app/scanner.h"
 
@@ -919,6 +922,14 @@ static void MAIN_Key_STAR(bool bKeyPressed, bool bKeyHeld)
     
     if (!gWasFKeyPressed) // pressed without the F-key
     {   
+#ifdef ENABLE_FEAT_F4HWN_SCAN_LIST_PICKER
+        // A short * did nothing during a scan (error beep below): during a
+        // memory scan it now opens the scan-list picker.
+        if (gScanStateDir != SCAN_OFF && IS_MR_CHANNEL(gNextMrChannel)) {
+            SCAN_LIST_PICKER_Open();
+            return;
+        }
+#endif
         if (gScanStateDir == SCAN_OFF
 #ifdef ENABLE_FEAT_F4HWN_FULL_WATCH
             && gEeprom.DUAL_WATCH != DUAL_WATCH_FULL
