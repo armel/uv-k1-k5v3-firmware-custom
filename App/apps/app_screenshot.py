@@ -240,6 +240,9 @@ class Emu:
         self.bursts = audio[2] if len(audio) > 2 else [(0, len(self.audio) * 1000 / self.fs if self.fs else 0)]
         self.audio_at = scenario.get("audio_at", 500.0)
         self.cycle_ms = min(0.03, 250.0 / self.fs) if self.fs else 0.03
+        # A BK4829 FSK modem receiving the scenario's bits from audio_at ms on
+        # (1200 bauds), for an app that decodes with the chip's modem.
+        self.fsk = scenario["fsk"]() if "fsk" in scenario else None
 
         elfs = [p for p in glob.glob(os.path.join(app_dir, "*.elf"))]
         if len(elfs) != 1:
@@ -348,6 +351,10 @@ class Emu:
             self.taken.append((label, t, [row[:] for row in self.lcd.rows()]))
         if not self.shots and self.T >= self.t_end:
             self.u.emu_stop()
+
+    def fsk_bit(self):
+        """The bit period of the modem's line at T (1200 bauds from audio_at)."""
+        return int((self.T - self.audio_at) * 1.2)
 
     def audio_sample(self):
         """The ADC value on PA4 at T: the scenario's audio, else receiver hiss."""
@@ -474,10 +481,12 @@ class Emu:
         elif name == "bk_write":
             self.tick(0.03)
             self.bk[self.r(0) & 0xFF] = self.r(1) & 0xFFFF
+            if self.fsk:
+                self.fsk.write(self.r(0) & 0xFF, self.r(1) & 0xFFFF, self.fsk_bit())
         elif name == "bk_read":
             self.tick(0.03)
             reg = self.r(0) & 0xFF
-            value = self.bk.get(reg, 0)
+            value = self.fsk.read(reg, self.fsk_bit()) if self.fsk else self.bk.get(reg, 0)
             if reg == REG_0C and sc.get("squelch") == "audio":
                 # squelch open (bit 1) while a carrier burst of the audio is there
                 t = self.T - self.audio_at
@@ -645,12 +654,13 @@ def ais_audio():
     return adc, rx.FS_ADC
 
 
-def pocsag_audio():
-    """Two alphanumeric pages in one transmission, as DAPNET sends them."""
-    pocsag, rx = test_module("pocsagrx", "pocsag"), test_module("pocsagrx", "model_rx")
+def pocsag_fsk():
+    """Two alphanumeric pages in one transmission, as DAPNET sends them: the
+    bits the BK4829's FSK modem receives (POCSAG RX decodes with it)."""
+    pocsag, fsk = test_module("pocsagrx", "pocsag"), test_module("pocsagrx", "bk4829_fsk")
     pages = [(2504, 3, "DAPNET time 2026-10-27 14:07"),
              (1234567, 3, "F4HWN: meet at the radio club, 18:00")]
-    return rx.channel(rx.nrz_wave(pocsag.bits(pages), dev=rx.PAGER_DEV), 30, 300), rx.FS_ADC
+    return fsk.Modem(pocsag.bits(pages))
 
 
 def acars_audio():
@@ -798,7 +808,7 @@ SCENARIOS = {
                      handoff=sonde_meteo("MRZ123456", 63)),
     "aprsrx": dict(shots=[("main", 5500)], audio=aprs_audio, freq=14480000, rssi=steady_rssi(-88)),
     "aisrx": dict(shots=[("main", 3000)], audio=ais_audio, freq=16197500, rssi=steady_rssi(-91)),
-    "pocsagrx": dict(shots=[("main", 4500)], audio=pocsag_audio, freq=43998750, rssi=steady_rssi(-79)),
+    "pocsagrx": dict(shots=[("main", 4500)], fsk=pocsag_fsk, freq=43998750, rssi=steady_rssi(-79)),
     "acarsrx": dict(shots=[("main", 3000)], audio=acars_audio, freq=13152500, rssi=steady_rssi(-94)),
     "atisrx": dict(shots=[("main", 4000)], audio=atis_audio, freq=15665000, rssi=steady_rssi(-86)),
     "atisdscrx": dict(shots=[("main", 5000)], audio=dsc_audio, freq=15652500, rssi=steady_rssi(-83)),
