@@ -4,7 +4,7 @@
 # The UI texts come first, each padded to a multiple of 4 bytes: draw() reads
 # them in one asset_read into a word-aligned stack block, so every text costs a
 # 2-byte sp-relative add instead of a literal-pool load and a pool word.
-# The demodulator needs no table (test/model_rx.py): no tone to correlate.
+# No demodulator table: the BK4829's FSK modem demodulates (since 1.0).
 #
 #   ./gen_assets.py pocsagrx_assets.bin pocsagrx_assets.h
 import os, sys
@@ -22,8 +22,10 @@ UI = [
     ("T_TITLE",  TITLE),
     ("T_DBM",    "dBm  func "),             # "-89dBm  func 3  last 02m15"
     ("T_LAST",   "  last "),                # 30 characters at most (a tiny row holds 32)
-    ("T_PRE",    "pre "),                   # until a first page, or key 3:
-                                            # "pre 512 1200:0/0 512:3/96"
+    ("T_SYNC",   "sync "),                  # until a first page, or key 3:
+    ("T_OK",     " ok "),                   # "sync 12 ok 340 fix 9 bad 3"
+    ("T_FIX",    " fix "),
+    ("T_BAD",    " bad "),
     ("T_TONE",   NOTEXT[0]),                # key 4: an address alone
     ("T_LOST",   NOTEXT[1]),                # key 4: characters came, none was read
 ]

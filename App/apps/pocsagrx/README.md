@@ -1,44 +1,67 @@
 # POCSAG RX (overlay app)
 
 Receives **POCSAG** pager transmissions at 1200 bauds, as the amateur
-[DAPNET](https://hampager.de) network sends them, and at 512 bauds, both at
-once, and shows the pages: address (RIC), text, function. Key 3 also shows the
-rate of the last preamble heard, 2400 bauds included (told, not decoded).
+[DAPNET](https://hampager.de) network sends them, and shows the pages: address
+(RIC), text, function. Since 1.0 the BK4829's own FSK modem demodulates them;
+up to 0.9 the app sampled the RX audio and sliced it in software.
 
 ## Status
 
 | Part | State |
 |---|---|
-| v0.9: automatic function-0 alpha | Function 0 remains numeric by default, as specified by POCSAG, but is also decoded as 7-bit text. The alpha view replaces the numeric one only when it is clean letters-and-spaces prose with at least three word-like groups, two spaces, enough letters and a clear score margin. The three observed non-standard pages (`332450`, `337265`, `338909`) decode as `CAVSAV sur VTUB`, `CODB sur VTUB`, `EQID sur VTUB`; short, punctuated, numeric or ambiguous non-standard pages remain numeric by design. Focused heuristic tests include 20000 generated pages using the complete numeric alphabet. Model: the three pages decode at 1200 and 512 bauds, with all three noise seeds. Not checked on the radio yet. |
+| v1.0: the BK4829's FSK modem decodes | POCSAG is direct FSK, the modem's "FSK 1.2K" mode: the chip keeps the bit clock, finds the sync codeword and hands over the bits; the app checks BCH and builds the pages. Same screen, keys and saved settings as 0.9, the function-0 alpha choice included. 512 bauds and the preamble-rate readout are gone (see "Limits"). 3372 B instead of 3904. **The decoder was measured on a UV-K1 on a live 1200-baud paging channel** (see "Hardware decoding") with two test builds that ran it behind another screen; this exact build: emulator only so far (`test/emu_rx.py`, every Flipper case below) |
+| v0.9: automatic function-0 alpha | Function 0 remains numeric by default, as specified by POCSAG, but is also decoded as 7-bit text. The alpha view replaces the numeric one only when it is clean letters-and-spaces prose with at least three word-like groups, two spaces, enough letters and a clear score margin. The three observed non-standard pages (`332450`, `337265`, `338909`) decode as `CAVSAV sur VTUB`, `CODB sur VTUB`, `EQID sur VTUB`; short, punctuated, numeric or ambiguous non-standard pages remain numeric by design. Unchanged in 1.0 (`test/format_auto.py`) |
 | Format (`test/pocsag.py`) | Self-tested: the sync and idle codewords come out of the BCH encoder, pages round-trip, one wrong bit per codeword is corrected, two are detected |
-| Receive model (`test/model_rx.py`) | See "Model results" below |
-| Radio app (`pocsagrx_app.c`) | v0.2 (three hysteresis slicers). v0.1 on the radio (2026-10-13): with feedback slicers only, the Flipper transmission was heard but nothing decoded, not even a sync codeword. **With the hysteresis slicers, every Flipper file decodes as expected** (`alpha`, `long`, `gap` with its `?` marks, `same`, `two`, ...), and key 3 read `syn 2 ok 0 0 0 32 32` for the five slicers of that build: only the 1/4 and 1/2 hysteresis ones. The feedback slicers and the 1/8 one were then removed and a 3/8 one added: that is v0.2, **checked on the radio the same day** with `alpha` (key 3 counters), `gap` and `same` |
-| v0.5: 10 pages, bell mark, Text Lost | 10 pages kept instead of 5 (100 B of stack each: 1000 B for the 10), the "page shown / pages kept" capsule on two digits (`10/10`). Key 4 on shows a bell between the title and the speaker icon in place of the `T` capsule. A page without text shows `Tone Only` in a capsule under the address, or `Text Lost` when its message codewords came but none could be read (v0.4 showed those as tone-only). Not built or checked on the radio yet |
-| v0.6: latency fix | A sync codeword skipped for the keys and screen is taken as found only after a batch with a good codeword, so a false sync in noise is dropped after one batch instead of holding a slicer for good (keys and screen once every 0.45 s / 1.06 s, discussion #736). Model: the false sync is dropped after one batch, both rates still decode, and the sweep output is unchanged. **Checked on the radio** (UV-K1): 3 hours without latency on a channel where it showed within minutes with v0.5 |
-| v0.7: smaller | The slicer setup no longer uses `%`, which pulled libgcc's 266-byte unsigned division into the app: same thresholds, same decoding. Not built or checked on the radio yet |
-| v0.4: tone-only pages | Key 4 keeps the pages without text (saved, off by default). Model: with it off, the results are unchanged; with it on, the pages with text are the same in all 264 runs, 3 false tone-only pages appear, and 90/90 real tone-only transmissions (alone, two, or before a text page; 1200 and 512 bauds; clock 1 % off) decode exactly. 60 s of noise gives nothing. **Checked on the radio** (UV-K1) with `pocsag_tone.sub` and `pocsag_tonemix.sub`, key 4 on and off |
-| v0.3: 512 bauds and preamble rate | A 512-baud lane (8-sample box, its own three slicers) runs beside the 1200 one, and key 3 shows the rate of the last preamble. The 512-baud lane remains model-only (see "Model results"); Flipper files `pocsag512_*.sub` and `pocsag2400_alpha.sub` |
-| On air | Not tested: no DAPNET transmitter heard yet |
+| v0.5: 10 pages, bell mark, Text Lost | 10 pages kept (100 B of stack each: 1000 B for the 10), the "page shown / pages kept" capsule on two digits (`10/10`). Key 4 on shows a bell between the title and the speaker icon. A page without text shows `Tone Only` in a capsule under the address, or `Text Lost` when its message codewords came but none could be read. Unchanged in 1.0 |
+| v0.4: tone-only pages | Key 4 keeps the pages without text (saved, off by default). Unchanged in 1.0 |
+| Up to 0.9: the software decoder | Hysteresis slicers on the RX audio (PA4 at 9.6 kHz), a 1200 and a 512-baud lane. Checked on the radio with the Flipper files; the 512 lane stayed model-only. See "Before 1.0" |
 
-## What the radio's audio path does to POCSAG
+## Hardware decoding
 
-POCSAG keys the carrier frequency with the bits themselves: the discriminator
-outputs the bit stream, not tones, with runs of up to 13 equal bits (11 ms).
-The radio's audio path cuts the low frequencies, even with its filters off
-(RAW), and a high-passed level droops back to zero during a run: a slicer that
-compares the level with a threshold reads noise there. The first build did
-exactly that, and found nothing.
+The radio's audio path cuts the low frequencies, even with its filters off,
+and a high-passed NRZ level droops back to zero during a run of equal bits:
+0.1 to 0.9 had to work around it (hysteresis slicers, "Before 1.0"). The
+BK4829's FSK modem takes the bits before that path. Its set-up follows
+Ferrite's POCSAG receiver for the Radtel RT-950, also a BK4829
+(`crates/ferrite-radio/src/chip.rs`, https://github.com/FerriteFW/ferrite):
 
-The decoder therefore runs hysteresis slicers: each flips its level on the pulse
-a change of bit leaves, when it passes a fraction of the signal's peak, and
-holds in between, whether the level droops or not. Three of them, at 1/4, 3/8
-and 1/2 of the peak.
+| Register | Value | |
+|---|---|---|
+| REG_70 | `00C3` | tone 2 on: the FSK rate generator |
+| REG_72 | `3065` | 1200 bauds (x 10.32444, as AirCopy) |
+| REG_5A / 5B | `7CD2` / `15D8` | the sync word: POCSAG's sync codeword |
+| REG_5C | `5625` | the chip's CRC off (AirCopy's `5665`, bit 6 clear) |
+| REG_5D | `F7E0` | frame of 2040 bytes: 30 batches, each with the next one's sync codeword |
+| REG_5E | `3204` | FIFO almost full at 4 words (AirCopy's) |
+| REG_58 | `00C1` | FSK 1.2K receive, modem on |
+| REG_59 | `40F8` then `10F8` | RX FIFO cleared, then RX on; preamble 16 bytes, sync 4 bytes |
+| REG_3F | `3002` | interrupts: sync found, FIFO almost full, frame done |
 
-Slicers that put the baseline back from their own decisions (quantized
-feedback) were tried first, alone then beside the others: on the radio they
-read nothing, and neither did a hysteresis slicer at 1/8 of the peak. In the
-model that picture (1/4 and 1/2 reading, feedback and 1/8 not) is the one of an
-audio corner around 1 kHz. Where it really is was never measured.
+The modem needs a preamble before its sync word, so it finds only the first
+batch's sync; it then reads on, the next batches' sync codewords included, as
+data. The app reads four FIFO words at each almost-full interrupt. A FIFO
+word holds the first byte off the air in its low half. After each batch the
+next sync codeword tells the polarity (the modem syncs on both); when it is
+missing the transmission is over, and the modem is turned off and on (RX off
+and on alone does not end its frame). The first four codewords of a frame,
+all past help, are a false sync: dropped.
+
+Measured on a UV-K1, 2026-11-27, on a local 1200-baud paging channel, with a
+test build that ran this decoder and rotated four modem settings every minute
+(the RX audio filters and AFC as found, or off; REG_58 `00C1`, `00C9` or
+`00E9`):
+
+| 30 min, live traffic | |
+|---|---|
+| sync codewords | 60, no false sync |
+| codewords | 1440: 1386 right, 42 corrected, 12 past help |
+| FIFO reads | 830 almost-full interrupts; the fallback that read words by time was never needed |
+| byte order | 1432 valid codewords with each word's bytes swapped, 0 without |
+
+The four settings did not differ beyond what the traffic itself varies by
+(the RX audio filters do not touch the modem's input): 1.0 leaves the chip
+as RADIO_SetupRegisters set it. On the same channel, the same decoder behind
+another screen showed far fewer `?` than 0.9.
 
 ## Use
 
@@ -50,68 +73,57 @@ audio corner around 1 kHz. Where it really is was never measured.
 The screen follows APRS RX: the address in bold with the counters at its right
 (pages received, page shown / pages kept), the text under it, the dotted
 separator, the frequency in big digits, and the bottom line
-`-89dBm  func 3  last 02m15`: level, function (0-3), time since the page came.
-A new page wakes the backlight and blinks the green LED twice.
+`-89dBm  func 3  last 02m15`: level (at the transmission's sync), function
+(0-3), time since the page came. A new page wakes the backlight and blinks the
+green LED twice.
 
-Until a first page, the bottom line already shows what the decoder reads, so
-key 3 has no visible effect. After a page, key 3 toggles this diagnostic line
-with the page's level and age. The diagnostic line reads
-`pre 512 1200:0/0 512:3/96`. First the rate of the last preamble heard (`pre -`
-until one): 512, 1200 or 2400 bauds, read from the preamble itself, so a
-transmission at a rate the app does not decode (2400) still tells what it is.
-Then, for each lane, the sync codewords found by its slicers and the good
-codewords of its three slicers (thresholds 1/4, 3/8, 1/2) added up: a whole
-`pocsag_alpha.sub` is 32 codewords, 96 for the three. It is refreshed with the
-screen (a page, a key, or every 5 s); key 2 resets it.
+Until a first page, the bottom line already shows what the modem gave, so key
+3 has no visible effect. After a page, key 3 toggles this diagnostic line with
+the page's level and age. It reads `sync 12 ok 340 fix 9 bad 3`: the sync
+codewords the chip found, then the codewords right as read, put right (one
+wrong bit) and past help, since the launch or key 2.
 
 | Key | Action |
 |---|---|
 | UP / DOWN | Scroll the text a row when it overflows (normal view); at either end, the newer / older page (UV-K1: LEFT / RIGHT). 10 pages kept |
 | * | Normal view (18 characters a row, 3 rows) / compact view (32 tiny characters a row: a whole 80-character page); saved |
-| 1 | Speaker on / off (saved, off by default). Not gated by the squelch, as EPIRB 406: the hiss is heard between transmissions, and a transmission as the raw buzz it is |
+| 1 | Speaker on / off (saved, off by default). Not gated by the squelch: the hiss is heard between transmissions, and a transmission as the raw buzz it is |
 | 2 | Clear the pages and the counters |
-| 3 | After a page: toggle level and age / preamble rate and lane counters. Before the first page, diagnostics are already shown |
+| 3 | After a page: toggle level and age / the modem's counters. Before the first page, the counters are already shown |
 | 4 | Keep the pages without text (tone-only pages) on / off (saved, off by default). While on, a bell sits between the title and the speaker icon; such a page shows `Tone Only` in a capsule under the address, or `Text Lost` when characters came but none could be read |
 | EXIT | Quit |
 
-During a transmission the keys are read twice a second only, once a second at
-512 bauds (see "How it decodes"): hold a key half a second, a second at 512.
+The keys and the screen are served every 50 ms, during transmissions too:
+the modem's FIFO holds the bits meanwhile.
 
 ## Limits
 
-- **1200 and 512 bauds.** 2400 bauds needs more audio band than the radio has:
-  its preamble is told (key 3, `pre 2400`), its pages are not decoded.
+- **1200 bauds only.** The modem has a 2.4K mode (REG_58 `00C9`, REG_72 at
+  2400 bauds, as Ferrite and the RT-950's stock firmware use it): 2400-baud
+  POCSAG is a next step, untested here. It has no 512-baud mode, and 0.9's
+  512-baud lane was never checked on the air; it is gone, and so is the
+  preamble-rate readout of key 3.
+- **One modem frame is 30 batches (13.6 s).** The modem syncs again only
+  after a preamble: the batches of a longer transmission after the 30th are
+  lost. None came in the 30 minutes measured.
 - **Function 0 is numeric by default, 1-3 are text**, as specified by POCSAG.
   Function 0 is also tried as 7-bit text: a conservative heuristic selects it
   only when it is clean letters-and-spaces prose and looks clearly more
-  plausible than the numeric interpretation. Short, punctuated, numeric or
-  ambiguous non-standard pages remain numeric by design.
-- **A `?` is a character no slicer could read** (a codeword with two wrong bits
-  or more). Three such codewords in a row end the page. If the codeword lost
-  was the address of the next page, that page's text follows the `?` marks in
-  the same page.
+  plausible than the numeric interpretation (`test/format_auto.py`).
+- **A `?` is a character from a codeword that could not be corrected** (two
+  wrong bits or more). Three such codewords in a row end the page.
 - **A page without text is not shown** (tone-only pages) unless key 4 keeps
-  them: a slicer that slipped a bit reads shifted codewords, which are often
-  valid ones, and they come out as addresses without text. With key 4 on, the
-  model (see "Model results") shows 3 such false pages in 264 runs of its
-  cases (two with the clock 1 % off, one at the 1500 Hz high-pass corner), and
-  every real tone-only page of its 90 runs. A page whose message codewords all
-  came bad shows `Text Lost`; so does a tone-only page whose next codeword (an
-  idle one) came bad, as a bad codeword cannot tell which it was.
-- **With a clock 1 % off** (the MCU runs on its internal oscillator) the model
-  still shows, about once in three transmissions, a wrong character or a junk
-  page of a few characters from a slicer that slipped.
+  them. A page with more characters lost than read is dropped.
 - Pages are kept in RAM only.
 
 ## Testing with a Flipper Zero
 
 Here the Flipper sends the real thing: direct FSK, as a pager transmitter does
-(+-2.38 kHz instead of +-4.5 kHz).
+(+-2.38 kHz instead of +-4.5 kHz: not yet tried with the modem, which was
+measured on a pager transmitter's deviation).
 
 ```sh
 python3 test/flipper_pocsag.py test/flipper
-python3 test/flipper_pocsag.py test/flipper --baud 512
-python3 test/flipper_pocsag.py test/flipper --baud 2400 --names alpha
 ```
 
 | File | Expected on the radio |
@@ -123,103 +135,49 @@ python3 test/flipper_pocsag.py test/flipper --baud 2400 --names alpha
 | `pocsag_two.sub` | Two pages: `2504` and `165856` |
 | `pocsag_long.sub` | `1000001`, a 72-character text (scroll, or `*`) |
 | `pocsag_same.sub` | Two pages to the same address `4520`, with different texts: both kept |
-| `pocsag_inverted.sub` | Same as alpha: the other discriminator polarity |
+| `pocsag_inverted.sub` | Same as alpha: the other polarity |
 | `pocsag_biterr.sub` | Same as alpha: one wrong bit in every other codeword, corrected |
 | `pocsag_gap.sub` | The long page with one codeword destroyed: `The q???? brown fox ...` |
 | `pocsag_tone.sub` | A tone-only page: `1234567`, func 1, no text. Shown as `Tone Only` with key 4 on, nothing with key 4 off |
 | `pocsag_tonemix.sub` | A tone-only page `1234560` (func 0), then `1045677`, `After a tone-only page`: with key 4 off, only the second one |
 
-The same tests at 512 bauds are `pocsag512_*.sub` (3.4 s each): the same
-pages are expected, and key 3 shows `pre 512` and the 512 lane's counters.
-`pocsag2400_alpha.sub` is not decoded: key 3 shows `pre 2400` only.
+The `pocsag512_*.sub` and `pocsag2400_alpha.sub` files (`--baud 512`,
+`--baud 2400`) are not decoded since 1.0.
 
 Copy them to `subghz/` on the SD card, tune the radio to 433.650 MHz FM, launch
-POCSAG RX, open a file and press Send (1.5 s each at 1200 bauds).
+POCSAG RX, open a file and press Send (1.5 s each).
 
-## How it decodes
+## Emulator (`test/emu_rx.py`)
 
-PA4 audio on ADC channel 4 at 9.6 kHz (APRS RX's path), receiver in RAW
-(EPIRB 406's setting, AFC off), sample times from the absolute clock SSTV uses
-(tick count + position in the SysTick period: a long screen update cannot lose
-a period). DC removal, then two lanes side by side, one per baud rate: the sum
-of the last 4 samples (half a bit at 1200 bauds) or of the last 8 (512 bauds,
-18.75 samples a bit), then per slicer a level that flips when that sum passes
-a fraction of its peak; a DPLL on the changes of level, stepping 8 or 18.75
-samples a bit; the last 32 bits
-against the sync codeword `7CD215D8` and its complement, two wrong bits
-allowed; then 16 codewords a batch, BCH (31,21) checked from the syndrome with
-one bit corrected, and the next sync codeword.
+The built app (`pocsagrx.bin` and its assets) runs on an emulated Cortex-M0
+(Unicorn, `pip install unicorn`) against `test/bk4829_fsk.py`, a model of the
+modem as above, fed with every file of the table: each page the app shows
+(walked with DOWN in the compact view) is compared with the one sent. Also: a
+tone-only page with key 4 off (not shown) and 20 s of noise (nothing). Any
+write outside the overlay, the stack and the frame buffer, and any character
+outside 32-126 handed to a font, fails the run. 1.0: every case passes.
 
-An address opens a page, message codewords fill it, an idle word or another
-address closes it. Function 0 is assembled both as 4-bit numeric and 7-bit
-alpha; at close, the standard numeric view wins unless the alpha view passes
-the conservative clean-text, word, letter and score heuristic. A slicer that just read a bad codeword is not trusted to
-correct the next eight. A bad codeword inside a page does not end it: its 20
-bits are skipped and the characters they held are marked.
+`../app_screenshot.py pocsagrx` feeds the same model (scenario `fsk`).
 
-A transmission is at one rate: only that lane finds its sync codeword. The
-rate of a preamble (576 bits or more of 1 0 1 0 ...) is read apart, from the
-first 1200-baud slicer: the samples between two of its flips are classed (3-5
-for 2400 bauds, 6-10 for 1200, 15-23 for 512), and 32 flips in a row in one
-class are a preamble at that rate; noise and data runs do not keep one class
-that long.
+## Before 1.0
 
-The slicers of a lane read the same transmission and each gives the same page. Two
-copies are the same page when their address codeword came at the same sample,
-within half a codeword; the text is not compared, so two pages to the same
-address with the same text, or the same beginning, stay two pages. The copies
-are merged: a character one slicer lost is taken from another that read it.
-
-Keys and screen take up to 15 ms, during which no sample is read. Outside a
-batch they are served every 50 ms. Inside a transmission they wait for the
-sync codeword that opens each batch (twice a second), where no page bit is
-lost; the bit clocks run on over the missing samples, and the sync codeword not
-read for that reason is taken as found, provided the batch before it held a
-good codeword. Without that condition (up to v0.5), a false sync codeword found
-in noise (about once in 13 minutes across the six slicers) was excused at every
-batch and never let go: keys and screen were then served once a batch, every
-0.45 s (1.06 s on the 512 lane), and the backlight came up a step a second
-(discussion #736).
-
-## Model results (`test/model_rx.py`)
-
-v0.3 (2026-10-19), both lanes, the sweep below run at 1200 and at 512 bauds:
-
-- **the 1200-baud results are unchanged**, page for page, from v0.2's model:
-  the 512 lane reads no sync codeword in a 1200-baud transmission, and the
-  other way round;
-- **512 bauds: every case with an audio corner of 30 Hz and above decodes**
-  but one (a corner of 1500 Hz with 1500 Hz rms of noise: one codeword of the
-  long page lost, shown `???`); a corner of 10 Hz fails 4 cases of 8. Every
-  "other case" passes at 512, 33 of 33 (pager deviation, +/-4 kHz offset,
-  +/-1 % clock, noise 3000), and so do the holes;
-- **preamble rate**: right in every case of both corner tables, 12 of 12 at
-  2400 bauds (corners 30 to 1000 Hz, noise up to 3000 Hz rms, both
-  deviations), and nothing in 2 x 60 s of noise.
-
-v0.2, the three slicers at 1200 bauds (pages `alpha`, `long`, `inverted`,
-`biterr`; audio corner 10 to 1500 Hz; no noise and 1500 Hz rms):
-
-- **corner of 100 Hz and above: every case decodes**, as do the offset, clock
-  and numeric cases run at 1000 Hz, and a 15 ms hole in a sync codeword;
-- **corner of 10 or 30 Hz: 7 cases of 16 fail**, the page coming out cut short
-  or with `?` marks. That range was the feedback slicers', removed because the
-  radio is not there (key 3 showed them reading nothing). A receiver whose
-  audio path passed the low frequencies would need them back;
-- strong noise (3000 Hz rms) at a 100 Hz corner fails too;
-- a hole in the middle of a batch marks the characters of the codeword hit and
-  keeps the rest; nothing comes out of 2 x 60 s of noise.
-
-The quick comparison that chose the thresholds (pages `alpha`, `long`, `gap`,
-two noise seeds, corners 300 Hz to 2 kHz, noise 0 / 1500 / 3000): 75 cases of
-90 with 1/4, 3/8 and 1/2, against 58 with 1/4 and 1/2 only; the difference is
-all in the 3000 column.
+0.1 to 0.9 read the RX audio on PA4 at 9.6 kHz (receiver in RAW: RX HPF300 /
+LPF3K / de-emphasis and AFC off) and sliced it in software: a box filter of
+about half a bit, then three hysteresis slicers per lane (1/4, 3/8, 1/2 of the
+peak), each with its DPLL, BCH check and page assembly, the slicers' copies of
+a page merged. The audio path's low cut made the slicers flip on the pulse a
+change of bit leaves instead of comparing a level; feedback slicers read
+nothing on the radio. A 512-baud lane ran beside the 1200 one (model only),
+and the rate of each preamble was told (2400 included). Keys and screen had
+to wait for the sync codeword of each batch. That decoder and its channel
+model (`test/model_rx.py`) are in the history up to 0.9.
 
 ## Files
 
 - `pocsagrx_app.c`, `gen_assets.py`, `build.sh`, `app.ld`: the app.
-- `test/pocsag.py`: the format (encode, decode), self-tested.
+- `test/pocsag.py`: the format (encode, decode), self-tested; the function-0
+  heuristic's reference (`prefer_alpha`).
 - `test/format_auto.py`: focused tests for automatic function-0 alpha selection.
 - `test/flipper_pocsag.py`: the Flipper `.sub` files.
-- `test/model_rx.py`: channel + the integer demodulator the C transcribes; run
-  it after any change to the demodulator (several minutes).
+- `test/bk4829_fsk.py`: the BK4829 FSK modem model.
+- `test/emu_rx.py`: the built app against that model, every Flipper case.

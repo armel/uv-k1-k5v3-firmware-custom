@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pocsag
-from model_rx import prefer_alpha
+from pocsag import prefer_alpha
 
 
 def views(text, source_numeric):

@@ -107,6 +107,55 @@ def bits(pages, preamble=PREAMBLE_BITS, func0_alpha=False):
     return out
 
 
+# ---- function 0: numeric by the recommendation, 7-bit text on some networks.
+# The app's preferAlpha(), kept in step (test/format_auto.py).
+GAP = 127               # a character lost with a bad codeword; shown as '?'
+BAD_RUN = 3             # bad codewords in a row that end a page
+AUTO_MIN_ALPHA = 6
+AUTO_MIN_LETTERS = 4
+AUTO_MARGIN = 9
+
+
+def prefer_alpha(numeric, alpha, controls=0):
+    """The firmware's conservative function-0 format heuristic."""
+    if len(alpha) < AUTO_MIN_ALPHA:
+        return False
+    score = -controls * 8
+    letters = 0
+    spaces = 0
+    words = 0
+    run = 0
+    for ch in alpha:
+        if ch == GAP:
+            continue
+        if ord("A") <= ch <= ord("Z") or ord("a") <= ch <= ord("z"):
+            score += 3
+            letters += 1
+            run += 1
+            continue
+        if run >= 2:
+            words += 1
+        run = 0
+        if ch == 32:
+            score += 1
+            spaces += 1
+        else:
+            return False
+    if run >= 2:
+        words += 1
+    for ch in numeric:
+        if ch == GAP:
+            continue
+        if ord("0") <= ch <= ord("9"):
+            score -= 2
+        elif ch in (32, ord("-")):
+            score -= 1
+        else:
+            score += 4
+    return (letters >= AUTO_MIN_LETTERS and spaces >= 2 and words >= 3 and
+            letters * 3 >= len(alpha) * 2 and score >= AUTO_MARGIN)
+
+
 class Decoder:
     """Pages from codewords, as the app does: feed(position in the batch 0..15,
     codeword or None when it could not be corrected)."""
