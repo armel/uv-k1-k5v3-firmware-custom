@@ -153,11 +153,12 @@ static struct {
 #ifdef APP_SERIAL
     /* USB serial port: the receive total at the app's read position, the
      * events serial_ctl has not reported yet, the host configuration count it
-     * last saw, whether the app used the port. */
+     * last saw, whether the app used the port and whether it read from it. */
     uint32_t serial_read_total;
     uint8_t  serial_evt;
     uint8_t  serial_enum;
     bool     serial_used;
+    bool     serial_reader;
 #endif
     uint16_t journal_off;  /* next free byte of the journal */
     uint32_t journal_tick; /* when the last config was logged */
@@ -257,16 +258,29 @@ _Static_assert(sizeof(VCP_RxBuf) == 256u, "the ring indexes wrap as uint8_t");
 
 static uint32_t app_cycles_raw(void);
 
+/* Once the app reads, the host may send up to a full ring past the app's
+ * read position (one byte short: a full ring would read as empty); USB holds
+ * the rest back.  An app that only writes leaves it off: nothing would ever
+ * make room, so a host still sending would be held until the app returns;
+ * its bytes are dropped as before.  Called with interrupts masked. */
+static void app_serial_window(void)
+{
+    cdc_acm_rx_flow(app_state.serial_reader,
+                    app_state.serial_read_total + sizeof(VCP_RxBuf) - 1u);
+}
+
 /* Drop the unread bytes and take the receive total at the new read position,
  * with the USB interrupt held off: a packet stored in between would otherwise
  * be counted on the wrong side.  The ISR may leave the write index at the ring
- * size before wrapping it, hence uint8_t. */
+ * size before wrapping it, hence uint8_t.  Receive flow control is on while
+ * an app that reads owns the port, off once it is released. */
 static void app_serial_flush(void)
 {
     const uint32_t primask = __get_PRIMASK();
     __disable_irq();
     VCP_ReadIndex = (uint8_t)VCP_RxBufPointer;
     app_state.serial_read_total = cdc_acm_rx_total;
+    app_serial_window();
     __set_PRIMASK(primask);
 }
 
@@ -289,11 +303,19 @@ static uint16_t app_serial_read(uint8_t port, void *buf, uint16_t len)
 {
     if (!app_serial_claim(port))
         return 0;
-    /* 256 bytes or more since the app's position: the ISR lapped it. */
+    /* 256 bytes or more since the app's position: the ISR lapped it (flow
+     * control keeps this from happening; kept as the safety net). */
     const uint32_t total = cdc_acm_rx_total;
     if (total - app_state.serial_read_total >= sizeof(VCP_RxBuf)) {
         app_serial_flush();
         app_state.serial_evt |= APP_SERIAL_LOST;
+    }
+    if (!app_state.serial_reader) {     // the first read: flow control from here on
+        const uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+        app_state.serial_reader = true;
+        app_serial_window();
+        __set_PRIMASK(primask);
     }
     /* From the command parser's own read index, so the bytes an app consumed
      * are never parsed as commands once the main loop resumes. */
@@ -305,7 +327,13 @@ static uint16_t app_serial_read(uint8_t port, void *buf, uint16_t len)
     while (n < len && r != w)
         p[n++] = VCP_RxBuf[r++];
     VCP_ReadIndex = r;
-    app_state.serial_read_total += n;
+    if (n) {
+        const uint32_t primask = __get_PRIMASK();
+        __disable_irq();
+        app_state.serial_read_total += n;
+        app_serial_window();   // room again: a held transfer may start
+        __set_PRIMASK(primask);
+    }
     return n;
 }
 
@@ -351,8 +379,9 @@ static void app_serial_release(void)
 {
     if (!app_state.serial_used)
         return;
-    app_state.serial_used = false;
-    app_state.serial_evt  = 0;
+    app_state.serial_used   = false;
+    app_state.serial_reader = false;
+    app_state.serial_evt    = 0;
     app_serial_flush();
 #ifdef ENABLE_FEAT_F4HWN_K5VIEWER
     VCP_K5ViewerSync();

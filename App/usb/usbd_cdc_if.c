@@ -96,6 +96,15 @@ static cdc_acm_rx_buf_t client_rx_buf = {0};
  * host configurations since boot (each enumeration counts one). */
 volatile uint32_t cdc_acm_rx_total = 0;
 volatile uint8_t  cdc_acm_config_count = 0;
+
+/* Receive flow control while an overlay app owns the port: the receive total
+ * may not pass rx_limit (the app's read position plus the ring, less one).  A
+ * transfer that could pass it is not started, so the endpoint keeps OutPktRdy
+ * set and the host is NAKed until the app has read (cdc_acm_rx_flow).  Off,
+ * the main loop's readers keep the old behaviour. */
+static volatile bool     rx_flow = false;
+static volatile bool     rx_held = false;
+static volatile uint32_t rx_limit = 0;
 #endif
 
 volatile bool ep_tx_busy_flag = false;
@@ -110,6 +119,7 @@ void usbd_configure_done_callback(void)
 {
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
     cdc_acm_config_count++;
+    rx_held = false;
 #endif
     /* setup first out ep read transfer */
     usbd_ep_start_read(CDC_OUT_EP, read_buffer, sizeof(read_buffer));
@@ -144,9 +154,30 @@ void usbd_cdc_acm_bulk_out(uint8_t ep, uint32_t nbytes)
         *rx_buf->write_pointer = pointer;
     }
 
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+    if (rx_flow && rx_limit - cdc_acm_rx_total < sizeof(read_buffer)) {
+        rx_held = true;
+        return;
+    }
+#endif
     /* setup next out ep read transfer */
     usbd_ep_start_read(CDC_OUT_EP, read_buffer, sizeof(read_buffer));
 }
+
+#ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
+/* Flow control on (the receive total may run to limit) or off, and a held
+ * transfer started again once it fits.  Called with interrupts masked: the
+ * ISR shares rx_held and the endpoint index. */
+void cdc_acm_rx_flow(bool on, uint32_t limit)
+{
+    rx_flow  = on;
+    rx_limit = limit;
+    if (rx_held && (!on || limit - cdc_acm_rx_total >= sizeof(read_buffer))) {
+        rx_held = false;
+        usbd_ep_start_read(CDC_OUT_EP, read_buffer, sizeof(read_buffer));
+    }
+}
+#endif
 
 void usbd_cdc_acm_bulk_in(uint8_t ep, uint32_t nbytes)
 {
