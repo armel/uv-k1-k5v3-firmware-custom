@@ -107,6 +107,7 @@ extern volatile uint8_t  cdc_acm_config_count;
 bool cdc_acm_start_send(const uint8_t *buf, uint32_t size);
 void cdc_acm_cancel_send(void);
 void usbd_ep_cancel_write(const uint8_t ep);
+void cdc_acm_rx_flow(bool on, uint32_t limit);
 #endif
 
 #endif

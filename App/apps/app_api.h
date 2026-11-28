@@ -446,8 +446,12 @@ typedef struct app_api {
      * parser and K5Viewer leave the USB port alone; when the app returns, the
      * loader drops the bytes it left unread.
      * serial_read copies up to len received bytes, returns their count (0 when
-     * nothing waits).  The port receives into a 256-byte ring: poll it before
-     * 256 bytes can arrive (a few ms while a host streams).  A lapped ring is
+     * nothing waits).  The port receives into a 256-byte ring with flow
+     * control from the app's first serial_read on: while the app has fewer
+     * than 128 bytes of room left, USB holds the host back until it reads, so
+     * nothing is lost however rarely it polls (the host's write only takes
+     * longer).  An app that never reads leaves the host free: what it sends
+     * is dropped.  A lapped ring, which flow control prevents, would be
      * reported by serial_ctl (APP_SERIAL_LOST) and read on from the newest
      * byte.
      * serial_write sends len bytes and returns once the host has taken them;
