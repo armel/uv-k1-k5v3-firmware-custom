@@ -17,27 +17,35 @@ def cos_table(f):
 
 a = Assets("KISSTNC")
 a.text("T_TITLE", "KISS TNC")
-# status capsule, by state: transmitting, RX only, host connected, none
-a.table("T_CAPS", ["TX", "RX ONLY", "USB", "NO USB"])
-a.text("T_RX", "RX ")
-a.text("T_TXN", "  TX ")
-a.text("T_DROP", "  lost ")
-a.text("T_DBM", "dBm")
-a.text("T_TO", "to ")
-a.text("T_OV", " ov ")
-a.text("T_RE", " re ")
-a.text("T_KEYS", "1 spk 2 test 3 RX")
+# status capsule, by state: RX only, host connected, none
+a.table("T_CAPS", ["RX ONLY", "USB", "NO USB"])
+a.text("T_KEYS", "1 spk 3 RX # lock")
+def field(line, xl, xv, label):
+    return bytes([line, xl, xv]) + label.encode().ljust(5, b"\0")
+# a grid of 7 px columns: the labels at 0 and 9, the values from 4 and 13; the
+# counts, then the last station's RSSI and slicer count (line 2) and call (3)
+a.raw("FIELDS", field(0, 0, 28, "RX") + field(0, 63, 91, "TX") + field(1, 0, 28, "BAD")
+      + field(1, 63, 91, "LOS") + field(2, 0, 28, "dBm") + field(2, 63, 91, "DEC")
+      + field(3, 0, 28, "FRM"))
+a.raw("BMP_LOCK", bytes([0x7c, 0x46, 0x45, 0x45, 0x45, 0x45, 0x45, 0x46, 0x7c]))
+# SetHardware answers, as Dire Wolf's: the name, and the bytes queued follow
+a.text("T_HWTNC", "TNC:KISS TNC 2.0")
+a.text("T_HWTXBUF", "TXBUF:")
 # dem_t prefix: dc, eight filter/correlator words, pm/ps, r/ks, ring; then the
 # cosine tables, so one read initializes the whole front end (as APRS RX).
+# The start of the app's state g: the KISS parameters by command (TXDELAY 27,
+# 40 flags = 267 ms as APRS TX; P 63, one chance in four; SLOTTIME 10, 100 ms;
+# TXTAIL 0, 3 flags; FULLDUPLEX 0), no key held, no KISS command yet (0xF0),
+# the tone gains, the parser inside a frame (a first frame without its leading
+# FEND still parses).
+# The tone gains (BK4829 REG_70 <14:8>) put 2200 Hz 6 dB over 1200 Hz, as a
+# voice path's pre-emphasis leaves it, measured on a UV-K1 with an SDR: narrow
+# 47 / 80 give 1.0 / 2.0 kHz of deviation, 2.3 kHz at the peak; wide 35 / 68
+# give 1.5 / 3.0 kHz, 3.2 kHz at the peak (the firmware doubles the deviation on
+# wide). The gain is not linear above 66: 99 gave 2.9 kHz on narrow. A narrower
+# VFO (6.25 kHz) does not send: no gains.
+a.raw("G_INIT", bytes([0, 27, 63, 10, 0, 0, 19, 0xF0, 47, 80, 0, 0, 35, 68, 1]))
 a.u32("DEMOD_INIT", [2048 << 4] + [0] * 8 + [64, 64] + [0] * 18)
 a.i8("COS1200", cos_table(1200))            # 8 entries
 a.i8("COS2200", cos_table(2200))            # 48 entries
-# The key-2 test frame: APZK1 <- (boot-message callsign, written by the app
-# over the blanks), UI frame, status text. NOCALL when no callsign is set.
-def ax25(call, last):
-    return bytes(ord(c) << 1 for c in call.ljust(6)) + bytes([0x60 | last])
-a.raw("TESTF", ax25("APZK1", 0) + ax25("NOCALL", 1) + b"\x03\xf0>UV-K1 KISS TNC test")
-# Powers of ten, 10^8 down to 1: numbers (the frequency too) are printed by
-# subtraction, so the app links no division.
-a.u32("PLACE", [10 ** k for k in range(8, -1, -1)])
 a.main()

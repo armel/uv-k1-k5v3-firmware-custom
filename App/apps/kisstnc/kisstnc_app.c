@@ -23,29 +23,28 @@
  * USB serial port (API level 3, serial_*): Bell 202 AFSK 1200 bauds on the
  * VFO, KISS over USB. See README.md.
  *
- * RX: the APRS RX demodulator, unchanged (PA4 sampled at 9.6 kHz, band-pass,
+ * RX: the APRS RX demodulator (PA4 sampled at 9.6 kHz, band-pass,
  * 1200/2200 Hz correlators, AGC, 3 slicers with their DPLL, NRZI, HDLC, FCS;
+ * the slicers' weights 5:6, 1:1, 6:5 instead of 2:3, 1:1, 3:2;
  * aprsrx/test/model_rx.py is the reference). Every good AX.25 frame (FCS
  * checked, then stripped; the same frame from another slicer dropped) is queued
  * and sent as a KISS data frame in the next housekeeping slot, never inside the
  * sampling loop (the USB send waits for the transfer).
  *
- * TX: KISS bytes are read from USB every 10 ms inside the sampling loop (the
- * receive ring holds 256 bytes). A complete data frame waits until no slicer is
- * inside a preamble or a frame (DCD), then is sent with p-persistence: the APRS
+ * TX: KISS bytes are read from USB at every sample inside the sampling loop
+ * (the receive ring holds 256 bytes, and a host sends a window of frames at
+ * once) into a 1 KiB queue of data frames (port 0;
+ * ACKMODE too). The queue waits until no slicer is inside a preamble or a
+ * frame (DCD) and no carrier is on the channel (the squelch open), then goes
+ * out with p-persistence, all of it in one key-up: the APRS
  * TX modulator (BK4829 tone generator, 1200 / 2200 Hz switched at each NRZI
- * transition, bits timed from SysTick), TXDELAY flags, the frame bit-stuffed
- * with its FCS, tail flags. KISS TXDELAY and P are honoured; the other
- * parameters are accepted and ignored.
+ * transition, bits timed from SysTick), TXDELAY flags, each frame bit-stuffed
+ * with its FCS, a flag between two, TXTAIL flags. KISS TXDELAY, P, SLOTTIME,
+ * TXTAIL, FULLDUPLEX and RETURN are honoured; SetHardware answers TNC: and
+ * TXBUF: as Dire Wolf does.
  *
- * USB link events, counted on screen (line 5) to tell why a link stops:
- * "to" writes the host did not take within 50 ms (data dropped, link kept),
- * "ov" receive ring lapped (host data lost), "re" the host enumerated the
- * radio again (a USB reset: RF on the cable, or the cable replugged).
- *
- * Keys: 1 speaker on/off (saved) · 2 send a test frame to the host over USB
- * (checks the link without RF) · 3 RX only: frames from the host are dropped,
- * never transmitted (not saved) · EXIT quit.
+ * Keys: 1 speaker on/off (saved) · 3 RX only: frames from the host are lost,
+ * never transmitted (not saved) · # held 400 ms: key lock · EXIT quit.
  */
 
 #include <stdint.h>
@@ -96,9 +95,11 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define CYC_PER_SAMPLE (48000000u / FS)            /* 5000 */
 #define CYC_PER_BIT    (48000000u / 1200u)         /* 40000: exact */
 #define HOUSE_EVERY    480u    /* samples between housekeeping slots (50 ms)      */
-#define SERIAL_EVERY   96u     /* samples between USB reads (10 ms)               */
 #define BUSY_MAX       60u     /* serve housekeeping anyway after 3 s busy        */
 #define DRAW_SLOTS     20u     /* redraw every second                             */
+#define QUIET_SLOTS    2u      /* no redraw for 100 ms after USB traffic          */
+#define QUIET_MS       20u     /* no key-up until the host has been quiet for 20 ms */
+#define HOLD_SLOTS     8u      /* # held 400 ms, as the main firmware's long press */
 #define DUP_MS         1000u   /* the same frame from another slicer              */
 
 /* ---- demodulator (APRS RX, test/model_rx.py class Demod) ---- */
@@ -118,27 +119,42 @@ static inline volatile uint32_t *hw(uint32_t a){
 #define FRAME_MAX   330u   /* 10 addresses + control + PID + 256 info + FCS */
 #define FRAME_MIN   17u    /* 2 addresses + control + FCS; U/S frames have no PID */
 #define FCS_GOOD    0xF0B8u
-#define RXQ         2u     /* received frames waiting for the next slot */
+/* The frames waiting, from the host (TX) and from the air (RX), each a 2-byte
+ * length then its bytes; a TX length with bit 15 set is an ACKMODE frame, its
+ * 2 id bytes first. */
+#define QSIZE       1024u  /* TX: MAXFRAME 7 of APRS's size, or 3 of AX.25's most */
+#define RXSIZE      664u   /* RX: waiting for the next slot                       */
 #define FEND        0xC0u
 #define FESC        0xDBu
 #define TFEND       0xDCu
 #define TFESC       0xDDu
-#define K_DATA      0u
-#define K_TXDELAY   1u
-#define K_P         2u
+#define K_DATA      0x00u
+#define K_TXDELAY   0x01u
+#define K_P         0x02u
+#define K_SLOTTIME  0x03u
+#define K_TXTAIL    0x04u
+#define K_DUPLEX    0x05u
+#define K_SETHW     0x06u
+#define K_ACKMODE   0x0Cu
+#define K_RETURN    0xFFu
+#define K_NONE      0xF0u  /* no command byte yet (port 15: never ours)           */
+#define K_ACK       0x8000u
+enum { N_RX, N_TX, N_BAD, N_LOST, N_COUNTS };   /* g.n[]: the screen's counts */
+#define N_FIELDS    (N_COUNTS+3u)  /* and the last station's RSSI, slicer count, call */
 
 /* ---- modulator (APRS TX) ---- */
 #define REG_51      0x51   /* sub-audio: 0 = no CTCSS/DCS               */
+#define REG_30      0x30   /* RF links                                   */
+#define TX_LINK     0xC3FAu /* VCO calibration, AF DAC, PLL, PA gain, TX DSP: BK4819_EnableTXLink */
 #define REG_70      0x70   /* tone 1: <15> enable, <14:8> gain           */
 #define REG_71      0x71   /* tone 1 frequency, Hz x 10.32444            */
 #define F_MARK      12389u /* 1200 Hz */
 #define F_SPACE     22714u /* 2200 Hz */
-#define LVL_DEF     66u    /* BK4819_TransmitTone's tone gain (APRS TX default) */
-#define TXDELAY_DEF 40u    /* flags before the frame: 267 ms (APRS TX)   */
-#define TAIL_FLAGS  3u
-#define P_DEF       63u    /* KISS default persistence: 1 chance in 4 per slot */
-
-typedef struct { uint16_t len; uint8_t buf[FRAME_MAX]; } frame_t;
+#define REG_43      0x43   /* RX filters: <5:4> bandwidth, 0 narrow 1 narrower 2 wide */
+#define REG_2B      0x2B   /* AF filters: <10> RX 300 Hz high-pass off            */
+#define TAIL_FLAGS  3u     /* at least, after the last frame                     */
+#define REG_0C      0x0C   /* status: <1> squelch open                           */
+#define REG_78      0x78   /* squelch RSSI thresholds: <15:8> open, 0 at SQL 0     */
 
 typedef struct {
     int32_t  dc;
@@ -166,25 +182,39 @@ typedef struct {
 } sl_t;
 
 /* All the state in one struct, bytes first (Thumb immediate ranges). The
- * loader zeroes the overlay at every launch. */
+ * loader zeroes the overlay at every launch; par to kIn start from the G_INIT
+ * asset (gen_assets.py). */
 static struct {
-    uint8_t  prevKey, spk, rxn, txFlags, persist;
+    uint8_t  par[6];                   /* KISS parameters by command, as sent:    */
+                                       /* 1 TXDELAY 2 P 3 SLOTTIME 4 TXTAIL 5 FULLDUPLEX */
+    uint8_t  prevKey, kCmd;
+    uint8_t  lvl[6];                   /* tone gains, 1200 / 2200 Hz: narrow, (narrower), wide */
+    bool     kIn;
+    uint8_t  spk, hwAsk;
     uint8_t  slot;                     /* housekeeping slots since the last redraw */
     uint8_t  space, ones;              /* modulator: tone, 1 run (bit stuffing)   */
-    bool     quit, host, txReady, kIn, kEsc, redraw, sending, rxOnly;
-    uint16_t kLen, nRx, nTx, nLost;
-    uint16_t nTo, nOv, nRe;            /* USB link events (serial_ctl)            */
-    int16_t  rssi;
+    bool     quit, host, kEsc, redraw, rxOnly, carrier, locked;
+    uint8_t  quiet;                    /* slots to go without USB traffic before a redraw */
+    uint8_t  sqlOpen;                  /* the squelch's open threshold: 0 at SQL 0 */
+    uint8_t  bw;                       /* REG_43 <5:4> at the key-up              */
+    uint8_t  got;                      /* this DCD episode: 2 a frame began, 1 one decoded */
+    uint8_t  nsl, ep, hold;                  /* the last frame's slicers; DCD slots     */
+    uint16_t kLen, qEnd, rxEnd;
+    uint16_t n[N_COUNTS];              /* counts, 0-9999 (screen order)           */
+    int16_t  rssi;                     /* the last frame's RSSI, dBm              */
     uint16_t dupLen;                   /* the last frame accepted: length, FCS, time */
     uint8_t  dupF0, dupF1;
     const app_api_t *A;
-    frame_t *rxq;                      /* RXQ frames (app_main's stack)           */
-    uint8_t *tx;                       /* the frame from the host (app_main's stack) */
+    uint8_t *rx;                       /* frames from the air (app_main's stack)  */
+    uint8_t *q;                        /* frames from the host (app_main's stack) */
     uint32_t tPrev, tCyc, next;
-    uint32_t tDup;
+    uint32_t tDup, tSlot, tHost;       /* tHost: the host's last byte, or the last frame to it */
     uint32_t savedSqr3, savedSmpr3;
     char     call[10];                 /* the last source heard                   */
 } g;
+
+_Static_assert(offsetof(__typeof__(g),kIn)+1u==G_INIT_LEN,
+               "G_INIT asset must match the start of g");
 
 /* ---- freestanding helpers: GCC may turn loops into these calls (the host
  * build uses its C library's) ---- */
@@ -198,20 +228,10 @@ void *memcpy(void *d, const void *s, size_t n) {
 }
 #endif
 
-/* ---- formatting, no division ---- */
+/* ---- formatting: the resident decimal formatter (API level 3) ---- */
 __attribute__((noinline))
 static char *put(char *o,const char *s){ while(*s)*o++=*s++; return o; }
-static unsigned sub(uint32_t *v,uint32_t d){ unsigned q=0; while(*v>=d){ *v-=d; q++; } return q; }
-static char *putu(char *o,uint32_t u){
-    uint32_t p10[PLACE_LEN/4u];               /* 10^8 .. 1, from the assets */
-    g.A->asset_read(PLACE,p10,sizeof p10);
-    bool lead=false;
-    for(unsigned i=0;i<PLACE_LEN/4u;i++){
-        unsigned c=sub(&u,p10[i]);
-        if(c||lead||i==PLACE_LEN/4u-1u){ *o++=(char)('0'+c); lead=true; }
-    }
-    return o;
-}
+#define putu(o,u) g.A->append_u32(o,u)
 /* AX.25 address -> "N0CALL-7" */
 static char *putCall(char *o,const uint8_t *a){
     for(uint8_t i=0;i<6u;i++){ char c=(char)(a[i]>>1); if(c!=' ') *o++=c; }
@@ -250,27 +270,28 @@ static uint16_t adcRead(void){
     return (uint16_t)(ADC_DR&0x0FFFu);
 }
 
-/* ---- USB link state: host present, and the events since the last call ---- */
-static void usbState(void){
-    uint8_t st=g.A->serial_ctl(APP_SERIAL_USB,0);
-    g.host=(st&APP_SERIAL_HOST)!=0;
-    if(st&APP_SERIAL_TIMEOUT) g.nTo++;
-    if(st&APP_SERIAL_LOST)    g.nOv++;
-    if(st&APP_SERIAL_ENUM)    g.nRe++;
-    if(st&(APP_SERIAL_TIMEOUT|APP_SERIAL_LOST|APP_SERIAL_ENUM)) g.redraw=true;
-}
+__attribute__((noinline))
+static void inc(uint8_t i){ if(++g.n[i]>9999u) g.n[i]=0; }   /* 4 places on the screen */
 
-/* ---- KISS out: one data frame, escaped, in 64-byte USB writes. A write the
- * host does not take ends the frame there: the next one starts with FEND, so
- * the host drops the cut frame and resyncs. ---- */
-static void kissSend(const uint8_t *f,uint16_t n){
+/* ---- USB link state: a host has the port open (DTR) ---- */
+static void usbState(void){ g.host=(g.A->serial_ctl(APP_SERIAL_USB,0)&APP_SERIAL_HOST)!=0; }
+
+/* ---- KISS out: one frame (data, an ACKMODE id, a SetHardware answer),
+ * escaped, in 64-byte USB writes. A write the host does not take ends the
+ * frame there: the next one starts with FEND, so the host drops the cut frame
+ * and resyncs. ---- */
+__attribute__((noinline))
+static void hostBusy(void){ g.quiet=QUIET_SLOTS; g.tHost=g.A->ticks_ms(); }
+
+static void kissSend(uint8_t cmd,const uint8_t *f,uint16_t n){
     const app_api_t *A=g.A;
     uint8_t out[64];
     uint8_t k=0;
-    out[k++]=FEND; out[k++]=K_DATA;
+    hostBusy();
+    out[k++]=FEND; out[k++]=cmd;
     for(uint16_t i=0;i<=n;i++){
         if(k>=sizeof(out)-2u){
-            if(!A->serial_write(APP_SERIAL_USB,out,k)){ usbState(); return; }
+            if(!A->serial_write(APP_SERIAL_USB,out,k)) return;
             k=0;
         }
         if(i==n){ out[k++]=FEND; break; }
@@ -279,37 +300,68 @@ static void kissSend(const uint8_t *f,uint16_t n){
         else if(b==FESC){ out[k++]=FESC; b=TFESC; }
         out[k++]=b;
     }
-    if(!A->serial_write(APP_SERIAL_USB,out,k)) usbState();
+    A->serial_write(APP_SERIAL_USB,out,k);
 }
 
-/* ---- KISS in: bytes from the host into g.tx (command byte first); a data
- * frame sets txReady, and what follows is dropped until it is sent ---- */
+/* ---- KISS in: bytes from the host. A frame's bytes go straight behind the
+ * queued ones (g.q + g.qEnd + 2); FEND then queues a data frame, applies a
+ * parameter or answers SetHardware. Only port 0: other ports are skipped. A
+ * frame the queue has no room for is dropped (lost). ---- */
+static uint16_t qLen(const uint8_t *p){ return (uint16_t)(p[0]|p[1]<<8); }
+__attribute__((noinline))
+static uint16_t qNext(const uint8_t *q,uint16_t i){   /* the queued frame after the one at i */
+    uint16_t h=qLen(q+i);
+    return (uint16_t)(i+2u+(h&~K_ACK)+(h&K_ACK?2u:0u));
+}
+static uint8_t flags(uint8_t v,uint8_t min){   /* KISS 10 ms units: 1.5 flags each */
+    uint32_t f=v+(v>>1u);
+    return (uint8_t)(f<min?min:f>255u?255u:f);
+}
+static void kissEnd(void){
+    uint8_t *p=g.q+g.qEnd;
+    uint16_t n=g.kLen;
+    uint8_t v=p[2], cmd=g.kCmd;
+    if(cmd==K_ACKMODE && n>=2u){ n=(uint16_t)((n-2u)|K_ACK); cmd=K_DATA; }
+    if(cmd==K_DATA){
+        if((n&~K_ACK)>=15u){                  /* two addresses and a control byte */
+            p[0]=(uint8_t)n; p[1]=(uint8_t)(n>>8);
+            g.qEnd=(uint16_t)(g.qEnd+2u+g.kLen);
+        }
+    } else if(n){
+        if(cmd<=K_DUPLEX) g.par[cmd]=v;        /* TXDELAY, P, SLOTTIME, TXTAIL, FULLDUPLEX */
+        else if(cmd==K_SETHW && v=='T')       /* "TNC:", "TXBUF:", as Dire Wolf answers them */
+            g.hwAsk|=n<2u?0u:p[3]=='N'?1u:p[3]=='X'?2u:0u;
+    }
+}
 static void kissByte(uint8_t b){
     if(b==FEND){
-        if(g.kIn && g.kLen>1u){
-            uint8_t cmd=(uint8_t)(g.tx[0]&0x0Fu), v=g.tx[1];
-            if(cmd==K_DATA){ if(g.kLen>=16u){ g.txReady=true; g.redraw=true; } }
-            else if(cmd==K_TXDELAY){ uint32_t f=v+(v>>1u); g.txFlags=(uint8_t)(f<8u?8u:f>255u?255u:f); }
-            else if(cmd==K_P) g.persist=v;
-        }
-        g.kIn=!g.txReady; g.kEsc=false;
-        if(!g.txReady) g.kLen=0;
+        if(g.kIn && g.kCmd!=K_NONE) kissEnd();
+        g.kIn=true; g.kEsc=false; g.kLen=0; g.kCmd=K_NONE;
         return;
     }
     if(!g.kIn) return;
+    if(g.kCmd==K_NONE){
+        g.kCmd=b;
+        if(b==K_RETURN) g.quit=true;
+        if(b>>4) g.kIn=false;                 /* another port, or RETURN */
+        return;
+    }
     if(g.kEsc){
         g.kEsc=false;
         if(b==TFEND) b=FEND;
         else if(b==TFESC) b=FESC;
         else { g.kIn=false; return; }
     } else if(b==FESC){ g.kEsc=true; return; }
-    if(g.kLen>=FRAME_MAX-2u){ g.kIn=false; return; }   /* room for the FCS */
-    g.tx[g.kLen++]=b;
+    if(g.kLen>=FRAME_MAX || g.qEnd+2u+g.kLen>=QSIZE){ g.kIn=false; inc(N_LOST); return; }
+    g.q[g.qEnd+2u+g.kLen++]=b;
 }
-static void kissPoll(void){
-    uint8_t buf[16];
-    uint16_t n=g.A->serial_read(APP_SERIAL_USB,buf,sizeof buf);
-    for(uint16_t i=0;i<n;i++) kissByte(buf[i]);
+static void kissPoll(void){              /* until the port's ring is empty */
+    uint8_t buf[32];
+    uint16_t n;
+    while((n=g.A->serial_read(APP_SERIAL_USB,buf,sizeof buf))){
+        hostBusy();
+        for(uint16_t i=0;i<n;i++) kissByte(buf[i]);
+    }
 }
 
 /* CRC-16/X.25 (the AX.25 FCS), one byte: shared by the receiver and the sender. */
@@ -324,7 +376,7 @@ static uint16_t crcByte(uint16_t c,uint8_t v){
 static void setTone(void){
     const app_api_t *A=g.A;
     A->bk_write(REG_71,(uint16_t)(g.space?F_SPACE:F_MARK));
-    A->bk_write(REG_70,(uint16_t)(0x8000u|(LVL_DEF<<8)));
+    A->bk_write(REG_70,(uint16_t)(0x8000u|(g.lvl[g.bw*2u+g.space]<<8)));
 }
 static void sendBit(uint8_t b){
     waitCyc(g.next);
@@ -343,45 +395,58 @@ static void sendByte(uint8_t v,bool stuff){
         }
     }
 }
-static uint16_t crc16(const uint8_t *f,uint16_t n){
-    uint16_t c=0xFFFFu;
-    for(uint16_t i=0;i<n;i++) c=crcByte(c,f[i]);
-    return (uint16_t)~c;
-}
 
-static void draw(void);
-
-/* The host's frame on the air, then back to RX. */
+/* The queued frames on the air in one key-up, a flag between two, then back
+ * to RX; then the ACKMODE ids go back. A frame the host was sending meanwhile
+ * moves to the front of the queue. */
 static void transmit(void){
     const app_api_t *A=g.A;
-    uint8_t *f=g.tx+1;                        /* after the KISS command byte */
-    uint16_t n=(uint16_t)(g.kLen-1u);
-    g.txReady=false; g.kIn=false; g.kLen=0;
-    if(g.rxOnly || A->tx_state()){ g.nLost++; g.redraw=true; return; }   /* RX only, or TX not allowed on this VFO */
-    uint16_t c=crc16(f,n);
-    f[n]=(uint8_t)c; f[n+1u]=(uint8_t)(c>>8);
-    g.sending=true;
-    draw();
-    A->tx_set_params();
-    A->bk_write(REG_51,0);                    /* no CTCSS/DCS under the AFSK */
-    A->tx_tone(1200);
-    g.space=0;
-    setTone();
-    IRQ_OFF();
-    clkStart();
-    g.next=CYC_PER_BIT;
-    for(uint8_t i=0;i<g.txFlags;i++) sendByte(0x7E,false);
-    g.ones=0;
-    for(uint16_t i=0;i<n+2u;i++) sendByte(f[i],true);
-    for(uint8_t i=0;i<TAIL_FLAGS;i++) sendByte(0x7E,false);
-    waitCyc(g.next);
-    IRQ_ON();
-    A->tx_mute(true);
-    A->tx_end();
-    A->set_af(APP_AF_FM);                     /* back to listening */
-    A->audio_path(g.spk);
-    g.sending=false;
-    g.nTx++;
+    uint8_t *q=g.q;
+    uint16_t end=g.qEnd, i, j, h;
+    g.bw=(A->bk_read(REG_43)>>4)&3u;          /* the VFO's bandwidth, as RX has it set */
+    /* not sent: RX only, a narrower VFO (no packet mode), or TX not allowed */
+    bool sent=!(g.rxOnly || (g.bw&1u) || A->tx_state());
+    if(sent){
+        /* as fast as the radio keys up: TXDELAY, the host's, is all the lead-in.
+         * tx_prepare is tx_set_params without its 25 ms of waits and with the
+         * PA off (a table with serial_read has it); no tx_tone and its 50 ms of
+         * muted carrier: the tone and the TX link set here, then the PA on */
+        A->tx_prepare();
+        A->bk_write(REG_51,0);                /* no CTCSS/DCS under the AFSK */
+        A->set_af(APP_AF_MUTE);               /* as tx_tone has it: no tone to the AF */
+        g.space=0;
+        setTone();
+        A->bk_write(REG_30,TX_LINK);          /* TX from the tone generator, mic off */
+        A->tx_carrier(true);
+        IRQ_OFF();
+        clkStart();
+        g.next=CYC_PER_BIT;
+        for(j=flags(g.par[K_TXDELAY],8u);j;j--) sendByte(0x7E,false);
+        for(i=0;i<end;){
+            h=qLen(q+i);
+            const uint8_t *f=q+i+2u+(h&K_ACK?2u:0u);
+            uint16_t n=h&~K_ACK, c=0xFFFFu;
+            g.ones=0;
+            for(j=0;j<n;j++){ c=crcByte(c,f[j]); sendByte(f[j],true); }
+            c=(uint16_t)~c;
+            sendByte((uint8_t)c,true); sendByte((uint8_t)(c>>8),true);
+            sendByte(0x7E,false);             /* closes this frame, opens the next */
+            i=(uint16_t)(f+n-q);
+            inc(N_TX);
+        }
+        for(j=flags(g.par[K_TXTAIL],TAIL_FLAGS);j>1u;j--) sendByte(0x7E,false);
+        waitCyc(g.next);
+        IRQ_ON();
+        A->tx_end();                          /* PA off, RX set up again, AF muted */
+        A->set_af(APP_AF_FM);                 /* BK4819_SetupSquelch muted AF: listen again */
+        A->audio_path(g.spk);
+    }
+    for(i=0;i<end;i=qNext(q,i)){
+        if(!sent) inc(N_LOST);
+        else if(q[i+1]&(K_ACK>>8)) kissSend(K_ACKMODE,q+i+2u,2u);
+    }
+    for(i=0;i<2u+g.kLen;i++) q[i]=q[end+i];  /* the frame coming in */
+    g.qEnd=0;
     g.redraw=true;
 }
 
@@ -395,14 +460,17 @@ static void accept(const sl_t *m){
     uint16_t n=m->n;
     uint32_t t=A->ticks_ms();
     if(!(n==g.dupLen && m->buf[n-1]==g.dupF1 && m->buf[n-2]==g.dupF0 && t-g.tDup<DUP_MS)){
-        if(g.rxn<RXQ){
-            frame_t *f=&g.rxq[g.rxn++];
-            memcpy(f->buf,m->buf,n-2u);
-            f->len=(uint16_t)(n-2u);
+        uint8_t *p=g.rx+g.rxEnd;
+        if(g.rxEnd+n<=RXSIZE){                /* n-2 bytes and their length */
+            p[0]=(uint8_t)(n-2u); p[1]=(uint8_t)((n-2u)>>8);
+            memcpy(p+2,m->buf,n-2u);
+            g.rxEnd=(uint16_t)(g.rxEnd+n);
             g.rssi=A->rssi_dbm();
-        } else g.nLost++;
+        } else inc(N_LOST);
         g.dupLen=n; g.dupF0=m->buf[n-2]; g.dupF1=m->buf[n-1];
+        g.nsl=0; g.got|=1u;
     }
+    g.nsl++;                                  /* this slicer's copy: 1 to NSL */
     g.tDup=t;
 }
 
@@ -444,9 +512,14 @@ static void hdlcBit(sl_t *m,uint8_t b){
     }
 }
 
+/* A slicer inside a preamble (1), inside a frame whose address is coming in
+ * (2: holds the queue at once), and past the frame's first call (4): noise
+ * passes one call character in seven, so a frame counts as begun for the LED
+ * and BAD only once all six of the first call are plausible. */
 __attribute__((noinline))
-static bool busy(const sl_t *m){
-    return (m->pre && m->bits<PRE_BITS) || (m->inframe && m->n && m->hdr);
+static uint8_t busy(const sl_t *m){
+    uint8_t f=m->inframe && m->n && m->hdr;
+    return (uint8_t)((m->pre && m->bits<PRE_BITS) | f<<1 | (f && m->n>=6u)<<2);
 }
 
 static int32_t mag(int32_t i,int32_t q){
@@ -498,96 +571,124 @@ static void slice(sl_t *m,int32_t a,int32_t b){
 __attribute__((noinline))
 static void draw(void){
     const app_api_t *A=g.A;
-    char s[24], t[TEXT_MAX], *o;
+    char s[32], t[TEXT_MAX], *o;
     A->display_clear();
     A->status_clear();
     A->print_inverse(T(t,T_TITLE),2,0,true,true,34);
-    /* one capsule: TX, RX ONLY, USB or NO USB, 4 px per character */
-    { uint8_t k=g.sending?0u:g.rxOnly?1u:g.host?2u:3u, w=0;
+    /* one capsule: RX ONLY, USB or NO USB, 4 px per character */
+    { uint8_t k=g.rxOnly?0u:g.host?1u:2u, w=0;
       T(t,(uint16_t)(T_CAPS+k*T_CAPS_STRIDE));
       while(t[w]) w++;
       A->print_inverse(t,40,0,true,true,(uint8_t)(40u+4u*w)); }
     A->draw_battery();
 
-    o=putu(put(s,T(t,T_RX)),g.nRx);
-    *putu(put(o,T(t,T_TXN)),g.nTx)='\0';
-    A->print_normal(s,0,0,0);
-    if(g.call[0]){                            /* "N0CALL-9 -89dBm" */
-        o=put(s,g.call); *o++=' ';
-        if(g.rssi<0){ *o++='-'; o=putu(o,(uint32_t)-g.rssi); } else o=putu(o,(uint32_t)g.rssi);
-        *put(o,T(t,T_DBM))='\0';
-        A->print_normal(s,0,0,2);
-    }
-    if(g.nLost){ *putu(put(s,T(t,T_DROP)),g.nLost)='\0'; A->print_normal(s,0,0,3); }
-    if(g.nTo|g.nOv|g.nRe){                    /* "to 0 ov 0 re 1" */
-        o=putu(put(s,T(t,T_TO)),g.nTo);
-        o=putu(put(o,T(t,T_OV)),g.nOv);
-        *putu(put(o,T(t,T_RE)),g.nRe)='\0';
-        A->print_normal(s,0,0,5);
-    }
-    /* the RX frequency (10 Hz units) as MHz with 3 decimals (f >= 1 MHz) */
-    { char *e=putu(s,A->rx_freq())-2;
-      e[1]='\0';
-      for(uint8_t k=0;k<3u;k++,e--) e[0]=e[-1];
-      e[0]='.'; }
-    A->print_normal(s,0,0,4);
+    /* each a label and its value in fixed places (FIELDS: line, label x,
+     * value x, label): the counts; once a station is heard its RSSI and
+     * slicer count on line 2, its call (9 characters at most) on line 3 */
+    { uint8_t f[N_FIELDS][8];
+      A->asset_read(FIELDS,f,sizeof f);
+      for(uint8_t k=0;k<N_FIELDS;k++){
+          if(k==N_COUNTS && !g.call[0]) break;
+          o=k<N_COUNTS?putu(s,g.n[k]):k==N_COUNTS?A->append_i32(s,g.rssi):k>N_COUNTS+1u?put(s,g.call):s;
+          if(o==s){ *o++=(char)('0'+g.nsl); *o++='/'; *o++=(char)('0'+NSL); }   /* DEC: "3/3" */
+          *o='\0';
+          A->print_normal((const char *)f[k]+3,f[k][1],0,f[k][0]);
+          A->print_normal(s,f[k][2],0,f[k][0]);
+      } }
+    if(g.locked) A->asset_read(BMP_LOCK,A->status_line+72,9);
+    A->draw_frequency(A->rx_freq(),0,4);     /* the main screen's big digits, lines 4-5 */
     A->print_normal(T(t,T_KEYS),0,0,6);
     A->blit_status();
     A->blit_full();
-}
-
-/* ---- a test frame to the host (key 2): checks the USB link without RF.
- * The frame is in the assets (APZK1, a blank source, UI, the info field);
- * only the boot-message callsign is written into the source address. ---- */
-static void sendTest(void){
-    uint8_t f[TESTF_LEN];
-    char call[8];
-    g.A->asset_read(TESTF,f,TESTF_LEN);
-    g.A->boot_callsign(call,sizeof call);
-    if(call[0]){                              /* else NOCALL stays */
-        uint8_t i=0;
-        for(;i<6u && call[i];i++) f[7+i]=(uint8_t)(call[i]<<1);
-        for(;i<6u;i++) f[7+i]=' '<<1;
-    }
-    kissSend(f,TESTF_LEN);
 }
 
 /* ---- housekeeping, between frames: keys, frames to the host, TX, screen ---- */
 static void house(bool bz){
     const app_api_t *A=g.A;
     uint8_t key=A->get_key();
+    if(key!=APP_KEY_F) g.hold=0;              /* # held HOLD_SLOTS: key lock, every other key */
+    else if(g.hold<HOLD_SLOTS && ++g.hold==HOLD_SLOTS){ g.locked^=1u; g.redraw=true; }   /* once a hold */
     if(key!=APP_KEY_INVALID && key!=g.prevKey){
         g.redraw=true;
         A->backlight_on();
-        if(key==APP_KEY_EXIT) g.quit=true;
+        if(g.locked);
+        else if(key==APP_KEY_EXIT) g.quit=true;
         else if(key==APP_KEY_1){ g.spk^=1u; A->audio_path(g.spk); }
-        else if(key==APP_KEY_2) sendTest();
         else if(key==APP_KEY_3) g.rxOnly=!g.rxOnly;
         A->cfg_save(&g.spk,1);   /* staged after each key: kept across a switch-off */
     }
     g.prevKey=key;
     if(g.quit) return;
 
-    for(uint8_t k=0;k<g.rxn;k++){
-        frame_t *f=&g.rxq[k];
-        kissSend(f->buf,f->len);
-        *putCall(g.call,f->buf+7)='\0';
-        g.nRx++;
+    for(uint16_t i=0;i<g.rxEnd;){
+        uint8_t *f=g.rx+i;
+        uint16_t n=qLen(f);
+        kissSend(K_DATA,f+2,n);
+        *putCall(g.call,f+2+7)='\0';
+        inc(N_RX);
         g.redraw=true;
+        i=(uint16_t)(i+2u+n);
     }
-    g.rxn=0;
+    g.rxEnd=0;
+    for(uint8_t k=1;k<=2u;k++) if(g.hwAsk&k){   /* SetHardware: "TNC:<name>", "TXBUF:<bytes queued>" */
+        char t[TEXT_MAX], *o=T(t,(uint16_t)(k==1u?T_HWTNC:T_HWTXBUF));
+        while(*o) o++;
+        if(k==2u){                            /* the frames' bytes, as on the air without FCS */
+            uint16_t n=0;
+            for(uint16_t i=0;i<g.qEnd;i=qNext(g.q,i)) n=(uint16_t)(n+(qLen(g.q+i)&~K_ACK));
+            o=putu(o,n);
+        }
+        kissSend(K_SETHW,(const uint8_t *)t,(uint16_t)(o-t));
+    }
+    g.hwAsk=0;
 
-    /* p-persistence on a clear channel, one try per slot */
-    if(g.txReady && !bz && (A->rand32()&255u)<=g.persist) transmit();
+    /* RX: the demodulated audio 6 dB up (REG_43 <2>) and no 300 Hz high-pass
+     * (REG_2B <10>), whose phase shift moves the 1200 Hz tone's edges against
+     * the 2200 Hz tone's; the firmware sets both again at a key-up and when
+     * the app ends (RADIO_SetupRegisters) */
+    { uint16_t r=A->bk_read(REG_43);
+      if(!(r&4u)) A->bk_write(REG_43,(uint16_t)(r|4u));
+      r=A->bk_read(REG_2B);
+      if(!(r&0x400u)) A->bk_write(REG_2B,(uint16_t)(r|0x400u)); }
+    /* p-persistence on a clear channel, one try per SLOTTIME, once the host
+     * has been quiet for QUIET_MS: a window in more than one write goes out in
+     * one key-up, and so does a host's answer to the frame just handed to it */
+    { uint32_t now=A->ticks_ms();
+      if(g.qEnd && now-g.tHost>=QUIET_MS && (g.par[K_DUPLEX] || !(bz||g.carrier)) && now-g.tSlot>=g.par[K_SLOTTIME]*10u){
+          g.tSlot=now;
+          if((A->rand32()&255u)<=g.par[K_P]) transmit();
+      } }
 
     A->backlight_update();
     if(++g.slot>=DRAW_SLOTS){ g.slot=0; g.redraw=true; usbState(); }
+    /* not while the host talks: the screen takes 11 ms of no USB reads, and a
+     * host answers tens of ms after what it got */
+    if(g.quiet){ g.quiet--; return; }
     if(!g.redraw) return;
     g.redraw=false;
     adcRestore();                /* the battery is on ADC channel 8 */
     A->battery_sample();
     adcSelPA4();
     draw();
+}
+
+/* ---- the channel, each slot (50 ms): a carrier is the squelch open, as the
+ * radio's SQL setting has it. At SQL 0 (the firmware's open threshold 0) the
+ * squelch is always open: no carrier then, the DCD alone holds the queue. A
+ * packet coming in (DCD with a carrier) for two slots or more in which a
+ * frame began (its address coming in) and none decoded counts as bad; a
+ * preamble alone does not (a station's key-up can break its first flags
+ * off). The green LED shows the channel in use: a carrier, or a frame coming
+ * in (a preamble or a first address byte alone, which noise mimics every few
+ * seconds, does not light it; both still hold the queue).
+ * ---- */
+__attribute__((noinline))
+static void channel(uint8_t bz){
+    bool c=g.sqlOpen && (g.A->bk_read(REG_0C)&2u);
+    g.carrier=c;
+    g.A->led(c || (bz&4u));                  /* not on a preamble or a first byte alone: noise makes them */
+    if(bz && c){ if(!g.ep) g.got=0; g.got|=(uint8_t)((bz>>1)&2u); if(g.ep<2u) g.ep++; }
+    else { if(g.ep==2u && g.got==2u) inc(N_BAD); g.ep=0; }
 }
 
 /* ---- the receiver: PA4 at 9.6 kHz until EXIT ---- */
@@ -598,15 +699,15 @@ static void listen(void){
     sl_t sl[NSL];
     memset(sl,0,sizeof sl);
     A->asset_read(DEMOD_INIT,&d,sizeof d);
-    sl[0].wa=2; sl[0].wb=3;
-    sl[1].wa=1; sl[1].wb=1;
-    sl[2].wa=3; sl[2].wb=2;
+    sl[0].wa=5; sl[0].wb=6;             /* about -1.6, 0 and +1.6 dB: a UV-K1's RX  */
+    sl[1].wa=1; sl[1].wb=1;             /* audio decodes best near 7:8, outside of  */
+    sl[2].wa=6; sl[2].wb=5;             /* 2:3 and 3:2, APRS RX's outer slicers     */
 
     adcSelPA4();
     clkStart();
     uint32_t next=0;
     uint16_t cnt=0;
-    uint8_t busyFor=0, ser=0;
+    uint8_t busyFor=0;
     g.redraw=true;
     while(!g.quit){
         waitCyc(next);
@@ -614,11 +715,13 @@ static void listen(void){
         int32_t a,b;
         front(&d,adcRead(),&a,&b);
         for(uint8_t k=0;k<NSL;k++) slice(&sl[k],a,b);
-        if(++ser>=SERIAL_EVERY){ ser=0; kissPoll(); }
+        kissPoll();                     /* each sample: the USB ring holds 256 bytes, a
+                                           host's window of frames comes in at once */
         if(++cnt<HOUSE_EVERY) continue;
         cnt=0;
-        bool bz=false;
+        uint8_t bz=0;
         for(uint8_t k=0;k<NSL;k++) bz|=busy(&sl[k]);
+        channel(bz);
         if(bz && ++busyFor<BUSY_MAX) continue;
         busyFor=0;
         house(bz);
@@ -629,12 +732,11 @@ static void listen(void){
 
 __attribute__((section(".text.entry"),used))
 void app_main(const app_api_t *api){
-    frame_t rxq[RXQ];           /* on the stack: the 4 KiB overlay also holds .bss */
-    uint8_t tx[FRAME_MAX];
-    g.A=api; g.rxq=rxq; g.tx=tx;
-    g.txFlags=TXDELAY_DEF; g.persist=P_DEF;
-    g.prevKey=APP_KEY_INVALID;
-    g.kIn=true;                 /* a first frame without its leading FEND still parses */
+    uint8_t rx[RXSIZE];         /* on the stack: the 4 KiB overlay also holds .bss */
+    uint8_t q[QSIZE];
+    api->asset_read(G_INIT,&g,G_INIT_LEN);   /* KISS defaults, parser start */
+    g.A=api; g.rx=rx; g.q=q;
+    g.sqlOpen=(uint8_t)(api->bk_read(REG_78)>>8);   /* no key here changes SQL */
 
     g.savedSqr3=ADC_SQR3; g.savedSmpr3=ADC_SMPR3;
     const uint32_t savedModer=GPIOA_MODER, savedDac=DAC_CR;
@@ -647,11 +749,9 @@ void app_main(const app_api_t *api){
     api->set_af(APP_AF_FM);
     api->delay_ms(50);
     usbState();
-    g.nTo=g.nOv=g.nRe=0;        /* count from launch, not the first claim */
 
     listen();
 
     DAC_CR=savedDac; DAC_DHR12R1=savedDhr; RCC_APBENR1=savedRcc; GPIOA_MODER=savedModer;
-    api->set_af(APP_AF_MUTE);
-    api->audio_path(false);
+    /* AF and the speaker path: the loader's RADIO_SetupRegisters after the app */
 }
